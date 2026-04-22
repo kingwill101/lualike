@@ -2,6 +2,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:lualike/lualike.dart';
 import 'package:love2d/src/runtime/love_runtime.dart';
 import 'package:love2d/src/runtime/love_script_runtime.dart';
+import 'test_support/lua_api_test_helpers.dart';
 
 void main() {
   group('LoveScriptRuntime callback helpers', () {
@@ -155,34 +156,38 @@ end
         await runtime.dispatchTextEdited('compose', 1, 4);
         await runtime.dispatchThreadError('worker-1', 'boom');
 
-        final iterator = await _call(runtime, const ['love', 'event', 'poll']);
+        final iterator = await luaCall(runtime, const [
+          'love',
+          'event',
+          'poll',
+        ]);
         expect(iterator, isA<BuiltinFunction>());
         final poll = iterator! as BuiltinFunction;
 
-        expect(await _callCallable(poll), <Object?>['resize', 1280, 720]);
-        expect(await _callCallable(poll), <Object?>['visible', false]);
-        expect(await _callCallable(poll), <Object?>['lowmemory']);
-        expect(await _callCallable(poll), <Object?>[
+        expect(await luaCallCallable(poll), <Object?>['resize', 1280, 720]);
+        expect(await luaCallCallable(poll), <Object?>['visible', false]);
+        expect(await luaCallCallable(poll), <Object?>['lowmemory']);
+        expect(await luaCallCallable(poll), <Object?>[
           'directorydropped',
           '/tmp/save-dir',
         ]);
-        expect(await _callCallable(poll), <Object?>[
+        expect(await luaCallCallable(poll), <Object?>[
           'displayrotated',
           2,
           'landscape',
         ]);
-        expect(await _callCallable(poll), <Object?>[
+        expect(await luaCallCallable(poll), <Object?>[
           'textedited',
           'compose',
           1,
           4,
         ]);
-        expect(await _callCallable(poll), <Object?>[
+        expect(await luaCallCallable(poll), <Object?>[
           'threaderror',
           'worker-1',
           'boom',
         ]);
-        expect(await _callCallable(poll), isNull);
+        expect(await luaCallCallable(poll), isNull);
       },
     );
 
@@ -232,48 +237,3 @@ end
     );
   });
 }
-
-Future<Object?> _call(
-  LoveScriptRuntime runtime,
-  List<String> path, [
-  List<Object?> args = const <Object?>[],
-]) async {
-  return _resolveCallResult(_rawFunction(runtime, path).call(args));
-}
-
-Future<Object?> _callCallable(
-  BuiltinFunction function, [
-  List<Object?> args = const <Object?>[],
-]) async {
-  return _resolveCallResult(function.call(args));
-}
-
-BuiltinFunction _rawFunction(LoveScriptRuntime runtime, List<String> path) {
-  var current = runtime.runtime.getCurrentEnv().get(path.first);
-  for (final segment in path.skip(1)) {
-    final table = current is Value ? current.raw : current;
-    expect(
-      table,
-      isA<Map>(),
-      reason: 'Expected ${path.join('.')} to traverse a Lua table',
-    );
-    current = (table as Map)[segment];
-  }
-
-  expect(current, isA<Value>());
-  final raw = (current! as Value).raw;
-  expect(raw, isA<BuiltinFunction>());
-  return raw as BuiltinFunction;
-}
-
-Future<Object?> _resolveCallResult(Object? result) async {
-  final resolved = result is Future<Object?> ? await result : result;
-
-  if (resolved case final Value wrapped when wrapped.isMulti) {
-    return (wrapped.raw as List<Object?>).map(_unwrap).toList(growable: false);
-  }
-
-  return _unwrap(resolved);
-}
-
-Object? _unwrap(Object? value) => value is Value ? value.unwrap() : value;

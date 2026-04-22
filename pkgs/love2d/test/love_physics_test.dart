@@ -3,6 +3,8 @@ import 'dart:math' as math;
 import 'package:flutter_test/flutter_test.dart';
 import 'package:lualike/lualike.dart';
 import 'package:love2d/love2d.dart';
+import 'test_support/lua_api_test_helpers.dart';
+import 'test_support/physics_test_support.dart';
 
 void main() {
   group('love.physics module', () {
@@ -14,10 +16,10 @@ void main() {
     });
 
     test('exposes meter defaults and world/body/fixture metadata', () async {
-      expect(await _call(runtime, const ['love', 'physics', 'getMeter']), 30);
+      expect(await luaCall(runtime, const ['love', 'physics', 'getMeter']), 30);
 
       await expectLater(
-        _call(
+        luaCall(
           runtime,
           const ['love', 'physics', 'setMeter'],
           const <Object?>[0],
@@ -31,198 +33,207 @@ void main() {
         ),
       );
 
-      await _call(
+      await luaCall(
         runtime,
         const ['love', 'physics', 'setMeter'],
         const <Object?>[60],
       );
-      expect(await _call(runtime, const ['love', 'physics', 'getMeter']), 60);
+      expect(await luaCall(runtime, const ['love', 'physics', 'getMeter']), 60);
 
-      final world = await _call(runtime, const ['love', 'physics', 'newWorld']);
+      final world = await luaCall(runtime, const [
+        'love',
+        'physics',
+        'newWorld',
+      ]);
       expect(world, isA<Map>());
-      _expectDoubleListClose(
-        await _callMethod(world!, 'getGravity'),
+      expectDoubleListClose(
+        await luaCallMethod(world!, 'getGravity'),
         const <double>[0, 0],
       );
-      expect(await _callMethod(world, 'isSleepingAllowed'), isTrue);
-      expect(await _callMethod(world, 'isLocked'), isFalse);
-      expect(await _callMethod(world, 'type'), 'World');
+      expect(await luaCallMethod(world, 'isSleepingAllowed'), isTrue);
+      expect(await luaCallMethod(world, 'isLocked'), isFalse);
+      expect(await luaCallMethod(world, 'type'), 'World');
       expect(
-        await _callMethod(world, 'typeOf', const <Object?>['Object']),
+        await luaCallMethod(world, 'typeOf', const <Object?>['Object']),
         isTrue,
       );
-      expect(await _callMethod(world, 'release'), isTrue);
-      expect(await _callMethod(world, 'release'), isFalse);
 
-      final body = await _call(
+      final body = await luaCall(
         runtime,
         const ['love', 'physics', 'newBody'],
         <Object?>[world, 90, 120, 'dynamic'],
       );
       expect(body, isA<Map>());
-      _expectDoubleListClose(
-        await _callMethod(body!, 'getPosition'),
+      expectDoubleListClose(
+        await luaCallMethod(body!, 'getPosition'),
         const <double>[90, 120],
       );
-      expect(await _callMethod(body, 'getType'), 'dynamic');
-      expect(await _callMethod(body, 'type'), 'Body');
+      expect(await luaCallMethod(body, 'getType'), 'dynamic');
+      expect(await luaCallMethod(body, 'type'), 'Body');
       expect(
-        await _callMethod(body, 'typeOf', const <Object?>['Object']),
+        await luaCallMethod(body, 'typeOf', const <Object?>['Object']),
         isTrue,
       );
-      final bodyWorld = await _callMethod(body, 'getWorld');
-      expect(await _callMethod(bodyWorld!, 'type'), 'World');
-      expect(await _callMethod(bodyWorld, 'getBodyCount'), 1);
+      final bodyWorld = await luaCallMethod(body, 'getWorld');
+      expect(await luaCallMethod(bodyWorld!, 'type'), 'World');
+      expect(await luaCallMethod(bodyWorld, 'getBodyCount'), 1);
 
-      final circle = await _call(
+      final circle = await luaCall(
         runtime,
         const ['love', 'physics', 'newCircleShape'],
         const <Object?>[15],
       );
       expect(circle, isA<Map>());
-      expect(await _callMethod(circle!, 'getType'), 'circle');
-      expect(await _callMethod(circle, 'type'), 'CircleShape');
+      expect(await luaCallMethod(circle!, 'getType'), 'circle');
+      expect(await luaCallMethod(circle, 'type'), 'CircleShape');
       expect(
-        await _callMethod(circle, 'typeOf', const <Object?>['Shape']),
+        await luaCallMethod(circle, 'typeOf', const <Object?>['Shape']),
         isTrue,
       );
-      expect(await _callMethod(circle, 'getChildCount'), 1);
-      expect(await _callMethod(circle, 'getRadius'), 15.0);
-      _expectDoubleListClose(
-        await _callMethod(circle, 'getPoint'),
+      expect(await luaCallMethod(circle, 'getChildCount'), 1);
+      expect(await luaCallMethod(circle, 'getRadius'), 15.0);
+      expectDoubleListClose(
+        await luaCallMethod(circle, 'getPoint'),
         const <double>[0, 0],
       );
 
-      final fixture = await _call(
+      final fixture = await luaCall(
         runtime,
         const ['love', 'physics', 'newFixture'],
         <Object?>[body, circle, 2.5],
       );
       expect(fixture, isA<Map>());
-      expect(await _callMethod(world, 'getBodyCount'), 1);
-      final worldBodies = _indexedValues(
-        await _callMethod(world, 'getBodies') as Map,
+      expect(await luaCallMethod(world, 'getBodyCount'), 1);
+      final worldBodies = indexedValues(
+        await luaCallMethod(world, 'getBodies') as Map,
       );
       expect(worldBodies, hasLength(1));
-      _expectDoubleListClose(
-        await _callMethod(worldBodies.single as Object, 'getPosition'),
+      expectDoubleListClose(
+        await luaCallMethod(worldBodies.single as Object, 'getPosition'),
         const <double>[90, 120],
       );
-      final bodyFixtures = _indexedValues(
-        await _callMethod(body, 'getFixtures') as Map,
+      final bodyFixtures = indexedValues(
+        await luaCallMethod(body, 'getFixtures') as Map,
       );
       expect(bodyFixtures, hasLength(1));
       expect(
-        await _callMethod(bodyFixtures.single as Object, 'getDensity'),
+        await luaCallMethod(bodyFixtures.single as Object, 'getDensity'),
         2.5,
       );
-      expect(await _callMethod(fixture!, 'getType'), 'circle');
-      expect(await _callMethod(fixture, 'getDensity'), 2.5);
-      expect(await _callMethod(fixture, 'type'), 'Fixture');
+      expect(await luaCallMethod(fixture!, 'getType'), 'circle');
+      expect(await luaCallMethod(fixture, 'getDensity'), 2.5);
+      expect(await luaCallMethod(fixture, 'type'), 'Fixture');
       expect(
-        await _callMethod(fixture, 'typeOf', const <Object?>['Object']),
+        await luaCallMethod(fixture, 'typeOf', const <Object?>['Object']),
         isTrue,
       );
-      final fixtureBody = await _callMethod(fixture, 'getBody');
-      _expectDoubleListClose(
-        await _callMethod(fixtureBody!, 'getPosition'),
+      final fixtureBody = await luaCallMethod(fixture, 'getBody');
+      expectDoubleListClose(
+        await luaCallMethod(fixtureBody!, 'getPosition'),
         const <double>[90, 120],
       );
 
-      final fixtureShape = await _callMethod(fixture, 'getShape');
+      final fixtureShape = await luaCallMethod(fixture, 'getShape');
       expect(fixtureShape, isA<Map>());
       expect(fixtureShape, isNot(same(circle)));
-      expect(await _callMethod(fixtureShape!, 'getRadius'), 15.0);
+      expect(await luaCallMethod(fixtureShape!, 'getRadius'), 15.0);
+
+      expect(await luaCallMethod(world, 'release'), isTrue);
+      expect(await luaCallMethod(world, 'release'), isFalse);
     });
 
     test('updates worlds and bodies using LOVE units', () async {
-      final world = await _call(
+      final world = await luaCall(
         runtime,
         const ['love', 'physics', 'newWorld'],
         const <Object?>[0, 0, false],
       );
-      final body = await _call(
+      final body = await luaCall(
         runtime,
         const ['love', 'physics', 'newBody'],
         <Object?>[world, 0, 0, 'dynamic'],
       );
 
-      await _callMethod(body!, 'setLinearVelocity', const <Object?>[60, 0]);
-      await _callMethod(body, 'setAngularVelocity', const <Object?>[1.25]);
-      await _callMethod(world!, 'update', const <Object?>[0.5, 8, 3]);
+      await luaCallMethod(body!, 'setLinearVelocity', const <Object?>[60, 0]);
+      await luaCallMethod(body, 'setAngularVelocity', const <Object?>[1.25]);
+      await luaCallMethod(world!, 'update', const <Object?>[0.5, 8, 3]);
 
       expect(
-        _doubleResults(await _callMethod(body, 'getPosition')).first,
+        doubleResults(await luaCallMethod(body, 'getPosition')).first,
         closeTo(30.0, 1e-6),
       );
-      _expectDoubleListClose(
-        await _callMethod(body, 'getLinearVelocity'),
+      expectDoubleListClose(
+        await luaCallMethod(body, 'getLinearVelocity'),
         const <double>[60, 0],
       );
-      expect(await _callMethod(body, 'getAngularVelocity'), 1.25);
+      expect(await luaCallMethod(body, 'getAngularVelocity'), 1.25);
 
-      await _callMethod(body, 'setTransform', const <Object?>[40, 50, 0.75]);
-      _expectDoubleListClose(
-        await _callMethod(body, 'getTransform'),
+      await luaCallMethod(body, 'setTransform', const <Object?>[40, 50, 0.75]);
+      expectDoubleListClose(
+        await luaCallMethod(body, 'getTransform'),
         const <double>[40, 50, 0.75],
       );
 
-      await _callMethod(body, 'setX', const <Object?>[10]);
-      await _callMethod(body, 'setY', const <Object?>[25]);
-      await _callMethod(body, 'setAngle', const <Object?>[0.5]);
-      _expectDoubleListClose(
-        await _callMethod(body, 'getTransform'),
+      await luaCallMethod(body, 'setX', const <Object?>[10]);
+      await luaCallMethod(body, 'setY', const <Object?>[25]);
+      await luaCallMethod(body, 'setAngle', const <Object?>[0.5]);
+      expectDoubleListClose(
+        await luaCallMethod(body, 'getTransform'),
         const <double>[10, 25, 0.5],
       );
 
-      await _callMethod(world, 'setGravity', const <Object?>[0, 120]);
-      await _callMethod(body, 'setGravityScale', const <Object?>[0.25]);
-      await _callMethod(body, 'setBullet', const <Object?>[true]);
-      await _callMethod(body, 'setSleepingAllowed', const <Object?>[false]);
-      await _callMethod(body, 'setFixedRotation', const <Object?>[true]);
-      await _callMethod(body, 'setActive', const <Object?>[false]);
+      await luaCallMethod(world, 'setGravity', const <Object?>[0, 120]);
+      await luaCallMethod(body, 'setGravityScale', const <Object?>[0.25]);
+      await luaCallMethod(body, 'setBullet', const <Object?>[true]);
+      await luaCallMethod(body, 'setSleepingAllowed', const <Object?>[false]);
+      await luaCallMethod(body, 'setFixedRotation', const <Object?>[true]);
+      await luaCallMethod(body, 'setActive', const <Object?>[false]);
 
-      _expectDoubleListClose(
-        await _callMethod(world, 'getGravity'),
+      expectDoubleListClose(
+        await luaCallMethod(world, 'getGravity'),
         const <double>[0, 120],
       );
-      expect(await _callMethod(body, 'getGravityScale'), 0.25);
-      expect(await _callMethod(body, 'isBullet'), isTrue);
-      expect(await _callMethod(body, 'isSleepingAllowed'), isFalse);
-      expect(await _callMethod(body, 'isFixedRotation'), isTrue);
-      expect(await _callMethod(body, 'isActive'), isFalse);
+      expect(await luaCallMethod(body, 'getGravityScale'), 0.25);
+      expect(await luaCallMethod(body, 'isBullet'), isTrue);
+      expect(await luaCallMethod(body, 'isSleepingAllowed'), isFalse);
+      expect(await luaCallMethod(body, 'isFixedRotation'), isTrue);
+      expect(await luaCallMethod(body, 'isActive'), isFalse);
 
-      await _callMethod(body, 'setActive', const <Object?>[true]);
-      await _callMethod(world, 'translateOrigin', const <Object?>[10, -5]);
-      _expectDoubleListClose(
-        await _callMethod(body, 'getPosition'),
+      await luaCallMethod(body, 'setActive', const <Object?>[true]);
+      await luaCallMethod(world, 'translateOrigin', const <Object?>[10, -5]);
+      expectDoubleListClose(
+        await luaCallMethod(body, 'getPosition'),
         const <double>[0, 30],
       );
     });
 
     test('transforms body coordinates and roundtrips user data', () async {
-      final world = await _call(runtime, const ['love', 'physics', 'newWorld']);
-      final body = await _call(
+      final world = await luaCall(runtime, const [
+        'love',
+        'physics',
+        'newWorld',
+      ]);
+      final body = await luaCall(
         runtime,
         const ['love', 'physics', 'newBody'],
         <Object?>[world, 100, 50, 'dynamic'],
       );
 
-      await _callMethod(body!, 'setAngle', <Object?>[math.pi / 2]);
-      await _callMethod(body, 'setAngularVelocity', const <Object?>[1]);
-      await _callMethod(body, 'setUserData', const <Object?>['player']);
-      expect(await _callMethod(body, 'getUserData'), 'player');
+      await luaCallMethod(body!, 'setAngle', <Object?>[math.pi / 2]);
+      await luaCallMethod(body, 'setAngularVelocity', const <Object?>[1]);
+      await luaCallMethod(body, 'setUserData', const <Object?>['player']);
+      expect(await luaCallMethod(body, 'getUserData'), 'player');
 
-      _expectDoubleListClose(
-        await _callMethod(body, 'getWorldPoint', const <Object?>[10, 0]),
+      expectDoubleListClose(
+        await luaCallMethod(body, 'getWorldPoint', const <Object?>[10, 0]),
         const <double>[100, 60],
       );
-      _expectDoubleListClose(
-        await _callMethod(body, 'getLocalPoint', const <Object?>[100, 60]),
+      expectDoubleListClose(
+        await luaCallMethod(body, 'getLocalPoint', const <Object?>[100, 60]),
         const <double>[10, 0],
       );
-      _expectDoubleListClose(
-        await _callMethod(body, 'getWorldPoints', const <Object?>[
+      expectDoubleListClose(
+        await luaCallMethod(body, 'getWorldPoints', const <Object?>[
           10,
           0,
           0,
@@ -230,8 +241,8 @@ void main() {
         ]),
         const <double>[100, 60, 90, 50],
       );
-      _expectDoubleListClose(
-        await _callMethod(body, 'getLocalPoints', const <Object?>[
+      expectDoubleListClose(
+        await luaCallMethod(body, 'getLocalPoints', const <Object?>[
           100,
           60,
           90,
@@ -239,24 +250,24 @@ void main() {
         ]),
         const <double>[10, 0, 0, 10],
       );
-      _expectDoubleListClose(
-        await _callMethod(body, 'getWorldVector', const <Object?>[0, 10]),
+      expectDoubleListClose(
+        await luaCallMethod(body, 'getWorldVector', const <Object?>[0, 10]),
         const <double>[-10, 0],
       );
-      _expectDoubleListClose(
-        await _callMethod(body, 'getLocalVector', const <Object?>[-10, 0]),
+      expectDoubleListClose(
+        await luaCallMethod(body, 'getLocalVector', const <Object?>[-10, 0]),
         const <double>[0, 10],
       );
-      _expectDoubleListClose(
-        await _callMethod(
+      expectDoubleListClose(
+        await luaCallMethod(
           body,
           'getLinearVelocityFromWorldPoint',
           const <Object?>[100, 80],
         ),
         const <double>[-30, 0],
       );
-      _expectDoubleListClose(
-        await _callMethod(
+      expectDoubleListClose(
+        await luaCallMethod(
           body,
           'getLinearVelocityFromLocalPoint',
           const <Object?>[30, 0],
@@ -264,12 +275,12 @@ void main() {
         const <double>[-30, 0],
       );
 
-      final fixture = await _call(
+      final fixture = await luaCall(
         runtime,
         const ['love', 'physics', 'newFixture'],
         <Object?>[
           body,
-          await _call(
+          await luaCall(
             runtime,
             const ['love', 'physics', 'newCircleShape'],
             const <Object?>[20],
@@ -277,31 +288,35 @@ void main() {
           1,
         ],
       );
-      await _callMethod(fixture!, 'setUserData', const <Object?>[123]);
-      expect(await _callMethod(fixture, 'getUserData'), 123);
+      await luaCallMethod(fixture!, 'setUserData', const <Object?>[123]);
+      expect(await luaCallMethod(fixture, 'getUserData'), 123);
       expect(
-        await _callMethod(fixture, 'testPoint', const <Object?>[100, 69]),
+        await luaCallMethod(fixture, 'testPoint', const <Object?>[100, 69]),
         isTrue,
       );
       expect(
-        await _callMethod(fixture, 'testPoint', const <Object?>[100, 71]),
+        await luaCallMethod(fixture, 'testPoint', const <Object?>[100, 71]),
         isFalse,
       );
     });
 
     test('exposes fixture filter, bounds, and mass helpers', () async {
-      final world = await _call(runtime, const ['love', 'physics', 'newWorld']);
-      final body = await _call(
+      final world = await luaCall(runtime, const [
+        'love',
+        'physics',
+        'newWorld',
+      ]);
+      final body = await luaCall(
         runtime,
         const ['love', 'physics', 'newBody'],
         <Object?>[world, 100, 50, 'dynamic'],
       );
-      final fixture = await _call(
+      final fixture = await luaCall(
         runtime,
         const ['love', 'physics', 'newFixture'],
         <Object?>[
           body,
-          await _call(
+          await luaCall(
             runtime,
             const ['love', 'physics', 'newCircleShape'],
             const <Object?>[20],
@@ -310,40 +325,40 @@ void main() {
         ],
       );
 
-      expect(await _callMethod(fixture!, 'getCategory'), <Object?>[1]);
-      expect(await _callMethod(fixture, 'getMask'), <Object?>[]);
-      expect(await _callMethod(fixture, 'getFilterData'), <Object?>[
+      expect(await luaCallMethod(fixture!, 'getCategory'), <Object?>[1]);
+      expect(await luaCallMethod(fixture, 'getMask'), <Object?>[]);
+      expect(await luaCallMethod(fixture, 'getFilterData'), <Object?>[
         1,
         65535,
         0,
       ]);
 
-      await _callMethod(fixture, 'setCategory', <Object?>[
+      await luaCallMethod(fixture, 'setCategory', <Object?>[
         Value(<Object?, Object?>{1: 1, 2: 4}),
       ]);
-      expect(await _callMethod(fixture, 'getCategory'), <Object?>[1, 4]);
+      expect(await luaCallMethod(fixture, 'getCategory'), <Object?>[1, 4]);
 
-      await _callMethod(fixture, 'setMask', const <Object?>[2, 3]);
-      expect(await _callMethod(fixture, 'getMask'), <Object?>[2, 3]);
+      await luaCallMethod(fixture, 'setMask', const <Object?>[2, 3]);
+      expect(await luaCallMethod(fixture, 'getMask'), <Object?>[2, 3]);
 
-      await _callMethod(fixture, 'setGroupIndex', const <Object?>[-7]);
-      expect(await _callMethod(fixture, 'getGroupIndex'), -7);
+      await luaCallMethod(fixture, 'setGroupIndex', const <Object?>[-7]);
+      expect(await luaCallMethod(fixture, 'getGroupIndex'), -7);
 
-      await _callMethod(fixture, 'setFilterData', const <Object?>[
+      await luaCallMethod(fixture, 'setFilterData', const <Object?>[
         3,
         65534,
         -2,
       ]);
-      expect(await _callMethod(fixture, 'getFilterData'), <Object?>[
+      expect(await luaCallMethod(fixture, 'getFilterData'), <Object?>[
         3,
         65534,
         -2,
       ]);
-      expect(await _callMethod(fixture, 'getCategory'), <Object?>[1, 2]);
-      expect(await _callMethod(fixture, 'getMask'), <Object?>[1]);
+      expect(await luaCallMethod(fixture, 'getCategory'), <Object?>[1, 2]);
+      expect(await luaCallMethod(fixture, 'getMask'), <Object?>[1]);
 
-      _expectDoubleListClose(
-        await _callMethod(fixture, 'getBoundingBox'),
+      expectDoubleListClose(
+        await luaCallMethod(fixture, 'getBoundingBox'),
         const <double>[80, 30, 120, 70],
       );
 
@@ -351,13 +366,13 @@ void main() {
       final expectedMass = 2.5 * math.pi * radiusInMeters * radiusInMeters;
       final expectedInertia =
           expectedMass * (0.5 * radiusInMeters * radiusInMeters);
-      _expectDoubleListClose(
-        await _callMethod(fixture, 'getMassData'),
+      expectDoubleListClose(
+        await luaCallMethod(fixture, 'getMassData'),
         <double>[0, 0, expectedMass, expectedInertia],
       );
 
       await expectLater(
-        _callMethod(fixture, 'getBoundingBox', const <Object?>[2]),
+        luaCallMethod(fixture, 'getBoundingBox', const <Object?>[2]),
         throwsA(
           isA<LuaError>().having(
             (error) => error.message,
@@ -368,7 +383,7 @@ void main() {
       );
 
       await expectLater(
-        _callMethod(fixture, 'setCategory', const <Object?>[17]),
+        luaCallMethod(fixture, 'setCategory', const <Object?>[17]),
         throwsA(
           isA<LuaError>().having(
             (error) => error.message,
@@ -382,18 +397,22 @@ void main() {
     test(
       'exposes geometry helpers for circles, polygons, edges, and chains',
       () async {
-        final circle = await _call(
+        final circle = await luaCall(
           runtime,
           const ['love', 'physics', 'newCircleShape'],
           const <Object?>[5, -2, 10],
         );
 
-        _expectDoubleListClose(
-          await _callMethod(circle!, 'computeAABB', const <Object?>[20, 30, 0]),
+        expectDoubleListClose(
+          await luaCallMethod(circle!, 'computeAABB', const <Object?>[
+            20,
+            30,
+            0,
+          ]),
           const <double>[15, 18, 35, 38],
         );
         expect(
-          await _callMethod(circle, 'testPoint', const <Object?>[
+          await luaCallMethod(circle, 'testPoint', const <Object?>[
             20,
             30,
             0,
@@ -403,7 +422,7 @@ void main() {
           isTrue,
         );
         expect(
-          await _callMethod(circle, 'testPoint', const <Object?>[
+          await luaCallMethod(circle, 'testPoint', const <Object?>[
             20,
             30,
             0,
@@ -413,8 +432,8 @@ void main() {
           isFalse,
         );
 
-        final circleMass = _doubleResults(
-          await _callMethod(circle, 'computeMass', const <Object?>[2]),
+        final circleMass = doubleResults(
+          await luaCallMethod(circle, 'computeMass', const <Object?>[2]),
         );
         final radiusInMeters = 10 / 30;
         final expectedMass = 2 * math.pi * radiusInMeters * radiusInMeters;
@@ -430,7 +449,7 @@ void main() {
         expect(circleMass[2], closeTo(expectedMass, 1e-6));
         expect(circleMass[3], closeTo(expectedInertia, 1e-5));
 
-        final polygon = await _call(
+        final polygon = await luaCall(
           runtime,
           const ['love', 'physics', 'newPolygonShape'],
           <Object?>[
@@ -446,9 +465,9 @@ void main() {
             }),
           ],
         );
-        expect(await _callMethod(polygon!, 'validate'), isTrue);
-        _expectPointSetClose(
-          await _callMethod(polygon, 'getPoints'),
+        expect(await luaCallMethod(polygon!, 'validate'), isTrue);
+        expectPointSetClose(
+          await luaCallMethod(polygon, 'getPoints'),
           const <({double x, double y})>[
             (x: 0, y: 0),
             (x: 30, y: 0),
@@ -457,29 +476,29 @@ void main() {
           ],
         );
 
-        final edge = await _call(
+        final edge = await luaCall(
           runtime,
           const ['love', 'physics', 'newEdgeShape'],
           const <Object?>[0, 0, 30, 10],
         );
-        _expectDoubleListClose(
-          await _callMethod(edge!, 'getPoints'),
+        expectDoubleListClose(
+          await luaCallMethod(edge!, 'getPoints'),
           const <double>[0, 0, 30, 10],
         );
-        expect(await _callMethod(edge, 'getNextVertex'), <Object?>[]);
-        expect(await _callMethod(edge, 'getPreviousVertex'), <Object?>[]);
-        await _callMethod(edge, 'setNextVertex', const <Object?>[60, 15]);
-        await _callMethod(edge, 'setPreviousVertex', const <Object?>[-5, -5]);
-        _expectDoubleListClose(
-          await _callMethod(edge, 'getNextVertex'),
+        expect(await luaCallMethod(edge, 'getNextVertex'), <Object?>[]);
+        expect(await luaCallMethod(edge, 'getPreviousVertex'), <Object?>[]);
+        await luaCallMethod(edge, 'setNextVertex', const <Object?>[60, 15]);
+        await luaCallMethod(edge, 'setPreviousVertex', const <Object?>[-5, -5]);
+        expectDoubleListClose(
+          await luaCallMethod(edge, 'getNextVertex'),
           const <double>[60, 15],
         );
-        _expectDoubleListClose(
-          await _callMethod(edge, 'getPreviousVertex'),
+        expectDoubleListClose(
+          await luaCallMethod(edge, 'getPreviousVertex'),
           const <double>[-5, -5],
         );
 
-        final chain = await _call(
+        final chain = await luaCall(
           runtime,
           const ['love', 'physics', 'newChainShape'],
           <Object?>[
@@ -487,38 +506,38 @@ void main() {
             Value(<Object?, Object?>{1: 0, 2: 0, 3: 30, 4: 0, 5: 30, 6: 20}),
           ],
         );
-        expect(await _callMethod(chain!, 'getVertexCount'), 3);
-        expect(await _callMethod(chain, 'getChildCount'), 2);
-        _expectDoubleListClose(
-          await _callMethod(chain, 'getPoint', const <Object?>[3]),
+        expect(await luaCallMethod(chain!, 'getVertexCount'), 3);
+        expect(await luaCallMethod(chain, 'getChildCount'), 2);
+        expectDoubleListClose(
+          await luaCallMethod(chain, 'getPoint', const <Object?>[3]),
           const <double>[30, 20],
         );
-        _expectDoubleListClose(
-          await _callMethod(chain, 'getPoints'),
+        expectDoubleListClose(
+          await luaCallMethod(chain, 'getPoints'),
           const <double>[0, 0, 30, 0, 30, 20],
         );
-        expect(await _callMethod(chain, 'getNextVertex'), <Object?>[]);
-        expect(await _callMethod(chain, 'getPreviousVertex'), <Object?>[]);
+        expect(await luaCallMethod(chain, 'getNextVertex'), <Object?>[]);
+        expect(await luaCallMethod(chain, 'getPreviousVertex'), <Object?>[]);
 
-        final childEdge = await _callMethod(
+        final childEdge = await luaCallMethod(
           chain,
           'getChildEdge',
           const <Object?>[1],
         );
-        expect(await _callMethod(childEdge!, 'getType'), 'edge');
-        _expectDoubleListClose(
-          await _callMethod(childEdge, 'getPoints'),
+        expect(await luaCallMethod(childEdge!, 'getType'), 'edge');
+        expectDoubleListClose(
+          await luaCallMethod(childEdge, 'getPoints'),
           const <double>[0, 0, 30, 0],
         );
 
-        await _callMethod(chain, 'setNextVertex', const <Object?>[40, 25]);
-        await _callMethod(chain, 'setPreviousVertex', const <Object?>[-5, 0]);
-        _expectDoubleListClose(
-          await _callMethod(chain, 'getNextVertex'),
+        await luaCallMethod(chain, 'setNextVertex', const <Object?>[40, 25]);
+        await luaCallMethod(chain, 'setPreviousVertex', const <Object?>[-5, 0]);
+        expectDoubleListClose(
+          await luaCallMethod(chain, 'getNextVertex'),
           const <double>[40, 25],
         );
-        _expectDoubleListClose(
-          await _callMethod(chain, 'getPreviousVertex'),
+        expectDoubleListClose(
+          await luaCallMethod(chain, 'getPreviousVertex'),
           const <double>[-5, 0],
         );
       },
@@ -527,38 +546,38 @@ void main() {
     test(
       'clones fixture shapes and rebuilds fixture geometry when mutated',
       () async {
-        final world = await _call(runtime, const [
+        final world = await luaCall(runtime, const [
           'love',
           'physics',
           'newWorld',
         ]);
-        final bodyA = await _call(
+        final bodyA = await luaCall(
           runtime,
           const ['love', 'physics', 'newBody'],
           <Object?>[world, 0, 0, 'static'],
         );
-        final bodyB = await _call(
+        final bodyB = await luaCall(
           runtime,
           const ['love', 'physics', 'newBody'],
           <Object?>[world, 120, 0, 'static'],
         );
 
-        final sourceShape = await _call(
+        final sourceShape = await luaCall(
           runtime,
           const ['love', 'physics', 'newCircleShape'],
           const <Object?>[15],
         );
-        final fixtureA = await _call(
+        final fixtureA = await luaCall(
           runtime,
           const ['love', 'physics', 'newFixture'],
           <Object?>[bodyA, sourceShape, 1],
         );
-        final fixtureB = await _call(
+        final fixtureB = await luaCall(
           runtime,
           const ['love', 'physics', 'newFixture'],
           <Object?>[
             bodyB,
-            await _call(
+            await luaCall(
               runtime,
               const ['love', 'physics', 'newCircleShape'],
               const <Object?>[15],
@@ -567,14 +586,14 @@ void main() {
           ],
         );
 
-        await _callMethod(sourceShape!, 'setRadius', const <Object?>[30]);
-        final fixtureShape = await _callMethod(fixtureA!, 'getShape');
-        expect(await _callMethod(sourceShape, 'getRadius'), 30.0);
-        expect(await _callMethod(fixtureShape!, 'getRadius'), 15.0);
+        await luaCallMethod(sourceShape!, 'setRadius', const <Object?>[30]);
+        final fixtureShape = await luaCallMethod(fixtureA!, 'getShape');
+        expect(await luaCallMethod(sourceShape, 'getRadius'), 30.0);
+        expect(await luaCallMethod(fixtureShape!, 'getRadius'), 15.0);
 
         expect(
-          _doubleResults(
-            await _call(
+          doubleResults(
+            await luaCall(
               runtime,
               const ['love', 'physics', 'getDistance'],
               <Object?>[fixtureA, fixtureB],
@@ -583,11 +602,11 @@ void main() {
           closeTo(90.0, 1e-6),
         );
 
-        await _callMethod(fixtureShape, 'setRadius', const <Object?>[20]);
-        expect(await _callMethod(fixtureShape, 'getRadius'), 20.0);
+        await luaCallMethod(fixtureShape, 'setRadius', const <Object?>[20]);
+        expect(await luaCallMethod(fixtureShape, 'getRadius'), 20.0);
         expect(
-          _doubleResults(
-            await _call(
+          doubleResults(
+            await luaCall(
               runtime,
               const ['love', 'physics', 'getDistance'],
               <Object?>[fixtureA, fixtureB],
@@ -599,18 +618,22 @@ void main() {
     );
 
     test('reports LOVE-style destroyed object errors', () async {
-      final world = await _call(runtime, const ['love', 'physics', 'newWorld']);
-      final body = await _call(
+      final world = await luaCall(runtime, const [
+        'love',
+        'physics',
+        'newWorld',
+      ]);
+      final body = await luaCall(
         runtime,
         const ['love', 'physics', 'newBody'],
         <Object?>[world, 0, 0, 'dynamic'],
       );
-      final fixture = await _call(
+      final fixture = await luaCall(
         runtime,
         const ['love', 'physics', 'newFixture'],
         <Object?>[
           body,
-          await _call(
+          await luaCall(
             runtime,
             const ['love', 'physics', 'newCircleShape'],
             const <Object?>[10],
@@ -619,9 +642,9 @@ void main() {
         ],
       );
 
-      await _callMethod(fixture!, 'destroy');
+      await luaCallMethod(fixture!, 'destroy');
       await expectLater(
-        _callMethod(fixture, 'getDensity'),
+        luaCallMethod(fixture, 'getDensity'),
         throwsA(
           isA<LuaError>().having(
             (error) => error.message,
@@ -631,14 +654,14 @@ void main() {
         ),
       );
 
-      final secondBody = await _call(
+      final secondBody = await luaCall(
         runtime,
         const ['love', 'physics', 'newBody'],
         <Object?>[world, 0, 0, 'dynamic'],
       );
-      await _callMethod(secondBody!, 'destroy');
+      await luaCallMethod(secondBody!, 'destroy');
       await expectLater(
-        _callMethod(secondBody, 'getX'),
+        luaCallMethod(secondBody, 'getX'),
         throwsA(
           isA<LuaError>().having(
             (error) => error.message,
@@ -648,14 +671,14 @@ void main() {
         ),
       );
 
-      final secondWorld = await _call(runtime, const [
+      final secondWorld = await luaCall(runtime, const [
         'love',
         'physics',
         'newWorld',
       ]);
-      await _callMethod(secondWorld!, 'destroy');
+      await luaCallMethod(secondWorld!, 'destroy');
       await expectLater(
-        _callMethod(secondWorld, 'getBodyCount'),
+        luaCallMethod(secondWorld, 'getBodyCount'),
         throwsA(
           isA<LuaError>().having(
             (error) => error.message,
@@ -666,116 +689,4 @@ void main() {
       );
     });
   });
-}
-
-Future<Object?> _call(
-  Interpreter runtime,
-  List<String> path, [
-  List<Object?> args = const <Object?>[],
-]) async {
-  return _resolveCallResult(_rawFunction(runtime, path).call(args));
-}
-
-Future<Object?> _callMethod(
-  Object object,
-  String method, [
-  List<Object?> args = const <Object?>[],
-]) async {
-  final table = object is Value ? object.raw : object;
-  expect(table, isA<Map>());
-
-  final methodValue = (table as Map)[method];
-  final callable = switch (methodValue) {
-    final Value value => value.raw,
-    final BuiltinFunction function => function,
-    _ => methodValue,
-  };
-  expect(callable, isA<BuiltinFunction>());
-  return _resolveCallResult(
-    (callable as BuiltinFunction).call(<Object?>[object, ...args]),
-  );
-}
-
-BuiltinFunction _rawFunction(Interpreter runtime, List<String> path) {
-  var current = runtime.getCurrentEnv().get(path.first);
-  for (final segment in path.skip(1)) {
-    final table = current is Value ? current.raw : current;
-    expect(
-      table,
-      isA<Map>(),
-      reason: 'Expected ${path.join('.')} to traverse a Lua table',
-    );
-    current = (table as Map)[segment];
-  }
-
-  expect(current, isA<Value>());
-  final raw = (current! as Value).raw;
-  expect(raw, isA<BuiltinFunction>());
-  return raw as BuiltinFunction;
-}
-
-Future<Object?> _resolveCallResult(Object? result) async {
-  final resolved = result is Future<Object?> ? await result : result;
-
-  if (resolved case final Value wrapped when wrapped.isMulti) {
-    return (wrapped.raw as List<Object?>).map(_unwrap).toList(growable: false);
-  }
-
-  return _unwrap(resolved);
-}
-
-Object? _unwrap(Object? value) => value is Value ? value.unwrap() : value;
-
-List<Object?> _indexedValues(Map table) {
-  final keys = table.keys.whereType<num>().map((key) => key.toInt()).toList()
-    ..sort();
-  return keys.map((key) => table[key]).toList(growable: false);
-}
-
-List<double> _doubleResults(Object? value) {
-  return (value as List<Object?>)
-      .map((entry) => (entry as num).toDouble())
-      .toList(growable: false);
-}
-
-void _expectDoubleListClose(
-  Object? value,
-  List<double> expected, [
-  double epsilon = 1e-5,
-]) {
-  final actual = _doubleResults(value);
-  expect(actual, hasLength(expected.length));
-  for (var i = 0; i < expected.length; i++) {
-    expect(
-      actual[i],
-      closeTo(expected[i], epsilon),
-      reason: 'Unexpected value at index $i',
-    );
-  }
-}
-
-void _expectPointSetClose(
-  Object? value,
-  List<({double x, double y})> expected, [
-  double epsilon = 1e-5,
-]) {
-  final actualValues = _doubleResults(value);
-  expect(actualValues.length, expected.length * 2);
-
-  final actualPoints = <({double x, double y})>[];
-  for (var i = 0; i < actualValues.length; i += 2) {
-    actualPoints.add((x: actualValues[i], y: actualValues[i + 1]));
-  }
-
-  for (final expectedPoint in expected) {
-    expect(
-      actualPoints.any(
-        (actualPoint) =>
-            (actualPoint.x - expectedPoint.x).abs() <= epsilon &&
-            (actualPoint.y - expectedPoint.y).abs() <= epsilon,
-      ),
-      isTrue,
-      reason: 'Missing point (${expectedPoint.x}, ${expectedPoint.y})',
-    );
-  }
 }

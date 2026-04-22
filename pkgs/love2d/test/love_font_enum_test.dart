@@ -1,6 +1,7 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:lualike/lualike.dart';
 import 'package:love2d/love2d.dart';
+import 'test_support/lua_api_test_helpers.dart';
 
 void main() {
   group('HintingMode enum', () {
@@ -68,13 +69,13 @@ void main() {
 
 List<Object?> _unwrapMulti(Object? result) {
   if (result is Value && result.isMulti) {
-    return (result.raw as List<Object?>).map(_unwrap).toList(growable: false);
+    return (result.raw as List<Object?>)
+        .map(luaUnwrapValue)
+        .toList(growable: false);
   }
   if (result is List) {
-    return result.map(_unwrap).toList(growable: false);
+    return result.map(luaUnwrapValue).toList(growable: false);
   }
-  final single = _unwrap(result);
+  final single = luaUnwrapValue(result);
   return single == null ? <Object?>[] : <Object?>[single];
 }
-
-Object? _unwrap(Object? value) => value is Value ? value.unwrap() : value;

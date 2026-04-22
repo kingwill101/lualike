@@ -1,155 +1,122 @@
-import 'dart:typed_data';
-
 import 'package:flutter_test/flutter_test.dart';
 import 'package:lualike/lualike.dart';
 import 'package:love2d/love2d.dart';
+import 'test_support/font_test_support.dart';
+import 'test_support/lua_api_test_helpers.dart';
 
 void main() {
   group('love.font glyph data receiver parity', () {
-    test('GlyphData:type and GlyphData:typeOf require a GlyphData receiver', () async {
-      final runtime = Interpreter();
-      installLove2d(runtime: runtime, host: LoveHeadlessHost());
+    test(
+      'GlyphData:type and GlyphData:typeOf require a GlyphData receiver',
+      () async {
+        final runtime = Interpreter();
+        installLove2d(runtime: runtime, host: LoveHeadlessHost());
 
-      final imageData = await _call(
-        runtime,
-        const ['love', 'image', 'newImageData'],
-        <Object?>[9, 6, 'rgba8', _imageFontStripBytes()],
-      );
-      final rasterizer = await _call(
-        runtime,
-        const ['love', 'font', 'newImageRasterizer'],
-        <Object?>[imageData, 'ABC', 1, 1.0],
-      );
-      final glyphData = await _callMethod(rasterizer, 'getGlyphData', ['B']);
+        final imageData = await luaCall(
+          runtime,
+          const ['love', 'image', 'newImageData'],
+          <Object?>[9, 6, 'rgba8', imageFontStripBytes()],
+        );
+        final rasterizer = await luaCall(
+          runtime,
+          const ['love', 'font', 'newImageRasterizer'],
+          <Object?>[imageData, 'ABC', 1, 1.0],
+        );
+        final glyphData = await luaCallMethod(rasterizer, 'getGlyphData', [
+          'B',
+        ]);
 
-      final typeMethod = _rawMethod(glyphData, 'type');
-      final typeOfMethod = _rawMethod(glyphData, 'typeOf');
+        final typeMethod = luaRawMethod(glyphData, 'type');
+        final typeOfMethod = luaRawMethod(glyphData, 'typeOf');
 
-      expect(await _resolveCallResult(typeMethod.call(<Object?>[glyphData])),
-          'GlyphData');
-      expect(
-        await _resolveCallResult(
-          typeOfMethod.call(<Object?>[glyphData, 'GlyphData']),
-        ),
-        isTrue,
-      );
-
-      await expectLater(
-        () => _resolveCallResult(typeMethod.call(const <Object?>[])),
-        throwsA(
-          isA<LuaError>().having(
-            (error) => error.message,
-            'message',
-            contains('Object:type expected a GlyphData at argument 1'),
+        expect(
+          await luaResolveCallResult(typeMethod.call(<Object?>[glyphData])),
+          'GlyphData',
+        );
+        expect(
+          await luaResolveCallResult(
+            typeOfMethod.call(<Object?>[glyphData, 'GlyphData']),
           ),
-        ),
-      );
+          isTrue,
+        );
 
-      await expectLater(
-        () => _resolveCallResult(typeMethod.call(const <Object?>['oops'])),
-        throwsA(
-          isA<LuaError>().having(
-            (error) => error.message,
-            'message',
-            contains('Object:type expected a GlyphData at argument 1'),
+        await expectLater(
+          () => luaResolveCallResult(typeMethod.call(const <Object?>[])),
+          throwsA(
+            isA<LuaError>().having(
+              (error) => error.message,
+              'message',
+              "bad argument #1 to 'type' (GlyphData expected, got nil)",
+            ),
           ),
-        ),
-      );
+        );
 
-      await expectLater(
-        () => _resolveCallResult(
-          typeOfMethod.call(const <Object?>['oops', 'GlyphData']),
-        ),
-        throwsA(
-          isA<LuaError>().having(
-            (error) => error.message,
-            'message',
-            contains('Object:typeOf expected a GlyphData at argument 1'),
+        await expectLater(
+          () => luaResolveCallResult(typeMethod.call(const <Object?>['oops'])),
+          throwsA(
+            isA<LuaError>().having(
+              (error) => error.message,
+              'message',
+              "bad argument #1 to 'type' (GlyphData expected, got string)",
+            ),
           ),
-        ),
-      );
-    });
-  });
-}
+        );
 
-Future<Object?> _call(
-  Interpreter runtime,
-  List<String> path, [
-  List<Object?> args = const <Object?>[],
-]) async {
-  return _resolveCallResult(_rawFunction(runtime, path).call(args));
-}
-
-Future<Object?> _callMethod(
-  Object? receiver,
-  String method, [
-  List<Object?> args = const <Object?>[],
-]) async {
-  return _resolveCallResult(
-    _rawMethod(receiver, method).call(<Object?>[receiver, ...args]),
-  );
-}
-
-BuiltinFunction _rawFunction(Interpreter runtime, List<String> path) {
-  var current = runtime.getCurrentEnv().get(path.first);
-  for (final segment in path.skip(1)) {
-    final table = current is Value ? current.raw : current;
-    expect(
-      table,
-      isA<Map>(),
-      reason: 'Expected ${path.join('.')} to traverse a Lua table',
+        await expectLater(
+          () => luaResolveCallResult(
+            typeOfMethod.call(const <Object?>['oops', 'GlyphData']),
+          ),
+          throwsA(
+            isA<LuaError>().having(
+              (error) => error.message,
+              'message',
+              "bad argument #1 to 'typeOf' (GlyphData expected, got string)",
+            ),
+          ),
+        );
+      },
     );
-    current = (table as Map)[segment];
-  }
 
-  expect(current, isA<Value>());
-  final raw = (current! as Value).raw;
-  expect(raw, isA<BuiltinFunction>());
-  return raw as BuiltinFunction;
-}
+    test(
+      'GlyphData release invalidates methods but preserves type metadata',
+      () async {
+        final runtime = Interpreter();
+        installLove2d(runtime: runtime, host: LoveHeadlessHost());
 
-BuiltinFunction _rawMethod(Object? receiver, String method) {
-  final table = receiver is Value ? receiver.raw : receiver;
-  expect(table, isA<Map>());
-  final entry = (table! as Map)[method];
-  return switch (entry) {
-    final Value wrapped when wrapped.raw is BuiltinFunction =>
-      wrapped.raw as BuiltinFunction,
-    final BuiltinFunction function => function,
-    _ => throw TestFailure('Expected $method to be a callable Lua method'),
-  };
-}
+        final imageData = await luaCall(
+          runtime,
+          const ['love', 'image', 'newImageData'],
+          <Object?>[9, 6, 'rgba8', imageFontStripBytes()],
+        );
+        final rasterizer = await luaCall(
+          runtime,
+          const ['love', 'font', 'newImageRasterizer'],
+          <Object?>[imageData, 'ABC', 1, 1.0],
+        );
+        final glyphData = await luaCallMethod(rasterizer, 'getGlyphData', [
+          'B',
+        ]);
 
-Future<Object?> _resolveCallResult(Object? result) async {
-  final resolved = result is Future<Object?> ? await result : result;
-  if (resolved case final Value wrapped when wrapped.isMulti) {
-    return List<Object?>.from(
-      wrapped.raw as List<Object?>,
-      growable: false,
-    ).map(_unwrap).toList(growable: false);
-  }
-  return _unwrap(resolved);
-}
+        expect(await luaCallMethod(glyphData, 'release'), isTrue);
+        expect(await luaCallMethod(glyphData, 'release'), isFalse);
 
-Object? _unwrap(Object? value) => value is Value ? value.unwrap() : value;
+        await expectLater(
+          () => luaCallMethod(glyphData, 'getWidth'),
+          throwsA(
+            isA<LuaError>().having(
+              (error) => error.message,
+              'message',
+              'Cannot use object after it has been released.',
+            ),
+          ),
+        );
 
-Uint8List _imageFontStripBytes() {
-  final bytes = Uint8List(9 * 6 * 4);
-
-  void fillColumns(int start, int end, List<int> rgba) {
-    for (var row = 0; row < 6; row++) {
-      for (var column = start; column < end; column++) {
-        final offset = ((row * 9) + column) * 4;
-        bytes[offset] = rgba[0];
-        bytes[offset + 1] = rgba[1];
-        bytes[offset + 2] = rgba[2];
-        bytes[offset + 3] = rgba[3];
-      }
-    }
-  }
-
-  fillColumns(1, 3, const <int>[255, 255, 255, 255]);
-  fillColumns(4, 5, const <int>[255, 96, 96, 255]);
-  fillColumns(6, 9, const <int>[96, 255, 96, 255]);
-  return bytes;
+        expect(await luaCallMethod(glyphData, 'type'), 'GlyphData');
+        expect(
+          await luaCallMethod(glyphData, 'typeOf', const <Object?>['Object']),
+          isTrue,
+        );
+      },
+    );
+  });
 }

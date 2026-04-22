@@ -1,6 +1,8 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:lualike/lualike.dart';
 import 'package:love2d/love2d.dart';
+import 'test_support/lua_api_test_helpers.dart';
+import 'test_support/physics_test_support.dart';
 
 void main() {
   group('love.physics contact object bindings', () {
@@ -14,28 +16,28 @@ void main() {
     test(
       'Body:getContacts and World:getContacts expose active Contact objects',
       () async {
-        final world = await _call(
+        final world = await luaCallList(
           runtime,
           const ['love', 'physics', 'newWorld'],
           const <Object?>[0, 0, false],
         );
-        final bodyA = await _call(
+        final bodyA = await luaCallList(
           runtime,
           const ['love', 'physics', 'newBody'],
           <Object?>[world, 0, 0, 'dynamic'],
         );
-        final bodyB = await _call(
+        final bodyB = await luaCallList(
           runtime,
           const ['love', 'physics', 'newBody'],
           <Object?>[world, 15, 0, 'dynamic'],
         );
 
-        await _call(
+        await luaCallList(
           runtime,
           const ['love', 'physics', 'newFixture'],
           <Object?>[
             bodyA,
-            await _call(
+            await luaCallList(
               runtime,
               const ['love', 'physics', 'newCircleShape'],
               const <Object?>[10],
@@ -43,12 +45,12 @@ void main() {
             1,
           ],
         );
-        await _call(
+        await luaCallList(
           runtime,
           const ['love', 'physics', 'newFixture'],
           <Object?>[
             bodyB,
-            await _call(
+            await luaCallList(
               runtime,
               const ['love', 'physics', 'newCircleShape'],
               const <Object?>[10],
@@ -57,65 +59,73 @@ void main() {
           ],
         );
 
-        await _callMethod(world, 'update', const <Object?>[1 / 60]);
+        await luaCallMethodList(world, 'update', const <Object?>[1 / 60]);
 
-        final bodyContacts = _indexedValues(
-          await _callMethod(bodyA, 'getContacts') as Map,
+        final bodyContacts = indexedValues(
+          await luaCallMethodList(bodyA, 'getContacts') as Map,
         );
-        final worldContacts = _indexedValues(
-          await _callMethod(world, 'getContacts') as Map,
+        final worldContacts = indexedValues(
+          await luaCallMethodList(world, 'getContacts') as Map,
         );
 
         expect(bodyContacts, hasLength(1));
         expect(worldContacts, hasLength(1));
 
         final contact = bodyContacts.single;
-        expect(await _callMethod(contact, 'type'), 'Contact');
+        expect(await luaCallMethodList(contact, 'type'), 'Contact');
         expect(
-          await _callMethod(contact, 'typeOf', const <Object?>['Object']),
+          await luaCallMethodList(contact, 'typeOf', const <Object?>['Object']),
           isTrue,
         );
-        expect(await _callMethod(contact, 'isDestroyed'), isFalse);
-        expect(await _callMethod(contact, 'isTouching'), isTrue);
-        expect(await _callMethod(contact, 'isEnabled'), isTrue);
+        expect(await luaCallMethodList(contact, 'isDestroyed'), isFalse);
+        expect(await luaCallMethodList(contact, 'isTouching'), isTrue);
+        expect(await luaCallMethodList(contact, 'isEnabled'), isTrue);
 
-        _expectDoubleListClose(
-          await _callMethod(contact, 'getChildren'),
+        expectDoubleListClose(
+          await luaCallMethodList(contact, 'getChildren'),
           const <double>[1, 1],
         );
 
         final contactFixtures = _doubleTableFixtures(
-          await _callMethod(contact, 'getFixtures') as List<Object?>,
+          await luaCallMethodList(contact, 'getFixtures') as List<Object?>,
         );
-        expect(await _callMethod(contactFixtures[0], 'getType'), 'circle');
-        expect(await _callMethod(contactFixtures[1], 'getType'), 'circle');
-        final currentBodyAPosition = _doubleResults(
-          await _callMethod(bodyA, 'getPosition'),
+        expect(
+          await luaCallMethodList(contactFixtures[0], 'getType'),
+          'circle',
         );
-        final currentBodyBPosition = _doubleResults(
-          await _callMethod(bodyB, 'getPosition'),
+        expect(
+          await luaCallMethodList(contactFixtures[1], 'getType'),
+          'circle',
         );
-        _expectDoubleListClose(
-          await _callMethod(
-            await _callMethod(contactFixtures[0], 'getBody'),
+        final currentBodyAPosition = doubleResults(
+          await luaCallMethodList(bodyA, 'getPosition'),
+        );
+        final currentBodyBPosition = doubleResults(
+          await luaCallMethodList(bodyB, 'getPosition'),
+        );
+        expectDoubleListClose(
+          await luaCallMethodList(
+            await luaCallMethodList(contactFixtures[0], 'getBody'),
             'getPosition',
           ),
           currentBodyAPosition,
         );
-        _expectDoubleListClose(
-          await _callMethod(
-            await _callMethod(contactFixtures[1], 'getBody'),
+        expectDoubleListClose(
+          await luaCallMethodList(
+            await luaCallMethodList(contactFixtures[1], 'getBody'),
             'getPosition',
           ),
           currentBodyBPosition,
         );
 
-        final normal = _doubleResults(await _callMethod(contact, 'getNormal'));
+        final normal = doubleResults(
+          await luaCallMethodList(contact, 'getNormal'),
+        );
         expect(normal[0], closeTo(1.0, 1e-6));
         expect(normal[1], closeTo(0.0, 1e-6));
 
-        final positions = _doubleResults(
-          await _callMethod(contact, 'getPositions'),
+        final positions = doubleResults(
+          await luaCallMethodList(contact, 'getPositions'),
         );
         expect(positions, hasLength(2));
         expect(positions[0], closeTo(7.5, 1e-6));
@@ -126,28 +136,28 @@ void main() {
     test(
       'Contact setters and resetters roundtrip through LOVE bindings',
       () async {
-        final world = await _call(
+        final world = await luaCallList(
           runtime,
           const ['love', 'physics', 'newWorld'],
           const <Object?>[0, 0, false],
         );
-        final bodyA = await _call(
+        final bodyA = await luaCallList(
           runtime,
           const ['love', 'physics', 'newBody'],
           <Object?>[world, 0, 0, 'dynamic'],
         );
-        final bodyB = await _call(
+        final bodyB = await luaCallList(
           runtime,
           const ['love', 'physics', 'newBody'],
           <Object?>[world, 15, 0, 'dynamic'],
         );
 
-        final fixtureA = await _call(
+        final fixtureA = await luaCallList(
           runtime,
           const ['love', 'physics', 'newFixture'],
           <Object?>[
             bodyA,
-            await _call(
+            await luaCallList(
               runtime,
               const ['love', 'physics', 'newCircleShape'],
               const <Object?>[10],
@@ -155,12 +165,12 @@ void main() {
             1,
           ],
         );
-        final fixtureB = await _call(
+        final fixtureB = await luaCallList(
           runtime,
           const ['love', 'physics', 'newFixture'],
           <Object?>[
             bodyB,
-            await _call(
+            await luaCallList(
               runtime,
               const ['love', 'physics', 'newCircleShape'],
               const <Object?>[10],
@@ -169,56 +179,73 @@ void main() {
           ],
         );
 
-        await _callMethod(fixtureA, 'setFriction', const <Object?>[0.2]);
-        await _callMethod(fixtureB, 'setFriction', const <Object?>[0.8]);
-        await _callMethod(fixtureA, 'setRestitution', const <Object?>[0.2]);
-        await _callMethod(fixtureB, 'setRestitution', const <Object?>[0.6]);
+        await luaCallMethodList(fixtureA, 'setFriction', const <Object?>[0.2]);
+        await luaCallMethodList(fixtureB, 'setFriction', const <Object?>[0.8]);
+        await luaCallMethodList(fixtureA, 'setRestitution', const <Object?>[
+          0.2,
+        ]);
+        await luaCallMethodList(fixtureB, 'setRestitution', const <Object?>[
+          0.6,
+        ]);
 
-        await _callMethod(world, 'update', const <Object?>[1 / 60]);
-        final contact = _indexedValues(
-          await _callMethod(world, 'getContacts') as Map,
+        await luaCallMethodList(world, 'update', const <Object?>[1 / 60]);
+        final contact = indexedValues(
+          await luaCallMethodList(world, 'getContacts') as Map,
         ).single;
 
-        expect(await _callMethod(contact, 'getFriction'), closeTo(0.4, 1e-6));
         expect(
-          await _callMethod(contact, 'getRestitution'),
+          await luaCallMethodList(contact, 'getFriction'),
+          closeTo(0.4, 1e-6),
+        );
+        expect(
+          await luaCallMethodList(contact, 'getRestitution'),
           closeTo(0.6, 1e-6),
         );
         expect(
-          await _callMethod(contact, 'getTangentSpeed'),
+          await luaCallMethodList(contact, 'getTangentSpeed'),
           closeTo(0, 1e-6),
         );
 
-        await _callMethod(contact, 'setFriction', const <Object?>[1.25]);
-        await _callMethod(contact, 'setRestitution', const <Object?>[0.15]);
-        await _callMethod(contact, 'setTangentSpeed', const <Object?>[5.5]);
-        await _callMethod(contact, 'setEnabled', const <Object?>[false]);
+        await luaCallMethodList(contact, 'setFriction', const <Object?>[1.25]);
+        await luaCallMethodList(contact, 'setRestitution', const <Object?>[
+          0.15,
+        ]);
+        await luaCallMethodList(contact, 'setTangentSpeed', const <Object?>[
+          5.5,
+        ]);
+        await luaCallMethodList(contact, 'setEnabled', const <Object?>[false]);
 
-        expect(await _callMethod(contact, 'getFriction'), closeTo(1.25, 1e-6));
         expect(
-          await _callMethod(contact, 'getRestitution'),
+          await luaCallMethodList(contact, 'getFriction'),
+          closeTo(1.25, 1e-6),
+        );
+        expect(
+          await luaCallMethodList(contact, 'getRestitution'),
           closeTo(0.15, 1e-6),
         );
         expect(
-          await _callMethod(contact, 'getTangentSpeed'),
+          await luaCallMethodList(contact, 'getTangentSpeed'),
           closeTo(5.5, 1e-6),
         );
-        expect(await _callMethod(contact, 'isEnabled'), isFalse);
+        expect(await luaCallMethodList(contact, 'isEnabled'), isFalse);
 
-        await _callMethod(contact, 'resetFriction');
-        await _callMethod(contact, 'resetRestitution');
-        await _callMethod(contact, 'setEnabled', const <Object?>[true]);
+        await luaCallMethodList(contact, 'resetFriction');
+        await luaCallMethodList(contact, 'resetRestitution');
+        await luaCallMethodList(contact, 'setEnabled', const <Object?>[true]);
 
-        expect(await _callMethod(contact, 'getFriction'), closeTo(0.4, 1e-6));
         expect(
-          await _callMethod(contact, 'getRestitution'),
+          await luaCallMethodList(contact, 'getFriction'),
+          closeTo(0.4, 1e-6),
+        );
+        expect(
+          await luaCallMethodList(contact, 'getRestitution'),
           closeTo(0.6, 1e-6),
         );
         expect(
-          await _callMethod(contact, 'getTangentSpeed'),
+          await luaCallMethodList(contact, 'getTangentSpeed'),
           closeTo(5.5, 1e-6),
         );
-        expect(await _callMethod(contact, 'isEnabled'), isTrue);
+        expect(await luaCallMethodList(contact, 'isEnabled'), isTrue);
       },
     );
 
@@ -281,28 +308,28 @@ void main() {
     );
 
     test('destroyed contacts reject further use after separation', () async {
-      final world = await _call(
+      final world = await luaCallList(
         runtime,
         const ['love', 'physics', 'newWorld'],
         const <Object?>[0, 0, false],
       );
-      final bodyA = await _call(
+      final bodyA = await luaCallList(
         runtime,
         const ['love', 'physics', 'newBody'],
         <Object?>[world, 0, 0, 'dynamic'],
       );
-      final bodyB = await _call(
+      final bodyB = await luaCallList(
         runtime,
         const ['love', 'physics', 'newBody'],
         <Object?>[world, 15, 0, 'dynamic'],
       );
 
-      await _call(
+      await luaCallList(
         runtime,
         const ['love', 'physics', 'newFixture'],
         <Object?>[
           bodyA,
-          await _call(
+          await luaCallList(
             runtime,
             const ['love', 'physics', 'newCircleShape'],
             const <Object?>[10],
@@ -310,12 +337,12 @@ void main() {
           1,
         ],
       );
-      await _call(
+      await luaCallList(
         runtime,
         const ['love', 'physics', 'newFixture'],
         <Object?>[
           bodyB,
-          await _call(
+          await luaCallList(
             runtime,
             const ['love', 'physics', 'newCircleShape'],
             const <Object?>[10],
@@ -324,17 +351,17 @@ void main() {
         ],
       );
 
-      await _callMethod(world, 'update', const <Object?>[1 / 60]);
-      final contact = _indexedValues(
-        await _callMethod(world, 'getContacts') as Map,
+      await luaCallMethodList(world, 'update', const <Object?>[1 / 60]);
+      final contact = indexedValues(
+        await luaCallMethodList(world, 'getContacts') as Map,
       ).single;
 
-      await _callMethod(bodyB, 'setPosition', const <Object?>[100, 0]);
-      await _callMethod(world, 'update', const <Object?>[1 / 60]);
+      await luaCallMethodList(bodyB, 'setPosition', const <Object?>[100, 0]);
+      await luaCallMethodList(world, 'update', const <Object?>[1 / 60]);
 
-      expect(await _callMethod(contact, 'isDestroyed'), isTrue);
+      expect(await luaCallMethodList(contact, 'isDestroyed'), isTrue);
       await expectLater(
-        _callMethod(contact, 'getNormal'),
+        luaCallMethodList(contact, 'getNormal'),
         throwsA(
           isA<LuaError>().having(
             (error) => error.message,
@@ -347,155 +374,73 @@ void main() {
   });
 }
 
-Future<Object?> _call(
-  Interpreter runtime,
-  List<String> path, [
-  List<Object?> args = const <Object?>[],
-]) async {
-  return _resolveCallResult(_rawFunction(runtime, path).call(args));
-}
-
-Future<Object?> _callMethod(
-  Object? receiver,
-  String method, [
-  List<Object?> args = const <Object?>[],
-]) async {
-  return _resolveCallResult(
-    _rawMethod(receiver, method).call(<Object?>[receiver, ...args]),
-  );
-}
-
-BuiltinFunction _rawFunction(Interpreter runtime, List<String> path) {
-  var current = runtime.getCurrentEnv().get(path.first);
-  for (final segment in path.skip(1)) {
-    final table = current is Value ? current.raw : current;
-    expect(
-      table,
-      isA<Map>(),
-      reason: 'Expected ${path.join('.')} to traverse a Lua table',
-    );
-    current = (table as Map)[segment];
-  }
-
-  expect(current, isA<Value>());
-  final raw = (current! as Value).raw;
-  expect(raw, isA<BuiltinFunction>());
-  return raw as BuiltinFunction;
-}
-
-BuiltinFunction _rawMethod(Object? receiver, String method) {
-  final table = receiver is Value ? receiver.raw : receiver;
-  expect(table, isA<Map>());
-  final entry = (table! as Map)[method];
-  return switch (entry) {
-    final Value wrapped when wrapped.raw is BuiltinFunction =>
-      wrapped.raw as BuiltinFunction,
-    final BuiltinFunction function => function,
-    _ => throw TestFailure('Expected $method to be a callable Lua method'),
-  };
-}
-
-Future<Object?> _resolveCallResult(Object? result) async {
-  final resolved = result is Future<Object?> ? await result : result;
-  if (resolved is List<Object?>) {
-    return resolved.map(_unwrap).toList(growable: false);
-  }
-  if (resolved case final Value wrapped when wrapped.isMulti) {
-    return List<Object?>.from(
-      wrapped.raw as List<Object?>,
-      growable: false,
-    ).map(_unwrap).toList(growable: false);
-  }
-  return _unwrap(resolved);
-}
-
-Object? _unwrap(Object? value) => value is Value ? value.unwrap() : value;
-
-List<Object?> _indexedValues(Map table) {
-  final keys = table.keys.whereType<num>().map((key) => key.toInt()).toList()
-    ..sort();
-  return keys.map((key) => table[key]).toList(growable: false);
-}
-
 List<Object?> _doubleTableFixtures(List<Object?> values) => values;
-
-List<double> _doubleResults(Object? value) {
-  return (value as List<Object?>)
-      .map((entry) => (entry as num).toDouble())
-      .toList(growable: false);
-}
-
-void _expectDoubleListClose(Object? value, List<double> expected) {
-  expect(_doubleResults(value), hasLength(expected.length));
-  final actual = _doubleResults(value);
-  for (var index = 0; index < expected.length; index++) {
-    expect(actual[index], closeTo(expected[index], 1e-6));
-  }
-}
 
 Future<({double dx, double dy})> _runSlidingContactScenario(
   Interpreter runtime, {
   required bool overrideContactFriction,
 }) async {
-  final world = await _call(
+  final world = await luaCallList(
     runtime,
     const ['love', 'physics', 'newWorld'],
     const <Object?>[0, 1000, false],
   );
-  final floor = await _call(
+  final floor = await luaCallList(
     runtime,
     const ['love', 'physics', 'newBody'],
     <Object?>[world, 0, 100, 'static'],
   );
-  final box = await _call(
+  final box = await luaCallList(
     runtime,
     const ['love', 'physics', 'newBody'],
     <Object?>[world, 0, 80, 'dynamic'],
   );
 
-  final floorShape = await _call(
+  final floorShape = await luaCallList(
     runtime,
     const ['love', 'physics', 'newRectangleShape'],
     const <Object?>[400, 20],
   );
-  final boxShape = await _call(
+  final boxShape = await luaCallList(
     runtime,
     const ['love', 'physics', 'newRectangleShape'],
     const <Object?>[20, 20],
   );
 
-  final floorFixture = await _call(
+  final floorFixture = await luaCallList(
     runtime,
     const ['love', 'physics', 'newFixture'],
     <Object?>[floor, floorShape, 1],
   );
-  final boxFixture = await _call(
+  final boxFixture = await luaCallList(
     runtime,
     const ['love', 'physics', 'newFixture'],
     <Object?>[box, boxShape, 1],
   );
 
-  await _callMethod(floorFixture, 'setFriction', const <Object?>[4]);
-  await _callMethod(boxFixture, 'setFriction', const <Object?>[4]);
-  await _callMethod(floorFixture, 'setRestitution', const <Object?>[0]);
-  await _callMethod(boxFixture, 'setRestitution', const <Object?>[0]);
-  await _callMethod(box, 'setFixedRotation', const <Object?>[true]);
-  await _callMethod(box, 'setLinearVelocity', const <Object?>[120, 0]);
+  await luaCallMethodList(floorFixture, 'setFriction', const <Object?>[4]);
+  await luaCallMethodList(boxFixture, 'setFriction', const <Object?>[4]);
+  await luaCallMethodList(floorFixture, 'setRestitution', const <Object?>[0]);
+  await luaCallMethodList(boxFixture, 'setRestitution', const <Object?>[0]);
+  await luaCallMethodList(box, 'setFixedRotation', const <Object?>[true]);
+  await luaCallMethodList(box, 'setLinearVelocity', const <Object?>[120, 0]);
 
-  await _callMethod(world, 'update', const <Object?>[1 / 60]);
-  final contact = _indexedValues(
-    await _callMethod(world, 'getContacts') as Map,
+  await luaCallMethodList(world, 'update', const <Object?>[1 / 60]);
+  final contact = indexedValues(
+    await luaCallMethodList(world, 'getContacts') as Map,
   ).single;
 
   if (overrideContactFriction) {
-    await _callMethod(contact, 'setFriction', const <Object?>[0]);
+    await luaCallMethodList(contact, 'setFriction', const <Object?>[0]);
   }
 
   for (var index = 0; index < 20; index++) {
-    await _callMethod(world, 'update', const <Object?>[1 / 60]);
+    await luaCallMethodList(world, 'update', const <Object?>[1 / 60]);
   }
 
-  final velocity = _doubleResults(await _callMethod(box, 'getLinearVelocity'));
+  final velocity = doubleResults(
+    await luaCallMethodList(box, 'getLinearVelocity'),
+  );
   return (dx: velocity[0], dy: velocity[1]);
 }
 
@@ -503,60 +448,62 @@ Future<({double dx, double dy})> _runRestitutionContactScenario(
   Interpreter runtime, {
   required bool overrideContactRestitution,
 }) async {
-  final world = await _call(
+  final world = await luaCallList(
     runtime,
     const ['love', 'physics', 'newWorld'],
     const <Object?>[0, 0, false],
   );
-  final floor = await _call(
+  final floor = await luaCallList(
     runtime,
     const ['love', 'physics', 'newBody'],
     <Object?>[world, 0, 100, 'static'],
   );
-  final ball = await _call(
+  final ball = await luaCallList(
     runtime,
     const ['love', 'physics', 'newBody'],
     <Object?>[world, 0, 80, 'dynamic'],
   );
 
-  final floorShape = await _call(
+  final floorShape = await luaCallList(
     runtime,
     const ['love', 'physics', 'newRectangleShape'],
     const <Object?>[400, 20],
   );
-  final ballShape = await _call(
+  final ballShape = await luaCallList(
     runtime,
     const ['love', 'physics', 'newCircleShape'],
     const <Object?>[10],
   );
 
-  final floorFixture = await _call(
+  final floorFixture = await luaCallList(
     runtime,
     const ['love', 'physics', 'newFixture'],
     <Object?>[floor, floorShape, 1],
   );
-  final ballFixture = await _call(
+  final ballFixture = await luaCallList(
     runtime,
     const ['love', 'physics', 'newFixture'],
     <Object?>[ball, ballShape, 1],
   );
 
-  await _callMethod(floorFixture, 'setRestitution', const <Object?>[0]);
-  await _callMethod(ballFixture, 'setRestitution', const <Object?>[0]);
+  await luaCallMethodList(floorFixture, 'setRestitution', const <Object?>[0]);
+  await luaCallMethodList(ballFixture, 'setRestitution', const <Object?>[0]);
 
-  await _callMethod(world, 'update', const <Object?>[1 / 60]);
-  final contact = _indexedValues(
-    await _callMethod(world, 'getContacts') as Map,
+  await luaCallMethodList(world, 'update', const <Object?>[1 / 60]);
+  final contact = indexedValues(
+    await luaCallMethodList(world, 'getContacts') as Map,
   ).single;
 
   if (overrideContactRestitution) {
-    await _callMethod(contact, 'setRestitution', const <Object?>[1]);
+    await luaCallMethodList(contact, 'setRestitution', const <Object?>[1]);
   }
 
-  await _callMethod(ball, 'setLinearVelocity', const <Object?>[0, 240]);
-  await _callMethod(world, 'update', const <Object?>[1 / 60]);
+  await luaCallMethodList(ball, 'setLinearVelocity', const <Object?>[0, 240]);
+  await luaCallMethodList(world, 'update', const <Object?>[1 / 60]);
 
-  final velocity = _doubleResults(await _callMethod(ball, 'getLinearVelocity'));
+  final velocity = doubleResults(
+    await luaCallMethodList(ball, 'getLinearVelocity'),
+  );
   return (dx: velocity[0], dy: velocity[1]);
 }
 
@@ -564,63 +511,65 @@ Future<({double dx, double dy})> _runTangentSpeedContactScenario(
   Interpreter runtime, {
   required bool overrideContactTangentSpeed,
 }) async {
-  final world = await _call(
+  final world = await luaCallList(
     runtime,
     const ['love', 'physics', 'newWorld'],
     const <Object?>[0, 1000, false],
   );
-  final floor = await _call(
+  final floor = await luaCallList(
     runtime,
     const ['love', 'physics', 'newBody'],
     <Object?>[world, 0, 100, 'static'],
   );
-  final box = await _call(
+  final box = await luaCallList(
     runtime,
     const ['love', 'physics', 'newBody'],
     <Object?>[world, 0, 80, 'dynamic'],
   );
 
-  final floorShape = await _call(
+  final floorShape = await luaCallList(
     runtime,
     const ['love', 'physics', 'newRectangleShape'],
     const <Object?>[400, 20],
   );
-  final boxShape = await _call(
+  final boxShape = await luaCallList(
     runtime,
     const ['love', 'physics', 'newRectangleShape'],
     const <Object?>[20, 20],
   );
 
-  final floorFixture = await _call(
+  final floorFixture = await luaCallList(
     runtime,
     const ['love', 'physics', 'newFixture'],
     <Object?>[floor, floorShape, 1],
   );
-  final boxFixture = await _call(
+  final boxFixture = await luaCallList(
     runtime,
     const ['love', 'physics', 'newFixture'],
     <Object?>[box, boxShape, 1],
   );
 
-  await _callMethod(floorFixture, 'setFriction', const <Object?>[8]);
-  await _callMethod(boxFixture, 'setFriction', const <Object?>[8]);
-  await _callMethod(floorFixture, 'setRestitution', const <Object?>[0]);
-  await _callMethod(boxFixture, 'setRestitution', const <Object?>[0]);
-  await _callMethod(box, 'setFixedRotation', const <Object?>[true]);
+  await luaCallMethodList(floorFixture, 'setFriction', const <Object?>[8]);
+  await luaCallMethodList(boxFixture, 'setFriction', const <Object?>[8]);
+  await luaCallMethodList(floorFixture, 'setRestitution', const <Object?>[0]);
+  await luaCallMethodList(boxFixture, 'setRestitution', const <Object?>[0]);
+  await luaCallMethodList(box, 'setFixedRotation', const <Object?>[true]);
 
-  await _callMethod(world, 'update', const <Object?>[1 / 60]);
-  final contact = _indexedValues(
-    await _callMethod(world, 'getContacts') as Map,
+  await luaCallMethodList(world, 'update', const <Object?>[1 / 60]);
+  final contact = indexedValues(
+    await luaCallMethodList(world, 'getContacts') as Map,
   ).single;
 
   if (overrideContactTangentSpeed) {
-    await _callMethod(contact, 'setTangentSpeed', const <Object?>[5]);
+    await luaCallMethodList(contact, 'setTangentSpeed', const <Object?>[5]);
   }
 
   for (var index = 0; index < 20; index++) {
-    await _callMethod(world, 'update', const <Object?>[1 / 60]);
+    await luaCallMethodList(world, 'update', const <Object?>[1 / 60]);
   }
 
-  final velocity = _doubleResults(await _callMethod(box, 'getLinearVelocity'));
+  final velocity = doubleResults(
+    await luaCallMethodList(box, 'getLinearVelocity'),
+  );
   return (dx: velocity[0], dy: velocity[1]);
 }

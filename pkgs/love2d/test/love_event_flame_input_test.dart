@@ -3,6 +3,7 @@ import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:lualike/lualike.dart';
 import 'package:love2d/love2d.dart';
+import 'test_support/lua_api_test_helpers.dart';
 
 void main() {
   group('love.event Flame input integration', () {
@@ -39,20 +40,20 @@ void main() {
       );
       await adapter.flush();
 
-      final poll = await _call(runtime, const ['love', 'event', 'poll']);
+      final poll = await luaCall(runtime, const ['love', 'event', 'poll']);
       expect(poll, isA<BuiltinFunction>());
       final iterator = poll! as BuiltinFunction;
 
-      expect(await _callCallable(iterator), <Object?>['focus', true]);
-      expect(await _callCallable(iterator), <Object?>[
+      expect(await luaCallCallable(iterator), <Object?>['focus', true]);
+      expect(await luaCallCallable(iterator), <Object?>[
         'keypressed',
         'a',
         'a',
         false,
       ]);
-      expect(await _callCallable(iterator), <Object?>['textinput', 'a']);
-      expect(await _callCallable(iterator), <Object?>['mousefocus', true]);
-      expect(await _callCallable(iterator), <Object?>[
+      expect(await luaCallCallable(iterator), <Object?>['textinput', 'a']);
+      expect(await luaCallCallable(iterator), <Object?>['mousefocus', true]);
+      expect(await luaCallCallable(iterator), <Object?>[
         'mousepressed',
         10.0,
         20.0,
@@ -60,52 +61,7 @@ void main() {
         false,
         1,
       ]);
-      expect(await _callCallable(iterator), isNull);
+      expect(await luaCallCallable(iterator), isNull);
     });
   });
 }
-
-Future<Object?> _call(
-  LoveScriptRuntime runtime,
-  List<String> path, [
-  List<Object?> args = const <Object?>[],
-]) async {
-  return _resolveCallResult(_rawFunction(runtime, path).call(args));
-}
-
-Future<Object?> _callCallable(
-  BuiltinFunction function, [
-  List<Object?> args = const <Object?>[],
-]) async {
-  return _resolveCallResult(function.call(args));
-}
-
-BuiltinFunction _rawFunction(LoveScriptRuntime runtime, List<String> path) {
-  var current = runtime.runtime.getCurrentEnv().get(path.first);
-  for (final segment in path.skip(1)) {
-    final table = current is Value ? current.raw : current;
-    expect(
-      table,
-      isA<Map>(),
-      reason: 'Expected ${path.join('.')} to traverse a Lua table',
-    );
-    current = (table as Map)[segment];
-  }
-
-  expect(current, isA<Value>());
-  final raw = (current! as Value).raw;
-  expect(raw, isA<BuiltinFunction>());
-  return raw as BuiltinFunction;
-}
-
-Future<Object?> _resolveCallResult(Object? result) async {
-  final resolved = result is Future<Object?> ? await result : result;
-
-  if (resolved case final Value wrapped when wrapped.isMulti) {
-    return (wrapped.raw as List<Object?>).map(_unwrap).toList(growable: false);
-  }
-
-  return _unwrap(resolved);
-}
-
-Object? _unwrap(Object? value) => value is Value ? value.unwrap() : value;

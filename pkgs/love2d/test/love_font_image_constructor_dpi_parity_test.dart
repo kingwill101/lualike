@@ -1,8 +1,8 @@
-import 'dart:typed_data';
-
 import 'package:flutter_test/flutter_test.dart';
 import 'package:lualike/lualike.dart';
 import 'package:love2d/love2d.dart';
+import 'test_support/font_test_support.dart';
+import 'test_support/lua_api_test_helpers.dart';
 
 void main() {
   group('love.font image constructor dpi parity', () {
@@ -12,133 +12,50 @@ void main() {
         final runtime = Interpreter();
         installLove2d(runtime: runtime, host: LoveHeadlessHost());
 
-        final imageData = await _call(
+        final imageData = await luaCall(
           runtime,
           const ['love', 'image', 'newImageData'],
-          <Object?>[9, 6, 'rgba8', _imageFontStripBytes()],
+          <Object?>[9, 6, 'rgba8', imageFontStripBytes()],
         );
-        final rasterizer = await _call(
+        final rasterizer = await luaCall(
           runtime,
           const ['love', 'font', 'newImageRasterizer'],
           <Object?>[imageData, 'ABC', 1, 2.0],
         );
-        final rasterizerFont = await _call(
+        final rasterizerFont = await luaCall(
           runtime,
           const ['love', 'graphics', 'newFont'],
           <Object?>[rasterizer],
         );
-        final directFont = await _call(
+        final directFont = await luaCall(
           runtime,
           const ['love', 'graphics', 'newImageFont'],
           <Object?>[imageData, 'ABC', 1, 2.0],
         );
 
         expect(
-          await _callMethod(directFont, 'getDPIScale'),
-          await _callMethod(rasterizerFont, 'getDPIScale'),
+          await luaCallMethod(directFont, 'getDPIScale'),
+          await luaCallMethod(rasterizerFont, 'getDPIScale'),
         );
         expect(
-          await _callMethod(directFont, 'getHeight'),
-          await _callMethod(rasterizerFont, 'getHeight'),
+          await luaCallMethod(directFont, 'getHeight'),
+          await luaCallMethod(rasterizerFont, 'getHeight'),
         );
         expect(
-          await _callMethod(directFont, 'getAscent'),
-          await _callMethod(rasterizerFont, 'getAscent'),
+          await luaCallMethod(directFont, 'getAscent'),
+          await luaCallMethod(rasterizerFont, 'getAscent'),
         );
         expect(
-          await _callMethod(directFont, 'getBaseline'),
-          await _callMethod(rasterizerFont, 'getBaseline'),
+          await luaCallMethod(directFont, 'getBaseline'),
+          await luaCallMethod(rasterizerFont, 'getBaseline'),
         );
         expect(
-          await _callMethod(directFont, 'getWidth', const <Object?>['ABC']),
-          await _callMethod(rasterizerFont, 'getWidth', const <Object?>['ABC']),
+          await luaCallMethod(directFont, 'getWidth', const <Object?>['ABC']),
+          await luaCallMethod(rasterizerFont, 'getWidth', const <Object?>[
+            'ABC',
+          ]),
         );
       },
     );
   });
-}
-
-Future<Object?> _call(
-  Interpreter runtime,
-  List<String> pathSegments, [
-  List<Object?> args = const <Object?>[],
-]) async {
-  return _resolveCallResult(_rawFunction(runtime, pathSegments).call(args));
-}
-
-Future<Object?> _callMethod(
-  Object? receiver,
-  String method, [
-  List<Object?> args = const <Object?>[],
-]) async {
-  return _resolveCallResult(
-    _rawMethod(receiver, method).call(<Object?>[receiver, ...args]),
-  );
-}
-
-BuiltinFunction _rawFunction(Interpreter runtime, List<String> pathSegments) {
-  var current = runtime.getCurrentEnv().get(pathSegments.first);
-  for (final segment in pathSegments.skip(1)) {
-    final table = current is Value ? current.raw : current;
-    expect(
-      table,
-      isA<Map>(),
-      reason: 'Expected ${pathSegments.join('.')} to traverse a Lua table',
-    );
-    current = (table as Map)[segment];
-  }
-
-  expect(current, isA<Value>());
-  final raw = (current! as Value).raw;
-  expect(raw, isA<BuiltinFunction>());
-  return raw as BuiltinFunction;
-}
-
-BuiltinFunction _rawMethod(Object? receiver, String method) {
-  final table = receiver is Value ? receiver.raw : receiver;
-  expect(table, isA<Map>());
-  final entry = (table! as Map)[method];
-  return switch (entry) {
-    final Value wrapped when wrapped.raw is BuiltinFunction =>
-      wrapped.raw as BuiltinFunction,
-    final BuiltinFunction function => function,
-    _ => throw TestFailure('Expected $method to be a callable Lua method'),
-  };
-}
-
-Future<Object?> _resolveCallResult(Object? result) async {
-  final resolved = result is Future<Object?> ? await result : result;
-  if (resolved case final Value wrapped when wrapped.isMulti) {
-    return List<Object?>.from(
-      wrapped.raw as List<Object?>,
-      growable: false,
-    ).map(_unwrap).toList(growable: false);
-  }
-  return _unwrap(resolved);
-}
-
-Object? _unwrap(Object? value) => value is Value ? value.unwrap() : value;
-
-Uint8List _imageFontStripBytes() {
-  final bytes = Uint8List(9 * 6 * 4);
-
-  void fillColumns(int start, int end, List<int> rgba) {
-    for (var row = 0; row < 6; row++) {
-      for (var column = start; column < end; column++) {
-        final offset = ((row * 9) + column) * 4;
-        bytes[offset] = rgba[0];
-        bytes[offset + 1] = rgba[1];
-        bytes[offset + 2] = rgba[2];
-        bytes[offset + 3] = rgba[3];
-      }
-    }
-  }
-
-  fillColumns(0, 1, const <int>[255, 0, 255, 255]);
-  fillColumns(1, 3, const <int>[255, 255, 255, 255]);
-  fillColumns(3, 4, const <int>[255, 0, 255, 255]);
-  fillColumns(4, 5, const <int>[255, 96, 96, 255]);
-  fillColumns(5, 6, const <int>[255, 0, 255, 255]);
-  fillColumns(6, 9, const <int>[96, 255, 96, 255]);
-  return bytes;
 }
