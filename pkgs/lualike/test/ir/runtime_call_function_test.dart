@@ -1,7 +1,6 @@
 @Tags(['ir'])
 library;
 
-import 'package:lualike/src/config.dart';
 import 'package:lualike/src/ir/runtime.dart';
 import 'package:lualike/src/lua_bytecode/vm.dart';
 import 'package:lualike_test/test.dart';
@@ -218,8 +217,10 @@ void main() {
       },
     );
 
-    test('goto.lua global declaration block through local foo assertions', () async {
-      final result = await bridge.execute(r'''
+    test(
+      'goto.lua global declaration block through local foo assertions',
+      () async {
+        final result = await bridge.execute(r'''
           local function checkerr (code, err)
           local st, msg = load(code)
           _ENV.assert(not st and string.find(msg, err))
@@ -262,13 +263,16 @@ void main() {
         end
       ''');
 
-      expect(result, isA<List>());
-      final values = (result as List).map(unwrap).toList();
-      expect(values, equals(<Object?>[16, 20]));
-    });
+        expect(result, isA<List>());
+        final values = (result as List).map(unwrap).toList();
+        expect(values, equals(<Object?>[16, 20]));
+      },
+    );
 
-    test('goto.lua global declaration block trailing const and wildcard cases', () async {
-      final result = await bridge.execute(r'''
+    test(
+      'goto.lua global declaration block trailing const and wildcard cases',
+      () async {
+        final result = await bridge.execute(r'''
         local function checkerr (code, err)
           local st, msg = load(code)
           assert(not st and string.find(msg, err))
@@ -313,11 +317,14 @@ void main() {
         end
       ''');
 
-      expect(unwrap(result), equals(20));
-    });
+        expect(unwrap(result), equals(20));
+      },
+    );
 
-    test('global declaration checkerr helper sees load failure message', () async {
-      final result = await bridge.execute(r'''
+    test(
+      'global declaration checkerr helper sees load failure message',
+      () async {
+        final result = await bridge.execute(r'''
         global T<const>
 
         local function checkerr (code, err)
@@ -328,15 +335,18 @@ void main() {
         return checkerr("global none; X = 1", "variable 'X'")
       ''');
 
-      expect(result, isA<List>());
-      final values = (result as List).map(unwrap).toList();
-      expect(values[0], isNull);
-      expect(values[1], contains("variable 'X'"));
-      expect(values[2], isNotNull);
-    });
+        expect(result, isA<List>());
+        final values = (result as List).map(unwrap).toList();
+        expect(values[0], isNull);
+        expect(values[1], contains("variable 'X'"));
+        expect(values[2], isNotNull);
+      },
+    );
 
-    test('global declaration checkerr sequence matches goto.lua opening cases', () async {
-      final result = await bridge.execute(r'''
+    test(
+      'global declaration checkerr sequence matches goto.lua opening cases',
+      () async {
+        final result = await bridge.execute(r'''
         global T<const>
 
         local function checkerr (code, err)
@@ -352,16 +362,19 @@ void main() {
         return a, b, c, d
       ''');
 
-      expect(result, isA<List>());
-      final values = (result as List).map(unwrap).toList();
-      expect(values[0], contains("variable 'X'"));
-      expect(values[1], contains("variable 'XX'"));
-      expect(values[2], contains("cannot be"));
-      expect(values[3], contains("cannot be"));
-    });
+        expect(result, isA<List>());
+        final values = (result as List).map(unwrap).toList();
+        expect(values[0], contains("variable 'X'"));
+        expect(values[1], contains("variable 'XX'"));
+        expect(values[2], contains("cannot be"));
+        expect(values[3], contains("cannot be"));
+      },
+    );
 
-    test('goto.lua global declaration initialization block around table.unpack', () async {
-      final result = await bridge.execute(r'''
+    test(
+      'goto.lua global declaration initialization block around table.unpack',
+      () async {
+        final result = await bridge.execute(r'''
         do
           global<const> a, b, c = 10
           _ENV.assert(_ENV.a == 10 and b == nil and c == nil)
@@ -383,24 +396,30 @@ void main() {
         end
       ''');
 
-      expect(result, isA<List>());
-      final values = (result as List).map(unwrap).toList();
-      expect(values, equals(<Object?>[null, null, null, null]));
-    });
+        expect(result, isA<List>());
+        final values = (result as List).map(unwrap).toList();
+        expect(values, equals(<Object?>[null, null, null, null]));
+      },
+    );
 
-    test('large integer literal comparisons avoid inline compare overflow', () async {
-      final result = await bridge.execute(r'''
+    test(
+      'large integer literal comparisons avoid inline compare overflow',
+      () async {
+        final result = await bridge.execute(r'''
         local x = 0xF0000000
         return x == 0xF0000000, x < 0xF0000001, x >= 0xF0000000
       ''');
 
-      expect(result, isA<List>());
-      final values = (result as List).map(unwrap).toList();
-      expect(values, equals(<Object?>[true, true, true]));
-    });
+        expect(result, isA<List>());
+        final values = (result as List).map(unwrap).toList();
+        expect(values, equals(<Object?>[true, true, true]));
+      },
+    );
 
-    test('goto around to-be-closed variable clears global on scope exit', () async {
-      final result = await bridge.execute(r'''
+    test(
+      'goto around to-be-closed variable clears global on scope exit',
+      () async {
+        final result = await bridge.execute(r'''
         do
           global *
 
@@ -429,11 +448,14 @@ void main() {
         end
       ''');
 
-      expect(unwrap(result), isNull);
-    });
+        expect(unwrap(result), isNull);
+      },
+    );
 
-    test('nested concatenation in error arguments compiles through IR runtime', () async {
-      final result = await bridge.execute(r'''
+    test(
+      'nested concatenation in error arguments compiles through IR runtime',
+      () async {
+        final result = await bridge.execute(r'''
         local type, error = type, error
         local strsub = string.sub
 
@@ -446,10 +468,11 @@ void main() {
         return ok, err
       ''');
 
-      expect(result, isA<List>());
-      final values = (result as List).map(unwrap).toList();
-      expect(values[0], isFalse);
-      expect(values[1], contains("attempt to 'band'"));
-    });
+        expect(result, isA<List>());
+        final values = (result as List).map(unwrap).toList();
+        expect(values[0], isFalse);
+        expect(values[1], contains("attempt to 'band'"));
+      },
+    );
   });
 }
