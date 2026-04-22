@@ -1,7 +1,6 @@
 @Tags(['ir'])
 library;
 
-import 'package:lualike/parsers.dart';
 import 'package:lualike/src/ir/bytecode_lowering.dart';
 import 'package:lualike/src/ir/runtime.dart';
 import 'package:lualike/src/lua_bytecode/vm.dart';

@@ -16,7 +16,6 @@ class NumberUtils {
 
   static const int _frexpMantissaExponent = NumberLimits.doubleExponentBias - 1;
   static const int _subnormalFrexpScale = 54;
-
   static bool _isBitwiseOperator(String op) => switch (op) {
     '&' || '|' || 'bxor' || '<<' || '>>' || '~' => true,
     _ => false,
