@@ -212,28 +212,37 @@ final class LovePhysicsWorld {
     double dt, {
     int? velocityIterations,
     int? positionIterations,
+    void Function(LovePhysicsWorldQueuedCallback event)? syncCallbackDispatcher,
+    bool Function(LovePhysicsFixture fixtureA, LovePhysicsFixture fixtureB)?
+    syncContactFilterEvaluator,
     Future<void> Function(LovePhysicsWorldQueuedCallback event)?
     callbackDispatcher,
   }) async {
     _checkActive('world');
-    if (velocityIterations == null && positionIterations == null) {
-      _world.stepDt(dt);
-      await _callbackState.flush(callbackDispatcher);
-      return;
-    }
-
-    final previousVelocityIterations = forge2d.velocityIterations;
-    final previousPositionIterations = forge2d.positionIterations;
-    forge2d.velocityIterations =
-        velocityIterations ?? previousVelocityIterations;
-    forge2d.positionIterations =
-        positionIterations ?? previousPositionIterations;
+    _callbackState.setSyncDispatcher(syncCallbackDispatcher);
+    _contactFilterState.setSyncEvaluator(syncContactFilterEvaluator);
     try {
-      _world.stepDt(dt);
+      if (velocityIterations == null && positionIterations == null) {
+        _world.stepDt(dt);
+      } else {
+        final previousVelocityIterations = forge2d.velocityIterations;
+        final previousPositionIterations = forge2d.positionIterations;
+        forge2d.velocityIterations =
+            velocityIterations ?? previousVelocityIterations;
+        forge2d.positionIterations =
+            positionIterations ?? previousPositionIterations;
+        try {
+          _world.stepDt(dt);
+        } finally {
+          forge2d.velocityIterations = previousVelocityIterations;
+          forge2d.positionIterations = previousPositionIterations;
+        }
+      }
     } finally {
-      forge2d.velocityIterations = previousVelocityIterations;
-      forge2d.positionIterations = previousPositionIterations;
+      _callbackState.setSyncDispatcher(null);
+      _contactFilterState.setSyncEvaluator(null);
     }
+    _callbackState.throwPendingSyncError();
     await _callbackState.flush(callbackDispatcher);
   }
 
@@ -402,7 +411,7 @@ final class LovePhysicsBody {
     : _body = body;
 
   final LovePhysicsWorld world;
-  forge2d.Body _body;
+  final forge2d.Body _body;
   final List<LovePhysicsFixture> _fixtures = <LovePhysicsFixture>[];
   bool _destroyed = false;
   Object? userData;
@@ -1093,12 +1102,11 @@ abstract base class LovePhysicsShape {
 final class LovePhysicsCircleShape extends LovePhysicsShape {
   LovePhysicsCircleShape({
     required super.state,
-    LovePhysicsShapeChanged? onChanged,
+    super.onChanged,
     required forge2d.Vector2 center,
     required double radius,
   }) : _center = center.clone(),
-       _radius = radius,
-       super(onChanged: onChanged);
+       _radius = radius;
 
   final forge2d.Vector2 _center;
   double _radius;
@@ -1147,12 +1155,11 @@ final class LovePhysicsCircleShape extends LovePhysicsShape {
 final class LovePhysicsPolygonShape extends LovePhysicsShape {
   LovePhysicsPolygonShape({
     required super.state,
-    LovePhysicsShapeChanged? onChanged,
+    super.onChanged,
     required Iterable<forge2d.Vector2> vertices,
   }) : _vertices = List<forge2d.Vector2>.unmodifiable(
          vertices.map((vertex) => vertex.clone()),
-       ),
-       super(onChanged: onChanged);
+       );
 
   final List<forge2d.Vector2> _vertices;
 
@@ -1204,7 +1211,7 @@ final class LovePhysicsPolygonShape extends LovePhysicsShape {
 final class LovePhysicsEdgeShape extends LovePhysicsShape {
   LovePhysicsEdgeShape({
     required super.state,
-    LovePhysicsShapeChanged? onChanged,
+    super.onChanged,
     required forge2d.Vector2 vertex1,
     required forge2d.Vector2 vertex2,
     forge2d.Vector2? previousVertex,
@@ -1212,8 +1219,7 @@ final class LovePhysicsEdgeShape extends LovePhysicsShape {
   }) : _vertex1 = vertex1.clone(),
        _vertex2 = vertex2.clone(),
        _previousVertex = previousVertex?.clone(),
-       _nextVertex = nextVertex?.clone(),
-       super(onChanged: onChanged);
+       _nextVertex = nextVertex?.clone();
 
   final forge2d.Vector2 _vertex1;
   final forge2d.Vector2 _vertex2;
@@ -1299,7 +1305,7 @@ final class LovePhysicsEdgeShape extends LovePhysicsShape {
 final class LovePhysicsChainShape extends LovePhysicsShape {
   LovePhysicsChainShape._({
     required super.state,
-    LovePhysicsShapeChanged? onChanged,
+    super.onChanged,
     required List<forge2d.Vector2> vertices,
     required bool loop,
     forge2d.Vector2? previousVertex,
@@ -1309,8 +1315,7 @@ final class LovePhysicsChainShape extends LovePhysicsShape {
        ),
        _loop = loop,
        _previousVertex = previousVertex?.clone(),
-       _nextVertex = nextVertex?.clone(),
-       super(onChanged: onChanged);
+       _nextVertex = nextVertex?.clone();
 
   factory LovePhysicsChainShape.create({
     required LovePhysicsState state,

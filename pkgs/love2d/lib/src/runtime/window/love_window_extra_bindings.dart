@@ -41,6 +41,11 @@ void installLoveWindowExtraBindings(LuaRuntime runtime) {
     runtime.globals.define(entry.key, enumValue);
   }
 
+  final dpiScale = windowTable['getDPIScale'];
+  if (dpiScale != null) {
+    windowTable['getNativeDPIScale'] = dpiScale;
+  }
+
   _loveWindowExtrasInstalled[runtime] = true;
 }
 

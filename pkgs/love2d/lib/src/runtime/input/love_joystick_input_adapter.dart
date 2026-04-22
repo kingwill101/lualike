@@ -38,7 +38,7 @@ class LoveJoystickInputAdapter {
       if (runtime == null) {
         return;
       }
-      await runtime.dispatchJoystickAdded(managed);
+      await runtime.queueJoystickAdded(managed);
     });
   }
 
@@ -52,7 +52,7 @@ class LoveJoystickInputAdapter {
       managed.connected = false;
       try {
         if (runtime != null) {
-          await runtime.dispatchJoystickRemoved(managed);
+          await runtime.queueJoystickRemoved(managed);
         }
       } finally {
         // Remove after dispatch so the callback can still query the object.
@@ -72,7 +72,7 @@ class LoveJoystickInputAdapter {
       if (runtime == null) {
         return;
       }
-      await runtime.dispatchJoystickPressed(managed, button);
+      await runtime.queueJoystickPressed(managed, button);
     });
   }
 
@@ -87,7 +87,7 @@ class LoveJoystickInputAdapter {
       if (runtime == null) {
         return;
       }
-      await runtime.dispatchJoystickReleased(managed, button);
+      await runtime.queueJoystickReleased(managed, button);
     });
   }
 
@@ -106,7 +106,7 @@ class LoveJoystickInputAdapter {
       if (runtime == null) {
         return;
       }
-      await runtime.dispatchJoystickAxis(managed, axis, value);
+      await runtime.queueJoystickAxis(managed, axis, value);
     });
   }
 
@@ -125,7 +125,7 @@ class LoveJoystickInputAdapter {
       if (runtime == null) {
         return;
       }
-      await runtime.dispatchJoystickHat(managed, hat, value);
+      await runtime.queueJoystickHat(managed, hat, value);
     });
   }
 
@@ -140,7 +140,7 @@ class LoveJoystickInputAdapter {
       if (runtime == null) {
         return;
       }
-      await runtime.dispatchGamepadPressed(managed, button);
+      await runtime.queueGamepadPressed(managed, button);
     });
   }
 
@@ -155,7 +155,7 @@ class LoveJoystickInputAdapter {
       if (runtime == null) {
         return;
       }
-      await runtime.dispatchGamepadReleased(managed, button);
+      await runtime.queueGamepadReleased(managed, button);
     });
   }
 
@@ -174,7 +174,7 @@ class LoveJoystickInputAdapter {
       if (runtime == null) {
         return;
       }
-      await runtime.dispatchGamepadAxis(managed, axis, value);
+      await runtime.queueGamepadAxis(managed, axis, value);
     });
   }
 
@@ -186,8 +186,10 @@ class LoveJoystickInputAdapter {
     LoveJoystickDevice joystick, {
     Iterable<int> buttons = const <int>[],
   }) {
-    final buttonsToClear =
-        buttons.where((button) => button >= 1).toSet().toList(growable: false);
+    final buttonsToClear = buttons
+        .where((button) => button >= 1)
+        .toSet()
+        .toList(growable: false);
     if (buttonsToClear.isEmpty) {
       return;
     }
@@ -209,10 +211,14 @@ class LoveJoystickInputAdapter {
     Iterable<String> buttons = const <String>[],
     Iterable<String> axes = const <String>[],
   }) {
-    final buttonsToClear =
-        buttons.where(loveIsValidGamepadButton).toSet().toList(growable: false);
-    final axesToClear =
-        axes.where(loveIsValidGamepadAxis).toSet().toList(growable: false);
+    final buttonsToClear = buttons
+        .where(loveIsValidGamepadButton)
+        .toSet()
+        .toList(growable: false);
+    final axesToClear = axes
+        .where(loveIsValidGamepadAxis)
+        .toSet()
+        .toList(growable: false);
     if (buttonsToClear.isEmpty && axesToClear.isEmpty) {
       return;
     }

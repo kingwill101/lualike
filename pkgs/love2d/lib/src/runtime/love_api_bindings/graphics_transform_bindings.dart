@@ -46,10 +46,9 @@ LoveApiImplementation _bindGraphicsPush(LibraryRegistrationContext context) {
         ? LoveGraphicsStackType.transform
         : _graphicsStackType(_valueAt(args, 0), 'love.graphics.push');
     runtime.graphics.push(stackType);
-    if (args.length >= 2) {
-      runtime.graphics.applyTransform(
-        _requireTransform(args, 1, 'love.graphics.push'),
-      );
+    if (_transformIfPresent(_valueAt(args, 1))
+        case final LoveTransform transform) {
+      runtime.graphics.applyTransform(transform);
     }
     return null;
   };

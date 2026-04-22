@@ -7,11 +7,11 @@ const int loveSoundDefaultBitDepth = 16;
 
 final class LoveSoundData extends LoveDataObject {
   LoveSoundData._(
-    Uint8List bytes, {
+    super.bytes, {
     required this.sampleRate,
     required this.bitDepth,
     required this.channels,
-  }) : super._(bytes);
+  }) : super._();
 
   factory LoveSoundData.silence({
     required int samples,

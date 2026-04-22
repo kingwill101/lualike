@@ -1,3 +1,5 @@
+import 'dart:convert';
+import 'dart:io';
 import 'dart:math' as math;
 
 import 'package:archive/archive.dart';
@@ -98,6 +100,40 @@ void main() {
           adapter.fileBytes('/appdata/love/empty-identity.txt'),
         ),
         'alpha',
+      );
+    },
+  );
+
+  test(
+    'filesystem failed setIdentity calls leave identity and save directory unchanged',
+    () async {
+      final adapter = _TestLoveFilesystemAdapter(appdataDirectory: null);
+      final runtime = Interpreter();
+
+      installLove2d(runtime: runtime, filesystemAdapter: adapter);
+
+      await expectLater(
+        () => _call(
+          runtime,
+          const ['love', 'filesystem', 'setIdentity'],
+          const <Object?>['game'],
+        ),
+        throwsA(
+          isA<LuaError>().having(
+            (error) => error.message,
+            'message',
+            'Could not set write directory.',
+          ),
+        ),
+      );
+
+      expect(
+        await _call(runtime, const ['love', 'filesystem', 'getIdentity']),
+        '',
+      );
+      expect(
+        await _call(runtime, const ['love', 'filesystem', 'getSaveDirectory']),
+        '',
       );
     },
   );
@@ -495,6 +531,20 @@ void main() {
   );
 
   test(
+    'filesystem direct setSource treats .7z paths as archive-like and rejects parent fallback',
+    () async {
+      final adapter = _TestLoveFilesystemAdapter();
+      adapter.addFileBytes('/source/game.7z', _fake7zBytes());
+
+      final runtime = LoveScriptRuntime(filesystemAdapter: adapter);
+      final filesystem = LoveFilesystemState.of(runtime.runtime);
+
+      expect(filesystem.setSource('/source/game.7z'), isFalse);
+      expect(await filesystem.readAllBytes('main.lua'), isNull);
+    },
+  );
+
+  test(
     'filesystem setSource rejects invalid existing .love archives',
     () async {
       final adapter = _TestLoveFilesystemAdapter();
@@ -523,6 +573,89 @@ void main() {
         '',
       );
     },
+  );
+
+  test('filesystem setSource rejects invalid existing .7z archives', () async {
+    final adapter = _TestLoveFilesystemAdapter();
+    adapter.addFileBytes('/source/game.7z', _fake7zBytes());
+
+    final runtime = LoveScriptRuntime(filesystemAdapter: adapter);
+    final interpreter = runtime.runtime as Interpreter;
+
+    await expectLater(
+      () => _call(
+        interpreter,
+        const ['love', 'filesystem', 'setSource'],
+        const <Object?>['/source/game.7z'],
+      ),
+      throwsA(
+        isA<LuaError>().having(
+          (error) => error.message,
+          'message',
+          contains('Could not set source.'),
+        ),
+      ),
+    );
+
+    expect(
+      await _call(interpreter, const ['love', 'filesystem', 'getSource']),
+      '',
+    );
+  });
+
+  test(
+    'filesystem setSource mounts existing .7z archives',
+    () async {
+      final adapter = _TestLoveFilesystemAdapter();
+      adapter.addFileBytes(
+        '/source/game.7z',
+        _encode7z(<String, String>{
+          'main.lua': 'return "archive-7z"',
+          'lib/tool.lua': 'return { answer = 77, label = "archive-7z" }',
+        }),
+      );
+
+      final runtime = LoveScriptRuntime(filesystemAdapter: adapter);
+      final interpreter = runtime.runtime as Interpreter;
+
+      expect(
+        await _call(
+          interpreter,
+          const ['love', 'filesystem', 'setSource'],
+          const <Object?>['/source/game.7z'],
+        ),
+        isNull,
+      );
+      expect(
+        await _call(interpreter, const ['love', 'filesystem', 'getSource']),
+        '/source/game.7z',
+      );
+
+      final sourceRead = await _call(
+        interpreter,
+        const ['love', 'filesystem', 'read'],
+        const <Object?>['main.lua'],
+      );
+      expect(sourceRead, <Object?>['return "archive-7z"', 19]);
+
+      await _call(
+        interpreter,
+        const ['love', 'filesystem', 'setRequirePath'],
+        const <Object?>['?.lua;?/init.lua'],
+      );
+      final toolResult = _rawResults(
+        await _callRawPath(
+          interpreter,
+          const ['require'],
+          <Object?>[Value('lib.tool')],
+        ),
+      );
+      expect(_unwrap(toolResult[1]), 'lib/tool.lua');
+      final tool = (toolResult.first as Value).unwrap() as Map;
+      expect(tool['answer'], 77);
+      expect(tool['label'], 'archive-7z');
+    },
+    skip: _sevenZipSupportSkipReason,
   );
 
   test(
@@ -2582,6 +2715,9 @@ void main() {
         const <Object?>['fractional.txt'],
       );
       expect(await _callMethod(file!, 'open', const <Object?>['r']), isTrue);
+      expect(adapter.lastOpenedDevice, isNotNull);
+      expect(adapter.lastOpenedDevice!.bufferMode, BufferMode.none);
+      expect(adapter.lastOpenedDevice!.bufferSize, 0);
       expect(await _callMethod(file, 'read', const <Object?>[2.9]), <Object?>[
         'ab',
         2,
@@ -2591,6 +2727,99 @@ void main() {
         isTrue,
       );
       expect(await _callMethod(file, 'getBuffer'), <Object?>['full', 3]);
+      expect(adapter.lastOpenedDevice!.bufferMode, BufferMode.full);
+      expect(adapter.lastOpenedDevice!.bufferSize, 3);
+
+      expect(
+        await _callMethod(file, 'setBuffer', const <Object?>['none', 7.9]),
+        isTrue,
+      );
+      expect(await _callMethod(file, 'getBuffer'), <Object?>['none', 0]);
+      expect(adapter.lastOpenedDevice!.bufferMode, BufferMode.none);
+      expect(adapter.lastOpenedDevice!.bufferSize, 0);
+
+      expect(await _callMethod(file, 'close'), isTrue);
+      expect(
+        await _callMethod(file, 'setBuffer', const <Object?>['none', 9.9]),
+        isTrue,
+      );
+      expect(await _callMethod(file, 'getBuffer'), <Object?>['none', 9]);
+      expect(await _callMethod(file, 'open', const <Object?>['r']), isTrue);
+      expect(await _callMethod(file, 'getBuffer'), <Object?>['none', 0]);
+      expect(adapter.lastOpenedDevice!.bufferMode, BufferMode.none);
+      expect(adapter.lastOpenedDevice!.bufferSize, 0);
+    },
+  );
+
+  test(
+    'filesystem File buffer failures preserve upstream fallback and false-return semantics',
+    () async {
+      final adapter = _TestLoveFilesystemAdapter();
+      adapter.addFile('/source/fractional.txt', 'abcdef');
+
+      final runtime = Interpreter();
+      installLove2d(runtime: runtime, filesystemAdapter: adapter);
+      await _call(
+        runtime,
+        const ['love', 'filesystem', 'setSource'],
+        const <Object?>['/source'],
+      );
+
+      final file = await _call(
+        runtime,
+        const ['love', 'filesystem', 'newFile'],
+        const <Object?>['fractional.txt'],
+      );
+      expect(file, isA<Map>());
+
+      expect(
+        await _callMethod(file!, 'setBuffer', const <Object?>['full', 12]),
+        isTrue,
+      );
+      expect(await _callMethod(file, 'getBuffer'), <Object?>['full', 12]);
+
+      adapter.setBufferingFailureError = 'buffer apply failed';
+      expect(await _callMethod(file, 'open', const <Object?>['r']), isTrue);
+      expect(await _callMethod(file, 'getBuffer'), <Object?>['none', 0]);
+
+      expect(
+        await _callMethod(file, 'setBuffer', const <Object?>['line', 7]),
+        isFalse,
+      );
+      expect(await _callMethod(file, 'getBuffer'), <Object?>['none', 0]);
+    },
+  );
+
+  test(
+    'filesystem File flush and close return false on backend failures like upstream LOVE',
+    () async {
+      final adapter = _TestLoveFilesystemAdapter();
+      final runtime = Interpreter();
+
+      installLove2d(runtime: runtime, filesystemAdapter: adapter);
+      await _call(
+        runtime,
+        const ['love', 'filesystem', 'setIdentity'],
+        const <Object?>['close-failure-test'],
+      );
+
+      final file = await _call(
+        runtime,
+        const ['love', 'filesystem', 'newFile'],
+        const <Object?>['state.txt'],
+      );
+      expect(file, isA<Map>());
+      expect(await _callMethod(file!, 'open', const <Object?>['w']), isTrue);
+
+      adapter.flushFailureError = 'flush failed';
+      expect(await _callMethod(file, 'flush'), isFalse);
+      expect(await _callMethod(file, 'isOpen'), isTrue);
+      expect(await _callMethod(file, 'getMode'), 'w');
+
+      adapter.closeFailureError = 'close failed';
+      expect(await _callMethod(file, 'close'), isFalse);
+      expect(await _callMethod(file, 'isOpen'), isTrue);
+      expect(await _callMethod(file, 'getMode'), 'w');
     },
   );
 
@@ -2768,6 +2997,51 @@ void main() {
             (error) => error.message,
             'message',
             'File:write expected string or data at argument 2',
+          ),
+        ),
+      );
+    },
+  );
+
+  test(
+    'filesystem module write APIs preserve upstream Data type-name errors',
+    () async {
+      final adapter = _TestLoveFilesystemAdapter();
+      final runtime = Interpreter();
+
+      installLove2d(runtime: runtime, filesystemAdapter: adapter);
+      await _call(
+        runtime,
+        const ['love', 'filesystem', 'setIdentity'],
+        const <Object?>['write-module-type-test'],
+      );
+
+      await expectLater(
+        () => _call(
+          runtime,
+          const ['love', 'filesystem', 'write'],
+          const <Object?>['state.txt', true],
+        ),
+        throwsA(
+          isA<LuaError>().having(
+            (error) => error.message,
+            'message',
+            'love.filesystem.write expected string or Data at argument 2',
+          ),
+        ),
+      );
+
+      await expectLater(
+        () => _call(
+          runtime,
+          const ['love', 'filesystem', 'append'],
+          const <Object?>['state.txt', true],
+        ),
+        throwsA(
+          isA<LuaError>().having(
+            (error) => error.message,
+            'message',
+            'love.filesystem.append expected string or Data at argument 2',
           ),
         ),
       );
@@ -3199,6 +3473,480 @@ void main() {
   );
 
   test(
+    'filesystem adapter replacement rebinds the mounted save root to the new adapter',
+    () async {
+      final initialAdapter = _TestLoveFilesystemAdapter(
+        appdataDirectory: '/appdata-initial',
+      );
+      final runtime = Interpreter();
+
+      installLove2d(runtime: runtime, filesystemAdapter: initialAdapter);
+      await _call(
+        runtime,
+        const ['love', 'filesystem', 'setIdentity'],
+        const <Object?>['game'],
+      );
+
+      expect(
+        await _call(runtime, const ['love', 'filesystem', 'getSaveDirectory']),
+        '/appdata-initial/love/game',
+      );
+      expect(
+        await _call(
+          runtime,
+          const ['love', 'filesystem', 'write'],
+          const <Object?>['state.txt', 'initial'],
+        ),
+        isTrue,
+      );
+
+      final replacementAdapter = _TestLoveFilesystemAdapter(
+        appdataDirectory: '/appdata-replacement',
+      );
+      LoveFilesystemState.attach(runtime, adapter: replacementAdapter);
+
+      expect(
+        await _call(runtime, const ['love', 'filesystem', 'getSaveDirectory']),
+        '/appdata-replacement/love/game',
+      );
+      expect(
+        await _call(
+          runtime,
+          const ['love', 'filesystem', 'write'],
+          const <Object?>['state.txt', 'replacement'],
+        ),
+        isTrue,
+      );
+      expect(
+        await _call(
+          runtime,
+          const ['love', 'filesystem', 'read'],
+          const <Object?>['state.txt'],
+        ),
+        <Object?>['replacement', 11],
+      );
+
+      expect(
+        String.fromCharCodes(
+          replacementAdapter.fileBytes(
+            '/appdata-replacement/love/game/state.txt',
+          ),
+        ),
+        'replacement',
+      );
+      expect(
+        String.fromCharCodes(
+          initialAdapter.fileBytes('/appdata-initial/love/game/state.txt'),
+        ),
+        'initial',
+      );
+    },
+  );
+
+  test(
+    'filesystem adapter replacement rebinds archive-backed source roots to the new adapter',
+    () async {
+      final initialAdapter = _TestLoveFilesystemAdapter();
+      initialAdapter.addFileBytes(
+        '/source/game.love',
+        _encodeZip(<String, String>{'main.lua': 'return 1'}),
+      );
+      final runtime = Interpreter();
+
+      installLove2d(runtime: runtime, filesystemAdapter: initialAdapter);
+      await _call(
+        runtime,
+        const ['love', 'filesystem', 'setSource'],
+        const <Object?>['/source/game.love'],
+      );
+
+      expect(
+        await _call(
+          runtime,
+          const ['love', 'filesystem', 'read'],
+          const <Object?>['main.lua'],
+        ),
+        <Object?>['return 1', 8],
+      );
+
+      final replacementAdapter = _TestLoveFilesystemAdapter();
+      replacementAdapter.addFileBytes(
+        '/source/game.love',
+        _encodeZip(<String, String>{'main.lua': 'return 2'}),
+      );
+      LoveFilesystemState.attach(runtime, adapter: replacementAdapter);
+
+      expect(
+        await _call(
+          runtime,
+          const ['love', 'filesystem', 'read'],
+          const <Object?>['main.lua'],
+        ),
+        <Object?>['return 2', 8],
+      );
+    },
+  );
+
+  test(
+    'filesystem adapter replacement rebinds save-relative string archive mounts to the new adapter',
+    () async {
+      final initialAdapter = _TestLoveFilesystemAdapter(
+        appdataDirectory: '/appdata-initial',
+      );
+      initialAdapter.addFileBytes(
+        '/appdata-initial/love/game/mods.zip',
+        _encodeZip(<String, String>{'main.lua': 'return 1'}),
+      );
+      final runtime = Interpreter();
+
+      installLove2d(runtime: runtime, filesystemAdapter: initialAdapter);
+      await _call(
+        runtime,
+        const ['love', 'filesystem', 'setIdentity'],
+        const <Object?>['game'],
+      );
+      expect(
+        await _call(
+          runtime,
+          const ['love', 'filesystem', 'mount'],
+          const <Object?>['mods.zip', 'mods'],
+        ),
+        isTrue,
+      );
+      expect(
+        await _call(
+          runtime,
+          const ['love', 'filesystem', 'read'],
+          const <Object?>['mods/main.lua'],
+        ),
+        <Object?>['return 1', 8],
+      );
+
+      final replacementAdapter = _TestLoveFilesystemAdapter(
+        appdataDirectory: '/appdata-replacement',
+      );
+      replacementAdapter.addFileBytes(
+        '/appdata-replacement/love/game/mods.zip',
+        _encodeZip(<String, String>{'main.lua': 'return 2'}),
+      );
+      LoveFilesystemState.attach(runtime, adapter: replacementAdapter);
+
+      expect(
+        await _call(
+          runtime,
+          const ['love', 'filesystem', 'read'],
+          const <Object?>['mods/main.lua'],
+        ),
+        <Object?>['return 2', 8],
+      );
+      expect(
+        await _call(
+          runtime,
+          const ['love', 'filesystem', 'unmount'],
+          const <Object?>['mods.zip'],
+        ),
+        isTrue,
+      );
+      expect(
+        await _call(
+          runtime,
+          const ['love', 'filesystem', 'getInfo'],
+          const <Object?>['mods/main.lua'],
+        ),
+        isNull,
+      );
+    },
+  );
+
+  test(
+    'filesystem adapter replacement rebinds save-relative string directory mounts to the new adapter',
+    () async {
+      final initialAdapter = _TestLoveFilesystemAdapter(
+        appdataDirectory: '/appdata-initial',
+      );
+      initialAdapter.addFile(
+        '/appdata-initial/love/game/mods/main.lua',
+        'return "initial"',
+      );
+      final runtime = Interpreter();
+
+      installLove2d(runtime: runtime, filesystemAdapter: initialAdapter);
+      await _call(
+        runtime,
+        const ['love', 'filesystem', 'setIdentity'],
+        const <Object?>['game'],
+      );
+      expect(
+        await _call(
+          runtime,
+          const ['love', 'filesystem', 'mount'],
+          const <Object?>['mods', 'mountedmods'],
+        ),
+        isTrue,
+      );
+      expect(
+        await _call(
+          runtime,
+          const ['love', 'filesystem', 'read'],
+          const <Object?>['mountedmods/main.lua'],
+        ),
+        <Object?>['return "initial"', 16],
+      );
+      expect(
+        await _call(
+          runtime,
+          const ['love', 'filesystem', 'getRealDirectory'],
+          const <Object?>['mountedmods/main.lua'],
+        ),
+        '/appdata-initial/love/game/mods',
+      );
+
+      final replacementAdapter = _TestLoveFilesystemAdapter(
+        appdataDirectory: '/appdata-replacement',
+      );
+      replacementAdapter.addFile(
+        '/appdata-replacement/love/game/mods/main.lua',
+        'return "replacement"',
+      );
+      LoveFilesystemState.attach(runtime, adapter: replacementAdapter);
+
+      expect(
+        await _call(
+          runtime,
+          const ['love', 'filesystem', 'read'],
+          const <Object?>['mountedmods/main.lua'],
+        ),
+        <Object?>['return "replacement"', 20],
+      );
+      expect(
+        await _call(
+          runtime,
+          const ['love', 'filesystem', 'getRealDirectory'],
+          const <Object?>['mountedmods/main.lua'],
+        ),
+        '/appdata-replacement/love/game/mods',
+      );
+    },
+  );
+
+  test(
+    'filesystem adapter replacement preserves string mount precedence order',
+    () async {
+      final initialAdapter = _TestLoveFilesystemAdapter(
+        appdataDirectory: '/appdata-initial',
+      );
+      initialAdapter.addFile(
+        '/appdata-initial/love/game/primary/main.lua',
+        'return "primary-initial"',
+      );
+      initialAdapter.addFile(
+        '/appdata-initial/love/game/secondary/main.lua',
+        'return "secondary-initial"',
+      );
+      final runtime = Interpreter();
+
+      installLove2d(runtime: runtime, filesystemAdapter: initialAdapter);
+      await _call(
+        runtime,
+        const ['love', 'filesystem', 'setIdentity'],
+        const <Object?>['game'],
+      );
+      expect(
+        await _call(
+          runtime,
+          const ['love', 'filesystem', 'mount'],
+          const <Object?>['primary', 'overlay', false],
+        ),
+        isTrue,
+      );
+      expect(
+        await _call(
+          runtime,
+          const ['love', 'filesystem', 'mount'],
+          const <Object?>['secondary', 'overlay', true],
+        ),
+        isTrue,
+      );
+      expect(
+        await _call(
+          runtime,
+          const ['love', 'filesystem', 'read'],
+          const <Object?>['overlay/main.lua'],
+        ),
+        <Object?>['return "primary-initial"', 24],
+      );
+
+      final replacementAdapter = _TestLoveFilesystemAdapter(
+        appdataDirectory: '/appdata-replacement',
+      );
+      replacementAdapter.addFile(
+        '/appdata-replacement/love/game/primary/main.lua',
+        'return "primary-replacement"',
+      );
+      replacementAdapter.addFile(
+        '/appdata-replacement/love/game/secondary/main.lua',
+        'return "secondary-replacement"',
+      );
+      LoveFilesystemState.attach(runtime, adapter: replacementAdapter);
+
+      expect(
+        await _call(
+          runtime,
+          const ['love', 'filesystem', 'read'],
+          const <Object?>['overlay/main.lua'],
+        ),
+        <Object?>['return "primary-replacement"', 28],
+      );
+    },
+  );
+
+  test(
+    'filesystem adapter replacement lets unmount remove save-relative string mounts even when the current adapter cannot resolve them',
+    () async {
+      final initialAdapter = _TestLoveFilesystemAdapter(
+        appdataDirectory: '/appdata-initial',
+      );
+      initialAdapter.addFileBytes(
+        '/appdata-initial/love/game/mods.zip',
+        _encodeZip(<String, String>{'main.lua': 'return 1'}),
+      );
+      final runtime = Interpreter();
+
+      installLove2d(runtime: runtime, filesystemAdapter: initialAdapter);
+      await _call(
+        runtime,
+        const ['love', 'filesystem', 'setIdentity'],
+        const <Object?>['game'],
+      );
+      expect(
+        await _call(
+          runtime,
+          const ['love', 'filesystem', 'mount'],
+          const <Object?>['mods.zip', 'mods'],
+        ),
+        isTrue,
+      );
+      expect(
+        await _call(
+          runtime,
+          const ['love', 'filesystem', 'read'],
+          const <Object?>['mods/main.lua'],
+        ),
+        <Object?>['return 1', 8],
+      );
+
+      LoveFilesystemState.attach(
+        runtime,
+        adapter: _TestLoveFilesystemAdapter(appdataDirectory: null),
+      );
+
+      expect(
+        await _call(
+          runtime,
+          const ['love', 'filesystem', 'unmount'],
+          const <Object?>['mods.zip'],
+        ),
+        isTrue,
+      );
+
+      final restoredAdapter = _TestLoveFilesystemAdapter(
+        appdataDirectory: '/appdata-restored',
+      );
+      restoredAdapter.addFileBytes(
+        '/appdata-restored/love/game/mods.zip',
+        _encodeZip(<String, String>{'main.lua': 'return 2'}),
+      );
+      LoveFilesystemState.attach(runtime, adapter: restoredAdapter);
+
+      expect(
+        await _call(
+          runtime,
+          const ['love', 'filesystem', 'getInfo'],
+          const <Object?>['mods/main.lua'],
+        ),
+        isNull,
+      );
+    },
+  );
+
+  test(
+    'filesystem adapter replacement restores the mounted save root after a temporary unwritable adapter',
+    () async {
+      final initialAdapter = _TestLoveFilesystemAdapter(
+        appdataDirectory: '/appdata-initial',
+      );
+      final runtime = Interpreter();
+
+      installLove2d(runtime: runtime, filesystemAdapter: initialAdapter);
+      await _call(
+        runtime,
+        const ['love', 'filesystem', 'setIdentity'],
+        const <Object?>['game'],
+      );
+
+      expect(
+        await _call(
+          runtime,
+          const ['love', 'filesystem', 'write'],
+          const <Object?>['state.txt', 'initial'],
+        ),
+        isTrue,
+      );
+
+      LoveFilesystemState.attach(
+        runtime,
+        adapter: _TestLoveFilesystemAdapter(appdataDirectory: null),
+      );
+
+      expect(
+        await _call(runtime, const ['love', 'filesystem', 'getSaveDirectory']),
+        '',
+      );
+      final unwritableWrite = _rawResults(
+        await _callRawPath(
+          runtime,
+          const ['love', 'filesystem', 'write'],
+          const <Object?>['state.txt', 'blocked'],
+        ),
+      );
+      expect(unwritableWrite[0], isNull);
+      expect(_unwrap(unwritableWrite[1]), 'Could not set write directory.');
+
+      final restoredAdapter = _TestLoveFilesystemAdapter(
+        appdataDirectory: '/appdata-restored',
+      );
+      LoveFilesystemState.attach(runtime, adapter: restoredAdapter);
+
+      expect(
+        await _call(runtime, const ['love', 'filesystem', 'getSaveDirectory']),
+        '/appdata-restored/love/game',
+      );
+      expect(
+        await _call(
+          runtime,
+          const ['love', 'filesystem', 'write'],
+          const <Object?>['state.txt', 'restored'],
+        ),
+        isTrue,
+      );
+      expect(
+        await _call(
+          runtime,
+          const ['love', 'filesystem', 'read'],
+          const <Object?>['state.txt'],
+        ),
+        <Object?>['restored', 8],
+      );
+      expect(
+        String.fromCharCodes(
+          restoredAdapter.fileBytes('/appdata-restored/love/game/state.txt'),
+        ),
+        'restored',
+      );
+    },
+  );
+
+  test(
     'filesystem lines, tell, and seek preserve LOVE file-object edge-case behavior',
     () async {
       final adapter = _TestLoveFilesystemAdapter();
@@ -3453,6 +4201,89 @@ testbed = {
         <Object?>[null, 'File does not exist on disk.'],
       );
     },
+  );
+
+  test(
+    'filesystem mounts 7z archives from FileData as virtual readable roots',
+    () async {
+      final adapter = _TestLoveFilesystemAdapter();
+      final runtime = LoveScriptRuntime(filesystemAdapter: adapter);
+      final interpreter = runtime.runtime as Interpreter;
+
+      final archiveData = await _call(
+        interpreter,
+        const ['love', 'filesystem', 'newFileData'],
+        <Object?>[
+          _encode7z(<String, String>{
+            'boot.lua': 'return 71',
+            'pkg/init.lua': 'return { answer = 17, label = "7z-filedata" }',
+          }),
+          'mods.7z',
+        ],
+      );
+      expect(archiveData, isA<Map>());
+
+      expect(
+        await _call(
+          interpreter,
+          const ['love', 'filesystem', 'mount'],
+          <Object?>[archiveData, 'packed7z', true],
+        ),
+        isTrue,
+      );
+
+      expect(
+        await _call(
+          interpreter,
+          const ['love', 'filesystem', 'read'],
+          const <Object?>['packed7z/boot.lua'],
+        ),
+        <Object?>['return 71', 9],
+      );
+      expect(
+        await _call(
+          interpreter,
+          const ['love', 'filesystem', 'getRealDirectory'],
+          const <Object?>['packed7z/boot.lua'],
+        ),
+        <Object?>[null, 'File does not exist on disk.'],
+      );
+
+      await _call(
+        interpreter,
+        const ['love', 'filesystem', 'setRequirePath'],
+        const <Object?>['packed7z/?.lua;packed7z/?/init.lua'],
+      );
+      final pkgResult = _rawResults(
+        await _callRawPath(
+          interpreter,
+          const ['require'],
+          <Object?>[Value('pkg')],
+        ),
+      );
+      final pkg = (pkgResult.first as Value).unwrap() as Map;
+      expect(pkg['answer'], 17);
+      expect(pkg['label'], '7z-filedata');
+      expect(_unwrap(pkgResult[1]), 'packed7z/pkg/init.lua');
+
+      expect(
+        await _call(
+          interpreter,
+          const ['love', 'filesystem', 'unmount'],
+          <Object?>[archiveData],
+        ),
+        isTrue,
+      );
+      expect(
+        await _call(
+          interpreter,
+          const ['love', 'filesystem', 'getInfo'],
+          const <Object?>['packed7z/boot.lua'],
+        ),
+        isNull,
+      );
+    },
+    skip: _sevenZipSupportSkipReason,
   );
 
   test(
@@ -3890,6 +4721,652 @@ testbed = {
   );
 
   test(
+    'filesystem mounts wad archives from string paths as virtual roots',
+    () async {
+      final adapter = _TestLoveFilesystemAdapter();
+      adapter.addFileBytes(
+        '/mods/extra.wad',
+        _encodeWad(<String, String>{
+          'mod.lua': 'return 93',
+          'readme': 'hello wad',
+        }),
+      );
+
+      final runtime = LoveScriptRuntime(filesystemAdapter: adapter);
+      final interpreter = runtime.runtime as Interpreter;
+      _allowStringMount(interpreter, '/mods/extra.wad');
+
+      expect(
+        await _call(
+          interpreter,
+          const ['love', 'filesystem', 'mount'],
+          const <Object?>['/mods/extra.wad', 'wadmods', true],
+        ),
+        isTrue,
+      );
+      await _call(
+        interpreter,
+        const ['love', 'filesystem', 'setRequirePath'],
+        const <Object?>['wadmods/?.lua'],
+      );
+
+      final moduleResult = _rawResults(
+        await _callRawPath(
+          interpreter,
+          const ['require'],
+          <Object?>[Value('mod')],
+        ),
+      );
+
+      expect(_unwrap(moduleResult.first), 93);
+      expect(_unwrap(moduleResult[1]), 'wadmods/mod.lua');
+      expect(
+        await _call(
+          interpreter,
+          const ['love', 'filesystem', 'read'],
+          const <Object?>['wadmods/readme'],
+        ),
+        <Object?>['hello wad', 9],
+      );
+      expect(
+        await _call(
+          interpreter,
+          const ['love', 'filesystem', 'getDirectoryItems'],
+          const <Object?>['wadmods'],
+        ),
+        <Object?, Object?>{1: 'mod.lua', 2: 'readme'},
+      );
+      expect(
+        await _call(
+          interpreter,
+          const ['love', 'filesystem', 'getRealDirectory'],
+          const <Object?>['wadmods/mod.lua'],
+        ),
+        '/mods/extra.wad',
+      );
+    },
+  );
+
+  test(
+    'filesystem mounts mvl archives from FileData as virtual readable roots',
+    () async {
+      final adapter = _TestLoveFilesystemAdapter();
+      final runtime = LoveScriptRuntime(filesystemAdapter: adapter);
+      final interpreter = runtime.runtime as Interpreter;
+
+      final archiveData = await _call(
+        interpreter,
+        const ['love', 'filesystem', 'newFileData'],
+        <Object?>[
+          _encodeMvl(<String, String>{
+            'mod.lua': 'return 94',
+            'note.txt': 'hello mvl',
+          }),
+          'mods.mvl',
+        ],
+      );
+      expect(archiveData, isA<Map>());
+
+      expect(
+        await _call(
+          interpreter,
+          const ['love', 'filesystem', 'mount'],
+          <Object?>[archiveData, 'mvlmods', true],
+        ),
+        isTrue,
+      );
+      await _call(
+        interpreter,
+        const ['love', 'filesystem', 'setRequirePath'],
+        const <Object?>['mvlmods/?.lua'],
+      );
+
+      final moduleResult = _rawResults(
+        await _callRawPath(
+          interpreter,
+          const ['require'],
+          <Object?>[Value('mod')],
+        ),
+      );
+
+      expect(_unwrap(moduleResult.first), 94);
+      expect(_unwrap(moduleResult[1]), 'mvlmods/mod.lua');
+      expect(
+        await _call(
+          interpreter,
+          const ['love', 'filesystem', 'read'],
+          const <Object?>['mvlmods/note.txt'],
+        ),
+        <Object?>['hello mvl', 9],
+      );
+      expect(
+        await _call(
+          interpreter,
+          const ['love', 'filesystem', 'getRealDirectory'],
+          const <Object?>['mvlmods/note.txt'],
+        ),
+        <Object?>[null, 'File does not exist on disk.'],
+      );
+    },
+  );
+
+  test(
+    'filesystem mounts hog archives from string paths as virtual roots',
+    () async {
+      final adapter = _TestLoveFilesystemAdapter();
+      adapter.addFileBytes(
+        '/mods/extra.hog',
+        _encodeHog(<String, String>{
+          'mod.lua': 'return 95',
+          'note.txt': 'hello hog',
+        }),
+      );
+
+      final runtime = LoveScriptRuntime(filesystemAdapter: adapter);
+      final interpreter = runtime.runtime as Interpreter;
+      _allowStringMount(interpreter, '/mods/extra.hog');
+
+      expect(
+        await _call(
+          interpreter,
+          const ['love', 'filesystem', 'mount'],
+          const <Object?>['/mods/extra.hog', 'hogmods', true],
+        ),
+        isTrue,
+      );
+      await _call(
+        interpreter,
+        const ['love', 'filesystem', 'setRequirePath'],
+        const <Object?>['hogmods/?.lua'],
+      );
+
+      final moduleResult = _rawResults(
+        await _callRawPath(
+          interpreter,
+          const ['require'],
+          <Object?>[Value('mod')],
+        ),
+      );
+
+      expect(_unwrap(moduleResult.first), 95);
+      expect(_unwrap(moduleResult[1]), 'hogmods/mod.lua');
+      expect(
+        await _call(
+          interpreter,
+          const ['love', 'filesystem', 'read'],
+          const <Object?>['hogmods/note.txt'],
+        ),
+        <Object?>['hello hog', 9],
+      );
+      expect(
+        await _call(
+          interpreter,
+          const ['love', 'filesystem', 'getRealDirectory'],
+          const <Object?>['hogmods/mod.lua'],
+        ),
+        '/mods/extra.hog',
+      );
+    },
+  );
+
+  test(
+    'filesystem mounts grp archives from string paths as virtual roots',
+    () async {
+      final adapter = _TestLoveFilesystemAdapter();
+      adapter.addFileBytes(
+        '/mods/extra.grp',
+        _encodeGrp(<String, String>{
+          'mod.lua': 'return 96',
+          'readme.txt': 'hello grp',
+        }),
+      );
+
+      final runtime = LoveScriptRuntime(filesystemAdapter: adapter);
+      final interpreter = runtime.runtime as Interpreter;
+      _allowStringMount(interpreter, '/mods/extra.grp');
+
+      expect(
+        await _call(
+          interpreter,
+          const ['love', 'filesystem', 'mount'],
+          const <Object?>['/mods/extra.grp', 'grpmods', true],
+        ),
+        isTrue,
+      );
+      await _call(
+        interpreter,
+        const ['love', 'filesystem', 'setRequirePath'],
+        const <Object?>['grpmods/?.lua'],
+      );
+
+      final moduleResult = _rawResults(
+        await _callRawPath(
+          interpreter,
+          const ['require'],
+          <Object?>[Value('mod')],
+        ),
+      );
+
+      expect(_unwrap(moduleResult.first), 96);
+      expect(_unwrap(moduleResult[1]), 'grpmods/mod.lua');
+      expect(
+        await _call(
+          interpreter,
+          const ['love', 'filesystem', 'read'],
+          const <Object?>['grpmods/readme.txt'],
+        ),
+        <Object?>['hello grp', 9],
+      );
+      expect(
+        await _call(
+          interpreter,
+          const ['love', 'filesystem', 'getRealDirectory'],
+          const <Object?>['grpmods/mod.lua'],
+        ),
+        '/mods/extra.grp',
+      );
+    },
+  );
+
+  test(
+    'filesystem mounts pak archives from string paths as virtual roots',
+    () async {
+      final adapter = _TestLoveFilesystemAdapter();
+      adapter.addFileBytes(
+        '/mods/extra.pak',
+        _encodePak(<String, String>{
+          'mod.lua': 'return 97',
+          'nested/init.lua': 'return { label = "pak" }',
+        }),
+      );
+
+      final runtime = LoveScriptRuntime(filesystemAdapter: adapter);
+      final interpreter = runtime.runtime as Interpreter;
+      _allowStringMount(interpreter, '/mods/extra.pak');
+
+      expect(
+        await _call(
+          interpreter,
+          const ['love', 'filesystem', 'mount'],
+          const <Object?>['/mods/extra.pak', 'pakmods', true],
+        ),
+        isTrue,
+      );
+      await _call(
+        interpreter,
+        const ['love', 'filesystem', 'setRequirePath'],
+        const <Object?>['pakmods/?.lua;pakmods/?/init.lua'],
+      );
+
+      final moduleResult = _rawResults(
+        await _callRawPath(
+          interpreter,
+          const ['require'],
+          <Object?>[Value('mod')],
+        ),
+      );
+      final nestedResult = _rawResults(
+        await _callRawPath(
+          interpreter,
+          const ['require'],
+          <Object?>[Value('nested')],
+        ),
+      );
+      final nested = _unwrap(nestedResult.first) as Map;
+
+      expect(_unwrap(moduleResult.first), 97);
+      expect(_unwrap(moduleResult[1]), 'pakmods/mod.lua');
+      expect(nested['label'], 'pak');
+      expect(_unwrap(nestedResult[1]), 'pakmods/nested/init.lua');
+      expect(
+        await _call(
+          interpreter,
+          const ['love', 'filesystem', 'getRealDirectory'],
+          const <Object?>['pakmods/mod.lua'],
+        ),
+        '/mods/extra.pak',
+      );
+    },
+  );
+
+  test(
+    'filesystem mounts slb archives from string paths as virtual roots',
+    () async {
+      final adapter = _TestLoveFilesystemAdapter();
+      adapter.addFileBytes(
+        '/mods/extra.slb',
+        _encodeSlb(<String, String>{
+          'mod.lua': 'return 98',
+          'nested/init.lua': 'return { label = "slb" }',
+        }),
+      );
+
+      final runtime = LoveScriptRuntime(filesystemAdapter: adapter);
+      final interpreter = runtime.runtime as Interpreter;
+      _allowStringMount(interpreter, '/mods/extra.slb');
+
+      expect(
+        await _call(
+          interpreter,
+          const ['love', 'filesystem', 'mount'],
+          const <Object?>['/mods/extra.slb', 'slbmods', true],
+        ),
+        isTrue,
+      );
+      await _call(
+        interpreter,
+        const ['love', 'filesystem', 'setRequirePath'],
+        const <Object?>['slbmods/?.lua;slbmods/?/init.lua'],
+      );
+
+      final moduleResult = _rawResults(
+        await _callRawPath(
+          interpreter,
+          const ['require'],
+          <Object?>[Value('mod')],
+        ),
+      );
+      final nestedResult = _rawResults(
+        await _callRawPath(
+          interpreter,
+          const ['require'],
+          <Object?>[Value('nested')],
+        ),
+      );
+      final nested = _unwrap(nestedResult.first) as Map;
+
+      expect(_unwrap(moduleResult.first), 98);
+      expect(_unwrap(moduleResult[1]), 'slbmods/mod.lua');
+      expect(nested['label'], 'slb');
+      expect(_unwrap(nestedResult[1]), 'slbmods/nested/init.lua');
+      expect(
+        await _call(
+          interpreter,
+          const ['love', 'filesystem', 'getRealDirectory'],
+          const <Object?>['slbmods/mod.lua'],
+        ),
+        '/mods/extra.slb',
+      );
+    },
+  );
+
+  test(
+    'filesystem mounts vdf archives from FileData as virtual readable roots',
+    () async {
+      final adapter = _TestLoveFilesystemAdapter();
+      final runtime = LoveScriptRuntime(filesystemAdapter: adapter);
+      final interpreter = runtime.runtime as Interpreter;
+
+      final archiveData = await _call(
+        interpreter,
+        const ['love', 'filesystem', 'newFileData'],
+        <Object?>[
+          _encodeVdf(
+            <String, String>{
+              'mod.lua': 'return 99',
+              'nested/init.lua': 'return { label = "vdf" }',
+            },
+            directories: <String>['nested'],
+          ),
+          'mods.vdf',
+        ],
+      );
+      expect(archiveData, isA<Map>());
+
+      expect(
+        await _call(
+          interpreter,
+          const ['love', 'filesystem', 'mount'],
+          <Object?>[archiveData, 'vdfmods', true],
+        ),
+        isTrue,
+      );
+      await _call(
+        interpreter,
+        const ['love', 'filesystem', 'setRequirePath'],
+        const <Object?>['vdfmods/?.lua;vdfmods/?/init.lua'],
+      );
+
+      final moduleResult = _rawResults(
+        await _callRawPath(
+          interpreter,
+          const ['require'],
+          <Object?>[Value('mod')],
+        ),
+      );
+      final nestedResult = _rawResults(
+        await _callRawPath(
+          interpreter,
+          const ['require'],
+          <Object?>[Value('nested')],
+        ),
+      );
+      final nested = _unwrap(nestedResult.first) as Map;
+
+      expect(_unwrap(moduleResult.first), 99);
+      expect(_unwrap(moduleResult[1]), 'vdfmods/mod.lua');
+      expect(nested['label'], 'vdf');
+      expect(_unwrap(nestedResult[1]), 'vdfmods/nested/init.lua');
+      expect(
+        await _call(
+          interpreter,
+          const ['love', 'filesystem', 'read'],
+          const <Object?>['vdfmods/nested/init.lua'],
+        ),
+        <Object?>['return { label = "vdf" }', 24],
+      );
+      expect(
+        await _call(
+          interpreter,
+          const ['love', 'filesystem', 'getRealDirectory'],
+          const <Object?>['vdfmods/mod.lua'],
+        ),
+        <Object?>[null, 'File does not exist on disk.'],
+      );
+    },
+  );
+
+  test(
+    'filesystem mounts iso archives from string paths as virtual roots',
+    () async {
+      final adapter = _TestLoveFilesystemAdapter();
+      adapter.addFileBytes(
+        '/mods/extra.iso',
+        _encodeIso(<String, String>{
+          'mod.lua': 'return 100',
+          'nested/init.lua': 'return { label = "iso" }',
+        }),
+      );
+
+      final runtime = LoveScriptRuntime(filesystemAdapter: adapter);
+      final interpreter = runtime.runtime as Interpreter;
+      _allowStringMount(interpreter, '/mods/extra.iso');
+
+      expect(
+        await _call(
+          interpreter,
+          const ['love', 'filesystem', 'mount'],
+          const <Object?>['/mods/extra.iso', 'isomods', true],
+        ),
+        isTrue,
+      );
+      await _call(
+        interpreter,
+        const ['love', 'filesystem', 'setRequirePath'],
+        const <Object?>['isomods/?.lua;isomods/?/init.lua'],
+      );
+
+      final moduleResult = _rawResults(
+        await _callRawPath(
+          interpreter,
+          const ['require'],
+          <Object?>[Value('mod')],
+        ),
+      );
+      final nestedResult = _rawResults(
+        await _callRawPath(
+          interpreter,
+          const ['require'],
+          <Object?>[Value('nested')],
+        ),
+      );
+      final nested = _unwrap(nestedResult.first) as Map;
+
+      expect(_unwrap(moduleResult.first), 100);
+      expect(_unwrap(moduleResult[1]), 'isomods/mod.lua');
+      expect(nested['label'], 'iso');
+      expect(_unwrap(nestedResult[1]), 'isomods/nested/init.lua');
+      expect(
+        await _call(
+          interpreter,
+          const ['love', 'filesystem', 'getRealDirectory'],
+          const <Object?>['isomods/mod.lua'],
+        ),
+        '/mods/extra.iso',
+      );
+    },
+  );
+
+  test('filesystem mount rejects invalid .7z archives cleanly', () async {
+    final adapter = _TestLoveFilesystemAdapter();
+    adapter.addFileBytes('/mods/extra.7z', _fake7zBytes());
+
+    final runtime = LoveScriptRuntime(filesystemAdapter: adapter);
+    final interpreter = runtime.runtime as Interpreter;
+    _allowStringMount(interpreter, '/mods/extra.7z');
+
+    expect(
+      await _call(
+        interpreter,
+        const ['love', 'filesystem', 'mount'],
+        const <Object?>['/mods/extra.7z', 'sevenmods', true],
+      ),
+      isFalse,
+    );
+    expect(
+      await _call(
+        interpreter,
+        const ['love', 'filesystem', 'read'],
+        const <Object?>['sevenmods/mod.lua'],
+      ),
+      <Object?>[null, 'Could not open file sevenmods/mod.lua. Does not exist.'],
+    );
+  });
+
+  test(
+    'filesystem mounts 7z archives from string paths as virtual roots',
+    () async {
+      final adapter = _TestLoveFilesystemAdapter();
+      adapter.addFileBytes(
+        '/mods/extra.7z',
+        _encode7z(<String, String>{
+          'mod.lua': 'return 97',
+          'nested/init.lua': 'return { label = "7z" }',
+        }),
+      );
+
+      final runtime = LoveScriptRuntime(filesystemAdapter: adapter);
+      final interpreter = runtime.runtime as Interpreter;
+      _allowStringMount(interpreter, '/mods/extra.7z');
+
+      expect(
+        await _call(
+          interpreter,
+          const ['love', 'filesystem', 'mount'],
+          const <Object?>['/mods/extra.7z', 'sevenmods', true],
+        ),
+        isTrue,
+      );
+      await _call(
+        interpreter,
+        const ['love', 'filesystem', 'setRequirePath'],
+        const <Object?>['sevenmods/?.lua;sevenmods/?/init.lua'],
+      );
+
+      expect(
+        await _call(
+          interpreter,
+          const ['love', 'filesystem', 'read'],
+          const <Object?>['sevenmods/mod.lua'],
+        ),
+        <Object?>['return 97', 9],
+      );
+
+      final nestedResult = _rawResults(
+        await _callRawPath(
+          interpreter,
+          const ['require'],
+          <Object?>[Value('nested')],
+        ),
+      );
+      final nested = (nestedResult.first as Value).unwrap() as Map;
+      expect(nested['label'], '7z');
+      expect(_unwrap(nestedResult[1]), 'sevenmods/nested/init.lua');
+      expect(
+        await _call(
+          interpreter,
+          const ['love', 'filesystem', 'getRealDirectory'],
+          const <Object?>['sevenmods/mod.lua'],
+        ),
+        '/mods/extra.7z',
+      );
+    },
+    skip: _sevenZipSupportSkipReason,
+  );
+
+  test(
+    'filesystem mounts 7z archives with literal dash-prefixed entry names',
+    () async {
+      final adapter = _TestLoveFilesystemAdapter();
+      adapter.addFileBytes(
+        '/mods/literal.7z',
+        _encode7z(<String, String>{
+          '-leading.lua': 'return "leading"',
+          '[notes].txt': 'literal brackets',
+        }),
+      );
+
+      final runtime = LoveScriptRuntime(filesystemAdapter: adapter);
+      final interpreter = runtime.runtime as Interpreter;
+      _allowStringMount(interpreter, '/mods/literal.7z');
+
+      expect(
+        await _call(
+          interpreter,
+          const ['love', 'filesystem', 'mount'],
+          const <Object?>['/mods/literal.7z', 'literalmods', true],
+        ),
+        isTrue,
+      );
+      expect(
+        await _call(
+          interpreter,
+          const ['love', 'filesystem', 'read'],
+          const <Object?>['literalmods/-leading.lua'],
+        ),
+        <Object?>['return "leading"', 16],
+      );
+      expect(
+        await _call(
+          interpreter,
+          const ['love', 'filesystem', 'read'],
+          const <Object?>['literalmods/[notes].txt'],
+        ),
+        <Object?>['literal brackets', 16],
+      );
+      expect(
+        await _call(
+          interpreter,
+          const ['love', 'filesystem', 'getRealDirectory'],
+          const <Object?>['literalmods/-leading.lua'],
+        ),
+        '/mods/literal.7z',
+      );
+    },
+    skip: _sevenZipSupportSkipReason,
+  );
+
+  test(
     'filesystem mount falls back to openFile when direct archive byte reads throw',
     () async {
       final adapter = _TestLoveFilesystemAdapter();
@@ -4288,6 +5765,64 @@ testbed = {
   );
 
   test(
+    'filesystem mounts generic Data wrappers with explicit 7z archive names',
+    () async {
+      final adapter = _TestLoveFilesystemAdapter();
+      final runtime = LoveScriptRuntime(filesystemAdapter: adapter);
+      final interpreter = runtime.runtime as Interpreter;
+      final archiveData = _genericDataWrapper(
+        _encode7z(<String, String>{
+          'pkg/init.lua': 'return { value = 717, kind = "7z" }',
+        }),
+      );
+
+      expect(
+        await _call(
+          interpreter,
+          const ['love', 'filesystem', 'mount'],
+          <Object?>[archiveData, 'generic.7z', 'generic7z', true],
+        ),
+        isTrue,
+      );
+
+      expect(
+        await _call(
+          interpreter,
+          const ['love', 'filesystem', 'read'],
+          const <Object?>['generic7z/pkg/init.lua'],
+        ),
+        <Object?>['return { value = 717, kind = "7z" }', 35],
+      );
+      expect(
+        await _call(
+          interpreter,
+          const ['love', 'filesystem', 'getRealDirectory'],
+          const <Object?>['generic7z/pkg/init.lua'],
+        ),
+        <Object?>[null, 'File does not exist on disk.'],
+      );
+
+      expect(
+        await _call(
+          interpreter,
+          const ['love', 'filesystem', 'unmount'],
+          <Object?>[archiveData],
+        ),
+        isTrue,
+      );
+      expect(
+        await _call(
+          interpreter,
+          const ['love', 'filesystem', 'getInfo'],
+          const <Object?>['generic7z/pkg/init.lua'],
+        ),
+        isNull,
+      );
+    },
+    skip: _sevenZipSupportSkipReason,
+  );
+
+  test(
     'filesystem mount overloads preserve upstream FileData and Data argument selection',
     () async {
       final adapter = _TestLoveFilesystemAdapter();
@@ -4650,6 +6185,80 @@ testbed = {
   );
 
   test(
+    'filesystem wraps DroppedFile objects and mounts dropped 7z archives',
+    () async {
+      final adapter = _TestLoveFilesystemAdapter();
+      adapter.addFileBytes(
+        '/drop/mod.7z',
+        _encode7z(<String, String>{
+          'dropped.lua': 'return { dropped = "7z" }',
+          'readme.txt': 'from dropped 7z',
+        }),
+      );
+
+      final runtime = LoveScriptRuntime(filesystemAdapter: adapter);
+      final interpreter = runtime.runtime as Interpreter;
+      final dropped = await wrapLoveFilesystemDroppedFileForRuntime(
+        interpreter,
+        LoveFilesystemDroppedFile(
+          state: LoveFilesystemState.attach(interpreter),
+          filename: '/drop/mod.7z',
+        ),
+      );
+
+      expect(await _callMethod(dropped, 'type'), 'DroppedFile');
+      expect(await _callMethod(dropped, 'getExtension'), '7z');
+      expect(await _callMethod(dropped, 'getFilename'), '/drop/mod.7z');
+      expect(await _callMethod(dropped, 'open', const <Object?>['r']), isTrue);
+      expect(await _callMethod(dropped, 'getSize'), greaterThan(0));
+      expect(await _callMethod(dropped, 'close'), isTrue);
+
+      expect(
+        await _call(
+          interpreter,
+          const ['love', 'filesystem', 'mount'],
+          <Object?>[dropped, 'dropped7zmods', true],
+        ),
+        isTrue,
+      );
+      await _call(
+        interpreter,
+        const ['love', 'filesystem', 'setRequirePath'],
+        const <Object?>['dropped7zmods/?.lua;?.lua'],
+      );
+
+      final droppedResult = _rawResults(
+        await _callRawPath(
+          interpreter,
+          const ['require'],
+          <Object?>[Value('dropped')],
+        ),
+      );
+      final module = _unwrap(droppedResult.first) as Map;
+
+      expect(module['dropped'], '7z');
+      expect(_unwrap(droppedResult[1]), 'dropped7zmods/dropped.lua');
+      expect(
+        await _call(
+          interpreter,
+          const ['love', 'filesystem', 'read'],
+          const <Object?>['dropped7zmods/readme.txt'],
+        ),
+        <Object?>['from dropped 7z', 15],
+      );
+      expect(
+        await _call(
+          interpreter,
+          const ['love', 'filesystem', 'getRealDirectory'],
+          const <Object?>['dropped7zmods/readme.txt'],
+        ),
+        '/drop/mod.7z',
+      );
+    },
+    skip: _sevenZipSupportSkipReason,
+  );
+
+  test(
     'filesystem dropped file wrappers allow later string mounts of the dropped filename',
     () async {
       final adapter = _TestLoveFilesystemAdapter();
@@ -4708,6 +6317,65 @@ testbed = {
   );
 
   test(
+    'filesystem dropped 7z file wrappers allow later string mounts of the dropped filename',
+    () async {
+      final adapter = _TestLoveFilesystemAdapter();
+      adapter.addFileBytes(
+        '/drop/mod.7z',
+        _encode7z(<String, String>{
+          'dropped.lua': 'return { dropped = "7z" }',
+          'readme.txt': 'from dropped 7z',
+        }),
+      );
+
+      final runtime = LoveScriptRuntime(filesystemAdapter: adapter);
+      final interpreter = runtime.runtime as Interpreter;
+
+      await wrapLoveFilesystemDroppedFileForRuntime(
+        interpreter,
+        LoveFilesystemDroppedFile(
+          state: LoveFilesystemState.attach(interpreter),
+          filename: '/drop/mod.7z',
+        ),
+      );
+
+      expect(
+        await _call(
+          interpreter,
+          const ['love', 'filesystem', 'mount'],
+          const <Object?>['/drop/mod.7z', 'named7zmods', true],
+        ),
+        isTrue,
+      );
+      expect(
+        await _call(
+          interpreter,
+          const ['love', 'filesystem', 'read'],
+          const <Object?>['named7zmods/readme.txt'],
+        ),
+        <Object?>['from dropped 7z', 15],
+      );
+      expect(
+        await _call(
+          interpreter,
+          const ['love', 'filesystem', 'unmount'],
+          const <Object?>['/drop/mod.7z'],
+        ),
+        isTrue,
+      );
+      expect(
+        await _call(
+          interpreter,
+          const ['love', 'filesystem', 'getInfo'],
+          const <Object?>['named7zmods/readme.txt'],
+        ),
+        isNull,
+      );
+    },
+    skip: _sevenZipSupportSkipReason,
+  );
+
+  test(
     'filesystem File:lines reads dropped files through the file object',
     () async {
       final adapter = _TestLoveFilesystemAdapter();
@@ -4730,6 +6398,106 @@ testbed = {
       expect(await _callMethod(dropped, 'tell'), 11);
       expect(await _callBuiltin(iterator), isNull);
       expect(await _callMethod(dropped, 'isOpen'), isFalse);
+    },
+  );
+
+  test(
+    'filesystem DroppedFile buffer sizing preserves upstream BUFFER_NONE normalization',
+    () async {
+      final adapter = _TestLoveFilesystemAdapter();
+      adapter.addFile('/drop/notes.txt', 'alpha\nbeta\n');
+
+      final runtime = LoveScriptRuntime(filesystemAdapter: adapter);
+      final interpreter = runtime.runtime as Interpreter;
+      final dropped = await wrapLoveFilesystemDroppedFileForRuntime(
+        interpreter,
+        LoveFilesystemDroppedFile(
+          state: LoveFilesystemState.attach(interpreter),
+          filename: '/drop/notes.txt',
+        ),
+      );
+
+      expect(
+        await _callMethod(dropped, 'setBuffer', const <Object?>['none', 9.9]),
+        isTrue,
+      );
+      expect(await _callMethod(dropped, 'getBuffer'), <Object?>['none', 0]);
+
+      expect(await _callMethod(dropped, 'open', const <Object?>['r']), isTrue);
+      expect(adapter.lastOpenedDevice, isNotNull);
+      expect(adapter.lastOpenedDevice!.bufferMode, BufferMode.none);
+      expect(adapter.lastOpenedDevice!.bufferSize, 0);
+      expect(await _callMethod(dropped, 'getBuffer'), <Object?>['none', 0]);
+    },
+  );
+
+  test(
+    'filesystem DroppedFile buffer failures preserve upstream fallback and false-return semantics',
+    () async {
+      final adapter = _TestLoveFilesystemAdapter();
+      adapter.addFile('/drop/notes.txt', 'alpha\nbeta\n');
+
+      final runtime = LoveScriptRuntime(filesystemAdapter: adapter);
+      final interpreter = runtime.runtime as Interpreter;
+      final dropped = await wrapLoveFilesystemDroppedFileForRuntime(
+        interpreter,
+        LoveFilesystemDroppedFile(
+          state: LoveFilesystemState.attach(interpreter),
+          filename: '/drop/notes.txt',
+        ),
+      );
+
+      expect(
+        await _callMethod(dropped, 'setBuffer', const <Object?>['full', 12]),
+        isTrue,
+      );
+      expect(await _callMethod(dropped, 'getBuffer'), <Object?>['full', 12]);
+
+      adapter.setBufferingFailureError = 'buffer apply failed';
+      expect(await _callMethod(dropped, 'open', const <Object?>['r']), isTrue);
+      expect(await _callMethod(dropped, 'getBuffer'), <Object?>['none', 0]);
+
+      expect(
+        await _callMethod(dropped, 'setBuffer', const <Object?>['line', 7]),
+        isFalse,
+      );
+      expect(await _callMethod(dropped, 'getBuffer'), <Object?>['none', 0]);
+    },
+  );
+
+  test(
+    'filesystem DroppedFile open failure semantics match upstream LOVE',
+    () async {
+      final adapter = _TestLoveFilesystemAdapter();
+      adapter.addFile('/drop/blocked.txt', 'payload');
+      adapter.failOpen('/drop/blocked.txt', 'permission denied');
+
+      final runtime = LoveScriptRuntime(filesystemAdapter: adapter);
+      final interpreter = runtime.runtime as Interpreter;
+      final dropped = await wrapLoveFilesystemDroppedFileForRuntime(
+        interpreter,
+        LoveFilesystemDroppedFile(
+          state: LoveFilesystemState.attach(interpreter),
+          filename: '/drop/blocked.txt',
+        ),
+      );
+
+      final readResult = _rawResults(
+        await _callMethod(dropped, 'open', const <Object?>['r']),
+      );
+      expect(readResult[0], isNull);
+      expect(
+        _unwrap(readResult[1]),
+        'Could not open file /drop/blocked.txt. Does not exist.',
+      );
+      expect(await _callMethod(dropped, 'getMode'), 'c');
+
+      final writeResult = _rawResults(
+        await _callMethod(dropped, 'open', const <Object?>['w']),
+      );
+      expect(writeResult, <Object?>[false]);
+      expect(await _callMethod(dropped, 'isOpen'), isFalse);
+      expect(await _callMethod(dropped, 'getMode'), 'w');
     },
   );
 
@@ -5017,6 +6785,567 @@ List<int> _encodeTarXz(Map<String, String> files) {
   return XZEncoder().encodeBytes(_encodeTar(files));
 }
 
+List<int> _encodeWad(Map<String, String> files) {
+  final data = <int>[];
+  final directory = <int>[];
+  var fileOffset = 12;
+  for (final entry in files.entries) {
+    final List<int> bytes = ascii.encode(entry.value);
+    directory
+      ..addAll(_u32le(fileOffset))
+      ..addAll(_u32le(bytes.length))
+      ..addAll(_fixedAsciiBytes(entry.key, 8));
+    data.addAll(bytes);
+    fileOffset += bytes.length;
+  }
+
+  return <int>[
+    ...ascii.encode('PWAD'),
+    ..._u32le(files.length),
+    ..._u32le(12 + data.length),
+    ...data,
+    ...directory,
+  ];
+}
+
+List<int> _encodeMvl(Map<String, String> files) {
+  final directory = <int>[];
+  final data = <int>[];
+  for (final entry in files.entries) {
+    final List<int> bytes = ascii.encode(entry.value);
+    directory
+      ..addAll(_fixedAsciiBytes(entry.key, 13))
+      ..addAll(_u32le(bytes.length));
+    data.addAll(bytes);
+  }
+
+  return <int>[
+    ...ascii.encode('DMVL'),
+    ..._u32le(files.length),
+    ...directory,
+    ...data,
+  ];
+}
+
+List<int> _encodeHog(Map<String, String> files) {
+  final archive = <int>[...ascii.encode('DHF')];
+  for (final entry in files.entries) {
+    final List<int> bytes = ascii.encode(entry.value);
+    archive
+      ..addAll(_fixedAsciiBytes(entry.key, 13))
+      ..addAll(_u32le(bytes.length))
+      ..addAll(bytes);
+  }
+
+  return archive;
+}
+
+List<int> _encodeGrp(Map<String, String> files) {
+  final directory = <int>[];
+  final data = <int>[];
+  for (final entry in files.entries) {
+    final List<int> bytes = ascii.encode(entry.value);
+    directory
+      ..addAll(_fixedSpacePaddedAsciiBytes(entry.key, 12))
+      ..addAll(_u32le(bytes.length));
+    data.addAll(bytes);
+  }
+
+  return <int>[
+    ...ascii.encode('KenSilverman'),
+    ..._u32le(files.length),
+    ...directory,
+    ...data,
+  ];
+}
+
+List<int> _encodePak(Map<String, String> files) {
+  final data = <int>[];
+  final directory = <int>[];
+  var fileOffset = 12;
+  for (final entry in files.entries) {
+    final List<int> bytes = ascii.encode(entry.value);
+    directory
+      ..addAll(_fixedAsciiBytes(entry.key, 56))
+      ..addAll(_u32le(fileOffset))
+      ..addAll(_u32le(bytes.length));
+    data.addAll(bytes);
+    fileOffset += bytes.length;
+  }
+
+  return <int>[
+    ...ascii.encode('PACK'),
+    ..._u32le(12 + data.length),
+    ..._u32le(directory.length),
+    ...data,
+    ...directory,
+  ];
+}
+
+List<int> _encodeIso(Map<String, String> files) {
+  const sectorSize = 2048;
+  final root = _buildIsoDirectoryTree(files);
+  _computeIsoDirectorySizes(root);
+
+  final directories = <_IsoDirectoryNode>[];
+  _collectIsoDirectories(root, directories);
+
+  var nextSector = 18;
+  for (final directory in directories) {
+    directory.extent = nextSector;
+    nextSector += (directory.size + sectorSize - 1) ~/ sectorSize;
+  }
+
+  final fileEntries = <_IsoFileEntry>[];
+  _collectIsoFiles(root, fileEntries);
+  for (final file in fileEntries) {
+    file.extent = nextSector;
+    nextSector += (file.bytes.length + sectorSize - 1) ~/ sectorSize;
+  }
+
+  final image = List<int>.filled(nextSector * sectorSize, 0);
+  _writeIsoPrimaryVolumeDescriptor(
+    image,
+    rootExtent: root.extent,
+    rootSize: root.size,
+    volumeSectors: nextSector,
+  );
+  _writeIsoVolumeDescriptorTerminator(image);
+
+  for (final directory in directories) {
+    final parent = directory.parent ?? root;
+    final data = _buildIsoDirectoryData(directory, parent);
+    final offset = directory.extent * sectorSize;
+    image.setRange(offset, offset + data.length, data);
+  }
+
+  for (final file in fileEntries) {
+    final offset = file.extent * sectorSize;
+    image.setRange(offset, offset + file.bytes.length, file.bytes);
+  }
+
+  return image;
+}
+
+List<int> _encodeSlb(Map<String, String> files) {
+  final data = <int>[];
+  final directory = <int>[];
+  var fileOffset = 12;
+  for (final entry in files.entries) {
+    final List<int> bytes = ascii.encode(entry.value);
+    final archivePath = entry.key.replaceAll('/', '\\');
+    directory
+      ..add(0x5c)
+      ..addAll(_fixedAsciiBytes(archivePath, 63))
+      ..addAll(_u32le(fileOffset))
+      ..addAll(_u32le(bytes.length));
+    data.addAll(bytes);
+    fileOffset += bytes.length;
+  }
+
+  return <int>[
+    ..._u32le(0),
+    ..._u32le(files.length),
+    ..._u32le(12 + data.length),
+    ...data,
+    ...directory,
+  ];
+}
+
+List<int> _encodeVdf(
+  Map<String, String> files, {
+  Iterable<String> directories = const <String>[],
+}) {
+  const headerSize = 256 + 16 + 24;
+  final data = <int>[];
+  final directory = <int>[];
+  var fileOffset = headerSize;
+
+  for (final name in directories) {
+    directory
+      ..addAll(_fixedSpacePaddedAsciiBytes(name, 64))
+      ..addAll(_u32le(0))
+      ..addAll(_u32le(0))
+      ..addAll(_u32le(0x80000000))
+      ..addAll(_u32le(0));
+  }
+
+  for (final entry in files.entries) {
+    final List<int> bytes = ascii.encode(entry.value);
+    directory
+      ..addAll(_fixedSpacePaddedAsciiBytes(entry.key, 64))
+      ..addAll(_u32le(fileOffset))
+      ..addAll(_u32le(bytes.length))
+      ..addAll(_u32le(0))
+      ..addAll(_u32le(0));
+    data.addAll(bytes);
+    fileOffset += bytes.length;
+  }
+
+  return <int>[
+    ...List<int>.filled(256, 0),
+    ...ascii.encode('PSVDSC_V2.00\r\n\r\n'),
+    ..._u32le(directories.length + files.length),
+    ..._u32le(files.length),
+    ..._u32le(_dosDateTime(DateTime(2024, 1, 2, 3, 4, 6))),
+    ..._u32le(data.length),
+    ..._u32le(headerSize + data.length),
+    ..._u32le(0x50),
+    ...data,
+    ...directory,
+  ];
+}
+
+List<int> _fixedAsciiBytes(String value, int length) {
+  final List<int> bytes = ascii.encode(value);
+  if (bytes.length > length) {
+    throw ArgumentError.value(value, 'value', 'must be at most $length bytes');
+  }
+
+  return <int>[...bytes, ...List<int>.filled(length - bytes.length, 0)];
+}
+
+List<int> _fixedSpacePaddedAsciiBytes(String value, int length) {
+  final List<int> bytes = ascii.encode(value);
+  if (bytes.length > length) {
+    throw ArgumentError.value(value, 'value', 'must be at most $length bytes');
+  }
+
+  return <int>[...bytes, ...List<int>.filled(length - bytes.length, 0x20)];
+}
+
+List<int> _u32le(int value) {
+  return <int>[
+    value & 0xff,
+    (value >> 8) & 0xff,
+    (value >> 16) & 0xff,
+    (value >> 24) & 0xff,
+  ];
+}
+
+int _dosDateTime(DateTime value) {
+  return ((value.year - 1980) << 25) |
+      (value.month << 21) |
+      (value.day << 16) |
+      (value.hour << 11) |
+      (value.minute << 5) |
+      (value.second ~/ 2);
+}
+
+final String? _sevenZipExecutable = _findSevenZipExecutable();
+final String? _sevenZipSupportSkipReason = _sevenZipExecutable == null
+    ? '7z executable not available in PATH.'
+    : null;
+
+List<int> _encode7z(Map<String, String> files) {
+  final executable = _sevenZipExecutable;
+  if (executable == null) {
+    throw StateError('7z executable not available in PATH.');
+  }
+
+  final tempDirectory = Directory.systemTemp.createTempSync('love2d-test-7z-');
+  try {
+    final inputDirectory = Directory(p.join(tempDirectory.path, 'input'))
+      ..createSync();
+    for (final entry in files.entries) {
+      File(p.join(inputDirectory.path, p.posix.normalize(entry.key)))
+        ..parent.createSync(recursive: true)
+        ..writeAsStringSync(entry.value);
+    }
+
+    final archivePath = p.join(tempDirectory.path, 'archive.7z');
+    final roots =
+        files.keys
+            .map((key) => p.posix.normalize(key).split('/').first)
+            .toSet()
+            .toList()
+          ..sort();
+    final result = Process.runSync(
+      executable,
+      <String>['a', '-spd', '-t7z', archivePath, '--', ...roots],
+      workingDirectory: inputDirectory.path,
+      stdoutEncoding: utf8,
+      stderrEncoding: utf8,
+    );
+    if (result.exitCode != 0) {
+      throw StateError(
+        'Failed to create test 7z archive: ${result.stderr ?? result.stdout}',
+      );
+    }
+
+    return File(archivePath).readAsBytesSync();
+  } finally {
+    tempDirectory.deleteSync(recursive: true);
+  }
+}
+
+String? _findSevenZipExecutable() {
+  for (final candidate in const <String>['7z', '7za', '7zr']) {
+    try {
+      final result = Process.runSync(
+        candidate,
+        const <String>['i'],
+        stdoutEncoding: utf8,
+        stderrEncoding: utf8,
+      );
+      if (result.exitCode == 0) {
+        return candidate;
+      }
+    } on ProcessException {
+      continue;
+    }
+  }
+
+  return null;
+}
+
+List<int> _fake7zBytes() => <int>[0x37, 0x7a, 0xbc, 0xaf, 0x27, 0x1c, 0, 4];
+
+_IsoDirectoryNode _buildIsoDirectoryTree(Map<String, String> files) {
+  final root = _IsoDirectoryNode(name: '');
+  for (final entry in files.entries) {
+    final segments = p.posix.normalize(entry.key).split('/');
+    if (segments.any((segment) => segment.isEmpty || segment == '.')) {
+      throw ArgumentError.value(
+        entry.key,
+        'files',
+        'must use normalized paths',
+      );
+    }
+
+    var current = root;
+    for (final segment in segments.take(segments.length - 1)) {
+      current = current.directories.putIfAbsent(
+        segment,
+        () => _IsoDirectoryNode(name: segment, parent: current),
+      );
+    }
+
+    final leaf = segments.last;
+    current.files[leaf] = _IsoFileEntry(
+      name: leaf,
+      bytes: ascii.encode(entry.value),
+    );
+  }
+
+  return root;
+}
+
+void _collectIsoDirectories(
+  _IsoDirectoryNode directory,
+  List<_IsoDirectoryNode> out,
+) {
+  out.add(directory);
+  final names = directory.directories.keys.toList()..sort();
+  for (final name in names) {
+    _collectIsoDirectories(directory.directories[name]!, out);
+  }
+}
+
+void _collectIsoFiles(_IsoDirectoryNode directory, List<_IsoFileEntry> out) {
+  final fileNames = directory.files.keys.toList()..sort();
+  for (final name in fileNames) {
+    out.add(directory.files[name]!);
+  }
+
+  final directoryNames = directory.directories.keys.toList()..sort();
+  for (final name in directoryNames) {
+    _collectIsoFiles(directory.directories[name]!, out);
+  }
+}
+
+void _computeIsoDirectorySizes(_IsoDirectoryNode directory) {
+  for (final child in directory.directories.values) {
+    _computeIsoDirectorySizes(child);
+  }
+
+  var size = _isoDirectoryRecordLength(1) * 2;
+  final childDirectoryNames = directory.directories.keys.toList()..sort();
+  for (final name in childDirectoryNames) {
+    size += _isoDirectoryRecordLength(ascii.encode(name).length);
+  }
+
+  final fileNames = directory.files.keys.toList()..sort();
+  for (final name in fileNames) {
+    size += _isoDirectoryRecordLength(ascii.encode('$name;1').length);
+  }
+
+  directory.size = size;
+}
+
+int _isoDirectoryRecordLength(int identifierLength) {
+  return 33 + identifierLength + (identifierLength.isEven ? 1 : 0);
+}
+
+void _writeIsoPrimaryVolumeDescriptor(
+  List<int> image, {
+  required int rootExtent,
+  required int rootSize,
+  required int volumeSectors,
+}) {
+  const sectorSize = 2048;
+  final descriptor = List<int>.filled(sectorSize, 0);
+  descriptor[0] = 1;
+  descriptor.setRange(1, 6, ascii.encode('CD001'));
+  descriptor[6] = 1;
+  descriptor.setRange(8, 40, _fixedSpacePaddedAsciiBytes('LUALIKE', 32));
+  descriptor.setRange(40, 72, _fixedSpacePaddedAsciiBytes('LOVEFS', 32));
+  _writeIsoU32BothEndian(descriptor, 80, volumeSectors);
+  _writeIsoU16BothEndian(descriptor, 120, 1);
+  _writeIsoU16BothEndian(descriptor, 124, 1);
+  _writeIsoU16BothEndian(descriptor, 128, sectorSize);
+  final rootRecord = _isoDirectoryRecord(
+    specialId: 0,
+    isDirectory: true,
+    extent: rootExtent,
+    length: rootSize,
+  );
+  descriptor.setRange(156, 156 + rootRecord.length, rootRecord);
+  descriptor[881] = 1;
+  descriptor[882] = 0;
+  image.setRange(16 * sectorSize, 17 * sectorSize, descriptor);
+}
+
+void _writeIsoVolumeDescriptorTerminator(List<int> image) {
+  const sectorSize = 2048;
+  final descriptor = List<int>.filled(sectorSize, 0);
+  descriptor[0] = 255;
+  descriptor.setRange(1, 6, ascii.encode('CD001'));
+  descriptor[6] = 1;
+  image.setRange(17 * sectorSize, 18 * sectorSize, descriptor);
+}
+
+List<int> _buildIsoDirectoryData(
+  _IsoDirectoryNode directory,
+  _IsoDirectoryNode parent,
+) {
+  const sectorSize = 2048;
+  final bytes = <int>[
+    ..._isoDirectoryRecord(
+      specialId: 0,
+      isDirectory: true,
+      extent: directory.extent,
+      length: directory.size,
+    ),
+    ..._isoDirectoryRecord(
+      specialId: 1,
+      isDirectory: true,
+      extent: parent.extent,
+      length: parent.size,
+    ),
+  ];
+
+  final directoryNames = directory.directories.keys.toList()..sort();
+  for (final name in directoryNames) {
+    final child = directory.directories[name]!;
+    bytes.addAll(
+      _isoDirectoryRecord(
+        name: child.name,
+        isDirectory: true,
+        extent: child.extent,
+        length: child.size,
+      ),
+    );
+  }
+
+  final fileNames = directory.files.keys.toList()..sort();
+  for (final name in fileNames) {
+    final file = directory.files[name]!;
+    bytes.addAll(
+      _isoDirectoryRecord(
+        name: '${file.name};1',
+        isDirectory: false,
+        extent: file.extent,
+        length: file.bytes.length,
+      ),
+    );
+  }
+
+  final sectorCount = (directory.size + sectorSize - 1) ~/ sectorSize;
+  return <int>[
+    ...bytes,
+    ...List<int>.filled((sectorCount * sectorSize) - bytes.length, 0),
+  ];
+}
+
+List<int> _isoDirectoryRecord({
+  String? name,
+  int? specialId,
+  required bool isDirectory,
+  required int extent,
+  required int length,
+}) {
+  final identifier = specialId != null ? <int>[specialId] : ascii.encode(name!);
+  final recordLength = _isoDirectoryRecordLength(identifier.length);
+  final record = List<int>.filled(recordLength, 0);
+  record[0] = recordLength;
+  record[1] = 0;
+  _writeIsoU32BothEndian(record, 2, extent);
+  _writeIsoU32BothEndian(record, 10, length);
+  record.setRange(
+    18,
+    25,
+    _isoRecordingTimestamp(DateTime(2024, 1, 2, 3, 4, 6)),
+  );
+  record[25] = isDirectory ? 0x02 : 0x00;
+  record[26] = 0;
+  record[27] = 0;
+  _writeIsoU16BothEndian(record, 28, 1);
+  record[32] = identifier.length;
+  record.setRange(33, 33 + identifier.length, identifier);
+  return record;
+}
+
+List<int> _isoRecordingTimestamp(DateTime value) {
+  return <int>[
+    value.year - 1900,
+    value.month,
+    value.day,
+    value.hour,
+    value.minute,
+    value.second,
+    0,
+  ];
+}
+
+void _writeIsoU16BothEndian(List<int> target, int offset, int value) {
+  target[offset] = value & 0xff;
+  target[offset + 1] = (value >> 8) & 0xff;
+  target[offset + 2] = (value >> 8) & 0xff;
+  target[offset + 3] = value & 0xff;
+}
+
+void _writeIsoU32BothEndian(List<int> target, int offset, int value) {
+  target[offset] = value & 0xff;
+  target[offset + 1] = (value >> 8) & 0xff;
+  target[offset + 2] = (value >> 16) & 0xff;
+  target[offset + 3] = (value >> 24) & 0xff;
+  target[offset + 4] = (value >> 24) & 0xff;
+  target[offset + 5] = (value >> 16) & 0xff;
+  target[offset + 6] = (value >> 8) & 0xff;
+  target[offset + 7] = value & 0xff;
+}
+
+final class _IsoDirectoryNode {
+  _IsoDirectoryNode({required this.name, this.parent});
+
+  final String name;
+  final _IsoDirectoryNode? parent;
+  final Map<String, _IsoDirectoryNode> directories =
+      <String, _IsoDirectoryNode>{};
+  final Map<String, _IsoFileEntry> files = <String, _IsoFileEntry>{};
+  int extent = 0;
+  int size = 0;
+}
+
+final class _IsoFileEntry {
+  _IsoFileEntry({required this.name, required this.bytes});
+
+  final String name;
+  final List<int> bytes;
+  int extent = 0;
+}
+
 Future<Object?> _call(
   Interpreter runtime,
   List<String> path, [
@@ -5180,6 +7509,7 @@ class _TestBuiltinFunction extends BuiltinFunction {
 
 class _TestLoveFilesystemAdapter implements LoveFilesystemAdapter {
   _TestLoveFilesystemAdapter({
+    this.appdataDirectory = '/appdata',
     this.isWindows = false,
     this.isLinux = true,
     this.isMacOS = false,
@@ -5192,7 +7522,7 @@ class _TestLoveFilesystemAdapter implements LoveFilesystemAdapter {
   final String? userDirectory = '/users/tester';
 
   @override
-  final String? appdataDirectory = '/appdata';
+  final String? appdataDirectory;
 
   @override
   final String? executablePath = '/bin/lualike-test';
@@ -5215,6 +7545,10 @@ class _TestLoveFilesystemAdapter implements LoveFilesystemAdapter {
   final Map<String, String> _readFileBytesFailures = <String, String>{};
   bool failWritesWithoutError = false;
   String? writeFailureError;
+  String? setBufferingFailureError;
+  String? flushFailureError;
+  String? closeFailureError;
+  _TestFilesystemIODevice? lastOpenedDevice;
 
   void addFile(String filePath, String content) {
     final normalized = _normalize(filePath);
@@ -5293,11 +7627,13 @@ class _TestLoveFilesystemAdapter implements LoveFilesystemAdapter {
       _touch(normalized);
     }
 
-    return _TestFilesystemIODevice(
+    final device = _TestFilesystemIODevice(
       adapter: this,
       filePath: normalized,
       mode: mode,
     );
+    lastOpenedDevice = device;
+    return device;
   }
 
   @override
@@ -5505,12 +7841,18 @@ class _TestFilesystemIODevice extends BaseIODevice {
 
   @override
   Future<void> close() async {
+    if (adapter.closeFailureError != null) {
+      throw StateError(adapter.closeFailureError!);
+    }
     isClosed = true;
   }
 
   @override
   Future<void> flush() async {
     checkOpen();
+    if (adapter.flushFailureError != null) {
+      throw StateError(adapter.flushFailureError!);
+    }
   }
 
   @override
@@ -5599,6 +7941,14 @@ class _TestFilesystemIODevice extends BaseIODevice {
   Future<int> getPosition() async {
     checkOpen();
     return adapter._positionOverrides[filePath] ?? _position;
+  }
+
+  @override
+  Future<void> setBuffering(BufferMode mode, [int? size]) async {
+    if (adapter.setBufferingFailureError != null) {
+      throw StateError(adapter.setBufferingFailureError!);
+    }
+    await super.setBuffering(mode, size);
   }
 
   @override

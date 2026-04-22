@@ -1,5 +1,44 @@
 part of '../love_api_bindings.dart';
 
+void _queueMeshDrawCommand(
+  LoveRuntimeContext runtime, {
+  required LoveMesh mesh,
+  required List<Object?> args,
+  required int transformIndex,
+  required String symbol,
+  int instanceCount = 1,
+}) {
+  if (mesh.vertexCount <= 0 || instanceCount <= 0) {
+    return;
+  }
+
+  runtime.graphics.addCommand(
+    LoveMeshCommand(
+      color: runtime.graphics.color,
+      lineWidth: runtime.graphics.lineWidth,
+      lineStyle: runtime.graphics.lineStyle,
+      lineJoin: runtime.graphics.lineJoin,
+      blendMode: runtime.graphics.blendMode,
+      blendAlphaMode: runtime.graphics.blendAlphaMode,
+      colorMask: runtime.graphics.colorMask,
+      wireframe: runtime.graphics.wireframe,
+      scissor: runtime.graphics.scissor,
+      shader: runtime.graphics.shader,
+      transform: runtime.graphics.copyTransform(),
+      drawTransform: _matrixFromTransformArgumentOrStandardTransform(
+        args,
+        transformIndex,
+        symbol,
+      ),
+      mesh: mesh,
+      instanceCount: instanceCount,
+      pointSize: runtime.graphics.pointSize,
+      frontFaceWinding: runtime.graphics.frontFaceWinding,
+      cullMode: runtime.graphics.meshCullMode,
+    ),
+  );
+}
+
 LoveApiImplementation _bindGraphicsRectangle(
   LibraryRegistrationContext context,
 ) {
@@ -279,28 +318,12 @@ LoveApiImplementation _bindGraphicsDraw(LibraryRegistrationContext context) {
     }
 
     if (_meshIfPresent(_valueAt(args, 0)) case final LoveMesh mesh) {
-      runtime.graphics.addCommand(
-        LoveMeshCommand(
-          color: runtime.graphics.color,
-          lineWidth: runtime.graphics.lineWidth,
-          lineStyle: runtime.graphics.lineStyle,
-          lineJoin: runtime.graphics.lineJoin,
-          blendMode: runtime.graphics.blendMode,
-          blendAlphaMode: runtime.graphics.blendAlphaMode,
-          colorMask: runtime.graphics.colorMask,
-          wireframe: runtime.graphics.wireframe,
-          scissor: runtime.graphics.scissor,
-          shader: runtime.graphics.shader,
-          transform: runtime.graphics.copyTransform(),
-          drawTransform: _matrixFromTransformArgumentOrStandardTransform(
-            args,
-            1,
-            'love.graphics.draw',
-          ),
-          mesh: mesh,
-          frontFaceWinding: runtime.graphics.frontFaceWinding,
-          cullMode: runtime.graphics.meshCullMode,
-        ),
+      _queueMeshDrawCommand(
+        runtime,
+        mesh: mesh,
+        args: args,
+        transformIndex: 1,
+        symbol: 'love.graphics.draw',
       );
       return null;
     }
@@ -357,6 +380,12 @@ LoveApiImplementation _bindGraphicsDraw(LibraryRegistrationContext context) {
       return null;
     }
 
+    if (_videoIfPresent(_valueAt(args, 0)) != null) {
+      throw LuaError(
+        'love.graphics.draw does not yet support drawing Video objects in the current runtime',
+      );
+    }
+
     final image = _requireImage(args, 0, 'love.graphics.draw');
     final quad = _quadIfPresent(_valueAt(args, 1));
     final startIndex = quad == null ? 1 : 2;
@@ -364,6 +393,11 @@ LoveApiImplementation _bindGraphicsDraw(LibraryRegistrationContext context) {
       final LoveCanvas canvas => canvas.snapshot(),
       _ => image,
     };
+    final layer = _directTextureDrawLayer(
+      resolvedImage,
+      quad,
+      'love.graphics.draw',
+    );
 
     runtime.graphics.addCommand(
       LoveImageCommand(
@@ -385,6 +419,7 @@ LoveApiImplementation _bindGraphicsDraw(LibraryRegistrationContext context) {
         ),
         image: resolvedImage,
         quad: quad,
+        layer: layer,
       ),
     );
     return null;
@@ -393,11 +428,9 @@ LoveApiImplementation _bindGraphicsDraw(LibraryRegistrationContext context) {
 
 LoveApiImplementation _bindGraphicsPrint(LibraryRegistrationContext context) {
   final runtime = _runtimeContext(context);
-  return (args) async {
+  return (args) {
     final spans = _requireColoredTextSpans(args, 0, 'love.graphics.print');
-    final font =
-        _fontIfPresent(_valueAt(args, 1)) ??
-        await runtime.ensureCurrentGraphicsFont();
+    final explicitFont = _fontIfPresent(_valueAt(args, 1));
     final startIndex = _graphicsTextArgumentStartIndex(args);
     final transform = _transformIfPresent(_valueAt(args, startIndex));
     final x = transform == null
@@ -417,39 +450,54 @@ LoveApiImplementation _bindGraphicsPrint(LibraryRegistrationContext context) {
           )
         : 0.0;
 
-    runtime.graphics.addCommand(
-      LoveTextCommand(
-        color: runtime.graphics.color,
-        lineWidth: runtime.graphics.lineWidth,
-        lineStyle: runtime.graphics.lineStyle,
-        lineJoin: runtime.graphics.lineJoin,
-        blendMode: runtime.graphics.blendMode,
-        blendAlphaMode: runtime.graphics.blendAlphaMode,
-        colorMask: runtime.graphics.colorMask,
-        wireframe: runtime.graphics.wireframe,
-        scissor: runtime.graphics.scissor,
-        shader: runtime.graphics.shader,
-        transform: runtime.graphics.copyTransform(),
-        textTransform: transform == null
-            ? _standardTransform(args, startIndex, 'love.graphics.print')
-            : Matrix4.copy(transform.matrix),
-        font: font,
-        spans: spans,
-        x: x,
-        y: y,
-      ),
-    );
+    void addCommand(LoveFont font) {
+      runtime.graphics.addCommand(
+        LoveTextCommand(
+          color: runtime.graphics.color,
+          lineWidth: runtime.graphics.lineWidth,
+          lineStyle: runtime.graphics.lineStyle,
+          lineJoin: runtime.graphics.lineJoin,
+          blendMode: runtime.graphics.blendMode,
+          blendAlphaMode: runtime.graphics.blendAlphaMode,
+          colorMask: runtime.graphics.colorMask,
+          wireframe: runtime.graphics.wireframe,
+          scissor: runtime.graphics.scissor,
+          shader: runtime.graphics.shader,
+          transform: runtime.graphics.copyTransform(),
+          textTransform: transform == null
+              ? _standardTransform(args, startIndex, 'love.graphics.print')
+              : Matrix4.copy(transform.matrix),
+          font: font,
+          spans: spans,
+          x: x,
+          y: y,
+        ),
+      );
+    }
+
+    if (explicitFont case final LoveFont font) {
+      addCommand(font);
+      return null;
+    }
+
+    final fontOrFuture = runtime.ensureCurrentGraphicsFontOrFuture();
+    if (fontOrFuture is Future<LoveFont>) {
+      return fontOrFuture.then((font) {
+        addCommand(font);
+        return null;
+      });
+    }
+
+    addCommand(fontOrFuture as LoveFont);
     return null;
   };
 }
 
 LoveApiImplementation _bindGraphicsPrintf(LibraryRegistrationContext context) {
   final runtime = _runtimeContext(context);
-  return (args) async {
+  return (args) {
     final spans = _requireColoredTextSpans(args, 0, 'love.graphics.printf');
-    final font =
-        _fontIfPresent(_valueAt(args, 1)) ??
-        await runtime.ensureCurrentGraphicsFont();
+    final explicitFont = _fontIfPresent(_valueAt(args, 1));
     final startIndex = _graphicsTextArgumentStartIndex(args);
     final transform = _transformIfPresent(_valueAt(args, startIndex));
     final x = transform == null
@@ -461,38 +509,59 @@ LoveApiImplementation _bindGraphicsPrintf(LibraryRegistrationContext context) {
     final formatIndex = transform == null ? startIndex + 2 : startIndex + 1;
     final limit = _requireNumber(args, formatIndex, 'love.graphics.printf');
     final align = args.length > formatIndex + 1
-        ? _textAlign(_stringLike(args[formatIndex + 1]) ?? 'left')
+        ? _valueAt(args, formatIndex + 1) == null
+              ? 'left'
+              : _textAlign(
+                  _requireString(args, formatIndex + 1, 'love.graphics.printf'),
+                )
         : 'left';
 
-    runtime.graphics.addCommand(
-      LoveTextCommand(
-        color: runtime.graphics.color,
-        lineWidth: runtime.graphics.lineWidth,
-        lineStyle: runtime.graphics.lineStyle,
-        lineJoin: runtime.graphics.lineJoin,
-        blendMode: runtime.graphics.blendMode,
-        blendAlphaMode: runtime.graphics.blendAlphaMode,
-        colorMask: runtime.graphics.colorMask,
-        wireframe: runtime.graphics.wireframe,
-        scissor: runtime.graphics.scissor,
-        shader: runtime.graphics.shader,
-        transform: runtime.graphics.copyTransform(),
-        textTransform: transform == null
-            ? _standardTransform(
-                args,
-                startIndex,
-                'love.graphics.printf',
-                transformOffset: 4,
-              )
-            : Matrix4.copy(transform.matrix),
-        font: font,
-        spans: spans,
-        x: x,
-        y: y,
-        limit: limit,
-        align: align,
-      ),
-    );
+    void addCommand(LoveFont font) {
+      runtime.graphics.addCommand(
+        LoveTextCommand(
+          color: runtime.graphics.color,
+          lineWidth: runtime.graphics.lineWidth,
+          lineStyle: runtime.graphics.lineStyle,
+          lineJoin: runtime.graphics.lineJoin,
+          blendMode: runtime.graphics.blendMode,
+          blendAlphaMode: runtime.graphics.blendAlphaMode,
+          colorMask: runtime.graphics.colorMask,
+          wireframe: runtime.graphics.wireframe,
+          scissor: runtime.graphics.scissor,
+          shader: runtime.graphics.shader,
+          transform: runtime.graphics.copyTransform(),
+          textTransform: transform == null
+              ? _standardTransform(
+                  args,
+                  startIndex,
+                  'love.graphics.printf',
+                  transformOffset: 4,
+                )
+              : Matrix4.copy(transform.matrix),
+          font: font,
+          spans: spans,
+          x: x,
+          y: y,
+          limit: limit,
+          align: align,
+        ),
+      );
+    }
+
+    if (explicitFont case final LoveFont font) {
+      addCommand(font);
+      return null;
+    }
+
+    final fontOrFuture = runtime.ensureCurrentGraphicsFontOrFuture();
+    if (fontOrFuture is Future<LoveFont>) {
+      return fontOrFuture.then((font) {
+        addCommand(font);
+        return null;
+      });
+    }
+
+    addCommand(fontOrFuture as LoveFont);
     return null;
   };
 }

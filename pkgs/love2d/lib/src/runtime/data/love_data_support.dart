@@ -17,7 +17,7 @@ abstract base class LoveDataObject {
 }
 
 final class LoveByteData extends LoveDataObject {
-  LoveByteData._(Uint8List bytes) : super._(bytes);
+  LoveByteData._(super.bytes) : super._();
 
   factory LoveByteData.fromBytes(List<int> bytes) {
     return LoveByteData._(_loveDataBytes(bytes));
@@ -32,7 +32,7 @@ final class LoveByteData extends LoveDataObject {
 }
 
 final class LoveDataView extends LoveDataObject {
-  LoveDataView._(Uint8List bytes) : super._(bytes);
+  LoveDataView._(super.bytes) : super._();
 
   factory LoveDataView.fromBytes(List<int> bytes) {
     return LoveDataView._(_loveDataBytes(bytes));
@@ -44,10 +44,10 @@ final class LoveDataView extends LoveDataObject {
 
 final class LoveCompressedData extends LoveDataObject {
   LoveCompressedData._(
-    Uint8List bytes, {
+    super.bytes, {
     required this.format,
     required this.decompressedSize,
-  }) : super._(bytes);
+  }) : super._();
 
   factory LoveCompressedData.fromBytes({
     required List<int> bytes,

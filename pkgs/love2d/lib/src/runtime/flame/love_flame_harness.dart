@@ -17,7 +17,9 @@ import '../love_script_runtime.dart';
 import 'love_flame_harness_renderer.dart';
 import 'love_flame_input.dart';
 import 'love_flame_mouse_cursor_bridge.dart';
+import 'love_registered_fragment_shader_cache.dart';
 import 'love_flame_text_input_bridge.dart';
+import 'love_flame_viewport_geometry.dart';
 
 Future<LoveFilesystemAdapter> resolveLoveFlameHarnessFilesystemAdapter({
   required AssetBundle bundle,
@@ -145,9 +147,17 @@ class _LoveFlameHarnessState extends State<LoveFlameHarness>
   @override
   Widget build(BuildContext context) {
     final title = widget.title;
+    final listenable = Listenable.merge(<Listenable>[
+      _controller,
+      loveFlameRegisteredFragmentShaderCache,
+    ]);
     return AnimatedBuilder(
-      animation: _controller,
+      animation: listenable,
       builder: (context, _) {
+        final activeShaderDiagnostic =
+            loveFlameRegisteredFragmentShaderCache.diagnosticForSurface(
+              _game.presentedFrame,
+            );
         return ColoredBox(
           color: const Color(0xFF050816),
           child: DefaultTextStyle(
@@ -174,16 +184,16 @@ class _LoveFlameHarnessState extends State<LoveFlameHarness>
                       ),
                     ),
                   ),
-                Positioned(
-                  right: 16,
-                  top: 16,
-                  child: _HarnessBadge(
-                    child: Text(
-                      _controller.statusLabel,
-                      key: const Key('status-label'),
-                    ),
-                  ),
-                ),
+                // Positioned(
+                //   right: 16,
+                //   top: 16,
+                //   child: _HarnessBadge(
+                //     child: Text(
+                //       _controller.statusLabel,
+                //       key: const Key('status-label'),
+                //     ),
+                //   ),
+                // ),
                 if (_controller.errorMessage case final error?)
                   if (!_controller.hasRuntimeErrorLoop)
                     Center(
@@ -215,15 +225,31 @@ class _LoveFlameHarnessState extends State<LoveFlameHarness>
                       child: Text('Loading LOVE runtime...'),
                     ),
                   ),
-                const Positioned(
-                  left: 16,
-                  bottom: 16,
-                  child: _HarnessBadge(
-                    child: Text(
-                      'Click to focus. Keyboard and mouse map to LOVE callbacks.',
+                if (activeShaderDiagnostic != null)
+                  Positioned(
+                    left: 16,
+                    bottom: 16,
+                    child: _HarnessBadge(
+                      child: ConstrainedBox(
+                        constraints: const BoxConstraints(maxWidth: 640),
+                        child: Text(
+                          _registeredShaderDiagnosticLabel(
+                            activeShaderDiagnostic,
+                          ),
+                          key: const Key('shader-diagnostic-label'),
+                        ),
+                      ),
                     ),
                   ),
-                ),
+                // const Positioned(
+                //   left: 16,
+                //   bottom: 16,
+                //   child: _HarnessBadge(
+                //     child: Text(
+                //       'Click to focus. Keyboard and mouse map to LOVE callbacks.',
+                //     ),
+                //   ),
+                // ),
               ],
             ),
           ),
@@ -260,6 +286,7 @@ class _LoveFlameHarnessController extends ChangeNotifier {
   late final LoveFlameInputAdapter input = LoveFlameInputAdapter(
     host: game.host,
     runtimeProvider: () => _runtime,
+    viewportSizeProvider: () => _viewportSize,
     joystickInput: joystickInput,
     onError: (error, stackTrace) => _recordError(
       error,
@@ -348,11 +375,17 @@ class _LoveFlameHarnessController extends ChangeNotifier {
         scriptPath: entryData.filename,
       );
       await runtime.callLoadIfDefined();
+      await _flushPendingRuntimeSignals(runtime);
+      if (await _handleMainLoopExitStatus(
+        await runtime.processMainLoopEvents(),
+      )) {
+        await _restartIfRequested();
+        return;
+      }
       runtime.context.beginDrawFrame();
       runtime.context.graphics.origin();
       await runtime.callDrawIfDefined();
-      await _flushPendingRuntimeSignals(runtime);
-      await _handlePendingEvents(runtime);
+      await _commitPresentedFrame(runtime);
       if (await _restartIfRequested()) {
         return;
       }
@@ -447,6 +480,12 @@ class _LoveFlameHarnessController extends ChangeNotifier {
       }
 
       await _flushPendingRuntimeSignals(runtime);
+      if (await _handleMainLoopExitStatus(
+        await runtime.processMainLoopEvents(),
+      )) {
+        await _restartIfRequested();
+        return;
+      }
       final steppedDt = runtime.context.stepExternal(dt);
       if (steppedDt > 0) {
         await runtime.callUpdateIfDefined(steppedDt);
@@ -454,7 +493,7 @@ class _LoveFlameHarnessController extends ChangeNotifier {
       runtime.context.beginDrawFrame();
       runtime.context.graphics.origin();
       await runtime.callDrawIfDefined();
-      await _handlePendingEvents(runtime);
+      await _commitPresentedFrame(runtime);
       if (await _restartIfRequested()) {
         return;
       }
@@ -478,10 +517,16 @@ class _LoveFlameHarnessController extends ChangeNotifier {
       }
 
       await _flushPendingRuntimeSignals(runtime);
+      if (await _handleMainLoopExitStatus(
+        await runtime.processMainLoopEvents(),
+      )) {
+        await _restartIfRequested();
+        return;
+      }
       runtime.context.beginDrawFrame();
       runtime.context.graphics.origin();
       await runtime.callDrawIfDefined();
-      await _handlePendingEvents(runtime);
+      await _commitPresentedFrame(runtime);
       if (await _restartIfRequested()) {
         return;
       }
@@ -508,6 +553,7 @@ class _LoveFlameHarnessController extends ChangeNotifier {
       runtime.context.beginDrawFrame();
       runtime.context.graphics.origin();
       final result = await runtime.callErrorHandlerLoop(errorLoop);
+      await _commitPresentedFrame(runtime);
       if (result != null) {
         _errorLoop = null;
         _errorMessage = null;
@@ -530,6 +576,23 @@ class _LoveFlameHarnessController extends ChangeNotifier {
     }
   }
 
+  Future<void> _commitPresentedFrame(LoveScriptRuntime runtime) async {
+    final snapshot = runtime.context.graphics.snapshotScreenSurface();
+    game.presentFrame(snapshot);
+    loveFlameRegisteredFragmentShaderCache.markSurfaceAssetsRequested(snapshot);
+    await runtime.context.graphics.dispatchPendingScreenshots(
+      snapshot: snapshot,
+      pixelWidth:
+          (runtime.context.windowMetrics.width *
+                  runtime.context.windowMetrics.dpiScale)
+              .round(),
+      pixelHeight:
+          (runtime.context.windowMetrics.height *
+                  runtime.context.windowMetrics.dpiScale)
+              .round(),
+    );
+  }
+
   Future<void> _dispatchResizeIfNeeded() async {
     final runtime = _runtime;
     final currentSize = _viewportSize;
@@ -543,7 +606,7 @@ class _LoveFlameHarnessController extends ChangeNotifier {
       return;
     }
 
-    await runtime.dispatchResize(
+    await runtime.queueResize(
       currentSize.width.round(),
       currentSize.height.round(),
     );
@@ -570,7 +633,7 @@ class _LoveFlameHarnessController extends ChangeNotifier {
       }
 
       await _flushPendingRuntimeSignals(runtime);
-      await _handlePendingEvents(runtime);
+      await _handleMainLoopExitStatus(await runtime.processMainLoopEvents());
       if (await _restartIfRequested()) {
         return;
       }
@@ -594,14 +657,14 @@ class _LoveFlameHarnessController extends ChangeNotifier {
         _pendingVisibleState = null;
         if (_lastDispatchedVisibleState != visible) {
           _lastDispatchedVisibleState = visible;
-          await runtime.dispatchVisible(visible);
+          await runtime.queueVisible(visible);
         }
         continue;
       }
 
       if (_lowMemoryPending) {
         _lowMemoryPending = false;
-        await runtime.dispatchLowMemory();
+        await runtime.queueLowMemory();
         continue;
       }
 
@@ -609,41 +672,13 @@ class _LoveFlameHarnessController extends ChangeNotifier {
     }
   }
 
-  Future<void> _handlePendingEvents(LoveScriptRuntime runtime) async {
-    final preservedMessages = <LoveEventMessage>[];
-    LoveEventMessage? quitMessage;
-
-    while (true) {
-      final message = runtime.context.events.poll();
-      if (message == null) {
-        break;
-      }
-      if (message.name == 'quit' || message.name == 'q') {
-        quitMessage ??= message;
-        continue;
-      }
-      preservedMessages.add(message);
+  Future<bool> _handleMainLoopExitStatus(Object? status) async {
+    if (status == null || _quitRequested) {
+      return false;
     }
-
-    for (final message in preservedMessages) {
-      runtime.context.events.pushMessage(message.name, message.arguments);
-    }
-
-    if (quitMessage == null || _quitRequested) {
-      return;
-    }
-
-    final abortQuit = await runtime.callQuitIfDefined();
-    if (abortQuit) {
-      return;
-    }
-
-    final quitStatus = quitMessage.arguments.isEmpty
-        ? 0
-        : quitMessage.arguments.first;
-    if (quitStatus == 'restart') {
+    if (status == 'restart') {
       _restartRequested = true;
-      return;
+      return true;
     }
 
     _quitRequested = true;
@@ -651,6 +686,7 @@ class _LoveFlameHarnessController extends ChangeNotifier {
       notifyListeners();
     }
     await onQuitRequested();
+    return true;
   }
 
   Future<bool> _restartIfRequested() async {
@@ -765,6 +801,19 @@ class _LoveFlameHarnessController extends ChangeNotifier {
   }
 }
 
+String _registeredShaderDiagnosticLabel<TProgram, TShader>(
+  LoveRegisteredFragmentShaderStatus<TProgram, TShader> status,
+) {
+  final label = status.shortLabel;
+  return switch (status.state) {
+    LoveRegisteredFragmentShaderLoadState.pending =>
+      'Compiling shader: $label',
+    LoveRegisteredFragmentShaderLoadState.error =>
+      'Shader failed: $label\n${status.error}',
+    _ => label,
+  };
+}
+
 class _LoveHarnessViewport extends StatefulWidget {
   const _LoveHarnessViewport({
     required this.game,
@@ -801,11 +850,25 @@ class _LoveHarnessViewportState extends State<_LoveHarnessViewport>
     _textInputBridge.sync();
     _syncCursorState();
   });
+  bool _textInputTickerStarted = false;
 
   @override
   void initState() {
     super.initState();
-    _textInputTicker.start();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) {
+        return;
+      }
+
+      _textInputBridge.sync();
+      _syncCursorState();
+      if (_textInputTickerStarted) {
+        return;
+      }
+
+      _textInputTickerStarted = true;
+      _textInputTicker.start();
+    });
   }
 
   @override
@@ -908,6 +971,18 @@ class _LoveHarnessViewportState extends State<_LoveHarnessViewport>
   void _syncCursorState() {
     final cursor = _mouseCursorBridge.sync();
     final mouse = widget.controller.game.host.mouse;
+    final renderObject = context.findRenderObject();
+    final viewportSize = switch (renderObject) {
+      final RenderBox box when box.hasSize => box.size,
+      _ => null,
+    };
+    final viewportCursorPosition = viewportSize == null
+        ? Offset(mouse.x, mouse.y)
+        : loveLogicalToViewportPoint(
+            logicalPoint: Offset(mouse.x, mouse.y),
+            windowMetrics: widget.controller.game.host.windowMetrics,
+            viewportSize: viewportSize,
+          );
     final cursorValue = mouse.cursor;
     final overlayActive =
         mouse.visible &&
@@ -931,8 +1006,8 @@ class _LoveHarnessViewportState extends State<_LoveHarnessViewport>
         systemCursorType != null ||
         _imageCursor != null ||
         _systemCursorType != null;
-    final cursorX = mouse.x;
-    final cursorY = mouse.y;
+    final cursorX = viewportCursorPosition.dx;
+    final cursorY = viewportCursorPosition.dy;
     if (cursor == _mouseCursor &&
         identical(imageCursor, _imageCursor) &&
         systemCursorType == _systemCursorType &&

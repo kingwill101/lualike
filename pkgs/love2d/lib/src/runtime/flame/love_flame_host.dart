@@ -635,8 +635,10 @@ class LoveFlameHost<W extends World> implements LoveHost {
   }
 
   static LoveKeyboardState _defaultKeyboardState() {
+    final screenKeyboardSupported = !kIsWeb && _platformHasScreenKeyboard();
     return LoveKeyboardState(
-      screenKeyboardSupported: !kIsWeb && _platformHasScreenKeyboard(),
+      screenKeyboardSupported: screenKeyboardSupported,
+      textInputEnabled: _defaultTextInputEnabled(),
     );
   }
 
@@ -644,6 +646,19 @@ class LoveFlameHost<W extends World> implements LoveHost {
     return switch (defaultTargetPlatform) {
       TargetPlatform.android || TargetPlatform.iOS => true,
       _ => false,
+    };
+  }
+
+  static bool _defaultTextInputEnabled() {
+    if (kIsWeb) {
+      return true;
+    }
+
+    return switch (defaultTargetPlatform) {
+      TargetPlatform.android || TargetPlatform.iOS => false,
+      TargetPlatform.macOS || TargetPlatform.windows || TargetPlatform.linux =>
+        true,
+      _ => true,
     };
   }
 

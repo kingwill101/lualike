@@ -1,8 +1,10 @@
 library;
 
+import 'package:lualike/library_builder.dart';
 import 'package:lualike/lualike.dart' show LuaRuntime, Value;
 
 import '../../generated/love_api_reference.g.dart' show loveApiEnums;
+import '../love_runtime.dart';
 
 final Expando<bool> _loveEventExtrasInstalled = Expando<bool>(
   'love2dEventExtrasInstalled',
@@ -44,9 +46,27 @@ void installLoveEventExtraBindings(LuaRuntime runtime) {
   // Give each runtime its own table copy.
   final enumValue = Value(Map<String, Object?>.from(_loveEventEnumMap));
 
-  // Install as love.event.Event
   final eventTable = _eventModuleTable(runtime);
-  eventTable?['Event'] = enumValue;
+  if (eventTable != null) {
+    final builder = BuiltinFunctionBuilder(
+      LibraryContext(
+        environment: runtime.getCurrentEnv(),
+        interpreter: runtime,
+      ),
+    );
+    eventTable['poll_i'] = Value(
+      builder.create((args) {
+        final message = LoveRuntimeContext.of(runtime).events.poll();
+        if (message == null) {
+          return null;
+        }
+
+        return Value.multi(message.toValues());
+      }),
+      functionName: 'poll_i',
+    );
+    eventTable['Event'] = enumValue;
+  }
 
   // Install as the global Event table.
   runtime.globals.define('Event', enumValue);

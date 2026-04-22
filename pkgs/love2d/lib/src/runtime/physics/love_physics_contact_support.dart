@@ -157,6 +157,8 @@ final class LovePhysicsContact {
 
   double get restitution => _restitutionOverride ?? _activeContact.restitution;
 
+  double get tangentSpeed => _activeContact.tangentSpeed;
+
   bool get isEnabled => _activeContact.isEnabled;
 
   bool get isTouching => _activeContact.isTouching();
@@ -186,6 +188,12 @@ final class LovePhysicsContact {
     _restitutionOverride = restitution;
     _applyPersistentRestitutionOverride(restitution);
     _activeContact.velocityConstraint.restitution = restitution;
+  }
+
+  void setTangentSpeed(double speed) {
+    final contact = _activeContact;
+    contact.tangentSpeed = speed;
+    contact.velocityConstraint.tangentSpeed = speed;
   }
 
   void _markDestroyed() {

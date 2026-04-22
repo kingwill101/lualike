@@ -38,134 +38,145 @@ function love.textinput(text)
 end
 
 function love.joystickadded(j)
-  local poll = love.event.poll()
-  local name, queued = poll()
-  testbed.joystickadded = string.format("%s|%s|%d|%s", name, queued:getName(), love.joystick.getJoystickCount(), j:getName())
+  testbed.joystickadded = string.format(
+    "%s|%d",
+    j:getName(),
+    love.joystick.getJoystickCount()
+  )
 end
 
 function love.joystickpressed(j, button)
-  local poll = love.event.poll()
-  local name, queued, queuedButton = poll()
-  testbed.joystickpressed = string.format("%s|%d|%d|%s|%s", name, queuedButton, button, tostring(queued == j), tostring(j:isDown(button)))
+  testbed.joystickpressed = string.format(
+    "%d|%s",
+    button,
+    tostring(j:isDown(button))
+  )
 end
 
 function love.joystickreleased(j, button)
-  local poll = love.event.poll()
-  local name, queued, queuedButton = poll()
-  testbed.joystickreleased = string.format("%s|%d|%d|%s", name, queuedButton, button, tostring(j:isDown(button)))
+  testbed.joystickreleased = string.format(
+    "%d|%s",
+    button,
+    tostring(j:isDown(button))
+  )
 end
 
 function love.gamepadpressed(j, button)
-  local poll = love.event.poll()
-  local name, queued, queuedButton = poll()
-  testbed.gamepadpressed = string.format("%s|%s|%s|%s|%s", name, queuedButton, button, tostring(queued == j), tostring(j:isGamepadDown(button)))
+  testbed.gamepadpressed = string.format(
+    "%s|%s",
+    button,
+    tostring(j:isGamepadDown(button))
+  )
 end
 
 function love.gamepadreleased(j, button)
-  local poll = love.event.poll()
-  local name, queued, queuedButton = poll()
-  testbed.gamepadreleased = string.format("%s|%s|%s|%s", name, queuedButton, button, tostring(j:isGamepadDown(button)))
+  testbed.gamepadreleased = string.format(
+    "%s|%s",
+    button,
+    tostring(j:isGamepadDown(button))
+  )
 end
 
 function love.gamepadaxis(j, axis, value)
-  local poll = love.event.poll()
-  local name, queued, queuedAxis, queuedValue = poll()
-  testbed.gamepadaxis = string.format("%s|%s|%.1f|%s|%.1f|%s", name, queuedAxis, queuedValue, axis, value, tostring(queued == j))
+  testbed.gamepadaxis = string.format("%s|%.1f", axis, value)
 end
 ''');
     });
 
-    test('routes gamepad button and trigger keys through love.joystick', () async {
-      expect(
+    test(
+      'routes gamepad button and trigger keys through love.joystick',
+      () async {
+        expect(
+          adapter.handleKeyEvent(
+            const KeyDownEvent(
+              physicalKey: PhysicalKeyboardKey.gameButtonA,
+              logicalKey: LogicalKeyboardKey.gameButtonA,
+              deviceType: ui.KeyEventDeviceType.gamepad,
+              timeStamp: Duration.zero,
+            ),
+          ),
+          KeyEventResult.handled,
+        );
+        await _flushQueuedGamepadInput(adapter, runtime);
+
+        final joystick = host.joysticks.devices.single;
+        expect(host.keyboard.isDown(const <String>['a']), isFalse);
+        expect(runtime.unwrapGlobalTable('testbed')!['keypressed'], isNull);
+        expect(runtime.unwrapGlobalTable('testbed')!['textinput'], isNull);
+        expect(
+          runtime.unwrapGlobalTable('testbed')!['joystickadded'],
+          'Flutter Virtual Gamepad|1',
+        );
+        expect(
+          runtime.unwrapGlobalTable('testbed')!['gamepadpressed'],
+          'a|true',
+        );
+        expect(joystick.isGamepadDown(const <String>['a']), isTrue);
+
         adapter.handleKeyEvent(
-          const KeyDownEvent(
+          const KeyRepeatEvent(
             physicalKey: PhysicalKeyboardKey.gameButtonA,
             logicalKey: LogicalKeyboardKey.gameButtonA,
             deviceType: ui.KeyEventDeviceType.gamepad,
             timeStamp: Duration.zero,
           ),
-        ),
-        KeyEventResult.handled,
-      );
-      await adapter.flush();
+        );
+        await _flushQueuedGamepadInput(adapter, runtime);
 
-      final joystick = host.joysticks.devices.single;
-      expect(host.keyboard.isDown(const <String>['a']), isFalse);
-      expect(runtime.unwrapGlobalTable('testbed')!['keypressed'], isNull);
-      expect(runtime.unwrapGlobalTable('testbed')!['textinput'], isNull);
-      expect(
-        runtime.unwrapGlobalTable('testbed')!['joystickadded'],
-        'joystickadded|Flutter Virtual Gamepad|1|Flutter Virtual Gamepad',
-      );
-      expect(
-        runtime.unwrapGlobalTable('testbed')!['gamepadpressed'],
-        'gamepadpressed|a|a|true|true',
-      );
-      expect(joystick.isGamepadDown(const <String>['a']), isTrue);
+        expect(
+          runtime.unwrapGlobalTable('testbed')!['gamepadpressed'],
+          'a|true',
+        );
 
-      adapter.handleKeyEvent(
-        const KeyRepeatEvent(
-          physicalKey: PhysicalKeyboardKey.gameButtonA,
-          logicalKey: LogicalKeyboardKey.gameButtonA,
-          deviceType: ui.KeyEventDeviceType.gamepad,
-          timeStamp: Duration.zero,
-        ),
-      );
-      await adapter.flush();
+        adapter.handleKeyEvent(
+          const KeyUpEvent(
+            physicalKey: PhysicalKeyboardKey.gameButtonA,
+            logicalKey: LogicalKeyboardKey.gameButtonA,
+            deviceType: ui.KeyEventDeviceType.gamepad,
+            timeStamp: Duration.zero,
+          ),
+        );
+        await _flushQueuedGamepadInput(adapter, runtime);
 
-      expect(
-        runtime.unwrapGlobalTable('testbed')!['gamepadpressed'],
-        'gamepadpressed|a|a|true|true',
-      );
+        expect(
+          runtime.unwrapGlobalTable('testbed')!['gamepadreleased'],
+          'a|false',
+        );
+        expect(joystick.isGamepadDown(const <String>['a']), isFalse);
 
-      adapter.handleKeyEvent(
-        const KeyUpEvent(
-          physicalKey: PhysicalKeyboardKey.gameButtonA,
-          logicalKey: LogicalKeyboardKey.gameButtonA,
-          deviceType: ui.KeyEventDeviceType.gamepad,
-          timeStamp: Duration.zero,
-        ),
-      );
-      await adapter.flush();
+        adapter.handleKeyEvent(
+          const KeyDownEvent(
+            physicalKey: PhysicalKeyboardKey.gameButtonLeft2,
+            logicalKey: LogicalKeyboardKey.gameButtonLeft2,
+            deviceType: ui.KeyEventDeviceType.gamepad,
+            timeStamp: Duration.zero,
+          ),
+        );
+        await _flushQueuedGamepadInput(adapter, runtime);
 
-      expect(
-        runtime.unwrapGlobalTable('testbed')!['gamepadreleased'],
-        'gamepadreleased|a|a|false',
-      );
-      expect(joystick.isGamepadDown(const <String>['a']), isFalse);
+        expect(
+          runtime.unwrapGlobalTable('testbed')!['gamepadaxis'],
+          'triggerleft|1.0',
+        );
+        expect(joystick.getGamepadAxis('triggerleft'), 1.0);
 
-      adapter.handleKeyEvent(
-        const KeyDownEvent(
-          physicalKey: PhysicalKeyboardKey.gameButtonLeft2,
-          logicalKey: LogicalKeyboardKey.gameButtonLeft2,
-          deviceType: ui.KeyEventDeviceType.gamepad,
-          timeStamp: Duration.zero,
-        ),
-      );
-      await adapter.flush();
+        adapter.handleKeyEvent(
+          const KeyUpEvent(
+            physicalKey: PhysicalKeyboardKey.gameButtonLeft2,
+            logicalKey: LogicalKeyboardKey.gameButtonLeft2,
+            deviceType: ui.KeyEventDeviceType.gamepad,
+            timeStamp: Duration.zero,
+          ),
+        );
+        await _flushQueuedGamepadInput(adapter, runtime);
 
-      expect(
-        runtime.unwrapGlobalTable('testbed')!['gamepadaxis'],
-        'gamepadaxis|triggerleft|1.0|triggerleft|1.0|true',
-      );
-      expect(joystick.getGamepadAxis('triggerleft'), 1.0);
-
-      adapter.handleKeyEvent(
-        const KeyUpEvent(
-          physicalKey: PhysicalKeyboardKey.gameButtonLeft2,
-          logicalKey: LogicalKeyboardKey.gameButtonLeft2,
-          deviceType: ui.KeyEventDeviceType.gamepad,
-          timeStamp: Duration.zero,
-        ),
-      );
-      await adapter.flush();
-
-      expect(
-        runtime.unwrapGlobalTable('testbed')!['gamepadaxis'],
-        'gamepadaxis|triggerleft|0.0|triggerleft|0.0|true',
-      );
-      expect(joystick.getGamepadAxis('triggerleft'), 0.0);
-    });
+        expect(
+          runtime.unwrapGlobalTable('testbed')!['gamepadaxis'],
+          'triggerleft|0.0',
+        );
+        expect(joystick.getGamepadAxis('triggerleft'), 0.0);
+      },
+    );
 
     test('maps joystick dpad arrow keys to LOVE gamepad buttons', () async {
       adapter.handleKeyEvent(
@@ -176,12 +187,12 @@ end
           timeStamp: Duration.zero,
         ),
       );
-      await adapter.flush();
+      await _flushQueuedGamepadInput(adapter, runtime);
 
       final joystick = host.joysticks.devices.single;
       expect(
         runtime.unwrapGlobalTable('testbed')!['gamepadpressed'],
-        'gamepadpressed|dpup|dpup|true|true',
+        'dpup|true',
       );
       expect(joystick.isGamepadDown(const <String>['dpup']), isTrue);
 
@@ -193,64 +204,67 @@ end
           timeStamp: Duration.zero,
         ),
       );
-      await adapter.flush();
+      await _flushQueuedGamepadInput(adapter, runtime);
 
       expect(
         runtime.unwrapGlobalTable('testbed')!['gamepadreleased'],
-        'gamepadreleased|dpup|dpup|false',
+        'dpup|false',
       );
       expect(joystick.isGamepadDown(const <String>['dpup']), isFalse);
     });
 
-    test('routes generic game button keys through joystick button callbacks', () async {
-      adapter.handleKeyEvent(
-        const KeyDownEvent(
-          physicalKey: PhysicalKeyboardKey.gameButton3,
-          logicalKey: LogicalKeyboardKey.gameButton3,
-          deviceType: ui.KeyEventDeviceType.joystick,
-          timeStamp: Duration.zero,
-        ),
-      );
-      await adapter.flush();
+    test(
+      'routes generic game button keys through joystick button callbacks',
+      () async {
+        adapter.handleKeyEvent(
+          const KeyDownEvent(
+            physicalKey: PhysicalKeyboardKey.gameButton3,
+            logicalKey: LogicalKeyboardKey.gameButton3,
+            deviceType: ui.KeyEventDeviceType.joystick,
+            timeStamp: Duration.zero,
+          ),
+        );
+        await _flushQueuedGamepadInput(adapter, runtime);
 
-      final joystick = host.joysticks.devices.single;
-      expect(
-        runtime.unwrapGlobalTable('testbed')!['joystickpressed'],
-        'joystickpressed|3|3|true|true',
-      );
-      expect(joystick.isDown(const <int>[3]), isTrue);
+        final joystick = host.joysticks.devices.single;
+        expect(
+          runtime.unwrapGlobalTable('testbed')!['joystickpressed'],
+          '3|true',
+        );
+        expect(joystick.isDown(const <int>[3]), isTrue);
 
-      adapter.handleKeyEvent(
-        const KeyRepeatEvent(
-          physicalKey: PhysicalKeyboardKey.gameButton3,
-          logicalKey: LogicalKeyboardKey.gameButton3,
-          deviceType: ui.KeyEventDeviceType.joystick,
-          timeStamp: Duration.zero,
-        ),
-      );
-      await adapter.flush();
+        adapter.handleKeyEvent(
+          const KeyRepeatEvent(
+            physicalKey: PhysicalKeyboardKey.gameButton3,
+            logicalKey: LogicalKeyboardKey.gameButton3,
+            deviceType: ui.KeyEventDeviceType.joystick,
+            timeStamp: Duration.zero,
+          ),
+        );
+        await _flushQueuedGamepadInput(adapter, runtime);
 
-      expect(
-        runtime.unwrapGlobalTable('testbed')!['joystickpressed'],
-        'joystickpressed|3|3|true|true',
-      );
+        expect(
+          runtime.unwrapGlobalTable('testbed')!['joystickpressed'],
+          '3|true',
+        );
 
-      adapter.handleKeyEvent(
-        const KeyUpEvent(
-          physicalKey: PhysicalKeyboardKey.gameButton3,
-          logicalKey: LogicalKeyboardKey.gameButton3,
-          deviceType: ui.KeyEventDeviceType.joystick,
-          timeStamp: Duration.zero,
-        ),
-      );
-      await adapter.flush();
+        adapter.handleKeyEvent(
+          const KeyUpEvent(
+            physicalKey: PhysicalKeyboardKey.gameButton3,
+            logicalKey: LogicalKeyboardKey.gameButton3,
+            deviceType: ui.KeyEventDeviceType.joystick,
+            timeStamp: Duration.zero,
+          ),
+        );
+        await _flushQueuedGamepadInput(adapter, runtime);
 
-      expect(
-        runtime.unwrapGlobalTable('testbed')!['joystickreleased'],
-        'joystickreleased|3|3|false',
-      );
-      expect(joystick.isDown(const <int>[3]), isFalse);
-    });
+        expect(
+          runtime.unwrapGlobalTable('testbed')!['joystickreleased'],
+          '3|false',
+        );
+        expect(joystick.isDown(const <int>[3]), isFalse);
+      },
+    );
   });
 
   test(
@@ -294,7 +308,10 @@ end
       final pressedArgs = pressed! as List<Object?>;
       expect(pressedArgs[0], 'gamepadpressed');
       expect(pressedArgs[1], isA<Map>());
-      expect((pressedArgs[1]! as Map)['__love2d_joystick__'], same(host.joysticks.devices.single));
+      expect(
+        (pressedArgs[1]! as Map)['__love2d_joystick__'],
+        same(host.joysticks.devices.single),
+      );
       expect(pressedArgs[2], 'start');
 
       final released = await _callCallable(iterator);
@@ -302,7 +319,10 @@ end
       final releasedArgs = released! as List<Object?>;
       expect(releasedArgs[0], 'gamepadreleased');
       expect(releasedArgs[1], isA<Map>());
-      expect((releasedArgs[1]! as Map)['__love2d_joystick__'], same(host.joysticks.devices.single));
+      expect(
+        (releasedArgs[1]! as Map)['__love2d_joystick__'],
+        same(host.joysticks.devices.single),
+      );
       expect(releasedArgs[2], 'start');
 
       expect(await _callCallable(iterator), isNull);
@@ -473,3 +493,11 @@ Future<Object?> _resolveCallResult(Object? result) async {
 }
 
 Object? _unwrap(Object? value) => value is Value ? value.unwrap() : value;
+
+Future<void> _flushQueuedGamepadInput(
+  LoveFlameInputAdapter adapter,
+  LoveScriptRuntime runtime,
+) async {
+  await adapter.flush();
+  await runtime.processMainLoopEvents();
+}

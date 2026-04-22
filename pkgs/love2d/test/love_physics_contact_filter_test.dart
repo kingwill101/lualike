@@ -75,7 +75,13 @@ world:update(1 / 60)
 return calls, locked, world:getContactCount(), #world:getContacts()
 ''');
 
-      expect(result, <Object?>[1, true, 0, 0]);
+      expect(result, isA<List<Object?>>());
+      final values = result! as List<Object?>;
+      expect(values[0], isA<num>());
+      expect((values[0] as num).toInt(), greaterThan(0));
+      expect(values[1], true);
+      expect(values[2], 0);
+      expect(values[3], 0);
     });
 
     test(
@@ -103,7 +109,13 @@ world:update(1 / 60)
 return before, calls, world:getContactCount(), #bodyB:getContacts()
 ''');
 
-        expect(result, <Object?>[1, 1, 0, 0]);
+        expect(result, isA<List<Object?>>());
+        final values = result! as List<Object?>;
+        expect(values[0], 1);
+        expect(values[1], isA<num>());
+        expect((values[1] as num).toInt(), greaterThan(0));
+        expect(values[2], 0);
+        expect(values[3], 0);
       },
     );
 
@@ -133,11 +145,191 @@ return calls, world:getContactCount(), #bodyB:getContacts(), bodyB:getX()
 
         expect(result, isA<List<Object?>>());
         final values = result! as List<Object?>;
-        expect(values[0], 1);
+        expect(values[0], isA<num>());
+        expect((values[0] as num).toInt(), greaterThan(0));
         expect(values[1], 0);
         expect(values[2], 0);
         expect(values[3], isA<num>());
         expect((values[3] as num).toDouble(), lessThan(20));
+      },
+    );
+
+    test(
+      'World:setContactFilter suppresses gravity-driven mid-step contacts from rest',
+      () async {
+        final result = await _execute(lua, '''
+local function run(useFilter)
+  local world = love.physics.newWorld(0, 7200, false)
+  local floor = love.physics.newBody(world, 0, 0, 'static')
+  local ball = love.physics.newBody(world, 0, -21, 'dynamic')
+
+  love.physics.newFixture(floor, love.physics.newCircleShape(10), 1)
+  love.physics.newFixture(ball, love.physics.newCircleShape(10), 1)
+
+  local calls = 0
+  if useFilter then
+    world:setContactFilter(function()
+      calls = calls + 1
+      return false
+    end)
+  end
+
+  world:update(1 / 60)
+
+  return calls, world:getContactCount(), #ball:getContacts(), ball:getY()
+end
+
+local controlCalls, controlContacts, controlBodyContacts, controlY = run(false)
+local filterCalls, filterContacts, filterBodyContacts, filterY = run(true)
+
+return
+  controlCalls,
+  controlContacts,
+  controlBodyContacts,
+  controlY,
+  filterCalls,
+  filterContacts,
+  filterBodyContacts,
+  filterY
+''');
+
+        expect(result, isA<List<Object?>>());
+        final values = result! as List<Object?>;
+        expect(values, hasLength(8));
+
+        expect(values[0], 0);
+        expect(values[1], 1);
+        expect(values[2], 1);
+        expect(values[3], isA<num>());
+        expect((values[3] as num).toDouble(), greaterThan(-21));
+
+        expect(values[4], isA<num>());
+        expect((values[4] as num).toInt(), greaterThan(0));
+        expect(values[5], 0);
+        expect(values[6], 0);
+        expect(values[7], isA<num>());
+        expect((values[7] as num).toDouble(), greaterThan(-21));
+      },
+    );
+
+    test(
+      'World:setContactFilter suppresses rotation-driven mid-step contacts',
+      () async {
+        final result = await _execute(lua, '''
+local function run(useFilter)
+  local world = love.physics.newWorld(0, 0, false)
+  local rotor = love.physics.newBody(world, 0, 0, 'dynamic')
+  local obstacle = love.physics.newBody(world, 55, 0, 'static')
+
+  love.physics.newFixture(rotor, love.physics.newRectangleShape(120, 10), 1)
+  love.physics.newFixture(obstacle, love.physics.newCircleShape(10), 1)
+
+  rotor:setAngle(math.pi / 2)
+  rotor:setAngularVelocity(-120)
+
+  local calls = 0
+  if useFilter then
+    world:setContactFilter(function()
+      calls = calls + 1
+      return false
+    end)
+  end
+
+  world:update(1 / 60)
+
+  return calls, world:getContactCount(), #rotor:getContacts(), rotor:getAngle()
+end
+
+local controlCalls, controlContacts, controlBodyContacts, controlAngle = run(false)
+local filterCalls, filterContacts, filterBodyContacts, filterAngle = run(true)
+
+return
+  controlCalls,
+  controlContacts,
+  controlBodyContacts,
+  controlAngle,
+  filterCalls,
+  filterContacts,
+  filterBodyContacts,
+  filterAngle
+''');
+
+        expect(result, isA<List<Object?>>());
+        final values = result! as List<Object?>;
+        expect(values, hasLength(8));
+
+        expect(values[0], 0);
+        expect(values[1], 1);
+        expect(values[2], 1);
+        expect(values[3], isA<num>());
+        expect((values[3] as num).toDouble(), lessThan(0.25));
+
+        expect(values[4], isA<num>());
+        expect((values[4] as num).toInt(), greaterThan(0));
+        expect(values[5], 0);
+        expect(values[6], 0);
+        expect(values[7], isA<num>());
+        expect((values[7] as num).toDouble(), lessThan(0.25));
+      },
+    );
+
+    test(
+      'World:setContactFilter suppresses contacts that only arise at an intermediate rotation sample',
+      () async {
+        final result = await _execute(lua, '''
+local function run(useFilter)
+  local world = love.physics.newWorld(0, 0, false)
+  local rotor = love.physics.newBody(world, 0, 0, 'dynamic')
+  local obstacle = love.physics.newBody(world, 54, 14, 'static')
+
+  love.physics.newFixture(rotor, love.physics.newRectangleShape(100, 60), 1)
+  love.physics.newFixture(obstacle, love.physics.newCircleShape(3), 1)
+
+  rotor:setAngularVelocity(math.pi * 30)
+
+  local calls = 0
+  if useFilter then
+    world:setContactFilter(function()
+      calls = calls + 1
+      return false
+    end)
+  end
+
+  world:update(1 / 60)
+
+  return calls, world:getContactCount(), #rotor:getContacts(), rotor:getAngle()
+end
+
+local controlCalls, controlContacts, controlBodyContacts, controlAngle = run(false)
+local filterCalls, filterContacts, filterBodyContacts, filterAngle = run(true)
+
+return
+  controlCalls,
+  controlContacts,
+  controlBodyContacts,
+  controlAngle,
+  filterCalls,
+  filterContacts,
+  filterBodyContacts,
+  filterAngle
+''');
+
+        expect(result, isA<List<Object?>>());
+        final values = result! as List<Object?>;
+        expect(values, hasLength(8));
+
+        expect(values[0], 0);
+        expect(values[1], 1);
+        expect(values[2], 1);
+        expect(values[3], isA<num>());
+        expect((values[3] as num).toDouble(), greaterThan(0.9));
+
+        expect(values[4], isA<num>());
+        expect((values[4] as num).toInt(), greaterThan(0));
+        expect(values[5], 0);
+        expect(values[6], 0);
+        expect(values[7], isA<num>());
+        expect((values[7] as num).toDouble(), greaterThan(0.9));
       },
     );
 

@@ -1,4 +1,5 @@
 library;
+// ignore_for_file: implementation_imports
 
 import 'dart:convert' show utf8;
 import 'dart:math' as math;
@@ -17,15 +18,29 @@ import 'package:lualike/lualike.dart'
         LuaRuntime,
         LuaString,
         Value;
+import 'package:lualike/src/ast.dart';
+import 'package:lualike/src/environment.dart';
 import 'package:lualike/src/number_limits.dart' show NumberLimits;
+import 'package:lualike/src/upvalue.dart';
 import 'package:vector_math/vector_math_64.dart' show Matrix4, Vector3;
 
 import '../generated/love_api_reference.g.dart'
     as love_api_generated
     show installLove2d;
 import '../generated/love_api_reference.g.dart' show loveApiEnums;
+import 'audio/love_audio_extra_bindings.dart'
+    show installLoveAudioExtraBindings;
+import 'data/love_data_extra_bindings.dart' show installLoveDataExtraBindings;
+import 'event/love_event_extra_bindings.dart'
+    show installLoveEventExtraBindings;
 import 'filesystem/love_filesystem_runtime.dart'
-    show LoveFilesystemFileData, LoveFilesystemNodeType, LoveFilesystemState;
+    show
+        LoveFilesystemFileData,
+        LoveFilesystemNodeType,
+        LoveFilesystemRuntimeConfig,
+        LoveFilesystemRuntimeMountOperations,
+        LoveFilesystemState;
+import 'font/love_font_extra_bindings.dart' show installLoveFontExtraBindings;
 import 'filesystem/love_filesystem_bindings.dart'
     show ensureLoveFilesystemRuntimeBindingsLoaded;
 import 'filesystem/love_filesystem_enum_bindings.dart'
@@ -34,6 +49,16 @@ import 'filesystem/love_filesystem_extra_bindings.dart'
     show installLoveFilesystemExtraBindings;
 import 'filesystem/love_filesystem_package_loader.dart'
     show syncLoveFilesystemPackageInterop;
+import 'graphics/love_graphics_enum_bindings.dart'
+    show installLoveGraphicsEnumBindings;
+import 'input/love_joystick_extra_bindings.dart'
+    show installLoveJoystickExtraBindings;
+import 'physics/love_physics_extra_bindings.dart'
+    show installLovePhysicsExtraBindings;
+import 'system/love_system_extra_bindings.dart'
+    show installLoveSystemExtraBindings;
+import 'window/love_window_extra_bindings.dart'
+    show installLoveWindowExtraBindings;
 import '../love_api_support.dart';
 import 'love_runtime.dart';
 
@@ -55,17 +80,23 @@ part 'love_api_bindings/graphics_advanced_state_bindings.dart';
 part 'love_api_bindings/graphics_canvas_bindings.dart';
 part 'love_api_bindings/graphics_draw_bindings.dart';
 part 'love_api_bindings/graphics_environment_bindings.dart';
+part 'love_api_bindings/graphics_extra_bindings.dart';
+part 'love_api_bindings/graphics_layered_image_bindings.dart';
 part 'love_api_bindings/graphics_mesh_bindings.dart';
 part 'love_api_bindings/graphics_particle_system_bindings.dart';
 part 'love_api_bindings/graphics_resource_bindings.dart';
+part 'love_api_bindings/graphics_screenshot_bindings.dart';
+part 'love_api_bindings/graphics_shader_source_bindings.dart';
 part 'love_api_bindings/graphics_shader_bindings.dart';
 part 'love_api_bindings/graphics_sprite_batch_bindings.dart';
 part 'love_api_bindings/graphics_state_bindings.dart';
 part 'love_api_bindings/graphics_misc_bindings.dart';
 part 'love_api_bindings/graphics_transform_bindings.dart';
+part 'love_api_bindings/graphics_video_bindings.dart';
 part 'love_api_bindings/image_compressed_object_wrappers.dart';
 part 'love_api_bindings/image_compressed_support.dart';
 part 'love_api_bindings/image_bindings.dart';
+part 'love_api_bindings/image_extra_bindings.dart';
 part 'love_api_bindings/keyboard_bindings.dart';
 part 'love_api_bindings/lifecycle_bindings.dart';
 part 'love_api_bindings/math_bindings.dart';
@@ -81,6 +112,7 @@ part 'love_api_bindings/physics_contact_filter_object_wrappers.dart';
 part 'love_api_bindings/physics_joint_bindings.dart';
 part 'love_api_bindings/physics_joint_object_wrappers.dart';
 part 'love_api_bindings/physics_object_wrappers.dart';
+part 'love_api_bindings/physics_sync_callback_support.dart';
 part 'love_api_bindings/joystick_object_wrappers.dart';
 part 'love_api_bindings/joystick_bindings.dart';
 part 'love_api_bindings/resource_source_helpers.dart';
@@ -121,6 +153,7 @@ const String _loveTransformObjectKey = '__love2d_transform__';
 const String _loveJoystickObjectKey = '__love2d_joystick__';
 const String _loveChannelObjectKey = '__love2d_channel__';
 const String _loveThreadObjectKey = '__love2d_thread__';
+const String _loveVideoObjectKey = '__love2d_video__';
 const String _loveVideoStreamObjectKey = '__love2d_video_stream__';
 const String _lovePhysicsWorldObjectKey = '__love2d_physics_world__';
 const String _lovePhysicsBodyObjectKey = '__love2d_physics_body__';
@@ -198,6 +231,9 @@ final Expando<Map<Object, Value>> _loveChannelWrapperCache =
     Expando<Map<Object, Value>>('love2dChannelWrapper');
 final Expando<Map<Object, Value>> _loveThreadWrapperCache =
     Expando<Map<Object, Value>>('love2dThreadWrapper');
+final Expando<Value> _loveVideoWrapperCache = Expando<Value>(
+  'love2dVideoWrapper',
+);
 final Expando<Value> _loveVideoStreamWrapperCache = Expando<Value>(
   'love2dVideoStreamWrapper',
 );
@@ -232,6 +268,7 @@ final Expando<bool> _loveChannelReleased = Expando<bool>(
   'love2dChannelReleased',
 );
 final Expando<bool> _loveThreadReleased = Expando<bool>('love2dThreadReleased');
+final Expando<bool> _loveVideoReleased = Expando<bool>('love2dVideoReleased');
 final Expando<bool> _loveVideoStreamReleased = Expando<bool>(
   'love2dVideoStreamReleased',
 );
@@ -329,6 +366,7 @@ void ensureLoveApiRuntimeBindingsLoaded() {
     'love.graphics.getColorMask': _bindGraphicsGetColorMask,
     'love.graphics.getDPIScale': _bindGraphicsGetDpiScale,
     'love.graphics.getDefaultFilter': _bindGraphicsGetDefaultFilter,
+    'love.graphics.getDefaultMipmapFilter': _bindGraphicsGetDefaultMipmapFilter,
     'love.graphics.getDimensions': _bindGraphicsGetDimensions,
     'love.graphics.getFont': _bindGraphicsGetFont,
     'love.graphics.getHeight': _bindGraphicsGetHeight,
@@ -342,6 +380,7 @@ void ensureLoveApiRuntimeBindingsLoaded() {
     'love.graphics.getPointSize': _bindGraphicsGetPointSize,
     'love.graphics.getRendererInfo': _bindGraphicsGetRendererInfo,
     'love.graphics.getScissor': _bindGraphicsGetScissor,
+    'love.graphics.getShader': _bindGraphicsGetShader,
     'love.graphics.getStackDepth': _bindGraphicsGetStackDepth,
     'love.graphics.getStats': _bindGraphicsGetStats,
     'love.graphics.getSupported': _bindGraphicsGetSupported,
@@ -350,6 +389,7 @@ void ensureLoveApiRuntimeBindingsLoaded() {
     'love.graphics.intersectScissor': _bindGraphicsIntersectScissor,
     'love.graphics.inverseTransformPoint': _bindGraphicsInverseTransformPoint,
     'love.graphics.isActive': _bindGraphicsIsActive,
+    'love.graphics.isCreated': _bindGraphicsIsCreated,
     'love.graphics.isGammaCorrect': _bindGraphicsIsGammaCorrect,
     'love.graphics.isWireframe': _bindGraphicsIsWireframe,
     'love.graphics.line': _bindGraphicsLine,
@@ -366,6 +406,7 @@ void ensureLoveApiRuntimeBindingsLoaded() {
     'love.graphics.newShader': _bindGraphicsNewShader,
     'love.graphics.newText': _bindGraphicsNewText,
     'love.graphics.newQuad': _bindGraphicsNewQuad,
+    'love.graphics.newVideo': _bindGraphicsNewVideo,
     'love.graphics.origin': _bindGraphicsOrigin,
     'love.graphics.present': _bindGraphicsPresent,
     'love.graphics.flushBatch': _bindGraphicsFlushBatch,
@@ -397,6 +438,7 @@ void ensureLoveApiRuntimeBindingsLoaded() {
     'love.graphics.setColor': _bindGraphicsSetColor,
     'love.graphics.setColorMask': _bindGraphicsSetColorMask,
     'love.graphics.setDefaultFilter': _bindGraphicsSetDefaultFilter,
+    'love.graphics.setDefaultMipmapFilter': _bindGraphicsSetDefaultMipmapFilter,
     'love.graphics.setFont': _bindGraphicsSetFont,
     'love.graphics.setLineJoin': _bindGraphicsSetLineJoin,
     'love.graphics.setLineStyle': _bindGraphicsSetLineStyle,

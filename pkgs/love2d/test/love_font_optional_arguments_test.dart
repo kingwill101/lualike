@@ -171,6 +171,61 @@ void main() {
         );
       },
     );
+
+    test(
+      'graphics.setNewFont treats nil source size like the single-argument auto path',
+      () async {
+        final runtime = Interpreter();
+        installLove2d(runtime: runtime, host: LoveHeadlessHost());
+
+        final sourceDir = await love2dResourceDirectory();
+        expect(
+          LoveFilesystemState.of(runtime).setSource(sourceDir.path),
+          isTrue,
+        );
+
+        final autoFont = await _call(
+          runtime,
+          const ['love', 'graphics', 'newFont'],
+          const <Object?>['Vera.ttf'],
+        );
+        final nilSizeFont = await _call(
+          runtime,
+          const ['love', 'graphics', 'setNewFont'],
+          <Object?>['Vera.ttf', null, 'mono', 2.0],
+        );
+        final currentFont = await _call(runtime, const [
+          'love',
+          'graphics',
+          'getFont',
+        ]);
+
+        expect(
+          await _callMethod(nilSizeFont, 'getHeight'),
+          await _callMethod(autoFont, 'getHeight'),
+        );
+        expect(
+          await _callMethod(nilSizeFont, 'getDPIScale'),
+          await _callMethod(autoFont, 'getDPIScale'),
+        );
+        expect(
+          await _callMethod(nilSizeFont, 'getWidth', const <Object?>['AV']),
+          await _callMethod(autoFont, 'getWidth', const <Object?>['AV']),
+        );
+        expect(
+          await _callMethod(currentFont, 'getHeight'),
+          await _callMethod(autoFont, 'getHeight'),
+        );
+        expect(
+          await _callMethod(currentFont, 'getDPIScale'),
+          await _callMethod(autoFont, 'getDPIScale'),
+        );
+        expect(
+          await _callMethod(currentFont, 'getWidth', const <Object?>['AV']),
+          await _callMethod(autoFont, 'getWidth', const <Object?>['AV']),
+        );
+      },
+    );
   });
 }
 

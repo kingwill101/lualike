@@ -33,6 +33,16 @@ LoveApiImplementation _bindGraphicsIsActive(
   return (args) => true;
 }
 
+// love.graphics.isCreated
+// Upstream exposes this lightweight initialization-state query even though the
+// vendored love-api inventory omits it. The runtime always has a graphics
+// context once installed, so this reports true.
+LoveApiImplementation _bindGraphicsIsCreated(
+  LibraryRegistrationContext context,
+) {
+  return (args) => true;
+}
+
 // love.graphics.isGammaCorrect
 // Returns whether gamma-correct rendering is enabled.  The Flutter/Flame
 // backend does not currently enable automatic gamma correction, so this
@@ -49,7 +59,7 @@ LoveApiImplementation _bindGraphicsIsGammaCorrect(
 // tracked in state but cannot be rasterised yet.
 const Map<String, bool> _loveGraphicsTextureTypeSupport = <String, bool>{
   '2d': true,
-  'array': false,
+  'array': true,
   'cube': false,
   'volume': false,
 };
@@ -70,93 +80,125 @@ LoveApiImplementation _bindGraphicsGetTextureTypes(
 // love.graphics.validateShader(gles, code)
 // love.graphics.validateShader(gles, pixelcode, vertexcode)
 //
-// Validates GLSL shader source.  No GLSL compiler is available in the Dart
-// runtime, so this shim always reports the shader as valid.  Games that use
-// this function to guard optional shader features will work correctly; games
-// that rely on the error message to diagnose broken shaders will not receive
-// compile diagnostics.
+// Validates shader source through the same input-resolution path as newShader.
+// The Flutter backend does not have a general-purpose GLSL compiler, so we
+// report success only for the compatibility-emulated shader subset that the
+// runtime can actually execute and return (false, message) for unsupported
+// runtime shader source.
 LoveApiImplementation _bindGraphicsValidateShader(
   LibraryRegistrationContext context,
 ) {
-  return (args) {
-    // Validate argument count: at minimum (gles, code).
+  return (args) async {
+    const symbol = 'love.graphics.validateShader';
     if (args.length < 2) {
       throw LuaError(
-        'love.graphics.validateShader requires at least 2 arguments '
+        '$symbol requires at least 2 arguments '
         '(gles: boolean, code: string)',
       );
     }
-    // Return (true, nil) — always valid in this shim.
-    return Value.multi(<Object?>[true, null]);
-  };
-}
 
-// love.graphics.captureScreenshot(callback)
-//
-// Enqueues an async screenshot capture; the callback is invoked with an
-// ImageData object once the current frame has finished rendering.  This
-// requires deep integration with the host's render pipeline and is not
-// yet implemented.
-LoveApiImplementation _bindGraphicsCaptureScreenshot(
-  LibraryRegistrationContext context,
-) {
-  return (args) => loveApiUnimplemented('love.graphics.captureScreenshot');
+    final gles = _requireBoolean(args, 0, symbol);
+
+    final shader = await _createShaderFromSourceArguments(
+      context,
+      firstValue: _valueAt(args, 1),
+      secondValue: args.length >= 3 ? _valueAt(args, 2) : null,
+      symbol: symbol,
+      firstArgumentIndex: 2,
+      gles: gles,
+    );
+    final unsupportedMessage = _unsupportedShaderSourceMessage(
+      shader,
+      symbol: symbol,
+    );
+    if (unsupportedMessage != null) {
+      return Value.multi(<Object?>[false, unsupportedMessage]);
+    }
+
+    // Mirrors upstream by returning a single true value on success.
+    return true;
+  };
 }
 
 // love.graphics.drawInstanced(mesh, count [, drawparams...])
 //
-// Hardware geometry instancing requires per-instance vertex attributes and
-// shader support that is not yet available in this runtime.
+// Hardware geometry instancing is emulated by replaying the queued Mesh command
+// multiple times during rasterization while preserving a single queued draw
+// command and drawcall stat. Per-instance attributes are not yet rasterized.
 LoveApiImplementation _bindGraphicsDrawInstanced(
   LibraryRegistrationContext context,
 ) {
-  return (args) => loveApiUnimplemented('love.graphics.drawInstanced');
-}
-
-// love.graphics.drawLayer(texture, layerindex [, drawparams...])
-//
-// Drawing individual layers of an Array or Volume texture requires multi-
-// layer texture support which is not yet rasterised by this runtime.
-LoveApiImplementation _bindGraphicsDrawLayer(
-  LibraryRegistrationContext context,
-) {
-  return (args) => loveApiUnimplemented('love.graphics.drawLayer');
-}
-
-// love.graphics.newArrayImage(slices [, settings])
-//
-// Array textures are tracked in state but cannot be decoded or rasterised
-// yet.
-LoveApiImplementation _bindGraphicsNewArrayImage(
-  LibraryRegistrationContext context,
-) {
-  return (args) => loveApiUnimplemented('love.graphics.newArrayImage');
-}
-
-// love.graphics.newVolumeImage(layers [, settings])
-//
-// Volume textures are tracked in state but cannot be decoded or rasterised
-// yet.
-LoveApiImplementation _bindGraphicsNewVolumeImage(
-  LibraryRegistrationContext context,
-) {
-  return (args) => loveApiUnimplemented('love.graphics.newVolumeImage');
-}
-
-// love.graphics.newCubeImage(filename | slices [, settings])
-//
-// Cubemap textures are tracked in state but cannot be decoded or rasterised
-// yet.
-LoveApiImplementation _bindGraphicsNewCubeImage(
-  LibraryRegistrationContext context,
-) {
-  return (args) => loveApiUnimplemented('love.graphics.newCubeImage');
+  final runtime = _runtimeContext(context);
+  return (args) {
+    const symbol = 'love.graphics.drawInstanced';
+    final mesh = _requireMesh(args, 0, symbol);
+    final instanceCount = _requireRoundedInt(args, 1, symbol);
+    _queueMeshDrawCommand(
+      runtime,
+      mesh: mesh,
+      args: args,
+      transformIndex: 2,
+      symbol: symbol,
+      instanceCount: instanceCount,
+    );
+    return null;
+  };
 }
 
 // love.graphics.stencil(stencilfunction [, action [, value [, keepvals]]])
 //
-// Drawing into the stencil buffer requires stencil-aware command types and
-// host-side pipeline support which are not yet implemented.
+LoveGraphicsStencilAction _stencilAction(String value, String symbol) {
+  return switch (value) {
+    'replace' => LoveGraphicsStencilAction.replace,
+    'increment' => LoveGraphicsStencilAction.increment,
+    'decrement' => LoveGraphicsStencilAction.decrement,
+    'incrementwrap' => LoveGraphicsStencilAction.incrementWrap,
+    'decrementwrap' => LoveGraphicsStencilAction.decrementWrap,
+    'invert' => LoveGraphicsStencilAction.invert,
+    _ => throw LuaError('$symbol invalid stencil draw action "$value"'),
+  };
+}
+
+// Records stencil-writing draw commands by replaying the supplied callback with
+// temporary stencil-write state enabled. CPU readback paths such as
+// Canvas:newImageData and captureScreenshot then replay the commands against a
+// software stencil buffer.
 LoveApiImplementation _bindGraphicsStencil(LibraryRegistrationContext context) {
-  return (args) => loveApiUnimplemented('love.graphics.stencil');
+  final runtime = _runtimeContext(context);
+  final interpreter = context.interpreter;
+  if (interpreter == null) {
+    throw StateError('No Lua runtime available for love.graphics.stencil');
+  }
+
+  return (args) async {
+    const symbol = 'love.graphics.stencil';
+    final callback = _requireCallable(args, 0, symbol);
+    final action = args.length >= 2 && _rawValue(args[1]) != null
+        ? _stencilAction(_requireString(args, 1, symbol), symbol)
+        : LoveGraphicsStencilAction.replace;
+    final value = args.length >= 3 ? _requireRoundedInt(args, 2, symbol) : 1;
+    final keepArg = args.length >= 4 ? _rawValue(args[3]) : null;
+
+    if (keepArg == null || keepArg == false) {
+      runtime.graphics.clearStencil();
+    } else if (keepArg is num) {
+      runtime.graphics.clearStencil(keepArg.round());
+    } else if (keepArg is! bool) {
+      throw LuaError('$symbol expected a boolean or number at argument 4');
+    }
+
+    runtime.graphics.beginStencilWrite(action, value);
+    try {
+      await interpreter.callFunction(
+        callback,
+        const <Object?>[],
+        debugName: symbol,
+        debugNameWhat: 'function',
+      );
+    } finally {
+      runtime.graphics.endStencilWrite();
+    }
+
+    return null;
+  };
 }

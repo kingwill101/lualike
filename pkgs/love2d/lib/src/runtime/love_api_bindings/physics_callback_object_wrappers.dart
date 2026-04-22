@@ -15,13 +15,24 @@ Value _buildPhysicsWorldUpdateBinding(
         final positionIterations = args.length >= 4 && _valueAt(args, 3) != null
             ? _requireRoundedInt(args, 3, 'World:update')
             : null;
-        await _preparePhysicsWorldContactFilterIfNeeded(context, world, dt);
+        final useSyncCallbacks = context.interpreter is Interpreter;
+        if (!useSyncCallbacks) {
+          await _preparePhysicsWorldContactFilterIfNeeded(context, world, dt);
+        }
         await world.update(
           dt,
           velocityIterations: velocityIterations,
           positionIterations: positionIterations,
-          callbackDispatcher: (event) =>
-              _dispatchPhysicsWorldCallbackEvent(context, event),
+          syncCallbackDispatcher: !useSyncCallbacks
+              ? null
+              : (event) =>
+                    _dispatchPhysicsWorldCallbackEventSync(context, event),
+          syncContactFilterEvaluator: !useSyncCallbacks
+              ? null
+              : _buildPhysicsWorldContactFilterSyncEvaluator(context, world),
+          callbackDispatcher: !useSyncCallbacks
+              ? (event) => _dispatchPhysicsWorldCallbackEvent(context, event)
+              : null,
         );
         return null;
       }),
@@ -94,6 +105,34 @@ Future<void> _dispatchPhysicsWorldCallbackEvent(
   }
 
   await _physicsInvokeLuaCallback(
+    context,
+    event.callback,
+    callbackArgs,
+    _physicsWorldCallbackSymbol(event.kind),
+  );
+}
+
+void _dispatchPhysicsWorldCallbackEventSync(
+  LibraryContext context,
+  LovePhysicsWorldQueuedCallback event,
+) {
+  final fixtures = event.contact.fixtures;
+  final callbackArgs = <Object?>[
+    _wrapPhysicsFixture(context, fixtures.fixtureA),
+    _wrapPhysicsFixture(context, fixtures.fixtureB),
+    _wrapPhysicsContact(context, event.contact),
+  ];
+
+  final normalImpulses = event.normalImpulses;
+  final tangentImpulses = event.tangentImpulses;
+  if (normalImpulses != null && tangentImpulses != null) {
+    for (var index = 0; index < normalImpulses.length; index++) {
+      callbackArgs.add(normalImpulses[index]);
+      callbackArgs.add(tangentImpulses[index]);
+    }
+  }
+
+  _physicsInvokeLuaCallbackSync(
     context,
     event.callback,
     callbackArgs,

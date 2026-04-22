@@ -10,8 +10,22 @@ Value _wrapCompressedImageData(
   }
 
   final builder = BuiltinFunctionBuilder(context);
+  const hierarchy = <String>{'CompressedImageData', 'Data', 'Object'};
   final table = ValueClass.table(<Object?, Object?>{
     _loveCompressedImageDataObjectKey: imageData,
+    'clone': Value(
+      builder.create((args) {
+        return _wrapCompressedImageData(
+          context,
+          _requireCompressedImageData(
+            args,
+            0,
+            'CompressedImageData:clone',
+          ).clone(),
+        );
+      }),
+      functionName: 'clone',
+    ),
     'getDimensions': Value(
       builder.create((args) {
         final imageData = _requireCompressedImageData(
@@ -76,6 +90,37 @@ Value _wrapCompressedImageData(
         return imageData.getWidth(level);
       }),
       functionName: 'getWidth',
+    ),
+    'release': Value(
+      builder.create((args) {
+        final imageData = _requireCompressedImageData(
+          args,
+          0,
+          'Object:release',
+        );
+        if (_loveDataReleased[imageData] == true) {
+          return false;
+        }
+
+        _loveDataReleased[imageData] = true;
+        return true;
+      }),
+      functionName: 'release',
+    ),
+    'type': Value(
+      builder.create((args) {
+        _requireCompressedImageData(args, 0, 'Object:type');
+        return 'CompressedImageData';
+      }),
+      functionName: 'type',
+    ),
+    'typeOf': Value(
+      builder.create((args) {
+        _requireCompressedImageData(args, 0, 'Object:typeOf');
+        final queried = _requireString(args, 1, 'Object:typeOf');
+        return hierarchy.contains(queried);
+      }),
+      functionName: 'typeOf',
     ),
   });
   _loveCompressedImageDataWrapperCache[imageData] = table;

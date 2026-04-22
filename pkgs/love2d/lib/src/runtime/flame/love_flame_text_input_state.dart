@@ -41,7 +41,7 @@ class LoveFlameTextInputState {
     _editingValue = TextEditingValue.empty;
     _committedText = '';
     if (!previousCandidate.isEmpty) {
-      _dispatch((runtime) => runtime.dispatchTextEdited('', 0, 0));
+      _dispatch((runtime) => runtime.queueTextEdited('', 0, 0));
     }
   }
 
@@ -60,7 +60,7 @@ class LoveFlameTextInputState {
 
     if (previousCandidate != nextCandidate) {
       _dispatch(
-        (runtime) => runtime.dispatchTextEdited(
+        (runtime) => runtime.queueTextEdited(
           nextCandidate.text,
           nextCandidate.start,
           nextCandidate.length,
@@ -73,7 +73,7 @@ class LoveFlameTextInputState {
       nextCommittedText,
     );
     if (insertedText.isNotEmpty) {
-      _dispatch((runtime) => runtime.dispatchTextInput(insertedText));
+      _dispatch((runtime) => runtime.queueTextInput(insertedText));
     }
   }
 

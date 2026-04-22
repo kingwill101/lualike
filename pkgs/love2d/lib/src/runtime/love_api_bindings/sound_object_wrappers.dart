@@ -70,6 +70,13 @@ Value _wrapSoundData(LibraryRegistrationContext context, LoveSoundData data) {
         ),
         functionName: 'getChannelCount',
       ),
+      'getChannels': Value(
+        builder.create(
+          (args) =>
+              _requireSoundData(args, 0, 'SoundData:getChannels').channels,
+        ),
+        functionName: 'getChannels',
+      ),
       'getDuration': Value(
         builder.create(
           (args) =>
@@ -186,6 +193,12 @@ Value _wrapDecoder(
         (args) => _requireDecoder(args, 0, 'Decoder:getChannelCount').channels,
       ),
       functionName: 'getChannelCount',
+    ),
+    'getChannels': Value(
+      builder.create(
+        (args) => _requireDecoder(args, 0, 'Decoder:getChannels').channels,
+      ),
+      functionName: 'getChannels',
     ),
     'getDuration': Value(
       builder.create(

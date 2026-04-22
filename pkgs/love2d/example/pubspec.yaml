@@ -74,3 +74,20 @@ flutter:
     - assets/pocket_bomber/main.lua
     - assets/pocket_bomber/src/
     - assets/pocket_bomber/src/states/
+    - assets/shader_explorer/conf.lua
+    - assets/shader_explorer/main.lua
+    - assets/shader_explorer/src/
+  shaders:
+    - assets/shader_explorer/shaders/barrel_blur.glsl
+    - assets/shader_explorer/shaders/glitch.glsl
+    - assets/shader_explorer/shaders/gradient.frag
+    - assets/shader_explorer/shaders/jam.glsl
+    - assets/shader_explorer/shaders/laser.frag
+    - assets/shader_explorer/shaders/lava.frag
+    - assets/shader_explorer/shaders/mario.glsl
+    - assets/shader_explorer/shaders/pixelation.frag
+    - assets/shader_explorer/shaders/snow.glsl
+    - assets/shader_explorer/shaders/solid.frag
+    - assets/shader_explorer/shaders/stars.glsl
+    - assets/shader_explorer/shaders/stretch.glsl
+    - assets/shader_explorer/shaders/water.frag

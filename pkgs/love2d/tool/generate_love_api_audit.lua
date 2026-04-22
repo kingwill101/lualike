@@ -161,7 +161,7 @@ end
 
 local function load_overrides()
   if not file_exists(overrides_path) then
-    return {modules = {}, symbols = {}}
+    return {modules = {}, symbols = {}, extra_symbols = {}}
   end
 
   local chunk = assert(loadfile(overrides_path))
@@ -169,6 +169,7 @@ local function load_overrides()
   data = data or {}
   data.modules = data.modules or {}
   data.symbols = data.symbols or {}
+  data.extra_symbols = data.extra_symbols or {}
   return data
 end
 
@@ -183,6 +184,68 @@ local function merge_tables(...)
     end
   end
   return merged
+end
+
+local function extra_symbol_code_list(items)
+  local out = {}
+  for _, item in ipairs(items or {}) do
+    out[#out + 1] = string.format('`%s`', item.symbol)
+  end
+  if #out == 0 then
+    return '_none_'
+  end
+  return table.concat(out, ', ')
+end
+
+local function ordered_extra_symbols(items)
+  local ordered = {}
+  for _, item in ipairs(items or {}) do
+    ordered[#ordered + 1] = item
+  end
+  table.sort(ordered, function(left, right)
+    return left.symbol < right.symbol
+  end)
+  return ordered
+end
+
+local function group_extra_symbols(extra_symbols)
+  local by_module = {}
+  local by_module_container = {}
+
+  for _, extra in ipairs(extra_symbols or {}) do
+    local module_items = by_module[extra.module]
+    if module_items == nil then
+      module_items = {}
+      by_module[extra.module] = module_items
+    end
+    module_items[#module_items + 1] = extra
+
+    if extra.container ~= nil then
+      local module_containers = by_module_container[extra.module]
+      if module_containers == nil then
+        module_containers = {}
+        by_module_container[extra.module] = module_containers
+      end
+      local container_items = module_containers[extra.container]
+      if container_items == nil then
+        container_items = {}
+        module_containers[extra.container] = container_items
+      end
+      container_items[#container_items + 1] = extra
+    end
+  end
+
+  for module_name, items in pairs(by_module) do
+    by_module[module_name] = ordered_extra_symbols(items)
+  end
+
+  for _, containers in pairs(by_module_container) do
+    for container_name, items in pairs(containers) do
+      containers[container_name] = ordered_extra_symbols(items)
+    end
+  end
+
+  return by_module, by_module_container
 end
 
 local temp_root
@@ -231,6 +294,9 @@ local ok, err = xpcall(function()
 
   local api = require('extra')(require('love_api'))
   local overrides = load_overrides()
+  local extra_symbols_by_module, extra_symbols_by_module_container =
+    group_extra_symbols(overrides.extra_symbols)
+  local total_extra_symbols = count(overrides.extra_symbols)
   if api.version ~= EXPECTED_VERSION then
     error(
       string.format(
@@ -357,6 +423,7 @@ local ok, err = xpcall(function()
   write_line(lines, '| Methods | ' .. count(api.methods) .. ' |')
   write_line(lines, '| Enums | ' .. count(api.enums) .. ' |')
   write_line(lines, '| Enum constants | ' .. total_enum_constants .. ' |')
+  write_line(lines, '| Source-backed extra symbols | ' .. total_extra_symbols .. ' |')
   write_line(lines, '')
   write_line(lines, '## Backend Buckets')
   write_line(lines, '')
@@ -381,7 +448,7 @@ local ok, err = xpcall(function()
   write_line(lines, '## Detailed Inventory')
   write_line(lines, '')
 
-  local function render_types(lines_, types)
+  local function render_types(lines_, types, extra_symbols_by_container)
     if count(types) == 0 then
       write_line(lines_, '- Types: _none_')
       return
@@ -413,6 +480,19 @@ local ok, err = xpcall(function()
       else
         write_line(lines_, '    - Methods: _none_')
       end
+      local extra_symbols =
+        extra_symbols_by_container and
+        extra_symbols_by_container[fullname(type_)] or
+        nil
+      if count(extra_symbols) > 0 then
+        write_line(
+          lines_,
+          '    - Source-backed extra symbols (' ..
+            count(extra_symbols) ..
+            '): ' ..
+            extra_symbol_code_list(extra_symbols)
+        )
+      end
     end
   end
 
@@ -435,7 +515,26 @@ local ok, err = xpcall(function()
     end
   end
 
+  local function write_extra_symbol_inventory(lines_, module_name)
+    local extra_symbols = extra_symbols_by_module[module_name]
+    if count(extra_symbols) == 0 then
+      return
+    end
+
+    write_line(
+      lines_,
+      '- Source-backed extra symbols (' ..
+        count(extra_symbols) ..
+        '): ' ..
+        extra_symbol_code_list(extra_symbols)
+    )
+  end
+
   for _, module_ in ipairs(ordered_modules(api.modules)) do
+    local module_extra_symbols = extra_symbols_by_module[module_.fullname]
+    local extra_summary = count(module_extra_symbols) > 0 and
+        (', ' .. count(module_extra_symbols) .. ' source-backed extras') or
+        ''
     if module_.fullname == 'love' then
       write_line(
         lines,
@@ -445,12 +544,19 @@ local ok, err = xpcall(function()
           count(root_callbacks) ..
           ' callbacks, ' ..
           count(module_.types) ..
-          ' types</summary>'
+          ' types' ..
+          extra_summary ..
+          '</summary>'
       )
       write_line(lines, '')
       write_line(lines, '- Root functions (' .. count(root_functions) .. '): ' .. code_list(root_functions))
       write_line(lines, '- Callbacks (' .. count(root_callbacks) .. '): ' .. code_list(root_callbacks))
-      render_types(lines, module_.types or {})
+      write_extra_symbol_inventory(lines, module_.fullname)
+      render_types(
+        lines,
+        module_.types or {},
+        extra_symbols_by_module_container[module_.fullname]
+      )
       render_enums(lines, module_.enums or {})
       write_line(lines, '')
       write_line(lines, '</details>')
@@ -466,7 +572,9 @@ local ok, err = xpcall(function()
           count(module_.types) ..
           ' types, ' ..
           count(module_.enums) ..
-          ' enums</summary>'
+          ' enums' ..
+          extra_summary ..
+          '</summary>'
       )
       write_line(lines, '')
       write_line(
@@ -476,7 +584,12 @@ local ok, err = xpcall(function()
           '): ' ..
           code_list(module_.functions)
       )
-      render_types(lines, module_.types or {})
+      write_extra_symbol_inventory(lines, module_.fullname)
+      render_types(
+        lines,
+        module_.types or {},
+        extra_symbols_by_module_container[module_.fullname]
+      )
       render_enums(lines, module_.enums or {})
       write_line(lines, '')
       write_line(lines, '</details>')
@@ -569,6 +682,30 @@ local ok, err = xpcall(function()
       ' |'
   end
 
+  local function extra_item(symbol)
+    return {fullname = symbol, name = symbol}
+  end
+
+  local function extra_parent(container)
+    if container == nil then
+      return nil
+    end
+    return {fullname = container, name = container}
+  end
+
+  local function extra_row_state(extra)
+    local state = row_state(
+      extra.module,
+      extra.kind,
+      extra_item(extra.symbol),
+      extra_parent(extra.container)
+    )
+    if extra.notes ~= nil then
+      state.notes = extra.notes
+    end
+    return state
+  end
+
   write_line(matrix_lines, '# LOVE 11.5 Compatibility Matrix')
   write_line(matrix_lines, '')
   write_line(
@@ -647,6 +784,11 @@ local ok, err = xpcall(function()
           state
         )
       end
+    end
+
+    for _, extra in ipairs(extra_symbols_by_module[module_name] or {}) do
+      local state = extra_row_state(extra)
+      push_matrix_row(module_rows, module_name, extra.symbol, extra.kind, state)
     end
 
     local module_row_count = #module_rows

@@ -29,6 +29,13 @@ part 'audio/love_audio_recording_support.dart';
 part 'graphics/love_mesh_support.dart';
 part 'graphics/love_particle_system_support.dart';
 part 'graphics/love_canvas_rasterizer.dart';
+part 'graphics/love_compressed_image_support.dart';
+part 'graphics/love_layered_image_support.dart';
+part 'graphics/love_graphics_screenshot_support.dart';
+part 'graphics/love_shader_glsl_support.dart';
+part 'graphics/love_shader_runtime_effect_support.dart';
+part 'graphics/love_shader_software_readback_support.dart';
+part 'graphics/love_shader_subset_support.dart';
 part 'graphics/love_shader_support.dart';
 part 'graphics/love_sprite_batch_support.dart';
 part 'math/love_math_support.dart';
@@ -101,6 +108,15 @@ enum LoveGraphicsCompareMode {
   greater,
   never,
   always,
+}
+
+enum LoveGraphicsStencilAction {
+  replace,
+  increment,
+  decrement,
+  incrementWrap,
+  decrementWrap,
+  invert,
 }
 
 class LoveGraphicsDefaultFilter {
@@ -186,6 +202,12 @@ class LoveGraphicsColorMask {
   });
 
   static const LoveGraphicsColorMask all = LoveGraphicsColorMask();
+  static const LoveGraphicsColorMask none = LoveGraphicsColorMask(
+    red: false,
+    green: false,
+    blue: false,
+    alpha: false,
+  );
 
   final bool red;
   final bool green;
@@ -193,6 +215,7 @@ class LoveGraphicsColorMask {
   final bool alpha;
 
   bool get allEnabled => red && green && blue && alpha;
+  bool get noneEnabled => !red && !green && !blue && !alpha;
 
   @override
   bool operator ==(Object other) {
@@ -272,8 +295,10 @@ class LoveImage {
     this.depthSampleMode,
     this.compressed = false,
     this.formatLinear = false,
+    this.compressedImageData,
     LoveImageData? imageData,
     List<LoveImageData>? imageDataMipmaps,
+    List<LoveImage>? sliceImages,
     this.preferImageDataRendering = false,
     this.nativeImage,
   }) : pixelWidth = pixelWidth ?? width,
@@ -287,7 +312,10 @@ class LoveImage {
            ? (imageData == null
                  ? null
                  : List<LoveImageData>.unmodifiable(<LoveImageData>[imageData]))
-           : List<LoveImageData>.unmodifiable(imageDataMipmaps);
+           : List<LoveImageData>.unmodifiable(imageDataMipmaps),
+       sliceImages = sliceImages == null
+           ? null
+           : List<LoveImage>.unmodifiable(sliceImages);
 
   final String source;
   final int width;
@@ -308,8 +336,10 @@ class LoveImage {
   final LoveGraphicsCompareMode? depthSampleMode;
   final bool compressed;
   final bool formatLinear;
+  final LoveCompressedImageData? compressedImageData;
   final LoveImageData? imageData;
   final List<LoveImageData>? imageDataMipmaps;
+  final List<LoveImage>? sliceImages;
   final bool preferImageDataRendering;
   final Object? nativeImage;
 
@@ -325,6 +355,14 @@ class LoveImage {
       return null;
     }
     return mipmaps[mipmap - 1];
+  }
+
+  LoveImage? sliceImageAt(int index) {
+    final slices = sliceImages;
+    if (slices == null || index < 0 || index >= slices.length) {
+      return null;
+    }
+    return slices[index];
   }
 
   LoveImage copyWith({
@@ -349,8 +387,10 @@ class LoveImage {
     LoveGraphicsCompareMode? depthSampleMode,
     bool? compressed,
     bool? formatLinear,
+    LoveCompressedImageData? compressedImageData,
     LoveImageData? imageData,
     List<LoveImageData>? imageDataMipmaps,
+    List<LoveImage>? sliceImages,
     bool? preferImageDataRendering,
     Object? nativeImage,
   }) {
@@ -378,8 +418,10 @@ class LoveImage {
           : (depthSampleMode ?? this.depthSampleMode),
       compressed: compressed ?? this.compressed,
       formatLinear: formatLinear ?? this.formatLinear,
+      compressedImageData: compressedImageData ?? this.compressedImageData,
       imageData: imageData ?? this.imageData,
       imageDataMipmaps: imageDataMipmaps ?? this.imageDataMipmaps,
+      sliceImages: sliceImages ?? this.sliceImages,
       preferImageDataRendering:
           preferImageDataRendering ?? this.preferImageDataRendering,
       nativeImage: nativeImage ?? this.nativeImage,
@@ -391,12 +433,14 @@ class LoveGraphicsSurfaceSnapshot {
   const LoveGraphicsSurfaceSnapshot({
     required this.clearColor,
     required this.clearColorMask,
+    required this.clearStencil,
     required this.clearScissor,
     required this.commands,
   });
 
   final LoveColor clearColor;
   final LoveGraphicsColorMask clearColorMask;
+  final int clearStencil;
   final LoveScissorRect? clearScissor;
   final List<LoveDrawCommand> commands;
 }
@@ -405,21 +449,32 @@ class LoveGraphicsSurface {
   LoveGraphicsSurface({
     LoveColor? clearColor,
     LoveGraphicsColorMask? clearColorMask,
+    int clearStencil = 0,
     LoveScissorRect? clearScissor,
   }) : _clearColor = (clearColor ?? const LoveColor(0, 0, 0, 0)).clamped(),
        _clearColorMask = clearColorMask ?? LoveGraphicsColorMask.all,
-       _clearScissor = clearScissor;
+       _clearStencil = clearStencil,
+       _clearScissor = clearScissor,
+       _lastClearColor = (clearColor ?? const LoveColor(0, 0, 0, 0)).clamped(),
+       _lastClearColorMask = clearColorMask ?? LoveGraphicsColorMask.all,
+       _lastClearScissor = clearScissor;
 
   final List<LoveDrawCommand> _commands = <LoveDrawCommand>[];
   LoveColor _clearColor;
   LoveGraphicsColorMask _clearColorMask;
+  int _clearStencil;
   LoveScissorRect? _clearScissor;
+  LoveColor _lastClearColor;
+  LoveGraphicsColorMask _lastClearColorMask;
+  LoveScissorRect? _lastClearScissor;
 
-  LoveColor get clearColor => _clearColor;
+  LoveColor get clearColor => _lastClearColor;
 
-  LoveGraphicsColorMask get clearColorMask => _clearColorMask;
+  LoveGraphicsColorMask get clearColorMask => _lastClearColorMask;
 
-  LoveScissorRect? get clearScissor => _clearScissor;
+  int get clearStencil => _clearStencil;
+
+  LoveScissorRect? get clearScissor => _lastClearScissor;
 
   List<LoveDrawCommand> get commands =>
       List<LoveDrawCommand>.unmodifiable(_commands);
@@ -427,23 +482,46 @@ class LoveGraphicsSurface {
   void begin({
     required LoveColor clearColor,
     required LoveGraphicsColorMask clearColorMask,
+    int clearStencil = 0,
     LoveScissorRect? clearScissor,
   }) {
     _commands.clear();
     _clearColor = clearColor.clamped();
     _clearColorMask = clearColorMask;
+    _clearStencil = clearStencil;
     _clearScissor = clearScissor;
+    _lastClearColor = _clearColor;
+    _lastClearColorMask = clearColorMask;
+    _lastClearScissor = clearScissor;
   }
 
   void clear({
     required LoveColor clearColor,
     required LoveGraphicsColorMask clearColorMask,
+    int clearStencil = 0,
     LoveScissorRect? clearScissor,
   }) {
-    begin(
-      clearColor: clearColor,
-      clearColorMask: clearColorMask,
-      clearScissor: clearScissor,
+    final resolvedClearColor = clearColor.clamped();
+    _lastClearColor = resolvedClearColor;
+    _lastClearColorMask = clearColorMask;
+    _lastClearScissor = clearScissor;
+
+    if (clearColorMask.allEnabled && clearScissor == null) {
+      begin(
+        clearColor: resolvedClearColor,
+        clearColorMask: clearColorMask,
+        clearStencil: clearStencil,
+        clearScissor: clearScissor,
+      );
+      return;
+    }
+
+    _commands.add(
+      LoveColorClearCommand(
+        scissor: clearScissor,
+        color: resolvedClearColor,
+        colorMask: clearColorMask,
+      ),
     );
   }
 
@@ -455,6 +533,7 @@ class LoveGraphicsSurface {
     return LoveGraphicsSurfaceSnapshot(
       clearColor: _clearColor,
       clearColorMask: _clearColorMask,
+      clearStencil: _clearStencil,
       clearScissor: _clearScissor,
       commands: List<LoveDrawCommand>.unmodifiable(
         List<LoveDrawCommand>.from(_commands),
@@ -468,49 +547,54 @@ class LoveCanvas extends LoveImage {
     required super.source,
     required super.width,
     required super.height,
-    required double dpiScale,
-    LoveGraphicsDefaultFilter filter = LoveGraphicsDefaultFilter.standard,
-    LoveGraphicsWrap wrap = LoveGraphicsWrap.clamp,
-    String format = 'normal',
-    bool readable = true,
+    required super.dpiScale,
+    super.filter,
+    super.wrap,
+    super.format,
+    super.readable,
     super.compressed = false,
     super.formatLinear = false,
     super.nativeImage,
     this.msaa = 0,
     this.mipmapMode = LoveCanvasMipmapMode.none,
+    LoveGraphicsFilterMode? mipmapFilter = LoveGraphicsFilterMode.linear,
+    double mipmapSharpness = 0.0,
     LoveGraphicsSurface? surface,
-    String textureType = '2d',
-    int layerCount = 1,
-    int depth = 1,
+    List<LoveGraphicsSurface>? surfaces,
+    super.textureType,
+    super.layerCount,
+    super.depth,
   }) : _filter = filter,
        _mipmapFilter = mipmapMode == LoveCanvasMipmapMode.none
            ? null
-           : LoveGraphicsFilterMode.linear,
-       _mipmapSharpness = 0.0,
+           : mipmapFilter,
+       _mipmapSharpness = mipmapMode == LoveCanvasMipmapMode.none
+           ? 0.0
+           : mipmapSharpness,
        _wrap = wrap,
        _depthSampleMode = null,
-       _surface = surface ?? LoveGraphicsSurface(),
-       super(
-         pixelWidth: (width * dpiScale).round(),
-         pixelHeight: (height * dpiScale).round(),
-         dpiScale: dpiScale,
-         format: format,
-         readable: readable,
+       _surfaces = _resolveCanvasSurfaces(
+         primarySurface: surface,
+         surfaces: surfaces,
          textureType: textureType,
          layerCount: layerCount,
          depth: depth,
+       ),
+       super(
+         pixelWidth: (width * dpiScale).round(),
+         pixelHeight: (height * dpiScale).round(),
          mipmapCount: mipmapMode == LoveCanvasMipmapMode.none
              ? 1
              : _mipmapCountForDimensions(
                  (width * dpiScale).round(),
                  (height * dpiScale).round(),
                ),
-         filter: filter,
          mipmapFilter: mipmapMode == LoveCanvasMipmapMode.none
              ? null
-             : LoveGraphicsFilterMode.linear,
-         mipmapSharpness: 0.0,
-         wrap: wrap,
+             : mipmapFilter,
+         mipmapSharpness: mipmapMode == LoveCanvasMipmapMode.none
+             ? 0.0
+             : mipmapSharpness,
          depthSampleMode: null,
        );
 
@@ -519,7 +603,7 @@ class LoveCanvas extends LoveImage {
   double _mipmapSharpness;
   LoveGraphicsWrap _wrap;
   LoveGraphicsCompareMode? _depthSampleMode;
-  final LoveGraphicsSurface _surface;
+  final List<LoveGraphicsSurface> _surfaces;
 
   final int msaa;
   final LoveCanvasMipmapMode mipmapMode;
@@ -540,7 +624,16 @@ class LoveCanvas extends LoveImage {
   @override
   LoveGraphicsCompareMode? get depthSampleMode => _depthSampleMode;
 
-  LoveGraphicsSurface get surface => _surface;
+  int get renderTargetSliceCount => _surfaces.length;
+
+  LoveGraphicsSurface get surface => _surfaces.first;
+
+  LoveGraphicsSurface surfaceForSlice(int slice) {
+    if (slice < 1 || slice > _surfaces.length) {
+      throw RangeError.range(slice, 1, _surfaces.length, 'slice');
+    }
+    return _surfaces[slice - 1];
+  }
 
   void setFilterValue(LoveGraphicsDefaultFilter value) {
     _filter = value;
@@ -564,13 +657,16 @@ class LoveCanvas extends LoveImage {
   }
 
   LoveImageData readbackImageData({
+    int slice = 1,
     int mipmap = 1,
     int x = 0,
     int y = 0,
     int? width,
     int? height,
   }) {
-    final imageData = snapshot().rasterizedImageData(mipmap);
+    final imageData = snapshot(
+      slice: textureType == '2d' ? 1 : slice,
+    ).rasterizedImageData(mipmap);
     final regionWidth = width ?? imageData.width;
     final regionHeight = height ?? imageData.height;
     if (x == 0 &&
@@ -587,7 +683,15 @@ class LoveCanvas extends LoveImage {
     );
   }
 
-  LoveCanvasSnapshot snapshot() {
+  LoveCanvasSnapshot snapshot({int? slice}) {
+    if (textureType == '2d') {
+      return _snapshotForSlice(1);
+    }
+
+    if (slice != null) {
+      return _snapshotForSlice(slice);
+    }
+
     return LoveCanvasSnapshot(
       source: source,
       width: width,
@@ -611,7 +715,40 @@ class LoveCanvas extends LoveImage {
       nativeImage: nativeImage,
       msaa: msaa,
       mipmapMode: mipmapMode,
-      surface: _surface.snapshot(),
+      surface: _surfaces.first.snapshot(),
+      sliceImages: <LoveImage>[
+        for (var sliceIndex = 1; sliceIndex <= _surfaces.length; sliceIndex++)
+          _snapshotForSlice(sliceIndex),
+      ],
+    );
+  }
+
+  LoveCanvasSnapshot _snapshotForSlice(int slice) {
+    final sliceSurface = surfaceForSlice(slice);
+    return LoveCanvasSnapshot(
+      source: '$source#slice$slice',
+      width: width,
+      height: height,
+      pixelWidth: pixelWidth,
+      pixelHeight: pixelHeight,
+      dpiScale: dpiScale,
+      format: format,
+      readable: readable,
+      depth: 1,
+      layerCount: 1,
+      textureType: '2d',
+      mipmapCount: mipmapCount,
+      filter: filter,
+      mipmapFilter: mipmapFilter,
+      mipmapSharpness: mipmapSharpness,
+      wrap: wrap,
+      depthSampleMode: depthSampleMode,
+      compressed: compressed,
+      formatLinear: formatLinear,
+      nativeImage: nativeImage,
+      msaa: msaa,
+      mipmapMode: mipmapMode,
+      surface: sliceSurface.snapshot(),
     );
   }
 }
@@ -638,6 +775,7 @@ class LoveCanvasSnapshot extends LoveImage {
     required super.compressed,
     required super.formatLinear,
     required super.nativeImage,
+    super.sliceImages,
     required this.surface,
     required this.msaa,
     required this.mipmapMode,
@@ -665,6 +803,33 @@ class LoveCanvasSnapshot extends LoveImage {
     final level = math.min(mipmap, mipmaps.length) - 1;
     return mipmaps[level];
   }
+}
+
+List<LoveGraphicsSurface> _resolveCanvasSurfaces({
+  LoveGraphicsSurface? primarySurface,
+  List<LoveGraphicsSurface>? surfaces,
+  required String textureType,
+  required int layerCount,
+  required int depth,
+}) {
+  final surfaceCount = switch (textureType) {
+    'volume' => depth,
+    _ => layerCount,
+  };
+  final resolved = surfaces == null
+      ? <LoveGraphicsSurface>[primarySurface ?? LoveGraphicsSurface()]
+      : List<LoveGraphicsSurface>.from(surfaces);
+  while (resolved.length < surfaceCount) {
+    resolved.add(LoveGraphicsSurface());
+  }
+  if (resolved.length != surfaceCount) {
+    throw ArgumentError.value(
+      resolved.length,
+      'surfaces.length',
+      'Expected $surfaceCount canvas surface(s) for texture type $textureType',
+    );
+  }
+  return List<LoveGraphicsSurface>.unmodifiable(resolved);
 }
 
 class LoveImageData {
@@ -945,6 +1110,7 @@ class LoveQuad {
     required this.height,
     required this.textureWidth,
     required this.textureHeight,
+    this.layer = 0,
   });
 
   double x;
@@ -953,6 +1119,7 @@ class LoveQuad {
   double height;
   double textureWidth;
   double textureHeight;
+  int layer;
 
   LoveQuad copy() {
     return LoveQuad(
@@ -962,14 +1129,26 @@ class LoveQuad {
       height: height,
       textureWidth: textureWidth,
       textureHeight: textureHeight,
+      layer: layer,
     );
   }
 
-  void setViewport(double x, double y, double width, double height) {
+  void setViewport(
+    double x,
+    double y,
+    double width,
+    double height, {
+    double? textureWidth,
+    double? textureHeight,
+  }) {
     this.x = x;
     this.y = y;
     this.width = width;
     this.height = height;
+    if (textureWidth != null && textureHeight != null) {
+      this.textureWidth = textureWidth;
+      this.textureHeight = textureHeight;
+    }
   }
 }
 
@@ -2040,8 +2219,16 @@ sealed class LoveDrawCommand {
     required this.scissor,
     LoveShader? shader,
     required Matrix4 transform,
+    LoveGraphicsCompareMode? stencilCompare,
+    int? stencilValue,
+    LoveGraphicsStencilAction? stencilAction,
+    int? stencilWriteValue,
   }) : shader = shader?.snapshot(),
-       transform = Matrix4.copy(transform);
+       transform = Matrix4.copy(transform),
+       stencilCompare = stencilCompare ?? LoveGraphicsCompareMode.always,
+       stencilValue = stencilValue ?? 0,
+       stencilAction = stencilAction,
+       stencilWriteValue = stencilWriteValue ?? 1;
 
   final LoveColor color;
   final double lineWidth;
@@ -2049,11 +2236,17 @@ sealed class LoveDrawCommand {
   final LoveGraphicsLineJoin lineJoin;
   final LoveGraphicsBlendMode blendMode;
   final LoveGraphicsBlendAlphaMode blendAlphaMode;
-  final LoveGraphicsColorMask colorMask;
+  LoveGraphicsColorMask colorMask;
   final bool wireframe;
   final LoveScissorRect? scissor;
   final LoveShader? shader;
   final Matrix4 transform;
+  LoveGraphicsCompareMode stencilCompare;
+  int stencilValue;
+  LoveGraphicsStencilAction? stencilAction;
+  int stencilWriteValue;
+
+  bool get writesStencil => stencilAction != null;
 }
 
 class LoveRectangleCommand extends LoveDrawCommand {
@@ -2160,11 +2353,13 @@ class LoveImageCommand extends LoveDrawCommand {
     required Matrix4 drawTransform,
     required this.image,
     LoveQuad? quad,
+    this.layer,
   }) : quad = quad?.copy(),
        drawTransform = Matrix4.copy(drawTransform);
 
   final LoveImage image;
   final LoveQuad? quad;
+  final int? layer;
   final Matrix4 drawTransform;
 }
 
@@ -2227,13 +2422,17 @@ class LoveMeshCommand extends LoveDrawCommand {
     required super.transform,
     required Matrix4 drawTransform,
     required LoveMesh mesh,
+    this.instanceCount = 1,
+    this.pointSize = 1.0,
     required this.frontFaceWinding,
     required this.cullMode,
   }) : drawTransform = Matrix4.copy(drawTransform),
-       mesh = mesh.copy();
+       mesh = mesh.copyForDraw();
 
   final LoveMesh mesh;
   final Matrix4 drawTransform;
+  final int instanceCount;
+  final double pointSize;
   final LoveGraphicsVertexWinding frontFaceWinding;
   final LoveGraphicsCullMode cullMode;
 }
@@ -2382,6 +2581,51 @@ class LovePointsCommand extends LoveDrawCommand {
   final List<({double x, double y, LoveColor? color})> points;
 }
 
+class LoveStencilClearCommand extends LoveDrawCommand {
+  LoveStencilClearCommand({required super.scissor, required this.value})
+    : super(
+        color: const LoveColor(0, 0, 0, 0),
+        lineWidth: 1.0,
+        lineStyle: LoveGraphicsLineStyle.smooth,
+        lineJoin: LoveGraphicsLineJoin.miter,
+        blendMode: LoveGraphicsBlendMode.alpha,
+        blendAlphaMode: LoveGraphicsBlendAlphaMode.alphaMultiply,
+        colorMask: LoveGraphicsColorMask.none,
+        wireframe: false,
+        transform: Matrix4.identity(),
+      );
+
+  final int value;
+}
+
+class LoveColorClearCommand extends LoveDrawCommand {
+  LoveColorClearCommand({
+    required super.scissor,
+    required LoveColor color,
+    required LoveGraphicsColorMask colorMask,
+  }) : super(
+         color: color,
+         lineWidth: 1.0,
+         lineStyle: LoveGraphicsLineStyle.smooth,
+         lineJoin: LoveGraphicsLineJoin.miter,
+         blendMode: LoveGraphicsBlendMode.replace,
+         blendAlphaMode: LoveGraphicsBlendAlphaMode.alphaMultiply,
+         colorMask: colorMask,
+         wireframe: false,
+         transform: Matrix4.identity(),
+       );
+}
+
+class _LoveGraphicsStencilWriteState {
+  const _LoveGraphicsStencilWriteState({
+    required this.action,
+    required this.value,
+  });
+
+  final LoveGraphicsStencilAction action;
+  final int value;
+}
+
 class LoveGraphicsState {
   LoveGraphicsState({
     LoveColor? color,
@@ -2396,6 +2640,8 @@ class LoveGraphicsState {
     LoveGraphicsBlendAlphaMode? blendAlphaMode,
     LoveGraphicsColorMask? colorMask,
     LoveGraphicsDefaultFilter? defaultFilter,
+    LoveGraphicsFilterMode? defaultMipmapFilter,
+    double? defaultMipmapSharpness,
     LoveShader? shader,
     bool? wireframe,
     Matrix4? transform,
@@ -2417,7 +2663,10 @@ class LoveGraphicsState {
            blendAlphaMode ?? LoveGraphicsBlendAlphaMode.alphaMultiply,
        colorMask = colorMask ?? LoveGraphicsColorMask.all,
        defaultFilter = defaultFilter ?? LoveGraphicsDefaultFilter.standard,
-       shader = shader?.snapshot(),
+       defaultMipmapFilter =
+           defaultMipmapFilter ?? LoveGraphicsFilterMode.linear,
+       defaultMipmapSharpness = defaultMipmapSharpness ?? 0.0,
+       shader = shader,
        wireframe = wireframe ?? false,
        transform = transform ?? Matrix4.identity(),
        depthMode = depthMode ?? LoveGraphicsCompareMode.always,
@@ -2439,6 +2688,8 @@ class LoveGraphicsState {
   LoveGraphicsBlendAlphaMode blendAlphaMode;
   LoveGraphicsColorMask colorMask;
   LoveGraphicsDefaultFilter defaultFilter;
+  LoveGraphicsFilterMode? defaultMipmapFilter;
+  double defaultMipmapSharpness;
   LoveShader? shader;
   bool wireframe;
   Matrix4 transform;
@@ -2463,7 +2714,9 @@ class LoveGraphicsState {
       blendAlphaMode: blendAlphaMode,
       colorMask: colorMask,
       defaultFilter: defaultFilter,
-      shader: shader?.snapshot(),
+      defaultMipmapFilter: defaultMipmapFilter,
+      defaultMipmapSharpness: defaultMipmapSharpness,
+      shader: shader,
       wireframe: wireframe,
       transform: Matrix4.copy(transform),
       depthMode: depthMode,
@@ -2484,6 +2737,20 @@ class LoveGraphicsStackFrame {
   final LoveGraphicsState state;
 }
 
+class LoveCanvasRenderTarget {
+  const LoveCanvasRenderTarget({
+    required this.canvas,
+    this.slice = 1,
+    this.mipmap = 1,
+  });
+
+  final LoveCanvas canvas;
+  final int slice;
+  final int mipmap;
+
+  LoveGraphicsSurface get surface => canvas.surfaceForSlice(slice);
+}
+
 class LoveGraphicsFrame {
   LoveGraphicsFrame({LoveColor? color, LoveColor? backgroundColor})
     : _state = LoveGraphicsState(
@@ -2499,10 +2766,14 @@ class LoveGraphicsFrame {
 
   final List<LoveGraphicsStackFrame> _stack = <LoveGraphicsStackFrame>[];
   final LoveGraphicsSurface _screenSurface;
+  final LoveGraphicsScreenshotQueue _pendingScreenshots =
+      LoveGraphicsScreenshotQueue();
   LoveGraphicsState _state;
-  LoveCanvas? _activeCanvas;
+  LoveCanvasRenderTarget? _activeCanvasTarget;
   int _canvasSwitches = 0;
   int _shaderSwitches = 0;
+  LoveGraphicsColorMask? _commandColorMaskOverride;
+  _LoveGraphicsStencilWriteState? _stencilWriteState;
 
   LoveColor get color => _state.color;
 
@@ -2576,6 +2847,9 @@ class LoveGraphicsFrame {
 
   set colorMask(LoveGraphicsColorMask value) {
     _state.colorMask = value;
+    if (_commandColorMaskOverride != null) {
+      _commandColorMaskOverride = value;
+    }
   }
 
   LoveGraphicsDefaultFilter get defaultFilter => _state.defaultFilter;
@@ -2583,6 +2857,25 @@ class LoveGraphicsFrame {
   set defaultFilter(LoveGraphicsDefaultFilter value) {
     _state.defaultFilter = value;
   }
+
+  LoveGraphicsFilterMode? get defaultMipmapFilter => _state.defaultMipmapFilter;
+
+  set defaultMipmapFilter(LoveGraphicsFilterMode? value) {
+    _state.defaultMipmapFilter = value;
+  }
+
+  double get defaultMipmapSharpness => _state.defaultMipmapSharpness;
+
+  set defaultMipmapSharpness(double value) {
+    _state.defaultMipmapSharpness = value;
+  }
+
+  /// Returns the currently bound shader object, if any.
+  ///
+  /// Unlike [shader], this exposes the live state object instead of a snapshot
+  /// so LOVE bindings such as `love.graphics.getShader` can return a wrapper
+  /// that mutates the active shader state.
+  LoveShader? get currentShader => _state.shader;
 
   LoveShader? get shader => _state.shader?.snapshot();
 
@@ -2633,48 +2926,140 @@ class LoveGraphicsFrame {
   List<LoveDrawCommand> get commands =>
       List<LoveDrawCommand>.unmodifiable(_screenSurface.commands);
 
-  LoveCanvas? get activeCanvas => _activeCanvas;
+  LoveGraphicsSurfaceSnapshot snapshotScreenSurface() =>
+      _screenSurface.snapshot();
+
+  void captureScreenshot(LoveGraphicsScreenshotDelivery delivery) {
+    _pendingScreenshots.enqueue(delivery);
+  }
+
+  Future<void> dispatchPendingScreenshots({
+    required LoveGraphicsSurfaceSnapshot snapshot,
+    required int pixelWidth,
+    required int pixelHeight,
+  }) {
+    return dispatchLoveGraphicsScreenshotQueue(
+      _pendingScreenshots,
+      snapshot: snapshot,
+      pixelWidth: pixelWidth,
+      pixelHeight: pixelHeight,
+    );
+  }
+
+  LoveCanvas? get activeCanvas => _activeCanvasTarget?.canvas;
+
+  LoveCanvasRenderTarget? get activeCanvasTarget => _activeCanvasTarget;
 
   int get canvasSwitches => _canvasSwitches;
 
   int get shaderSwitches => _shaderSwitches;
 
   LoveGraphicsSurface get _activeSurface =>
-      _activeCanvas?.surface ?? _screenSurface;
+      _activeCanvasTarget?.surface ?? _screenSurface;
 
   void beginFrame() {
     _screenSurface.begin(
       clearColor: _state.backgroundColor,
       clearColorMask: _state.colorMask,
+      clearStencil: 0,
       clearScissor: _state.scissor,
     );
-    _activeCanvas = null;
+    _activeCanvasTarget = null;
     _canvasSwitches = 0;
     _shaderSwitches = 0;
+    _commandColorMaskOverride = null;
+    _stencilWriteState = null;
   }
 
   void clear([LoveColor? color]) {
     _activeSurface.clear(
       clearColor: (color ?? _state.backgroundColor).clamped(),
       clearColorMask: _state.colorMask,
+      clearStencil: 0,
       clearScissor: _state.scissor,
     );
   }
 
+  void clearStencil([int value = 0]) {
+    _activeSurface.addCommand(
+      LoveStencilClearCommand(scissor: _state.scissor, value: value),
+    );
+  }
+
+  void beginStencilWrite(LoveGraphicsStencilAction action, int value) {
+    _stencilWriteState = _LoveGraphicsStencilWriteState(
+      action: action,
+      value: value,
+    );
+    _commandColorMaskOverride = LoveGraphicsColorMask.none;
+  }
+
+  void endStencilWrite() {
+    _stencilWriteState = null;
+    _commandColorMaskOverride = null;
+  }
+
   void reset() {
+    final hadCanvas = _activeCanvasTarget != null;
+    final hadShader = _state.shader != null;
     _state = LoveGraphicsState();
+    if (_commandColorMaskOverride != null) {
+      _commandColorMaskOverride = _state.colorMask;
+    }
+    if (hadCanvas) {
+      _activeCanvasTarget = null;
+      _canvasSwitches++;
+    }
+    if (hadShader) {
+      _shaderSwitches++;
+    }
   }
 
   void addCommand(LoveDrawCommand command) {
+    command.colorMask = _commandColorMaskOverride ?? _state.colorMask;
+    if (_stencilWriteState case final writeState?) {
+      command.stencilCompare = LoveGraphicsCompareMode.always;
+      command.stencilValue = 0;
+      command.stencilAction = writeState.action;
+      command.stencilWriteValue = writeState.value;
+    } else {
+      command.stencilCompare = _state.stencilCompare;
+      command.stencilValue = _state.stencilValue;
+      command.stencilAction = null;
+      command.stencilWriteValue = 1;
+    }
     _activeSurface.addCommand(command);
   }
 
-  void setCanvas(LoveCanvas? canvas) {
-    if (identical(_activeCanvas, canvas)) {
+  void setCanvas(LoveCanvas? canvas, {int slice = 1, int mipmap = 1}) {
+    if (canvas == null) {
+      if (_activeCanvasTarget == null) {
+        return;
+      }
+      _activeCanvasTarget = null;
+      _canvasSwitches++;
       return;
     }
 
-    _activeCanvas = canvas;
+    if (slice < 1 || slice > canvas.renderTargetSliceCount) {
+      throw RangeError.range(slice, 1, canvas.renderTargetSliceCount, 'slice');
+    }
+    if (mipmap < 1 || mipmap > canvas.mipmapCount) {
+      throw RangeError.range(mipmap, 1, canvas.mipmapCount, 'mipmap');
+    }
+
+    if (_activeCanvasTarget case final target?
+        when identical(target.canvas, canvas) &&
+            target.slice == slice &&
+            target.mipmap == mipmap) {
+      return;
+    }
+
+    _activeCanvasTarget = LoveCanvasRenderTarget(
+      canvas: canvas,
+      slice: slice,
+      mipmap: mipmap,
+    );
     _canvasSwitches++;
   }
 
@@ -2683,7 +3068,7 @@ class LoveGraphicsFrame {
       return;
     }
 
-    _state.shader = shader?.snapshot();
+    _state.shader = shader;
     _shaderSwitches++;
   }
 
@@ -2704,6 +3089,9 @@ class LoveGraphicsFrame {
     switch (frame.type) {
       case LoveGraphicsStackType.all:
         _state = frame.state.copy();
+        if (_commandColorMaskOverride != null) {
+          _commandColorMaskOverride = _state.colorMask;
+        }
       case LoveGraphicsStackType.transform:
         _state.transform = Matrix4.copy(frame.state.transform);
     }

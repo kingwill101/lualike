@@ -30,11 +30,12 @@ return
   #world:getBodies(), #world:getBodyList(),
   #world:getJoints(), #world:getJointList(),
   #world:getContacts(), #world:getContactList(),
+  #bodyB:getFixtures(), #bodyB:getFixtureList(),
   #bodyB:getJoints(), #bodyB:getJointList(),
   #bodyB:getContacts(), #bodyB:getContactList()
 ''');
 
-        expect(result, <Object?>[2, 2, 0, 0, 1, 1, 0, 0, 1, 1]);
+        expect(result, <Object?>[2, 2, 0, 0, 1, 1, 1, 1, 0, 0, 1, 1]);
       },
     );
   });

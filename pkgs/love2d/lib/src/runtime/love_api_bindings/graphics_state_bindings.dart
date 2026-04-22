@@ -129,16 +129,32 @@ LoveApiImplementation _bindGraphicsSetBlendMode(
 ) {
   final runtime = _runtimeContext(context);
   return (args) {
-    runtime.graphics.blendMode = _blendMode(
+    final mode = _blendMode(
       _requireString(args, 0, 'love.graphics.setBlendMode'),
       'love.graphics.setBlendMode',
     );
-    runtime.graphics.blendAlphaMode = args.length >= 2
+    final alphaMode = args.length >= 2
         ? _blendAlphaMode(
             _requireString(args, 1, 'love.graphics.setBlendMode'),
             'love.graphics.setBlendMode',
           )
         : LoveGraphicsBlendAlphaMode.alphaMultiply;
+    if (alphaMode != LoveGraphicsBlendAlphaMode.premultiplied) {
+      final modeName = switch (mode) {
+        LoveGraphicsBlendMode.multiply => 'multiply',
+        LoveGraphicsBlendMode.lighten => 'lighten',
+        LoveGraphicsBlendMode.darken => 'darken',
+        _ => null,
+      };
+      if (modeName != null) {
+        throw LuaError(
+          "The '$modeName' blend mode must be used with premultiplied alpha.",
+        );
+      }
+    }
+
+    runtime.graphics.blendMode = mode;
+    runtime.graphics.blendAlphaMode = alphaMode;
     return null;
   };
 }

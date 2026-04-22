@@ -155,7 +155,9 @@ Value _wrapMesh(LibraryRegistrationContext context, LoveMesh mesh) {
     'typeOf': Value(
       builder.create((args) {
         final queried = _requireString(args, 1, 'Object:typeOf');
-        return queried == 'Mesh' || queried == 'Object';
+        return queried == 'Mesh' ||
+            queried == 'Drawable' ||
+            queried == 'Object';
       }),
       functionName: 'typeOf',
     ),

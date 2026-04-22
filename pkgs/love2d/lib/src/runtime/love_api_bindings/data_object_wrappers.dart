@@ -146,7 +146,7 @@ Value _wrapLoveDataObject(
 }
 
 Value _wrapDataPointer(
-  LibraryRegistrationContext context, {
+  LibraryContext context, {
   required Object identity,
   required List<int> bytes,
 }) {

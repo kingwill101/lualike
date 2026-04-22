@@ -217,6 +217,15 @@ class LoveMesh {
     return result;
   }
 
+  LoveMesh copyForDraw() {
+    final result = copy();
+    if (result._canvasTexture case final LoveCanvas canvas?) {
+      result._texture = canvas.snapshot();
+      result._canvasTexture = null;
+    }
+    return result;
+  }
+
   // ---------------------------------------------------------------------------
   // setVertices
   // ---------------------------------------------------------------------------

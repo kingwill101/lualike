@@ -115,11 +115,22 @@ LoveGraphicsDrawMode _requireDrawMode(
 }
 
 LoveGraphicsStackType _graphicsStackType(Object? value, String symbol) {
-  return switch (_stringLike(value)) {
-    null || 'transform' => LoveGraphicsStackType.transform,
+  final raw = _rawValue(value);
+  if (raw == null) {
+    return LoveGraphicsStackType.transform;
+  }
+
+  final stackType = _stringLike(raw);
+  if (stackType == null) {
+    throw LuaError('$symbol expected a string at argument 1');
+  }
+
+  return switch (stackType) {
+    'transform' => LoveGraphicsStackType.transform,
     'all' => LoveGraphicsStackType.all,
-    final stackType => throw LuaError(
-      '$symbol invalid graphics stack type "$stackType"',
+    _ => throw LuaError(
+      "Invalid graphics stack type '$stackType', expected one of: "
+      "'all', 'transform'",
     ),
   };
 }
@@ -320,10 +331,13 @@ LoveGraphicsWrap _wrapFromArgs(
   );
 }
 
-String _textAlign(String value, [String symbol = 'love.graphics.printf']) {
+String _textAlign(String value, {String enumName = 'alignment'}) {
   return switch (value) {
     'left' || 'center' || 'right' || 'justify' => value,
-    _ => throw LuaError('$symbol invalid alignment "$value"'),
+    _ => throw LuaError(
+      "Invalid $enumName '$value', expected one of: "
+      "'left', 'right', 'center', 'justify'",
+    ),
   };
 }
 
@@ -667,16 +681,16 @@ Matrix4 _matrixFromTransformArgumentOrStandardTransform(
   );
 }
 
-Future<LoveFont> _fontFromArgs(
+Object _fontFromArgsOrFuture(
   LibraryRegistrationContext context,
   List<Object?> args,
   String symbol, {
   LoveGraphicsDefaultFilter defaultFilter = LoveGraphicsDefaultFilter.standard,
-}) async {
+}) {
   final runtime = _runtimeContext(context);
   if (args.isEmpty) {
     final size = LoveFont.defaultSize;
-    return runtime.createDefaultTrueTypeOrFallbackFont(
+    return runtime.createDefaultTrueTypeOrFallbackFontOrFuture(
       size: size,
       hinting: 'normal',
       dpiScale: runtime.windowMetrics.dpiScale,
@@ -691,15 +705,15 @@ Future<LoveFont> _fontFromArgs(
 
   final firstNumber = _numberIfPresent(args.first);
   if (firstNumber case final double size) {
-    _validateFontSize(size, symbol);
     final hinting = _optionalFontHintingArg(args, 1, symbol);
-    final dpiScale = _optionalFontDpiScaleArg(
+    final dpiScale = _optionalNumber(
       args,
       2,
       symbol,
       defaultValue: runtime.windowMetrics.dpiScale,
     );
-    return runtime.createDefaultTrueTypeOrFallbackFont(
+    _validateTrueTypeFontSize(size, dpiScale);
+    return runtime.createDefaultTrueTypeOrFallbackFontOrFuture(
       size: size,
       hinting: hinting,
       dpiScale: dpiScale,
@@ -707,119 +721,118 @@ Future<LoveFont> _fontFromArgs(
     );
   }
 
-  final source = await _resolveResourceSourcePath(
-    context,
-    args.first,
-    symbol: symbol,
-  );
-  if (source == null) {
-    throw LuaError('$symbol expected a font size or filename at argument 1');
-  }
-
-  final fileData = await _resourceFileDataIfPresent(
-    context,
-    args.first,
-    symbol,
-  );
-  final sourceDataType = LoveFont.fontDataTypeForSource(source);
-  if (args.length >= 2 && _valueAt(args, 1) == null) {
-    return _fontFromArgs(
+  return () async {
+    final source = await _resolveResourceSourcePath(
       context,
-      <Object?>[args.first],
-      symbol,
-      defaultFilter: defaultFilter,
+      args.first,
+      symbol: symbol,
     );
-  }
-  final secondNumber = _numberIfPresent(_valueAt(args, 1));
+    if (source == null) {
+      throw LuaError('$symbol expected a font size or filename at argument 1');
+    }
 
-  if (args.length >= 2 && secondNumber == null) {
+    final fileData = await _resourceFileDataIfPresent(
+      context,
+      args.first,
+      symbol,
+    );
+    final sourceDataType = LoveFont.fontDataTypeForSource(source);
+    if (args.length >= 2 && _valueAt(args, 1) == null) {
+      return _loadFontFromArgs(
+        context,
+        <Object?>[args.first],
+        symbol,
+        defaultFilter: defaultFilter,
+      );
+    }
+    final secondNumber = _numberIfPresent(_valueAt(args, 1));
+
+    if (args.length >= 2 && secondNumber == null) {
+      if (fileData == null) {
+        if (sourceDataType == LoveFont.bmFontDataType) {
+          throw LuaError('$symbol could not load BMFont definition "$source"');
+        }
+        throw LuaError(
+          '$symbol expected a font size or BMFont image source at argument 2',
+        );
+      }
+
+      final dpiScale = _optionalFontDpiScaleArg(
+        args,
+        2,
+        symbol,
+        defaultValue: 1.0,
+      );
+      final rasterizer = await _bmFontRasterizerFromFileData(
+        context,
+        fileData,
+        symbol: symbol,
+        pageImages: await _resolveBmFontPageImages(
+          context,
+          _valueAt(args, 1),
+          symbol: symbol,
+        ),
+        dpiScale: dpiScale,
+      );
+      return rasterizer.toLoveFont(defaultFilter: defaultFilter);
+    }
+
+    if (args.length == 1 &&
+        fileData != null &&
+        loveLooksLikeBmFontDefinition(fileData.bytes)) {
+      final rasterizer = await _bmFontRasterizerFromFileData(
+        context,
+        fileData,
+        symbol: symbol,
+        pageImages: const <int, LoveImageData>{},
+        dpiScale: 1.0,
+      );
+      return rasterizer.toLoveFont(defaultFilter: defaultFilter);
+    }
+
+    final size = _optionalFontSizeArg(
+      args,
+      1,
+      symbol,
+      defaultValue: LoveFont.defaultSize,
+    );
+    final hinting = _optionalFontHintingArg(args, 2, symbol);
+    final dpiScale = _optionalNumber(
+      args,
+      3,
+      symbol,
+      defaultValue: runtime.windowMetrics.dpiScale,
+    );
+    _validateTrueTypeFontSize(size, dpiScale);
     if (fileData == null) {
       if (sourceDataType == LoveFont.bmFontDataType) {
         throw LuaError('$symbol could not load BMFont definition "$source"');
       }
-      throw LuaError(
-        '$symbol expected a font size or BMFont image source at argument 2',
-      );
-    }
-    if (!loveLooksLikeBmFontDefinition(fileData.bytes)) {
-      throw LuaError('$symbol invalid font file "${fileData.filename}"');
+      throw LuaError('$symbol invalid font file "$source"');
     }
 
-    final dpiScale = _optionalFontDpiScaleArg(
-      args,
-      2,
-      symbol,
-      defaultValue: 1.0,
-    );
-    final rasterizer = await _bmFontRasterizerFromFileData(
-      context,
-      fileData,
-      symbol: symbol,
-      pageImages: await _resolveBmFontPageImages(
-        context,
-        _valueAt(args, 1),
-        symbol: symbol,
-      ),
+    if (!loveLooksLikeTrueTypeFontData(fileData.bytes)) {
+      throw LuaError('Invalid font file: ${fileData.filename}');
+    }
+    final loadedFont = await runtime.host.loadTrueTypeFont(
+      source,
+      bytes: Uint8List.fromList(fileData.bytes),
+      size: size,
+      hinting: hinting,
       dpiScale: dpiScale,
+      defaultFilter: defaultFilter,
     );
-    return rasterizer.toLoveFont(defaultFilter: defaultFilter);
-  }
-
-  if (args.length == 1 &&
-      fileData != null &&
-      loveLooksLikeBmFontDefinition(fileData.bytes)) {
-    final rasterizer = await _bmFontRasterizerFromFileData(
-      context,
-      fileData,
-      symbol: symbol,
-      pageImages: const <int, LoveImageData>{},
-      dpiScale: 1.0,
-    );
-    return rasterizer.toLoveFont(defaultFilter: defaultFilter);
-  }
-
-  final size = _optionalFontSizeArg(
-    args,
-    1,
-    symbol,
-    defaultValue: LoveFont.defaultSize,
-  );
-  _validateFontSize(size, symbol);
-  final hinting = _optionalFontHintingArg(args, 2, symbol);
-  final dpiScale = _optionalFontDpiScaleArg(
-    args,
-    3,
-    symbol,
-    defaultValue: runtime.windowMetrics.dpiScale,
-  );
-  if (fileData == null) {
-    if (sourceDataType == LoveFont.bmFontDataType) {
-      throw LuaError('$symbol could not load BMFont definition "$source"');
+    if (loadedFont != null) {
+      return loadedFont;
     }
-    throw LuaError('$symbol invalid font file "$source"');
-  }
-
-  if (!loveLooksLikeTrueTypeFontData(fileData.bytes)) {
-    throw LuaError('$symbol invalid font file "${fileData.filename}"');
-  }
-  final loadedFont = await runtime.host.loadTrueTypeFont(
-    source,
-    bytes: Uint8List.fromList(fileData.bytes),
-    size: size,
-    hinting: hinting,
-    dpiScale: dpiScale,
-    defaultFilter: defaultFilter,
-  );
-  if (loadedFont != null) {
-    return loadedFont;
-  }
-  return LoveRasterizer.trueType(
-    size: size,
-    hinting: hinting,
-    dpiScale: dpiScale,
-    source: source,
-    sourceBytes: fileData.bytes,
-  ).toLoveFont(defaultFilter: defaultFilter);
+    return LoveRasterizer.trueType(
+      size: size,
+      hinting: hinting,
+      dpiScale: dpiScale,
+      source: source,
+      sourceBytes: fileData.bytes,
+    ).toLoveFont(defaultFilter: defaultFilter);
+  }();
 }
 
 Future<LoveFont> _loadFontFromArgs(
@@ -828,12 +841,21 @@ Future<LoveFont> _loadFontFromArgs(
   String symbol, {
   LoveGraphicsDefaultFilter defaultFilter = LoveGraphicsDefaultFilter.standard,
 }) {
-  return _fontFromArgs(context, args, symbol, defaultFilter: defaultFilter);
+  final fontOrFuture = _fontFromArgsOrFuture(
+    context,
+    args,
+    symbol,
+    defaultFilter: defaultFilter,
+  );
+  return fontOrFuture is Future<LoveFont>
+      ? fontOrFuture
+      : Future<LoveFont>.value(fontOrFuture as LoveFont);
 }
 
-void _validateFontSize(double size, String symbol) {
-  if (size <= 0) {
-    throw LuaError('$symbol font size must be > 0');
+void _validateTrueTypeFontSize(double size, double dpiScale) {
+  final pixelSize = (size * dpiScale + 0.5).floor();
+  if (pixelSize <= 0) {
+    throw LuaError('Invalid TrueType font size: $pixelSize');
   }
 }
 

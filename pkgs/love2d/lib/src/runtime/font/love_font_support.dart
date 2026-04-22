@@ -633,12 +633,11 @@ Map<int, _LoveImageGlyphData> _loadImageGlyphs(
 }
 
 bool loveLooksLikeBmFontDefinition(List<int> bytes) {
-  final start = _skipUtf8BomAndWhitespace(bytes);
-  return bytes.length - start >= 4 &&
-      bytes[start] == 0x69 &&
-      bytes[start + 1] == 0x6e &&
-      bytes[start + 2] == 0x66 &&
-      bytes[start + 3] == 0x6f;
+  return bytes.length > 4 &&
+      bytes[0] == 0x69 &&
+      bytes[1] == 0x6e &&
+      bytes[2] == 0x66 &&
+      bytes[3] == 0x6f;
 }
 
 bool loveLooksLikeTrueTypeFontData(List<int> bytes) {
@@ -663,8 +662,7 @@ LoveBmFontDefinition parseLoveBmFontDefinition({
   var lineHeight = 0;
   var ascent = 0;
 
-  for (final rawLine in const convert.LineSplitter().convert(text)) {
-    final line = rawLine.trim();
+  for (final line in const convert.LineSplitter().convert(text)) {
     if (line.isEmpty) {
       continue;
     }
@@ -770,26 +768,6 @@ int _bmFontInt(Map<String, String> attributes, String key) {
     return 0;
   }
   return int.tryParse(value) ?? 0;
-}
-
-int _skipUtf8BomAndWhitespace(List<int> bytes) {
-  var index = 0;
-  if (bytes.length >= 3 &&
-      bytes[0] == 0xef &&
-      bytes[1] == 0xbb &&
-      bytes[2] == 0xbf) {
-    index = 3;
-  }
-
-  while (index < bytes.length) {
-    final byte = bytes[index];
-    if (byte != 0x20 && byte != 0x09 && byte != 0x0d && byte != 0x0a) {
-      break;
-    }
-    index++;
-  }
-
-  return index;
 }
 
 bool _matchesFontSignature(List<int> bytes, List<int> signature) {

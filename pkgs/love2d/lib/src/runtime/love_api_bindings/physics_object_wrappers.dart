@@ -1141,6 +1141,15 @@ Value _wrapPhysicsBody(LibraryContext context, LovePhysicsBody body) {
       }),
       functionName: 'getFixtures',
     ),
+    'getFixtureList': Value(
+      builder.create((args) {
+        final body = _requirePhysicsBody(args, 0, 'Body:getFixtureList');
+        return _physicsArray(
+          body.fixtures.map((fixture) => _wrapPhysicsFixture(context, fixture)),
+        );
+      }),
+      functionName: 'getFixtureList',
+    ),
     'getJoints': Value(
       builder.create((args) {
         final body = _requirePhysicsBody(args, 0, 'Body:getJoints');

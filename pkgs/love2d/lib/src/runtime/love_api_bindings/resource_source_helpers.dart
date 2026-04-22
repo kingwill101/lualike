@@ -1,7 +1,7 @@
 part of '../love_api_bindings.dart';
 
 LoveFilesystemState _filesystemStateForResource(
-  LibraryRegistrationContext context,
+  LibraryContext context,
   String symbol,
 ) {
   final interpreter = context.interpreter;
@@ -17,7 +17,7 @@ LuaError _missingResourceFileError(String filename) {
 }
 
 Future<void> _writeResourceBytesOrThrow(
-  LibraryRegistrationContext context,
+  LibraryContext context,
   String filename,
   List<int> bytes, {
   required String symbol,

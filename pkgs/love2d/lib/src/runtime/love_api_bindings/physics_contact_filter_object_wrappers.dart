@@ -45,3 +45,23 @@ Future<void> _preparePhysicsWorldContactFilterIfNeeded(
     return _physicsLuaTruthy(result);
   });
 }
+
+bool Function(LovePhysicsFixture fixtureA, LovePhysicsFixture fixtureB)?
+_buildPhysicsWorldContactFilterSyncEvaluator(
+  LibraryContext context,
+  LovePhysicsWorld world,
+) {
+  final callback = world.contactFilter;
+  if (callback == null ||
+      !_physicsCanInvokeLuaCallbackSync(context, callback)) {
+    return null;
+  }
+
+  return (fixtureA, fixtureB) {
+    final result = _physicsInvokeLuaCallbackSync(context, callback, <Object?>[
+      _wrapPhysicsFixture(context, fixtureA),
+      _wrapPhysicsFixture(context, fixtureB),
+    ], 'World:setContactFilter');
+    return _physicsLuaTruthy(result);
+  };
+}

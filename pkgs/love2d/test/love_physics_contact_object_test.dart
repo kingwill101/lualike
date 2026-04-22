@@ -184,15 +184,24 @@ void main() {
           await _callMethod(contact, 'getRestitution'),
           closeTo(0.6, 1e-6),
         );
+        expect(
+          await _callMethod(contact, 'getTangentSpeed'),
+          closeTo(0, 1e-6),
+        );
 
         await _callMethod(contact, 'setFriction', const <Object?>[1.25]);
         await _callMethod(contact, 'setRestitution', const <Object?>[0.15]);
+        await _callMethod(contact, 'setTangentSpeed', const <Object?>[5.5]);
         await _callMethod(contact, 'setEnabled', const <Object?>[false]);
 
         expect(await _callMethod(contact, 'getFriction'), closeTo(1.25, 1e-6));
         expect(
           await _callMethod(contact, 'getRestitution'),
           closeTo(0.15, 1e-6),
+        );
+        expect(
+          await _callMethod(contact, 'getTangentSpeed'),
+          closeTo(5.5, 1e-6),
         );
         expect(await _callMethod(contact, 'isEnabled'), isFalse);
 
@@ -204,6 +213,10 @@ void main() {
         expect(
           await _callMethod(contact, 'getRestitution'),
           closeTo(0.6, 1e-6),
+        );
+        expect(
+          await _callMethod(contact, 'getTangentSpeed'),
+          closeTo(5.5, 1e-6),
         );
         expect(await _callMethod(contact, 'isEnabled'), isTrue);
       },
@@ -243,6 +256,27 @@ void main() {
         expect(controlVelocity.dy, greaterThan(-1));
         expect(overrideVelocity.dy, lessThan(controlVelocity.dy - 100));
         expect(overrideVelocity.dy, lessThan(-50));
+      },
+    );
+
+    test(
+      'Contact:setTangentSpeed affects later solver steps, not just getters',
+      () async {
+        final controlVelocity = await _runTangentSpeedContactScenario(
+          runtime,
+          overrideContactTangentSpeed: false,
+        );
+        final overrideVelocity = await _runTangentSpeedContactScenario(
+          runtime,
+          overrideContactTangentSpeed: true,
+        );
+
+        expect(controlVelocity.dx.abs(), lessThan(10));
+        expect(
+          overrideVelocity.dx.abs(),
+          greaterThan(controlVelocity.dx.abs() + 40),
+        );
+        expect(overrideVelocity.dx.abs(), greaterThan(60));
       },
     );
 
@@ -523,5 +557,70 @@ Future<({double dx, double dy})> _runRestitutionContactScenario(
   await _callMethod(world, 'update', const <Object?>[1 / 60]);
 
   final velocity = _doubleResults(await _callMethod(ball, 'getLinearVelocity'));
+  return (dx: velocity[0], dy: velocity[1]);
+}
+
+Future<({double dx, double dy})> _runTangentSpeedContactScenario(
+  Interpreter runtime, {
+  required bool overrideContactTangentSpeed,
+}) async {
+  final world = await _call(
+    runtime,
+    const ['love', 'physics', 'newWorld'],
+    const <Object?>[0, 1000, false],
+  );
+  final floor = await _call(
+    runtime,
+    const ['love', 'physics', 'newBody'],
+    <Object?>[world, 0, 100, 'static'],
+  );
+  final box = await _call(
+    runtime,
+    const ['love', 'physics', 'newBody'],
+    <Object?>[world, 0, 80, 'dynamic'],
+  );
+
+  final floorShape = await _call(
+    runtime,
+    const ['love', 'physics', 'newRectangleShape'],
+    const <Object?>[400, 20],
+  );
+  final boxShape = await _call(
+    runtime,
+    const ['love', 'physics', 'newRectangleShape'],
+    const <Object?>[20, 20],
+  );
+
+  final floorFixture = await _call(
+    runtime,
+    const ['love', 'physics', 'newFixture'],
+    <Object?>[floor, floorShape, 1],
+  );
+  final boxFixture = await _call(
+    runtime,
+    const ['love', 'physics', 'newFixture'],
+    <Object?>[box, boxShape, 1],
+  );
+
+  await _callMethod(floorFixture, 'setFriction', const <Object?>[8]);
+  await _callMethod(boxFixture, 'setFriction', const <Object?>[8]);
+  await _callMethod(floorFixture, 'setRestitution', const <Object?>[0]);
+  await _callMethod(boxFixture, 'setRestitution', const <Object?>[0]);
+  await _callMethod(box, 'setFixedRotation', const <Object?>[true]);
+
+  await _callMethod(world, 'update', const <Object?>[1 / 60]);
+  final contact = _indexedValues(
+    await _callMethod(world, 'getContacts') as Map,
+  ).single;
+
+  if (overrideContactTangentSpeed) {
+    await _callMethod(contact, 'setTangentSpeed', const <Object?>[5]);
+  }
+
+  for (var index = 0; index < 20; index++) {
+    await _callMethod(world, 'update', const <Object?>[1 / 60]);
+  }
+
+  final velocity = _doubleResults(await _callMethod(box, 'getLinearVelocity'));
   return (dx: velocity[0], dy: velocity[1]);
 }

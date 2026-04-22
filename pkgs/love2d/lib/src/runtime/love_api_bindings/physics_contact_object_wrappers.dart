@@ -98,6 +98,16 @@ Value _wrapPhysicsContact(LibraryContext context, LovePhysicsContact contact) {
       ),
       functionName: 'getRestitution',
     ),
+    'getTangentSpeed': Value(
+      builder.create(
+        (args) => _requirePhysicsContact(
+          args,
+          0,
+          'Contact:getTangentSpeed',
+        ).tangentSpeed,
+      ),
+      functionName: 'getTangentSpeed',
+    ),
     'isEnabled': Value(
       builder.create(
         (args) =>
@@ -166,6 +176,17 @@ Value _wrapPhysicsContact(LibraryContext context, LovePhysicsContact contact) {
         return null;
       }),
       functionName: 'setRestitution',
+    ),
+    'setTangentSpeed': Value(
+      builder.create((args) {
+        _requirePhysicsContact(
+          args,
+          0,
+          'Contact:setTangentSpeed',
+        ).setTangentSpeed(_requireNumber(args, 1, 'Contact:setTangentSpeed'));
+        return null;
+      }),
+      functionName: 'setTangentSpeed',
     ),
     'isDestroyed': Value(
       builder.create(

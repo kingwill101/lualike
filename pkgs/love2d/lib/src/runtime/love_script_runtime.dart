@@ -14,6 +14,45 @@ import 'love_runtime.dart';
 
 part 'input/love_joystick_callback_support.dart';
 
+const bool _loveTraceRuntimeLeak = bool.fromEnvironment(
+  'LOVE2D_TRACE_TOUCH_LEAK',
+  defaultValue: true,
+);
+
+void _loveTraceRuntime(
+  String stage, {
+  Map<String, Object?> details = const {},
+}) {
+  if (!_loveTraceRuntimeLeak) {
+    return;
+  }
+
+  final message = details.entries
+      .map((entry) => '${entry.key}=${entry.value}')
+      .join(' ');
+  // print('[love2d-runtime] $stage${message.isEmpty ? '' : ' $message'}');
+}
+
+bool _loveShouldTraceRuntimeSignal(String name) {
+  return switch (name) {
+    'touchpressed' || 'touchreleased' || 'touchmoved' || 'update' => true,
+    _ => false,
+  };
+}
+
+String _loveDescribeRuntimeArgs(List<Object?> args) {
+  if (args.isEmpty) {
+    return '[]';
+  }
+
+  return '[${args.map(_loveDescribeRuntimeValue).join(', ')}]';
+}
+
+String _loveDescribeRuntimeValue(Object? value) {
+  final raw = value is Value ? value.raw : value;
+  return '${value.runtimeType}(${raw.runtimeType}:$raw)';
+}
+
 /// Small runtime wrapper for executing LOVE-style scripts from Dart.
 ///
 /// This installs the generated `love` surface into a fresh or caller-provided
@@ -105,16 +144,64 @@ end
       return null;
     }
 
-    return runtime.callFunction(
-      callback,
-      args,
-      debugName: 'love.$name',
-      debugNameWhat: 'callback',
-    );
+    final shouldTrace = _loveShouldTraceRuntimeSignal(name);
+    if (shouldTrace) {
+      _loveTraceRuntime(
+        'callback.begin',
+        details: <String, Object?>{
+          'name': name,
+          'args': _loveDescribeRuntimeArgs(args),
+          'touches': context.touch.getTouches(),
+          'scancodes': context.keyboard.pressedScancodes.toList(
+            growable: false,
+          ),
+        },
+      );
+    }
+
+    try {
+      final result = await runtime.callFunction(
+        callback,
+        args,
+        debugName: 'love.$name',
+        debugNameWhat: 'callback',
+      );
+      if (shouldTrace) {
+        _loveTraceRuntime(
+          'callback.end',
+          details: <String, Object?>{
+            'name': name,
+            'result': _loveDescribeRuntimeValue(result),
+            'touches': context.touch.getTouches(),
+            'scancodes': context.keyboard.pressedScancodes.toList(
+              growable: false,
+            ),
+          },
+        );
+      }
+      return result;
+    } catch (error) {
+      if (shouldTrace) {
+        _loveTraceRuntime(
+          'callback.error',
+          details: <String, Object?>{
+            'name': name,
+            'error': error,
+            'touches': context.touch.getTouches(),
+            'scancodes': context.keyboard.pressedScancodes.toList(
+              growable: false,
+            ),
+          },
+        );
+      }
+      rethrow;
+    }
   }
 
   Future<Value?> createErrorHandlerLoop(String message) async {
-    final callback = loveCallback('errorhandler', includeBuiltin: true);
+    final callback =
+        loveCallback('errorhandler', includeBuiltin: true) ??
+        loveCallback('errhand', includeBuiltin: true);
     if (callback == null) {
       return null;
     }
@@ -122,7 +209,9 @@ end
     final result = await runtime.callFunction(
       callback,
       <Object?>[message],
-      debugName: 'love.errorhandler',
+      debugName: callback == _loveField('errorhandler')
+          ? 'love.errorhandler'
+          : 'love.errhand',
       debugNameWhat: 'callback',
     );
     final wrapped = _value(result);
@@ -139,6 +228,50 @@ end
   }
 
   Future<Object?> callLoadIfDefined() => callLoveCallbackIfDefined('load');
+
+  Future<Object?> processMainLoopEvents() async {
+    context.events.pump();
+    while (true) {
+      final message = context.events.poll();
+      if (message == null) {
+        return null;
+      }
+
+      if (message.name == 'quit' || message.name == 'q') {
+        final abortQuit = await callQuitIfDefined();
+        if (!abortQuit) {
+          return message.arguments.isEmpty ? 0 : message.arguments.first;
+        }
+        continue;
+      }
+
+      final callbackName = _mainLoopCallbackName(message.name);
+      if (callbackName == null) {
+        throw LuaError('Unknown event: ${message.name}');
+      }
+
+      if (_loveShouldTraceRuntimeSignal(callbackName)) {
+        _loveTraceRuntime(
+          'event.poll',
+          details: <String, Object?>{
+            'event': message.name,
+            'callback': callbackName,
+            'args': _loveDescribeRuntimeArgs(message.arguments),
+            'touches': context.touch.getTouches(),
+            'scancodes': context.keyboard.pressedScancodes.toList(
+              growable: false,
+            ),
+          },
+        );
+      }
+
+      await callLoveCallbackIfDefined(callbackName, message.arguments);
+      if (callbackName == 'lowmemory') {
+        await _invokeCollectGarbageIfAvailable();
+        await _invokeCollectGarbageIfAvailable();
+      }
+    }
+  }
 
   Future<Object?> callUpdateIfDefined(double dt) {
     return callLoveCallbackIfDefined('update', <Object?>[dt]);
@@ -347,8 +480,16 @@ end
     ]);
   }
 
+  Future<Object?> queueResize(int width, int height) {
+    return _queueLoveEvent('resize', <Object?>[width, height]);
+  }
+
   Future<Object?> dispatchFocus(bool focused) {
     return _dispatchLoveEventAndCallbackIfDefined('focus', <Object?>[focused]);
+  }
+
+  Future<Object?> queueFocus(bool focused) {
+    return _queueLoveEvent('focus', <Object?>[focused]);
   }
 
   Future<Object?> dispatchKeyPressed(
@@ -363,11 +504,23 @@ end
     ]);
   }
 
+  Future<Object?> queueKeyPressed(
+    String key, {
+    String? scancode,
+    bool isRepeat = false,
+  }) {
+    return _queueLoveEvent('keypressed', <Object?>[key, scancode, isRepeat]);
+  }
+
   Future<Object?> dispatchKeyReleased(String key, {String? scancode}) {
     return _dispatchLoveEventAndCallbackIfDefined('keyreleased', <Object?>[
       key,
       scancode,
     ]);
+  }
+
+  Future<Object?> queueKeyReleased(String key, {String? scancode}) {
+    return _queueLoveEvent('keyreleased', <Object?>[key, scancode]);
   }
 
   Future<Object?> dispatchMouseMoved(
@@ -386,6 +539,16 @@ end
     ]);
   }
 
+  Future<Object?> queueMouseMoved(
+    double x,
+    double y,
+    double dx,
+    double dy, {
+    bool isTouch = false,
+  }) {
+    return _queueLoveEvent('mousemoved', <Object?>[x, y, dx, dy, isTouch]);
+  }
+
   Future<Object?> dispatchMousePressed(
     double x,
     double y,
@@ -394,6 +557,22 @@ end
     int presses = 1,
   }) {
     return _dispatchLoveEventAndCallbackIfDefined('mousepressed', <Object?>[
+      x,
+      y,
+      button,
+      isTouch,
+      presses,
+    ]);
+  }
+
+  Future<Object?> queueMousePressed(
+    double x,
+    double y,
+    int button, {
+    bool isTouch = false,
+    int presses = 1,
+  }) {
+    return _queueLoveEvent('mousepressed', <Object?>[
       x,
       y,
       button,
@@ -418,10 +597,30 @@ end
     ]);
   }
 
+  Future<Object?> queueMouseReleased(
+    double x,
+    double y,
+    int button, {
+    bool isTouch = false,
+    int presses = 1,
+  }) {
+    return _queueLoveEvent('mousereleased', <Object?>[
+      x,
+      y,
+      button,
+      isTouch,
+      presses,
+    ]);
+  }
+
   Future<Object?> dispatchMouseFocus(bool focused) {
     return _dispatchLoveEventAndCallbackIfDefined('mousefocus', <Object?>[
       focused,
     ]);
+  }
+
+  Future<Object?> queueMouseFocus(bool focused) {
+    return _queueLoveEvent('mousefocus', <Object?>[focused]);
   }
 
   Future<Object?> dispatchDirectoryDropped(String path) {
@@ -448,8 +647,16 @@ end
     return _dispatchLoveEventAndCallbackIfDefined('lowmemory');
   }
 
+  Future<Object?> queueLowMemory() {
+    return _queueLoveEvent('lowmemory');
+  }
+
   Future<Object?> dispatchTextInput(String text) {
     return _dispatchLoveEventAndCallbackIfDefined('textinput', <Object?>[text]);
+  }
+
+  Future<Object?> queueTextInput(String text) {
+    return _queueLoveEvent('textinput', <Object?>[text]);
   }
 
   Future<Object?> dispatchTextEdited(String text, int start, int length) {
@@ -458,6 +665,10 @@ end
       start,
       length,
     ]);
+  }
+
+  Future<Object?> queueTextEdited(String text, int start, int length) {
+    return _queueLoveEvent('textedited', <Object?>[text, start, length]);
   }
 
   Future<Object?> dispatchThreadError(Object? thread, String error) {
@@ -485,6 +696,24 @@ end
     ]);
   }
 
+  Future<Object?> queueTouchPressed(
+    int id,
+    double x,
+    double y,
+    double dx,
+    double dy,
+    double pressure,
+  ) {
+    return _queueLoveEvent('touchpressed', <Object?>[
+      id,
+      x,
+      y,
+      dx,
+      dy,
+      pressure,
+    ]);
+  }
+
   Future<Object?> dispatchTouchReleased(
     int id,
     double x,
@@ -494,6 +723,24 @@ end
     double pressure,
   ) {
     return _dispatchLoveEventAndCallbackIfDefined('touchreleased', <Object?>[
+      id,
+      x,
+      y,
+      dx,
+      dy,
+      pressure,
+    ]);
+  }
+
+  Future<Object?> queueTouchReleased(
+    int id,
+    double x,
+    double y,
+    double dx,
+    double dy,
+    double pressure,
+  ) {
+    return _queueLoveEvent('touchreleased', <Object?>[
       id,
       x,
       y,
@@ -521,6 +768,17 @@ end
     ]);
   }
 
+  Future<Object?> queueTouchMoved(
+    int id,
+    double x,
+    double y,
+    double dx,
+    double dy,
+    double pressure,
+  ) {
+    return _queueLoveEvent('touchmoved', <Object?>[id, x, y, dx, dy, pressure]);
+  }
+
   Future<Object?> dispatchWheelMoved(double x, double y) {
     return _dispatchLoveEventAndCallbackIfDefined('wheelmoved', <Object?>[
       x,
@@ -528,10 +786,18 @@ end
     ]);
   }
 
+  Future<Object?> queueWheelMoved(double x, double y) {
+    return _queueLoveEvent('wheelmoved', <Object?>[x, y]);
+  }
+
   Future<Object?> dispatchVisible(bool visible) {
     return _dispatchLoveEventAndCallbackIfDefined('visible', <Object?>[
       visible,
     ]);
+  }
+
+  Future<Object?> queueVisible(bool visible) {
+    return _queueLoveEvent('visible', <Object?>[visible]);
   }
 
   Object? unwrapGlobal(String name) =>
@@ -584,8 +850,91 @@ end
     String name, [
     List<Object?> args = const <Object?>[],
   ]) async {
+    if (_loveShouldTraceRuntimeSignal(name)) {
+      _loveTraceRuntime(
+        'event.dispatch',
+        details: <String, Object?>{
+          'event': name,
+          'args': _loveDescribeRuntimeArgs(args),
+          'touches': context.touch.getTouches(),
+          'scancodes': context.keyboard.pressedScancodes.toList(
+            growable: false,
+          ),
+        },
+      );
+    }
     context.events.pushMessage(name, args);
     return callLoveCallbackIfDefined(name, args);
+  }
+
+  Future<Object?> _queueLoveEvent(
+    String name, [
+    List<Object?> args = const <Object?>[],
+  ]) {
+    if (_loveShouldTraceRuntimeSignal(name)) {
+      _loveTraceRuntime(
+        'event.queue',
+        details: <String, Object?>{
+          'event': name,
+          'args': _loveDescribeRuntimeArgs(args),
+          'touches': context.touch.getTouches(),
+          'scancodes': context.keyboard.pressedScancodes.toList(
+            growable: false,
+          ),
+        },
+      );
+    }
+    context.events.pushMessage(name, args);
+    return Future<Object?>.value(null);
+  }
+
+  String? _mainLoopCallbackName(String name) {
+    return switch (name) {
+      'focus' => 'focus',
+      'joystickpressed' => 'joystickpressed',
+      'joystickreleased' => 'joystickreleased',
+      'keypressed' => 'keypressed',
+      'keyreleased' => 'keyreleased',
+      'mousepressed' => 'mousepressed',
+      'mousereleased' => 'mousereleased',
+      'resize' => 'resize',
+      'visible' => 'visible',
+      'mousefocus' => 'mousefocus',
+      'threaderror' => 'threaderror',
+      'joystickadded' => 'joystickadded',
+      'joystickremoved' => 'joystickremoved',
+      'joystickaxis' => 'joystickaxis',
+      'joystickhat' => 'joystickhat',
+      'gamepadpressed' => 'gamepadpressed',
+      'gamepadreleased' => 'gamepadreleased',
+      'gamepadaxis' => 'gamepadaxis',
+      'textinput' => 'textinput',
+      'mousemoved' => 'mousemoved',
+      'lowmemory' => 'lowmemory',
+      'textedited' => 'textedited',
+      'wheelmoved' => 'wheelmoved',
+      'touchpressed' => 'touchpressed',
+      'touchreleased' => 'touchreleased',
+      'touchmoved' => 'touchmoved',
+      'directorydropped' => 'directorydropped',
+      'filedropped' => 'filedropped',
+      'displayrotated' => 'displayrotated',
+      _ => null,
+    };
+  }
+
+  Future<void> _invokeCollectGarbageIfAvailable() async {
+    final collectGarbage = _value(runtime.globals.get('collectgarbage'));
+    if (collectGarbage == null) {
+      return;
+    }
+
+    await runtime.callFunction(
+      collectGarbage,
+      const <Object?>[],
+      debugName: 'collectgarbage',
+      debugNameWhat: 'function',
+    );
   }
 
   Future<Value> _wrapDroppedFile(String path) {

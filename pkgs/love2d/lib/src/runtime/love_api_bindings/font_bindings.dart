@@ -104,14 +104,14 @@ Future<LoveRasterizer> _trueTypeRasterizerFromArgs(
     final size = args.isEmpty
         ? LoveFont.defaultSize
         : _requireNumber(args, 0, symbol);
-    _validateFontSize(size, symbol);
     final hinting = _optionalFontHintingArg(args, 1, symbol);
-    final dpiScale = _optionalFontDpiScaleArg(
+    final dpiScale = _optionalNumber(
       args,
       2,
       symbol,
       defaultValue: runtime.windowMetrics.dpiScale,
     );
+    _validateTrueTypeFontSize(size, dpiScale);
     final sourceBytes = await runtime.host.loadDefaultTrueTypeFontBytes();
     return LoveRasterizer.trueType(
       size: size,
@@ -123,7 +123,7 @@ Future<LoveRasterizer> _trueTypeRasterizerFromArgs(
 
   final fileData = await _requireResourceFileData(context, first, symbol);
   if (!loveLooksLikeTrueTypeFontData(fileData.bytes)) {
-    throw LuaError('$symbol invalid font file "${fileData.filename}"');
+    throw LuaError('Invalid font file: ${fileData.filename}');
   }
   final size = _optionalFontSizeArg(
     args,
@@ -131,14 +131,14 @@ Future<LoveRasterizer> _trueTypeRasterizerFromArgs(
     symbol,
     defaultValue: LoveFont.defaultSize,
   );
-  _validateFontSize(size, symbol);
   final hinting = _optionalFontHintingArg(args, 2, symbol);
-  final dpiScale = _optionalFontDpiScaleArg(
+  final dpiScale = _optionalNumber(
     args,
     3,
     symbol,
     defaultValue: runtime.windowMetrics.dpiScale,
   );
+  _validateTrueTypeFontSize(size, dpiScale);
   return LoveRasterizer.trueType(
     size: size,
     hinting: hinting,
@@ -170,7 +170,7 @@ Future<LoveRasterizer> _autoRasterizerFromArgs(
   }
 
   if (!loveLooksLikeTrueTypeFontData(fileData.bytes)) {
-    throw LuaError('$symbol invalid font file "${fileData.filename}"');
+    throw LuaError('Invalid font file: ${fileData.filename}');
   }
 
   return LoveRasterizer.trueType(
@@ -238,7 +238,11 @@ Future<LoveRasterizer> _bmFontRasterizerFromFileData(
     );
   }
 
-  _validateBmFontDefinition(definition, resolvedPages, symbol: symbol);
+  for (final imageData in resolvedPages.values) {
+    _validateBmFontPageImageData(imageData);
+  }
+
+  _validateBmFontDefinition(definition, resolvedPages);
   return LoveRasterizer.bmFont(
     definition: definition,
     pageImages: resolvedPages,
@@ -257,7 +261,7 @@ LoveBmFontDefinition _parseBmFontDefinition(
       source: fileData.filename,
     );
   } on ArgumentError catch (error) {
-    throw LuaError('$symbol ${error.message}');
+    throw LuaError('${error.message}');
   }
 }
 
@@ -333,50 +337,36 @@ String? _resolveBmFontPageSource(LoveBmFontDefinition definition, int pageId) {
 
 void _validateBmFontDefinition(
   LoveBmFontDefinition definition,
-  Map<int, LoveImageData> pageImages, {
-  required String symbol,
-}) {
+  Map<int, LoveImageData> pageImages,
+) {
   for (final entry in definition.characters.entries) {
     final glyph = entry.key;
     final character = entry.value;
     if (!definition.unicode && glyph > 127) {
       throw LuaError(
-        '$symbol invalid BMFont character id '
+        'Invalid BMFont character id '
         '(only unicode and ASCII are supported)',
       );
     }
 
     final page = pageImages[character.page];
     if (page == null) {
-      throw LuaError(
-        '$symbol invalid BMFont character page id: ${character.page}',
-      );
-    }
-
-    if (character.width < 0) {
-      throw LuaError(
-        '$symbol invalid width ${character.width} for BMFont character $glyph',
-      );
-    }
-    if (character.height < 0) {
-      throw LuaError(
-        '$symbol invalid height ${character.height} for BMFont character $glyph',
-      );
+      throw LuaError('Invalid BMFont character page id: ${character.page}');
     }
     if (character.x < 0 ||
         character.y < 0 ||
         character.x >= page.width ||
         character.y >= page.height) {
-      throw LuaError('$symbol invalid coordinates for BMFont character $glyph');
+      throw LuaError('Invalid coordinates for BMFont character $glyph.');
     }
     if (character.width > 0 && character.x + character.width > page.width) {
       throw LuaError(
-        '$symbol invalid width ${character.width} for BMFont character $glyph',
+        'Invalid width ${character.width} for BMFont character $glyph.',
       );
     }
     if (character.height > 0 && character.y + character.height > page.height) {
       throw LuaError(
-        '$symbol invalid height ${character.height} for BMFont character $glyph',
+        'Invalid height ${character.height} for BMFont character $glyph.',
       );
     }
   }
@@ -473,16 +463,16 @@ void _validateImageFontImageData(
   required String symbol,
 }) {
   if (imageData.format.toLowerCase() != 'rgba8') {
-    throw LuaError(
-      '$symbol only 32-bit RGBA images are supported in Image Fonts!',
-    );
+    throw LuaError('Only 32-bit RGBA images are supported in Image Fonts!');
+  }
+}
+
+void _validateBmFontPageImageData(LoveImageData imageData) {
+  if (imageData.format.toLowerCase() != 'rgba8') {
+    throw LuaError('Only 32-bit RGBA images are supported in BMFonts.');
   }
 }
 
 double _fontDpiScale(List<Object?> args, int index, String symbol) {
-  final dpiScale = _requireNumber(args, index, symbol);
-  if (dpiScale <= 0) {
-    throw LuaError('$symbol dpiscale must be > 0');
-  }
-  return dpiScale;
+  return _requireNumber(args, index, symbol);
 }

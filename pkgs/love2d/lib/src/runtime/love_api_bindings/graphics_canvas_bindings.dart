@@ -150,6 +150,8 @@ LoveApiImplementation _bindGraphicsNewCanvas(
       format: format,
       readable: readable,
       filter: runtime.graphics.defaultFilter,
+      mipmapFilter: runtime.graphics.defaultMipmapFilter,
+      mipmapSharpness: runtime.graphics.defaultMipmapSharpness,
       msaa: msaa,
       mipmapMode: mipmapMode,
       textureType: textureType,
@@ -171,6 +173,81 @@ String _validateCanvasTextureType(String raw, String symbol) {
   };
 }
 
+String? _canvasSliceFieldName(LoveCanvas canvas) {
+  return switch (canvas.textureType) {
+    'array' || 'volume' => 'layer',
+    'cube' => 'face',
+    _ => null,
+  };
+}
+
+int _validateCanvasTargetSlice(
+  LoveCanvas canvas,
+  int slice,
+  String symbol, {
+  String? fieldName,
+}) {
+  final maxSlice = canvas.renderTargetSliceCount;
+  if (slice < 1 || slice > maxSlice) {
+    final label = fieldName ?? 'slice';
+    throw LuaError('$symbol $label must be between 1 and $maxSlice');
+  }
+  return slice;
+}
+
+int _validateCanvasTargetMipmap(LoveCanvas canvas, int mipmap, String symbol) {
+  if (mipmap != 1) {
+    throw LuaError(
+      '$symbol does not yet support rendering to mipmap levels other than 1',
+    );
+  }
+  return mipmap;
+}
+
+LoveCanvasRenderTarget _renderTargetFromSetupTable(
+  Map<dynamic, dynamic> table,
+  String symbol,
+) {
+  final canvasEntry =
+      _tableIndexedEntry(table, 1) ?? _tableEntry(table, 'canvas');
+  final canvas = _canvasIfPresent(canvasEntry);
+  if (canvas == null) {
+    throw LuaError(
+      '$symbol setup table does not contain a valid Canvas target',
+    );
+  }
+
+  final sliceField = _canvasSliceFieldName(canvas);
+  final slice = sliceField == null
+      ? 1
+      : _validateCanvasTargetSlice(
+          canvas,
+          _tableRoundedInt(table, sliceField) ?? 1,
+          symbol,
+          fieldName: sliceField,
+        );
+  final mipmap = _validateCanvasTargetMipmap(
+    canvas,
+    _tableRoundedInt(table, 'mipmap') ?? 1,
+    symbol,
+  );
+  return LoveCanvasRenderTarget(canvas: canvas, slice: slice, mipmap: mipmap);
+}
+
+Value _wrapCanvasRenderTargetTable(
+  LibraryRegistrationContext context,
+  LoveCanvasRenderTarget target,
+) {
+  final renderTarget = <Object?, Object?>{
+    1: _wrapCanvas(context, target.canvas),
+  };
+  if (_canvasSliceFieldName(target.canvas) case final fieldName?) {
+    renderTarget[fieldName] = target.slice;
+  }
+  renderTarget['mipmap'] = target.mipmap;
+  return ValueClass.table(renderTarget);
+}
+
 // ---------------------------------------------------------------------------
 // love.graphics.setCanvas
 // ---------------------------------------------------------------------------
@@ -180,82 +257,90 @@ LoveApiImplementation _bindGraphicsSetCanvas(
 ) {
   final runtime = _runtimeContext(context);
   return (args) {
-    // No arguments → restore the screen as the render target.
     if (args.isEmpty || _rawValue(args.first) == null) {
       runtime.graphics.setCanvas(null);
       return null;
     }
 
-    // Collect all canvas targets from the argument list, which may be:
-    //   setCanvas(canvas [, mipmap])
-    //   setCanvas(canvas, slice, mipmap)
-    //   setCanvas(canvas1, canvas2, ...)            – multi-target
-    //   setCanvas({canvas=c, mipmap=m, layer=l}, …) – table setup
+    const symbol = 'love.graphics.setCanvas';
+    final firstArg = _valueAt(args, 0);
+    LoveCanvasRenderTarget? target;
 
-    final canvases = <LoveCanvas>[];
-
-    for (var i = 0; i < args.length; i++) {
-      final arg = _valueAt(args, i);
-
-      // Raw nil / false → stop collecting.
-      if (_rawValue(arg) == null) break;
-
-      final directCanvas = _canvasIfPresent(arg);
-      if (directCanvas != null) {
-        canvases.add(directCanvas);
-        // Skip optional mipmap / slice integers that follow a canvas argument.
-        while (i + 1 < args.length &&
-            _numberIfPresent(_valueAt(args, i + 1)) != null) {
-          i++;
-        }
-        continue;
-      }
-
-      final table = _tableIfPresent(arg);
-      if (table != null) {
-        // Table setup: { canvas = c, mipmap = 1, layer = 1 }
-        // or a positional table: { canvas, mipmap }
-        LoveCanvas? tableCanvas;
-
-        // Try explicit "canvas" key first.
-        final canvasEntry = _tableEntry(table, 'canvas');
-        if (canvasEntry != null) {
-          tableCanvas = _canvasIfPresent(canvasEntry);
-        }
-
-        // Fall back to positional index 1.
-        if (tableCanvas == null) {
-          final positional = _tableIndexedEntry(table, 1);
-          if (positional != null) {
-            tableCanvas = _canvasIfPresent(positional);
-          }
-        }
-
-        if (tableCanvas == null) {
+    final directCanvas = _canvasIfPresent(firstArg);
+    if (directCanvas != null) {
+      if (directCanvas.textureType == '2d') {
+        final mipmap =
+            args.length >= 2 && _numberIfPresent(_valueAt(args, 1)) != null
+            ? _textureMipmapLevel(args, 1, symbol)
+            : 1;
+        target = LoveCanvasRenderTarget(
+          canvas: directCanvas,
+          mipmap: _validateCanvasTargetMipmap(directCanvas, mipmap, symbol),
+        );
+      } else {
+        if (args.length < 2 || _numberIfPresent(_valueAt(args, 1)) == null) {
           throw LuaError(
-            'love.graphics.setCanvas setup table at argument ${i + 1} '
-            'does not contain a valid Canvas',
+            '$symbol non-2D canvases require an explicit slice argument',
           );
         }
-        canvases.add(tableCanvas);
-        continue;
+        final slice = _validateCanvasTargetSlice(
+          directCanvas,
+          _textureMipmapLevel(args, 1, symbol),
+          symbol,
+        );
+        final mipmap =
+            args.length >= 3 && _numberIfPresent(_valueAt(args, 2)) != null
+            ? _textureMipmapLevel(args, 2, symbol)
+            : 1;
+        target = LoveCanvasRenderTarget(
+          canvas: directCanvas,
+          slice: slice,
+          mipmap: _validateCanvasTargetMipmap(directCanvas, mipmap, symbol),
+        );
       }
-
-      throw LuaError(
-        'love.graphics.setCanvas expected a Canvas or setup table at '
-        'argument ${i + 1}',
-      );
+    } else if (_tableIfPresent(firstArg) case final table?) {
+      final firstEntry = _tableIndexedEntry(table, 1);
+      final directSetupCanvas = _canvasIfPresent(_tableEntry(table, 'canvas'));
+      final firstEntryCanvas = _canvasIfPresent(firstEntry);
+      final firstEntryTable = firstEntryCanvas == null
+          ? _tableIfPresent(firstEntry)
+          : null;
+      if (directSetupCanvas != null) {
+        target = _renderTargetFromSetupTable(table, symbol);
+      } else if (firstEntryTable != null) {
+        target = _renderTargetFromSetupTable(firstEntryTable, symbol);
+      } else {
+        final canvases = _tableSequence(
+          table,
+          symbol,
+          emptyError: 'requires at least one Canvas target',
+        );
+        for (final entry in canvases) {
+          final canvas = _canvasIfPresent(entry);
+          if (canvas == null) {
+            throw LuaError(
+              '$symbol expected Canvas objects in the plain table variant',
+            );
+          }
+          if (canvas.textureType != '2d') {
+            throw LuaError(
+              'Non-2D canvases must use the table-of-tables variant of setCanvas.',
+            );
+          }
+        }
+        target = LoveCanvasRenderTarget(
+          canvas: _canvasIfPresent(canvases.first)!,
+        );
+      }
+    } else {
+      throw LuaError('$symbol expected a Canvas or setup table at argument 1');
     }
 
-    if (canvases.isEmpty) {
-      runtime.graphics.setCanvas(null);
-      return null;
-    }
-
-    // Use the first canvas as the primary render target.  Additional canvases
-    // in a multi-target setup are registered so the runtime is aware of them,
-    // but drawing is always directed to the first target.
-    runtime.graphics.setCanvas(canvases.first);
+    runtime.graphics.setCanvas(
+      target.canvas,
+      slice: target.slice,
+      mipmap: target.mipmap,
+    );
     return null;
   };
 }
@@ -269,8 +354,16 @@ LoveApiImplementation _bindGraphicsGetCanvas(
 ) {
   final runtime = _runtimeContext(context);
   return (args) {
-    final canvas = runtime.graphics.activeCanvas;
-    return canvas == null ? null : _wrapCanvas(context, canvas);
+    final target = runtime.graphics.activeCanvasTarget;
+    if (target == null) {
+      return null;
+    }
+    if (target.mipmap == 1 && target.canvas.textureType == '2d') {
+      return _wrapCanvas(context, target.canvas);
+    }
+    return ValueClass.table(<Object?, Object?>{
+      1: _wrapCanvasRenderTargetTable(context, target),
+    });
   };
 }
 

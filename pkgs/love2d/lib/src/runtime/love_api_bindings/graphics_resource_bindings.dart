@@ -26,8 +26,12 @@ LoveApiImplementation _bindGraphicsGetDimensions(
 
 LoveApiImplementation _bindGraphicsGetFont(LibraryRegistrationContext context) {
   final runtime = _runtimeContext(context);
-  return (args) async {
-    final font = await runtime.ensureCurrentGraphicsFont();
+  return (args) {
+    final fontOrFuture = runtime.ensureCurrentGraphicsFontOrFuture();
+    if (fontOrFuture is Future<LoveFont>) {
+      return fontOrFuture.then((font) => _wrapFont(context, font));
+    }
+    final font = fontOrFuture as LoveFont;
     return _wrapFont(context, font);
   };
 }
@@ -94,10 +98,22 @@ int _imageMipmapCountForDimensions(int width, int height) {
   return levels;
 }
 
+LoveGraphicsFilterMode? _defaultImageMipmapFilter(
+  int mipmapCount, {
+  required LoveGraphicsFilterMode? filter,
+}) => mipmapCount > 1 ? filter : null;
+
+double _defaultImageMipmapSharpness(
+  int mipmapCount, {
+  required double sharpness,
+}) => mipmapCount > 1 ? sharpness : 0.0;
+
 LoveImage _resolveImageFromImageData({
   required LoveImageData imageData,
   required String source,
   required LoveGraphicsDefaultFilter defaultFilter,
+  required LoveGraphicsFilterMode? defaultMipmapFilter,
+  required double defaultMipmapSharpness,
   required Map<dynamic, dynamic>? settings,
   Object? nativeImage,
 }) {
@@ -109,6 +125,7 @@ LoveImage _resolveImageFromImageData({
   final mipmaps = resolvedSettings.mipmaps
       ? imageData.generateMipmaps()
       : <LoveImageData>[imageData];
+  final mipmapCount = mipmaps.length;
 
   return LoveImage(
     source: source,
@@ -122,8 +139,16 @@ LoveImage _resolveImageFromImageData({
     dpiScale: resolvedSettings.dpiScale,
     format: imageData.format,
     readable: true,
-    mipmapCount: mipmaps.length,
+    mipmapCount: mipmapCount,
     filter: defaultFilter,
+    mipmapFilter: _defaultImageMipmapFilter(
+      mipmapCount,
+      filter: defaultMipmapFilter,
+    ),
+    mipmapSharpness: _defaultImageMipmapSharpness(
+      mipmapCount,
+      sharpness: defaultMipmapSharpness,
+    ),
     formatLinear: resolvedSettings.linear,
     imageData: mipmaps.first,
     imageDataMipmaps: mipmaps,
@@ -132,9 +157,53 @@ LoveImage _resolveImageFromImageData({
   );
 }
 
+LoveImage _resolveImageFromCompressedImageData({
+  required LoveCompressedImageData imageData,
+  required String symbol,
+  required LoveGraphicsDefaultFilter defaultFilter,
+  required LoveGraphicsFilterMode? defaultMipmapFilter,
+  required double defaultMipmapSharpness,
+  required Map<dynamic, dynamic>? settings,
+}) {
+  final resolvedSettings = _newImageSettings(
+    settings,
+    symbol: symbol,
+    source: imageData.source,
+  );
+
+  return LoveImage(
+    source: imageData.source,
+    width: _logicalTextureDimension(imageData.width, resolvedSettings.dpiScale),
+    height: _logicalTextureDimension(
+      imageData.height,
+      resolvedSettings.dpiScale,
+    ),
+    pixelWidth: imageData.width,
+    pixelHeight: imageData.height,
+    dpiScale: resolvedSettings.dpiScale,
+    format: imageData.format,
+    readable: false,
+    mipmapCount: imageData.mipmapCount,
+    filter: defaultFilter,
+    mipmapFilter: _defaultImageMipmapFilter(
+      imageData.mipmapCount,
+      filter: defaultMipmapFilter,
+    ),
+    mipmapSharpness: _defaultImageMipmapSharpness(
+      imageData.mipmapCount,
+      sharpness: defaultMipmapSharpness,
+    ),
+    compressed: true,
+    formatLinear: !imageData.srgb,
+    compressedImageData: imageData,
+  );
+}
+
 LoveImage _resolveImageSettings(
   LoveImage image, {
   required Map<dynamic, dynamic>? settings,
+  required LoveGraphicsFilterMode? defaultMipmapFilter,
+  required double defaultMipmapSharpness,
 }) {
   final resolvedSettings = _newImageSettings(
     settings,
@@ -155,6 +224,7 @@ LoveImage _resolveImageSettings(
     final mipmaps = resolvedSettings.mipmaps
         ? imageData.generateMipmaps()
         : <LoveImageData>[imageData];
+    final mipmapCount = mipmaps.length;
     return image.copyWith(
       width: logicalWidth,
       height: logicalHeight,
@@ -163,8 +233,17 @@ LoveImage _resolveImageSettings(
       dpiScale: resolvedSettings.dpiScale,
       format: image.format,
       readable: true,
-      mipmapCount: mipmaps.length,
+      mipmapCount: mipmapCount,
       filter: image.filter,
+      clearMipmapFilter: mipmapCount <= 1,
+      mipmapFilter: _defaultImageMipmapFilter(
+        mipmapCount,
+        filter: defaultMipmapFilter,
+      ),
+      mipmapSharpness: _defaultImageMipmapSharpness(
+        mipmapCount,
+        sharpness: defaultMipmapSharpness,
+      ),
       formatLinear: image.compressed
           ? image.formatLinear
           : resolvedSettings.linear,
@@ -187,6 +266,15 @@ LoveImage _resolveImageSettings(
     height: logicalHeight,
     dpiScale: resolvedSettings.dpiScale,
     mipmapCount: mipmapCount,
+    clearMipmapFilter: mipmapCount <= 1,
+    mipmapFilter: _defaultImageMipmapFilter(
+      mipmapCount,
+      filter: defaultMipmapFilter,
+    ),
+    mipmapSharpness: _defaultImageMipmapSharpness(
+      mipmapCount,
+      sharpness: defaultMipmapSharpness,
+    ),
     formatLinear: image.compressed
         ? image.formatLinear
         : resolvedSettings.linear,
@@ -199,6 +287,8 @@ Future<LoveImage> _loadImageFromSource(
   required String symbol,
   required Map<dynamic, dynamic>? settings,
   required LoveGraphicsDefaultFilter defaultFilter,
+  required LoveGraphicsFilterMode? defaultMipmapFilter,
+  required double defaultMipmapSharpness,
 }) async {
   final runtime = _runtimeContext(context);
   final fileData = await _requireResourceFileData(context, source, symbol);
@@ -213,6 +303,8 @@ Future<LoveImage> _loadImageFromSource(
     return _resolveImageSettings(
       image.copyWith(filter: defaultFilter),
       settings: settings,
+      defaultMipmapFilter: defaultMipmapFilter,
+      defaultMipmapSharpness: defaultMipmapSharpness,
     );
   } catch (hostError) {
     final imageData = LoveImageData.decodeEncodedBytes(
@@ -223,6 +315,8 @@ Future<LoveImage> _loadImageFromSource(
       imageData: imageData,
       source: fileData.filename,
       defaultFilter: defaultFilter,
+      defaultMipmapFilter: defaultMipmapFilter,
+      defaultMipmapSharpness: defaultMipmapSharpness,
       settings: settings,
     );
   }
@@ -270,6 +364,8 @@ LoveApiImplementation _bindGraphicsNewImage(
           imageData: imageData,
           source: 'ImageData',
           defaultFilter: runtime.graphics.defaultFilter,
+          defaultMipmapFilter: runtime.graphics.defaultMipmapFilter,
+          defaultMipmapSharpness: runtime.graphics.defaultMipmapSharpness,
           settings: settings,
         ),
       );
@@ -279,32 +375,15 @@ LoveApiImplementation _bindGraphicsNewImage(
       _valueAt(args, 0),
     );
     if (compressedImageData != null) {
-      final resolvedSettings = _newImageSettings(
-        settings,
-        symbol: symbol,
-        source: compressedImageData.source,
-      );
       return _wrapImage(
         context,
-        LoveImage(
-          source: compressedImageData.source,
-          width: _logicalTextureDimension(
-            compressedImageData.width,
-            resolvedSettings.dpiScale,
-          ),
-          height: _logicalTextureDimension(
-            compressedImageData.height,
-            resolvedSettings.dpiScale,
-          ),
-          pixelWidth: compressedImageData.width,
-          pixelHeight: compressedImageData.height,
-          dpiScale: resolvedSettings.dpiScale,
-          format: compressedImageData.format,
-          readable: false,
-          mipmapCount: compressedImageData.mipmapCount,
-          filter: runtime.graphics.defaultFilter,
-          compressed: true,
-          formatLinear: !compressedImageData.srgb,
+        _resolveImageFromCompressedImageData(
+          imageData: compressedImageData,
+          symbol: symbol,
+          defaultFilter: runtime.graphics.defaultFilter,
+          defaultMipmapFilter: runtime.graphics.defaultMipmapFilter,
+          defaultMipmapSharpness: runtime.graphics.defaultMipmapSharpness,
+          settings: settings,
         ),
       );
     }
@@ -319,6 +398,8 @@ LoveApiImplementation _bindGraphicsNewImage(
           symbol: symbol,
           settings: settings,
           defaultFilter: runtime.graphics.defaultFilter,
+          defaultMipmapFilter: runtime.graphics.defaultMipmapFilter,
+          defaultMipmapSharpness: runtime.graphics.defaultMipmapSharpness,
         );
         return _wrapImage(context, image);
       } catch (error) {
@@ -348,6 +429,8 @@ LoveApiImplementation _bindGraphicsNewImage(
             imageData: imageData,
             source: fileData.filename,
             defaultFilter: runtime.graphics.defaultFilter,
+            defaultMipmapFilter: runtime.graphics.defaultMipmapFilter,
+            defaultMipmapSharpness: runtime.graphics.defaultMipmapSharpness,
             settings: settings,
           ),
         );
@@ -406,13 +489,20 @@ LoveApiImplementation _bindGraphicsNewQuad(LibraryRegistrationContext context) {
 
 LoveApiImplementation _bindGraphicsNewFont(LibraryRegistrationContext context) {
   final runtime = _runtimeContext(context);
-  return (args) async {
-    final font = await _loadFontFromArgs(
+  return (args) {
+    final fontOrFuture = _fontFromArgsOrFuture(
       context,
       args,
       'love.graphics.newFont',
       defaultFilter: runtime.graphics.defaultFilter,
     );
+    if (fontOrFuture is Future<LoveFont>) {
+      return fontOrFuture.then((font) {
+        runtime.registerFont(font);
+        return _wrapFont(context, font);
+      });
+    }
+    final font = fontOrFuture as LoveFont;
     runtime.registerFont(font);
     return _wrapFont(context, font);
   };
@@ -500,13 +590,21 @@ LoveApiImplementation _bindGraphicsSetNewFont(
   LibraryRegistrationContext context,
 ) {
   final runtime = _runtimeContext(context);
-  return (args) async {
-    final font = await _loadFontFromArgs(
+  return (args) {
+    final fontOrFuture = _fontFromArgsOrFuture(
       context,
       args,
       'love.graphics.setNewFont',
       defaultFilter: runtime.graphics.defaultFilter,
     );
+    if (fontOrFuture is Future<LoveFont>) {
+      return fontOrFuture.then((font) {
+        runtime.registerFont(font);
+        runtime.graphics.font = font;
+        return _wrapFont(context, font);
+      });
+    }
+    final font = fontOrFuture as LoveFont;
     runtime.registerFont(font);
     runtime.graphics.font = font;
     return _wrapFont(context, font);
@@ -564,4 +662,36 @@ LoveApiImplementation _bindGraphicsGetDefaultFilter(
 ) {
   final runtime = _runtimeContext(context);
   return (args) => _filterResult(runtime.graphics.defaultFilter);
+}
+
+LoveApiImplementation _bindGraphicsSetDefaultMipmapFilter(
+  LibraryRegistrationContext context,
+) {
+  final runtime = _runtimeContext(context);
+  return (args) {
+    final rawMode = _rawValue(_valueAt(args, 0));
+    runtime.graphics.defaultMipmapFilter = rawMode == null
+        ? null
+        : _filterMode(
+            _requireString(args, 0, 'love.graphics.setDefaultMipmapFilter'),
+            'love.graphics.setDefaultMipmapFilter',
+          );
+    runtime.graphics.defaultMipmapSharpness = args.length >= 2
+        ? _requireNumber(args, 1, 'love.graphics.setDefaultMipmapFilter')
+        : 0.0;
+    return null;
+  };
+}
+
+LoveApiImplementation _bindGraphicsGetDefaultMipmapFilter(
+  LibraryRegistrationContext context,
+) {
+  final runtime = _runtimeContext(context);
+  return (args) => Value.multi(<Object?>[
+    switch (runtime.graphics.defaultMipmapFilter) {
+      final LoveGraphicsFilterMode filter => _filterModeName(filter),
+      null => null,
+    },
+    runtime.graphics.defaultMipmapSharpness,
+  ]);
 }

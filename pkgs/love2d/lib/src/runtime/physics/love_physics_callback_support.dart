@@ -40,9 +40,12 @@ final class LovePhysicsWorldCallbackState {
   Value? _endContact;
   Value? _preSolve;
   Value? _postSolve;
-  bool _isDispatching = false;
+  int _dispatchDepth = 0;
+  void Function(LovePhysicsWorldQueuedCallback event)? _syncDispatcher;
+  Object? _pendingSyncError;
+  StackTrace? _pendingSyncErrorStackTrace;
 
-  bool get isDispatching => _isDispatching;
+  bool get isDispatching => _dispatchDepth > 0;
 
   ({Value? beginContact, Value? endContact, Value? preSolve, Value? postSolve})
   get callbacks => (
@@ -64,19 +67,65 @@ final class LovePhysicsWorldCallbackState {
     _postSolve = postSolve;
   }
 
+  void setSyncDispatcher(
+    void Function(LovePhysicsWorldQueuedCallback event)? dispatcher,
+  ) {
+    _syncDispatcher = dispatcher;
+    if (dispatcher == null) {
+      _pendingSyncError = null;
+      _pendingSyncErrorStackTrace = null;
+    }
+  }
+
+  void throwPendingSyncError() {
+    if (_pendingSyncError == null || _pendingSyncErrorStackTrace == null) {
+      return;
+    }
+    final error = _pendingSyncError!;
+    final stackTrace = _pendingSyncErrorStackTrace!;
+    _pendingSyncError = null;
+    _pendingSyncErrorStackTrace = null;
+    Error.throwWithStackTrace(error, stackTrace);
+  }
+
   void queueBeginContact(forge2d.Contact contact) {
+    if (_dispatchContactEventNow(
+      LovePhysicsWorldCallbackKind.beginContact,
+      contact,
+    )) {
+      return;
+    }
     _queueContactEvent(LovePhysicsWorldCallbackKind.beginContact, contact);
   }
 
   void queueEndContact(forge2d.Contact contact) {
+    if (_dispatchContactEventNow(
+      LovePhysicsWorldCallbackKind.endContact,
+      contact,
+    )) {
+      return;
+    }
     _queueContactEvent(LovePhysicsWorldCallbackKind.endContact, contact);
   }
 
   void queuePreSolve(forge2d.Contact contact) {
+    if (_dispatchContactEventNow(
+      LovePhysicsWorldCallbackKind.preSolve,
+      contact,
+    )) {
+      return;
+    }
     _queueContactEvent(LovePhysicsWorldCallbackKind.preSolve, contact);
   }
 
   void queuePostSolve(forge2d.Contact contact, forge2d.ContactImpulse impulse) {
+    if (_dispatchContactEventNow(
+      LovePhysicsWorldCallbackKind.postSolve,
+      contact,
+      impulse: impulse,
+    )) {
+      return;
+    }
     final callback = _callbackForKind(LovePhysicsWorldCallbackKind.postSolve);
     if (callback == null) {
       return;
@@ -115,7 +164,7 @@ final class LovePhysicsWorldCallbackState {
       return;
     }
 
-    _isDispatching = true;
+    _dispatchDepth++;
     try {
       while (_queuedCallbacks.isNotEmpty) {
         final event = _queuedCallbacks.removeFirst();
@@ -126,13 +175,16 @@ final class LovePhysicsWorldCallbackState {
         }
       }
     } finally {
-      _isDispatching = false;
+      _dispatchDepth--;
       _releasePendingCallbacks();
     }
   }
 
   void dispose() {
     _releasePendingCallbacks();
+    _syncDispatcher = null;
+    _pendingSyncError = null;
+    _pendingSyncErrorStackTrace = null;
     _beginContact = null;
     _endContact = null;
     _preSolve = null;
@@ -173,6 +225,54 @@ final class LovePhysicsWorldCallbackState {
       _queuedCallbacks.removeFirst().release();
     }
   }
+
+  bool _dispatchContactEventNow(
+    LovePhysicsWorldCallbackKind kind,
+    forge2d.Contact contact, {
+    forge2d.ContactImpulse? impulse,
+  }) {
+    final dispatcher = _syncDispatcher;
+    final callback = _callbackForKind(kind);
+    if (dispatcher == null || callback == null) {
+      return false;
+    }
+
+    final wrappedContact = _physicsContactForWorldContact(world, contact);
+    wrappedContact._retainTransient();
+    final event = LovePhysicsWorldQueuedCallback._(
+      kind: kind,
+      callback: callback,
+      contact: wrappedContact,
+      normalImpulses: impulse == null
+          ? null
+          : List<double>.generate(
+              impulse.count,
+              (index) =>
+                  world.state.scaleUpScalar(impulse.normalImpulses[index]),
+              growable: false,
+            ),
+      tangentImpulses: impulse == null
+          ? null
+          : List<double>.generate(
+              impulse.count,
+              (index) =>
+                  world.state.scaleUpScalar(impulse.tangentImpulses[index]),
+              growable: false,
+            ),
+    );
+
+    _dispatchDepth++;
+    try {
+      dispatcher(event);
+    } catch (error, stackTrace) {
+      _pendingSyncError ??= error;
+      _pendingSyncErrorStackTrace ??= stackTrace;
+    } finally {
+      _dispatchDepth--;
+      event.release();
+    }
+    return true;
+  }
 }
 
 final class _LovePhysicsContactListener extends forge2d.ContactListener {
@@ -194,7 +294,10 @@ final class _LovePhysicsContactListener extends forge2d.ContactListener {
 
   @override
   void preSolve(forge2d.Contact contact, forge2d.Manifold oldManifold) {
-    _physicsContactForWorldContact(world, contact)._replayPendingPreSolveState();
+    _physicsContactForWorldContact(
+      world,
+      contact,
+    )._replayPendingPreSolveState();
     _callbacks.queuePreSolve(contact);
   }
 
