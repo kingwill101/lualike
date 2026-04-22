@@ -439,7 +439,7 @@ void main() {
               (error) => error.message,
               'message',
               "bad argument #1 to 'newSource' "
-                  "(Decoder or SoundData expected, got nil)",
+                  "(filename, File, FileData, Decoder, or SoundData expected, got nil)",
             ),
           ),
         );
@@ -455,7 +455,7 @@ void main() {
               (error) => error.message,
               'message',
               "bad argument #1 to 'newSource' "
-                  "(Decoder or SoundData expected, got number)",
+                  "(filename, File, FileData, Decoder, or SoundData expected, got number)",
             ),
           ),
         );
@@ -514,7 +514,18 @@ void main() {
           await luaCallMethodList(sourceFromDecoder, 'getDuration'),
           closeTo(0.75, 1e-12),
         );
-        expect(await luaCallMethodList(sourceFromFile, 'getDuration'), -1.0);
+        expect(
+          await luaCallMethodList(sourceFromFile, 'getDuration'),
+          closeTo(0.75, 1e-12),
+        );
+        expect(
+          await luaCallMethodList(
+            sourceFromFile,
+            'getDuration',
+            const <Object?>['samples'],
+          ),
+          3.0,
+        );
 
         expect(
           await luaCallList(
