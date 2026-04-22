@@ -2618,60 +2618,63 @@ class RequireFunction extends BuiltinFunction {
         category: 'Require',
       );
 
+      late final Object? result;
       try {
         // Call the searcher with the module name
-        final result = await (searcher.raw as Function)([Value(moduleName)]);
-
-        // If the searcher returns a loader function
-        if (result is List &&
-            result.isNotEmpty &&
-            result[0] is Value &&
-            result[0].raw is Function) {
-          final loader = result[0] as Value;
-          final loaderData = result.length > 1 ? result[1] : Value(null);
-
-          Logger.debugLazy(
-            () =>
-                "RequireFunction: Found loader for '$moduleName' with data: $loaderData",
-            category: 'Require',
-          );
-
-          // Call the loader with the module name and loader data
-          final moduleResult = await (loader.raw as Function)([
-            Value(moduleName),
-            loaderData,
-          ]);
-
-          // Store the result in package.loaded
-          if (moduleResult != null) {
-            loaded[moduleName] = moduleResult;
-          } else if (!loaded.containsKey(moduleName) ||
-              loaded[moduleName] == false) {
-            // If nothing was returned and nothing was stored, store true
-            loaded[moduleName] = Value(true);
-          }
-
-          // Return the loaded module and the loader data (e.g. path)
-          final ret = loaded[moduleName];
-          if (loaderData is Value && loaderData.raw != null) {
-            // Normalize path to use forward slashes consistently (Lua convention)
-            if (loaderData.raw is String) {
-              final normalizedLoaderData = Value(
-                path.normalize(loaderData.raw as String),
-              );
-              return [ret, normalizedLoaderData];
-            }
-            return [ret, loaderData];
-          }
-          return ret;
-        } else if (result is String) {
-          // If the searcher returns an error message
-          errors.add(result);
-        } else if (result is Value && result.raw is String) {
-          errors.add(result.raw.toString());
-        }
+        result = await (searcher.raw as Function)([Value(moduleName)]);
       } catch (e) {
         errors.add("searcher #$i error: $e");
+        continue;
+      }
+
+      // If the searcher returns a loader function
+      if (result is List &&
+          result.isNotEmpty &&
+          result[0] is Value &&
+          result[0].raw is Function) {
+        final loader = result[0] as Value;
+        final loaderData = result.length > 1 ? result[1] : Value(null);
+
+        Logger.debugLazy(
+          () =>
+              "RequireFunction: Found loader for '$moduleName' with data: $loaderData",
+          category: 'Require',
+        );
+
+        // Loader failures should stop require() immediately rather than being
+        // treated like another missing-module searcher diagnostic.
+        final moduleResult = await (loader.raw as Function)([
+          Value(moduleName),
+          loaderData,
+        ]);
+
+        // Store the result in package.loaded
+        if (moduleResult != null) {
+          loaded[moduleName] = moduleResult;
+        } else if (!loaded.containsKey(moduleName) ||
+            loaded[moduleName] == false) {
+          // If nothing was returned and nothing was stored, store true
+          loaded[moduleName] = Value(true);
+        }
+
+        // Return the loaded module and the loader data (e.g. path)
+        final ret = loaded[moduleName];
+        if (loaderData is Value && loaderData.raw != null) {
+          // Normalize path to use forward slashes consistently (Lua convention)
+          if (loaderData.raw is String) {
+            final normalizedLoaderData = Value(
+              path.normalize(loaderData.raw as String),
+            );
+            return [ret, normalizedLoaderData];
+          }
+          return [ret, loaderData];
+        }
+        return ret;
+      } else if (result is String) {
+        // If the searcher returns an error message
+        errors.add(result);
+      } else if (result is Value && result.raw is String) {
+        errors.add(result.raw.toString());
       }
     }
 
@@ -2719,11 +2722,31 @@ class RequireFunction extends BuiltinFunction {
       }
     }
 
-    // Lua does not add the searchers' diagnostic strings here
+    final seenErrorLines = errorLines.toSet();
+    for (final diagnostic in _missingModuleDiagnosticsFromSearchers(errors)) {
+      if (seenErrorLines.add(diagnostic)) {
+        errorLines.add(diagnostic);
+      }
+    }
 
     final errorMsg =
         "module '$moduleName' not found:\n\t${errorLines.join('\n\t')}";
     Logger.debugLazy(() => "Error message: $errorMsg", category: 'Require');
     throw LuaError(errorMsg).withProtectedCallLocationSuppressed();
+  }
+}
+
+Iterable<String> _missingModuleDiagnosticsFromSearchers(
+  Iterable<String> diagnostics,
+) sync* {
+  for (final diagnostic in diagnostics) {
+    final normalized = diagnostic.startsWith('\n\t')
+        ? diagnostic.substring(2)
+        : diagnostic;
+    for (final line in normalized.split('\n\t')) {
+      if (line.startsWith("no '") || line.startsWith("no file '")) {
+        yield line;
+      }
+    }
   }
 }

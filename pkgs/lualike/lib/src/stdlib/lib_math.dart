@@ -14,12 +14,14 @@ class MathLibrary extends Library {
   @override
   void registerFunctions(LibraryRegistrationContext context) {
     final interpreter = context.vm;
+    final atanFunc = _MathAtan(interpreter);
 
     // Register all math functions directly
     context.define("abs", _MathAbs(interpreter));
     context.define("acos", _MathAcos(interpreter));
     context.define("asin", _MathAsin(interpreter));
-    context.define("atan", _MathAtan(interpreter));
+    context.define("atan", atanFunc);
+    context.define("atan2", atanFunc);
     context.define("ceil", _MathCeil(interpreter));
     context.define("cos", _MathCos(interpreter));
     context.define("deg", _MathDeg(interpreter));
@@ -33,6 +35,7 @@ class MathLibrary extends Library {
     context.define("min", _MathMin(interpreter));
     context.define("modf", _MathModf(interpreter));
     context.define("pi", Value(math.pi));
+    context.define("pow", _MathPow(interpreter));
     context.define("rad", _MathRad(interpreter));
     final randomFunc = _MathRandom(interpreter);
     context.define("random", randomFunc);
@@ -55,8 +58,10 @@ dynamic _getNumber(Value value, String funcName, int argNum) {
 }
 
 dynamic _getFastNumber(Object? value, String funcName, int argNum) {
-  if (value case Value(isMulti: false, raw: final rawNumber)
-      when rawNumber is int || rawNumber is double || rawNumber is BigInt) {
+  if (value case Value(
+    isMulti: false,
+    raw: final rawNumber,
+  ) when rawNumber is int || rawNumber is double || rawNumber is BigInt) {
     return rawNumber;
   }
   return _getNumber(value as Value, funcName, argNum);
@@ -355,11 +360,7 @@ class _MathMax extends _MathBuiltin {
 
   @override
   Object? fastCall2(Object? arg0, Object? arg1) {
-    final fastResult = _tryFastMinMaxNumericResult(
-      arg0,
-      arg1,
-      wantMax: true,
-    );
+    final fastResult = _tryFastMinMaxNumericResult(arg0, arg1, wantMax: true);
     if (fastResult != null) {
       return fastResult;
     }
@@ -391,11 +392,7 @@ class _MathMin extends _MathBuiltin {
 
   @override
   Object? fastCall2(Object? arg0, Object? arg1) {
-    final fastResult = _tryFastMinMaxNumericResult(
-      arg0,
-      arg1,
-      wantMax: false,
-    );
+    final fastResult = _tryFastMinMaxNumericResult(arg0, arg1, wantMax: false);
     if (fastResult != null) {
       return fastResult;
     }
@@ -434,6 +431,28 @@ class _MathModf extends _MathBuiltin {
     final number = _getNumber(args[0] as Value, "modf", 1);
     final (intPart, fracPart) = NumberUtils.modf(number);
     return Value.multi([primitiveValue(intPart), primitiveValue(fracPart)]);
+  }
+}
+
+class _MathPow extends _MathBuiltin {
+  _MathPow([super.interpreter]);
+
+  @override
+  Object? call(List<Object?> args) {
+    if (args.isEmpty) {
+      throw LuaError.typeError(
+        "bad argument #1 to 'pow' (number expected, got no value)",
+      );
+    }
+    if (args.length < 2) {
+      throw LuaError.typeError(
+        "bad argument #2 to 'pow' (number expected, got no value)",
+      );
+    }
+
+    final base = _getNumber(args[0] as Value, "pow", 1);
+    final exponent = _getNumber(args[1] as Value, "pow", 2);
+    return primitiveValue(NumberUtils.exponentiate(base, exponent));
   }
 }
 

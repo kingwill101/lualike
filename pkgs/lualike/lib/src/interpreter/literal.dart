@@ -90,7 +90,7 @@ mixin InterpreterLiteralMixin on AstVisitor<Object?> {
     // Always use LuaString for proper byte-level string handling, but
     // intern the object for literals so identical literals share identity.
     final bytes = node.bytes;
-    final key = bytes.join(',');
+    final key = luaStringCacheKey(bytes);
 
     // Check if we have a cached Value wrapper first to avoid creating new
     // Value objects on every literal reference. This matches Lua C behavior.
