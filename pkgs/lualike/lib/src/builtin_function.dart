@@ -32,6 +32,15 @@ abstract class BuiltinFunction {
   /// for the bytecode VM's dedicated assert-success fast path.
   bool get isBytecodeAssertBuiltin => false;
 
+  /// Whether this builtin is `debug.getlocal` for bytecode-local fast paths.
+  bool get isBytecodeDebugGetLocalBuiltin => false;
+
+  /// Whether this builtin is `debug.setlocal` for bytecode-local fast paths.
+  bool get isBytecodeDebugSetLocalBuiltin => false;
+
+  /// Whether this builtin is `pcall` for bytecode protected-call fast paths.
+  bool get isBytecodeProtectedCallBuiltin => false;
+
   /// Optional fixed-arity fast paths used by the bytecode VM hot call sites.
   ///
   /// Returning [fastCallUnsupported] tells the caller to fall back to [call].

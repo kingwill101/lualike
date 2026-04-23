@@ -212,15 +212,16 @@ class _LuaLoader extends BuiltinFunction {
         category: 'Package',
       );
       modulePath = await fileManager.resolveModulePath(name);
-
-      // Print the resolved globs for debugging
-      fileManager.printResolvedGlobs();
     }
 
     Logger.debugLazy(
       () => "Module path resolved to: $modulePath",
       category: 'Package',
     );
+
+    if (modulePath == null || modulePath.isEmpty) {
+      return Value(_moduleNotFoundDiagnostic(interpreter!, name));
+    }
 
     // Return a loader function that will load and execute the module
     return [
@@ -429,9 +430,35 @@ class _LuaLoader extends BuiltinFunction {
           throw LuaError("error loading module '$name': $e");
         }
       }),
-      Value(path_lib.normalize(modulePath ?? '')),
+      Value(path_lib.normalize(modulePath)),
     ];
   }
+}
+
+String _moduleNotFoundDiagnostic(LuaRuntime runtime, String moduleName) {
+  final packageValue = runtime.globals.get('package');
+  var packagePath = '';
+  if (packageValue is Value && packageValue.raw is Map) {
+    final rawPath = (packageValue.raw as Map)['path'];
+    if (rawPath is Value) {
+      final value = rawPath.unwrap();
+      if (value is String || value is LuaString) {
+        packagePath = value.toString();
+      }
+    }
+  }
+
+  final templates = packagePath.isEmpty
+      ? const <String>['?.lua', '?/?', '?/init']
+      : packagePath.split(';');
+  final modulePath = moduleName.replaceAll('.', path_lib.separator);
+  final diagnostics = templates
+      .where((template) => template.isNotEmpty)
+      .map(
+        (template) => "\n\tno file '${template.replaceAll('?', modulePath)}'",
+      )
+      .join();
+  return diagnostics.isEmpty ? "\n\tno file '$moduleName'" : diagnostics;
 }
 
 /// Package library implementation using the new Library system
