@@ -205,6 +205,11 @@ class LualikeIrRuntime implements LuaRuntime {
   }
 
   @override
+  Value constantRawStringValue(String value) {
+    return _interpreter.constantRawStringValue(value)..interpreter = this;
+  }
+
+  @override
   Value constantPrimitiveValue(Object? raw) {
     return _interpreter.constantPrimitiveValue(raw)..interpreter = this;
   }

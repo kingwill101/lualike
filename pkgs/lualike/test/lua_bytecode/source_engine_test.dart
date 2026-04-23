@@ -1015,6 +1015,30 @@ return t.a.b.add(3), t.a.b:scale(5)
       },
     );
 
+    test(
+      'load chunks can return local tables when called with loader args',
+      () async {
+        final result = await executeCode(r'''
+local chunk = assert(load([[
+local M = {}
+
+function M:get()
+  return self.value
+end
+
+M.value = "loaded"
+return M
+]]))
+
+local module = chunk("example.module", "example/module.lua")
+return module:get()
+''', mode: EngineMode.luaBytecode);
+
+        expect(_flatten(result), equals(<Object?>['loaded']));
+      },
+      timeout: const Timeout(Duration(seconds: 5)),
+    );
+
     test('executeCode runs coroutine yield and resume via bytecode', () async {
       final result = await executeCode('''
 local co = coroutine.create(function(a)
@@ -1208,6 +1232,33 @@ return loaded[1], loaded[2]
         );
       },
     );
+
+    test('executeCode requires self-referential module tables', () async {
+      final tempDir = await Directory.systemTemp.createTemp(
+        'lbc_require_cycle_',
+      );
+      addTearDown(() async {
+        if (await tempDir.exists()) {
+          await tempDir.delete(recursive: true);
+        }
+      });
+
+      final moduleFile = File('${tempDir.path}/cycle.lua');
+      await moduleFile.writeAsString('''
+local M = {}
+M.__index = M
+return M
+''');
+
+      final searchPath = '${tempDir.path.replaceAll('\\', '/')}/?.lua';
+      final result = await executeCode('''
+package.path = ${_luaStringLiteral(searchPath)}
+local loaded = require("cycle")
+return loaded.__index == loaded
+''', mode: EngineMode.luaBytecode);
+
+      expect(_flatten(result), equals(<Object?>[true]));
+    });
 
     test('executeCode stores globals through a local _ENV table', () async {
       final result = await executeCode(r'''

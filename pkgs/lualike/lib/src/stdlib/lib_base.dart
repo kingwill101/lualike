@@ -1723,6 +1723,9 @@ class PCAllFunction extends BuiltinFunction {
   PCAllFunction(super.interpreter);
 
   @override
+  bool get isBytecodeProtectedCallBuiltin => true;
+
+  @override
   Future<Object?> call(List<Object?> args) async {
     if (Logger.enabled) {
       Logger.debugLazy(
@@ -2414,6 +2417,16 @@ class RequireFunction extends BuiltinFunction {
       }
     }
 
+    final searcherErrors = <String>[];
+    final searcherResult = await _tryPackageSearchers(
+      moduleName,
+      loaded,
+      searcherErrors,
+    );
+    if (searcherResult.found) {
+      return searcherResult.result;
+    }
+
     // Special case: If the current script is in a special directory like .lua-tests,
     // and the module name doesn't contain a path separator, try to load it from the same directory first
     String? modulePath;
@@ -2581,103 +2594,6 @@ class RequireFunction extends BuiltinFunction {
       }
     }
 
-    // Step 3: If direct loading failed, try the searchers
-    {
-      final rawPkg = packageTable.raw as Map;
-      final searchersAny = rawPkg['searchers'];
-      final typeName = searchersAny == null
-          ? 'null'
-          : searchersAny.runtimeType.toString();
-      Logger.debugLazy(
-        () => "package.searchers typeof=$typeName",
-        category: 'Require',
-      );
-    }
-    final pkgMapForSearchers = packageTable.raw as Map;
-    final searchersEntry = pkgMapForSearchers['searchers'];
-    if (searchersEntry is! Value) {
-      throw LuaError("package.searchers must be a table");
-    }
-    final searchersRaw = searchersEntry.raw;
-    if (searchersRaw is! List) {
-      throw LuaError("package.searchers must be a table");
-    }
-    final searchers = searchersRaw;
-
-    // Try each searcher in order
-    final errors = <String>[];
-
-    for (int i = 0; i < searchers.length; i++) {
-      final searcher = searchers[i];
-      if (searcher is! Value || searcher.raw is! Function) {
-        continue;
-      }
-
-      Logger.debugLazy(
-        () => "RequireFunction: Trying searcher #$i for '$moduleName'",
-        category: 'Require',
-      );
-
-      late final Object? result;
-      try {
-        // Call the searcher with the module name
-        result = await (searcher.raw as Function)([Value(moduleName)]);
-      } catch (e) {
-        errors.add("searcher #$i error: $e");
-        continue;
-      }
-
-      // If the searcher returns a loader function
-      if (result is List &&
-          result.isNotEmpty &&
-          result[0] is Value &&
-          result[0].raw is Function) {
-        final loader = result[0] as Value;
-        final loaderData = result.length > 1 ? result[1] : Value(null);
-
-        Logger.debugLazy(
-          () =>
-              "RequireFunction: Found loader for '$moduleName' with data: $loaderData",
-          category: 'Require',
-        );
-
-        // Loader failures should stop require() immediately rather than being
-        // treated like another missing-module searcher diagnostic.
-        final moduleResult = await (loader.raw as Function)([
-          Value(moduleName),
-          loaderData,
-        ]);
-
-        // Store the result in package.loaded
-        if (moduleResult != null) {
-          loaded[moduleName] = moduleResult;
-        } else if (!loaded.containsKey(moduleName) ||
-            loaded[moduleName] == false) {
-          // If nothing was returned and nothing was stored, store true
-          loaded[moduleName] = Value(true);
-        }
-
-        // Return the loaded module and the loader data (e.g. path)
-        final ret = loaded[moduleName];
-        if (loaderData is Value && loaderData.raw != null) {
-          // Normalize path to use forward slashes consistently (Lua convention)
-          if (loaderData.raw is String) {
-            final normalizedLoaderData = Value(
-              path.normalize(loaderData.raw as String),
-            );
-            return [ret, normalizedLoaderData];
-          }
-          return [ret, loaderData];
-        }
-        return ret;
-      } else if (result is String) {
-        // If the searcher returns an error message
-        errors.add(result);
-      } else if (result is Value && result.raw is String) {
-        errors.add(result.raw.toString());
-      }
-    }
-
     // If we get here, no searcher found the module
     // Format the error message to match Lua's format
     final errorLines = <String>[];
@@ -2723,7 +2639,9 @@ class RequireFunction extends BuiltinFunction {
     }
 
     final seenErrorLines = errorLines.toSet();
-    for (final diagnostic in _missingModuleDiagnosticsFromSearchers(errors)) {
+    for (final diagnostic in _missingModuleDiagnosticsFromSearchers(
+      searcherErrors,
+    )) {
       if (seenErrorLines.add(diagnostic)) {
         errorLines.add(diagnostic);
       }
@@ -2733,6 +2651,99 @@ class RequireFunction extends BuiltinFunction {
         "module '$moduleName' not found:\n\t${errorLines.join('\n\t')}";
     Logger.debugLazy(() => "Error message: $errorMsg", category: 'Require');
     throw LuaError(errorMsg).withProtectedCallLocationSuppressed();
+  }
+
+  Future<({bool found, Object? result})> _tryPackageSearchers(
+    String moduleName,
+    Value loaded,
+    List<String> errors,
+  ) async {
+    final rawPkg = packageTable.raw as Map;
+    final searchersAny = rawPkg['searchers'];
+    final typeName = searchersAny == null
+        ? 'null'
+        : searchersAny.runtimeType.toString();
+    Logger.debugLazy(
+      () => "package.searchers typeof=$typeName",
+      category: 'Require',
+    );
+
+    final searchersEntry = rawPkg['searchers'];
+    if (searchersEntry is! Value) {
+      throw LuaError("package.searchers must be a table");
+    }
+    final searchersRaw = searchersEntry.raw;
+    if (searchersRaw is! List) {
+      throw LuaError("package.searchers must be a table");
+    }
+
+    for (var index = 0; index < searchersRaw.length; index++) {
+      final searcher = searchersRaw[index];
+      if (searcher is! Value || searcher.raw is! Function) {
+        continue;
+      }
+
+      Logger.debugLazy(
+        () => "RequireFunction: Trying searcher #$index for '$moduleName'",
+        category: 'Require',
+      );
+
+      late final Object? result;
+      try {
+        result = await (searcher.raw as Function)([Value(moduleName)]);
+      } catch (error) {
+        errors.add("searcher #$index error: $error");
+        continue;
+      }
+
+      if (result is List &&
+          result.isNotEmpty &&
+          result[0] is Value &&
+          result[0].raw is Function) {
+        final loader = result[0] as Value;
+        final loaderData = result.length > 1 ? result[1] : Value(null);
+
+        Logger.debugLazy(
+          () =>
+              "RequireFunction: Found loader for '$moduleName' with data: $loaderData",
+          category: 'Require',
+        );
+
+        // Loader failures should stop require() immediately rather than being
+        // treated like another missing-module searcher diagnostic.
+        final moduleResult = await (loader.raw as Function)([
+          Value(moduleName),
+          loaderData,
+        ]);
+
+        final loadedEntry = loaded[moduleName];
+        final loadedRaw = loadedEntry is Value ? loadedEntry.raw : loadedEntry;
+        if (loadedRaw == null || loadedRaw == false) {
+          final resultRaw = moduleResult is Value
+              ? moduleResult.raw
+              : moduleResult;
+          loaded[moduleName] = resultRaw == null ? Value(true) : moduleResult;
+        }
+
+        final ret = loaded[moduleName];
+        if (loaderData is Value && loaderData.raw != null) {
+          if (loaderData.raw is String) {
+            final normalizedLoaderData = Value(
+              path.normalize(loaderData.raw as String),
+            );
+            return (found: true, result: [ret, normalizedLoaderData]);
+          }
+          return (found: true, result: [ret, loaderData]);
+        }
+        return (found: true, result: ret);
+      } else if (result is String) {
+        errors.add(result);
+      } else if (result is Value && result.raw is String) {
+        errors.add(result.raw.toString());
+      }
+    }
+
+    return (found: false, result: null);
   }
 }
 

@@ -1956,7 +1956,7 @@ mixin InterpreterFunctionMixin on AstVisitor<Object?> {
     if (objVal.hasMetamethod('__index')) {
       final aFunc = await objVal.callMetamethodAsync('__index', [
         objVal,
-        interpreter.constantStringValue(methodName.codeUnits),
+        interpreter.constantRawStringValue(methodName),
       ]);
       if (aFunc != null) {
         Logger.debugLazy(
@@ -2152,7 +2152,7 @@ mixin InterpreterFunctionMixin on AstVisitor<Object?> {
           if (obj.hasMetamethod('__index')) {
             final aFunc = await obj.callMetamethodAsync('__index', [
               obj,
-              interpreter.constantStringValue(methodName.codeUnits),
+              interpreter.constantRawStringValue(methodName),
             ]);
             if (aFunc is Value && aFunc.isCallable()) {
               func = aFunc;
