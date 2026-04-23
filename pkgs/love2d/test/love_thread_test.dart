@@ -11,7 +11,7 @@ void main() {
     test(
       'threads can start, block on channels, and restart after wait',
       () async {
-        final runtime = Interpreter();
+        final runtime = createLuaLikeTestRuntime();
         final lua = LuaLike(runtime: runtime);
         installLove2d(runtime: runtime);
 
@@ -98,7 +98,7 @@ return output:pop()
     );
 
     test('threads can be created from mounted filesystem filenames', () async {
-      final runtime = Interpreter();
+      final runtime = createLuaLikeTestRuntime();
       installLove2d(
         runtime: runtime,
         host: LoveHeadlessHost(),
@@ -142,7 +142,7 @@ output:push(text)
     test(
       'thread errors populate getError and queue threaderror events',
       () async {
-        final runtime = Interpreter();
+        final runtime = createLuaLikeTestRuntime();
         final lua = LuaLike(runtime: runtime);
         installLove2d(runtime: runtime);
 

@@ -8,7 +8,7 @@ void main() {
     test(
       'newBMFontRasterizer rejects non-rgba page images with LOVE error text',
       () async {
-        final runtime = Interpreter();
+        final runtime = createLuaLikeTestRuntime();
         installLove2d(runtime: runtime, host: LoveHeadlessHost());
 
         final definition = await luaCall(
@@ -42,7 +42,7 @@ void main() {
     test(
       'graphics.newFont rejects non-rgba BMFont page images with LOVE error text',
       () async {
-        final runtime = Interpreter();
+        final runtime = createLuaLikeTestRuntime();
         installLove2d(runtime: runtime, host: LoveHeadlessHost());
 
         final definition = await luaCall(

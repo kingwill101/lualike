@@ -6,7 +6,7 @@ import 'test_support/lua_api_test_helpers.dart';
 void main() {
   group('LOVE graphics shader code to GLSL parity', () {
     test('_shaderCodeToGLSL translates pixel-only LOVE shader code', () async {
-      final runtime = Interpreter();
+      final runtime = createLuaLikeTestRuntime();
       installLove2d(runtime: runtime, host: LoveHeadlessHost());
 
       final result = await luaCall(
@@ -41,7 +41,7 @@ vec4 effect(vec4 color, Image tex, vec2 tc, vec2 pc) {
     test(
       '_shaderCodeToGLSL classifies vertex and pixel stages regardless of argument order',
       () async {
-        final runtime = Interpreter();
+        final runtime = createLuaLikeTestRuntime();
         installLove2d(runtime: runtime, host: LoveHeadlessHost());
 
         final result = await luaCall(
@@ -82,7 +82,7 @@ vec4 position(mat4 clipSpaceFromLocal, vec4 localPosition) {
     test(
       '_shaderCodeToGLSL emits custom multi-canvas pixel scaffolding',
       () async {
-        final runtime = Interpreter();
+        final runtime = createLuaLikeTestRuntime();
         installLove2d(runtime: runtime, host: LoveHeadlessHost());
 
         final result = await luaCall(
@@ -110,7 +110,7 @@ void effect() {
     );
 
     test('_shaderCodeToGLSL rejects mismatched shader language pragmas', () {
-      final runtime = Interpreter();
+      final runtime = createLuaLikeTestRuntime();
       installLove2d(runtime: runtime, host: LoveHeadlessHost());
 
       expect(
@@ -145,7 +145,7 @@ vec4 effect(vec4 color, Image tex, vec2 tc, vec2 pc) {
     });
 
     test('_shaderCodeToGLSL rejects invalid shader language pragmas', () {
-      final runtime = Interpreter();
+      final runtime = createLuaLikeTestRuntime();
       installLove2d(runtime: runtime, host: LoveHeadlessHost());
 
       expect(

@@ -1,5 +1,4 @@
 import 'package:flutter_test/flutter_test.dart';
-import 'package:lualike/lualike.dart';
 import 'package:love2d/love2d.dart';
 
 import 'test_support/font_test_support.dart';
@@ -8,7 +7,7 @@ import 'test_support/lua_api_test_helpers.dart';
 void main() {
   group('love.font true type bounding box parity', () {
     test('source-backed glyph data uses LOVE bounding-box semantics', () async {
-      final runtime = Interpreter();
+      final runtime = createLuaLikeTestRuntime();
       installLove2d(runtime: runtime, host: LoveHeadlessHost());
 
       final veraBytes = await (await love2dVeraFontFile()).readAsBytes();

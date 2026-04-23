@@ -6,10 +6,10 @@ import 'test_support/physics_test_support.dart';
 
 void main() {
   group('love.physics contact object bindings', () {
-    late Interpreter runtime;
+    late LuaRuntime runtime;
 
     setUp(() {
-      runtime = Interpreter();
+      runtime = createLuaLikeTestRuntime();
       installLove2d(runtime: runtime);
     });
 
@@ -377,7 +377,7 @@ void main() {
 List<Object?> _doubleTableFixtures(List<Object?> values) => values;
 
 Future<({double dx, double dy})> _runSlidingContactScenario(
-  Interpreter runtime, {
+  LuaRuntime runtime, {
   required bool overrideContactFriction,
 }) async {
   final world = await luaCallList(
@@ -445,7 +445,7 @@ Future<({double dx, double dy})> _runSlidingContactScenario(
 }
 
 Future<({double dx, double dy})> _runRestitutionContactScenario(
-  Interpreter runtime, {
+  LuaRuntime runtime, {
   required bool overrideContactRestitution,
 }) async {
   final world = await luaCallList(
@@ -508,7 +508,7 @@ Future<({double dx, double dy})> _runRestitutionContactScenario(
 }
 
 Future<({double dx, double dy})> _runTangentSpeedContactScenario(
-  Interpreter runtime, {
+  LuaRuntime runtime, {
   required bool overrideContactTangentSpeed,
 }) async {
   final world = await luaCallList(

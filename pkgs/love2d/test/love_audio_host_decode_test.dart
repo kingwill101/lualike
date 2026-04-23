@@ -152,11 +152,11 @@ void main() {
   });
 }
 
-Interpreter _newMountedRuntime({
+LuaRuntime _newMountedRuntime({
   required LoveHost host,
   required Map<String, List<int>> files,
 }) {
-  final runtime = Interpreter();
+  final runtime = createLuaLikeTestRuntime();
   installLove2d(
     runtime: runtime,
     host: host,

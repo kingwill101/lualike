@@ -73,22 +73,43 @@ class LoveScriptRuntime {
   static const String _bootstrapConfGlobalName = '__love_bootstrap_conf';
 
   /// Creates a LOVE script runtime and installs the LOVE API surface.
+  ///
+  /// Automatic Lualike GC safe points are disabled unless [automaticGc] is
+  /// true.
   LoveScriptRuntime({
     LuaRuntime? runtime,
+    EngineMode? engineMode,
     LoveHost? host,
     LoveFilesystemAdapter? filesystemAdapter,
-  }) : runtime = runtime ?? Interpreter() {
-    _lua = LuaLike(runtime: this.runtime);
+    bool automaticGc = false,
+  }) : this._(
+         lua: runtime == null
+             ? LuaLike(engineMode: engineMode)
+             : LuaLike(runtime: runtime, engineMode: engineMode),
+         host: host,
+         filesystemAdapter: filesystemAdapter,
+         automaticGc: automaticGc,
+       );
+
+  LoveScriptRuntime._({
+    required LuaLike lua,
+    LoveHost? host,
+    LoveFilesystemAdapter? filesystemAdapter,
+    required bool automaticGc,
+  }) : runtime = lua.vm,
+       _lua = lua {
     installLove2d(
-      runtime: this.runtime,
+      runtime: runtime,
       host: host,
       filesystemAdapter: filesystemAdapter,
+      engineMode: lua.engineMode,
+      automaticGc: automaticGc,
     );
   }
 
   /// The underlying Lua runtime.
   final LuaRuntime runtime;
-  late final LuaLike _lua;
+  final LuaLike _lua;
 
   /// The LuaLike facade used to execute source text.
   LuaLike get lua => _lua;
@@ -151,7 +172,7 @@ end
       return null;
     }
 
-    if (!includeBuiltin && callback.raw is BuiltinFunction) {
+    if (!includeBuiltin && _isGeneratedLoveCallbackStub(callback)) {
       return null;
     }
 
@@ -1155,6 +1176,11 @@ end
   }
 
   Object? _unwrapValue(Object? value) => value is Value ? value.raw : value;
+}
+
+bool _isGeneratedLoveCallbackStub(Value callback) {
+  final raw = callback.raw;
+  return raw is BuiltinFunction && raw is! LuaCallableArtifact;
 }
 
 /// A Lua table wrapper used to stage `conf.lua` bootstrap values.

@@ -7,11 +7,11 @@ import 'test_support/lua_api_test_helpers.dart';
 
 void main() {
   group('LOVE input source parity', () {
-    late Interpreter runtime;
+    late LuaRuntime runtime;
     late LoveHeadlessHost host;
 
     setUp(() {
-      runtime = Interpreter();
+      runtime = createLuaLikeTestRuntime();
       host = LoveHeadlessHost();
       installLove2d(runtime: runtime, host: host);
     });

@@ -45,7 +45,7 @@ void main() {
         isLinux: false,
         isMacOS: false,
       );
-      final runtime = Interpreter();
+      final runtime = createLuaLikeTestRuntime();
 
       installLove2d(runtime: runtime, filesystemAdapter: adapter);
 
@@ -72,7 +72,7 @@ void main() {
     'filesystem setIdentity accepts empty identities like upstream LOVE',
     () async {
       final adapter = _TestLoveFilesystemAdapter();
-      final runtime = Interpreter();
+      final runtime = createLuaLikeTestRuntime();
 
       installLove2d(runtime: runtime, filesystemAdapter: adapter);
 
@@ -117,7 +117,7 @@ void main() {
     'filesystem failed setIdentity calls leave identity and save directory unchanged',
     () async {
       final adapter = _TestLoveFilesystemAdapter(appdataDirectory: null);
-      final runtime = Interpreter();
+      final runtime = createLuaLikeTestRuntime();
 
       installLove2d(runtime: runtime, filesystemAdapter: adapter);
 
@@ -158,7 +158,7 @@ void main() {
 
     final runtime = LoveScriptRuntime(filesystemAdapter: adapter);
 
-    final interpreter = runtime.runtime as Interpreter;
+    final interpreter = runtime.runtime;
     await luaCall(
       interpreter,
       const ['love', 'filesystem', 'setIdentity'],
@@ -237,7 +237,7 @@ void main() {
     expect((rootItems as Map).containsValue('mods'), isTrue);
     expect(luaUnwrapValue(loadedValue), 123);
 
-    final saveDir = await luaCall(runtime.runtime as Interpreter, const [
+    final saveDir = await luaCall(runtime.runtime, const [
       'love',
       'filesystem',
       'getSaveDirectory',
@@ -253,7 +253,7 @@ void main() {
       adapter.addFile('game/main.lua', 'return true');
 
       final runtime = LoveScriptRuntime(filesystemAdapter: adapter);
-      final interpreter = runtime.runtime as Interpreter;
+      final interpreter = runtime.runtime;
 
       await luaCall(
         interpreter,
@@ -298,7 +298,7 @@ void main() {
       );
 
       final runtime = LoveScriptRuntime(filesystemAdapter: adapter);
-      final interpreter = runtime.runtime as Interpreter;
+      final interpreter = runtime.runtime;
 
       await luaCall(
         interpreter,
@@ -366,7 +366,7 @@ void main() {
       );
 
       final runtime = LoveScriptRuntime(filesystemAdapter: adapter);
-      final interpreter = runtime.runtime as Interpreter;
+      final interpreter = runtime.runtime;
 
       await luaCall(
         interpreter,
@@ -421,7 +421,7 @@ void main() {
       adapter.addFile('/bin/sidecar.lua', 'return "sidecar"');
 
       final runtime = LoveScriptRuntime(filesystemAdapter: adapter);
-      final interpreter = runtime.runtime as Interpreter;
+      final interpreter = runtime.runtime;
 
       expect(
         await luaCall(
@@ -501,7 +501,7 @@ void main() {
       );
 
       final firstRuntime = LoveScriptRuntime(filesystemAdapter: adapter);
-      final firstInterpreter = firstRuntime.runtime as Interpreter;
+      final firstInterpreter = firstRuntime.runtime;
 
       await luaCall(
         firstInterpreter,
@@ -564,7 +564,7 @@ void main() {
       adapter.addFile('/source/game.love', 'not an archive');
 
       final runtime = LoveScriptRuntime(filesystemAdapter: adapter);
-      final interpreter = runtime.runtime as Interpreter;
+      final interpreter = runtime.runtime;
 
       await expectLater(
         () => luaCall(
@@ -593,7 +593,7 @@ void main() {
     adapter.addFileBytes('/source/game.7z', _fake7zBytes());
 
     final runtime = LoveScriptRuntime(filesystemAdapter: adapter);
-    final interpreter = runtime.runtime as Interpreter;
+    final interpreter = runtime.runtime;
 
     await expectLater(
       () => luaCall(
@@ -629,7 +629,7 @@ void main() {
       );
 
       final runtime = LoveScriptRuntime(filesystemAdapter: adapter);
-      final interpreter = runtime.runtime as Interpreter;
+      final interpreter = runtime.runtime;
 
       expect(
         await luaCall(
@@ -677,7 +677,7 @@ void main() {
       final runtime = LoveScriptRuntime(
         filesystemAdapter: _TestLoveFilesystemAdapter(),
       );
-      final interpreter = runtime.runtime as Interpreter;
+      final interpreter = runtime.runtime;
 
       await expectLater(
         () => luaCall(
@@ -708,7 +708,7 @@ void main() {
       adapter.addFile('/source/main.lua', 'return "not a source root"');
 
       final runtime = LoveScriptRuntime(filesystemAdapter: adapter);
-      final interpreter = runtime.runtime as Interpreter;
+      final interpreter = runtime.runtime;
 
       await expectLater(
         () => luaCall(
@@ -746,7 +746,7 @@ void main() {
       final adapter = _TestLoveFilesystemAdapter();
       adapter.addFile('loose.txt', 'payload');
 
-      final runtime = Interpreter();
+      final runtime = createLuaLikeTestRuntime();
       installLove2d(runtime: runtime, filesystemAdapter: adapter);
       final filesystem = LoveFilesystemState.of(runtime);
 
@@ -796,7 +796,7 @@ void main() {
       );
 
       final runtime = LoveScriptRuntime(filesystemAdapter: adapter);
-      final interpreter = runtime.runtime as Interpreter;
+      final interpreter = runtime.runtime;
 
       await luaCall(
         interpreter,
@@ -865,7 +865,7 @@ void main() {
       adapter.addFile('/source/123.lua', 'return "numeric-module"');
 
       final runtime = LoveScriptRuntime(filesystemAdapter: adapter);
-      final interpreter = runtime.runtime as Interpreter;
+      final interpreter = runtime.runtime;
 
       await luaCall(
         interpreter,
@@ -894,7 +894,7 @@ void main() {
       adapter.failOpen('/source/broken.lua', 'permission denied');
 
       final runtime = LoveScriptRuntime(filesystemAdapter: adapter);
-      final interpreter = runtime.runtime as Interpreter;
+      final interpreter = runtime.runtime;
 
       await luaCall(
         interpreter,
@@ -971,7 +971,7 @@ void main() {
       adapter.addFile('/source/broken.lua', 'local =');
 
       final runtime = LoveScriptRuntime(filesystemAdapter: adapter);
-      final interpreter = runtime.runtime as Interpreter;
+      final interpreter = runtime.runtime;
 
       await luaCall(
         interpreter,
@@ -1012,7 +1012,7 @@ void main() {
       final adapter = _TestLoveFilesystemAdapter();
       adapter.addFile('/source/main.lua', 'return true');
       final runtime = LoveScriptRuntime(filesystemAdapter: adapter);
-      final interpreter = runtime.runtime as Interpreter;
+      final interpreter = runtime.runtime;
 
       await luaCall(
         interpreter,
@@ -1063,7 +1063,7 @@ void main() {
       adapter.addFileBytes('/source/sprites/logo.png', const <int>[1, 2, 3, 4]);
 
       final runtime = LoveScriptRuntime(filesystemAdapter: adapter);
-      final interpreter = runtime.runtime as Interpreter;
+      final interpreter = runtime.runtime;
       final seen = <Object?>[];
 
       await luaCall(
@@ -1116,7 +1116,7 @@ void main() {
       adapter.addFileBytes('/source/native/mod.so', const <int>[1, 2, 3, 4]);
 
       final runtime = LoveScriptRuntime(filesystemAdapter: adapter);
-      final interpreter = runtime.runtime as Interpreter;
+      final interpreter = runtime.runtime;
 
       await luaCall(
         interpreter,
@@ -1152,7 +1152,7 @@ void main() {
     'filesystem File and FileData wrappers expose LOVE-style methods',
     () async {
       final adapter = _TestLoveFilesystemAdapter();
-      final runtime = Interpreter();
+      final runtime = createLuaLikeTestRuntime();
 
       installLove2d(runtime: runtime, filesystemAdapter: adapter);
       await luaCall(
@@ -1240,7 +1240,7 @@ void main() {
     'filesystem string arguments follow upstream Lua coercion rules',
     () async {
       final adapter = _TestLoveFilesystemAdapter();
-      final runtime = Interpreter();
+      final runtime = createLuaLikeTestRuntime();
 
       installLove2d(runtime: runtime, filesystemAdapter: adapter);
       await luaCall(
@@ -1333,7 +1333,7 @@ void main() {
     'filesystem supports write, append, info filters, data reads, and removal',
     () async {
       final adapter = _TestLoveFilesystemAdapter();
-      final runtime = Interpreter();
+      final runtime = createLuaLikeTestRuntime();
 
       installLove2d(runtime: runtime, filesystemAdapter: adapter);
       await luaCall(
@@ -1477,7 +1477,7 @@ void main() {
     'filesystem remove only deletes files and empty directories like upstream LOVE',
     () async {
       final adapter = _TestLoveFilesystemAdapter();
-      final runtime = Interpreter();
+      final runtime = createLuaLikeTestRuntime();
 
       installLove2d(runtime: runtime, filesystemAdapter: adapter);
       await luaCall(
@@ -1592,7 +1592,7 @@ void main() {
     'filesystem remove fails for files with an open File handle like upstream LOVE',
     () async {
       final adapter = _TestLoveFilesystemAdapter();
-      final runtime = Interpreter();
+      final runtime = createLuaLikeTestRuntime();
 
       installLove2d(runtime: runtime, filesystemAdapter: adapter);
       await luaCall(
@@ -1658,7 +1658,7 @@ void main() {
     'filesystem createDirectory returns false for existing paths like upstream LOVE',
     () async {
       final adapter = _TestLoveFilesystemAdapter();
-      final runtime = Interpreter();
+      final runtime = createLuaLikeTestRuntime();
 
       installLove2d(runtime: runtime, filesystemAdapter: adapter);
       await luaCall(
@@ -1718,7 +1718,7 @@ void main() {
       final adapter = _TestLoveFilesystemAdapter();
       adapter.addFile('/source/lines.txt', 'alpha\r\nbeta\r\ngamma\r\n');
 
-      final runtime = Interpreter();
+      final runtime = createLuaLikeTestRuntime();
       installLove2d(runtime: runtime, filesystemAdapter: adapter);
       await luaCall(
         runtime,
@@ -1811,7 +1811,7 @@ void main() {
     () async {
       final adapter = _TestLoveFilesystemAdapter();
       adapter.addFile('/source/main.lua', 'return true');
-      final runtime = Interpreter();
+      final runtime = createLuaLikeTestRuntime();
       installLove2d(runtime: runtime, filesystemAdapter: adapter);
       await luaCall(
         runtime,
@@ -1902,7 +1902,7 @@ void main() {
       final adapter = _TestLoveFilesystemAdapter();
       adapter.addFile('/source/cursor.txt', 'abcdef');
 
-      final runtime = Interpreter();
+      final runtime = createLuaLikeTestRuntime();
       installLove2d(runtime: runtime, filesystemAdapter: adapter);
       await luaCall(
         runtime,
@@ -1963,7 +1963,7 @@ void main() {
       adapter.addFile('/source/locked.lua', 'return true');
       adapter.failOpen('/source/locked.lua', 'permission denied');
 
-      final runtime = Interpreter();
+      final runtime = createLuaLikeTestRuntime();
       installLove2d(runtime: runtime, filesystemAdapter: adapter);
       await luaCall(
         runtime,
@@ -1987,7 +1987,7 @@ void main() {
   );
 
   test('filesystem runtime loadChunk preserves missing-file errors', () async {
-    final runtime = Interpreter();
+    final runtime = createLuaLikeTestRuntime();
     installLove2d(
       runtime: runtime,
       filesystemAdapter: _TestLoveFilesystemAdapter(),
@@ -2013,7 +2013,7 @@ void main() {
       final adapter = _TestLoveFilesystemAdapter();
       adapter.addFile('/source/broken-runtime.lua', 'local =');
 
-      final runtime = Interpreter();
+      final runtime = createLuaLikeTestRuntime();
       installLove2d(runtime: runtime, filesystemAdapter: adapter);
       await luaCall(
         runtime,
@@ -2042,7 +2042,7 @@ void main() {
     final adapter = _TestLoveFilesystemAdapter();
     adapter.addFile('/source/broken.lua', 'local =');
 
-    final runtime = Interpreter();
+    final runtime = createLuaLikeTestRuntime();
     installLove2d(runtime: runtime, filesystemAdapter: adapter);
     await luaCall(
       runtime,
@@ -2075,7 +2075,7 @@ void main() {
       adapter.addFile('/source/locked.bin', 'payload');
       adapter.failOpen('/source/locked.bin', 'permission denied');
 
-      final runtime = Interpreter();
+      final runtime = createLuaLikeTestRuntime();
       installLove2d(runtime: runtime, filesystemAdapter: adapter);
       await luaCall(
         runtime,
@@ -2132,7 +2132,7 @@ void main() {
   test(
     'filesystem write and append preserve LOVE write-directory errors',
     () async {
-      final runtime = Interpreter();
+      final runtime = createLuaLikeTestRuntime();
       installLove2d(runtime: runtime);
 
       final writeResult = _rawResults(
@@ -2162,7 +2162,7 @@ void main() {
     () async {
       final adapter = _TestLoveFilesystemAdapter()
         ..failWritesWithoutError = true;
-      final runtime = Interpreter();
+      final runtime = createLuaLikeTestRuntime();
       installLove2d(runtime: runtime, filesystemAdapter: adapter);
       await luaCall(
         runtime,
@@ -2198,7 +2198,7 @@ void main() {
     'filesystem writes do not auto-create subdirectories beyond the save root like upstream LOVE',
     () async {
       final adapter = _TestLoveFilesystemAdapter();
-      final runtime = Interpreter();
+      final runtime = createLuaLikeTestRuntime();
 
       installLove2d(runtime: runtime, filesystemAdapter: adapter);
       await luaCall(
@@ -2278,7 +2278,7 @@ void main() {
   test(
     'filesystem File:open preserves LOVE write-directory errors for write modes',
     () async {
-      final runtime = Interpreter();
+      final runtime = createLuaLikeTestRuntime();
       installLove2d(runtime: runtime);
 
       final file = await luaCall(
@@ -2300,7 +2300,7 @@ void main() {
     'filesystem File:read preserves upstream read-mode errors when already opened for writing',
     () async {
       final adapter = _TestLoveFilesystemAdapter();
-      final runtime = Interpreter();
+      final runtime = createLuaLikeTestRuntime();
 
       installLove2d(runtime: runtime, filesystemAdapter: adapter);
       await luaCall(
@@ -2327,7 +2327,7 @@ void main() {
     'filesystem newFileData preserves upstream File read-mode errors and argerror wording',
     () async {
       final adapter = _TestLoveFilesystemAdapter();
-      final runtime = Interpreter();
+      final runtime = createLuaLikeTestRuntime();
 
       installLove2d(runtime: runtime, filesystemAdapter: adapter);
       await luaCall(
@@ -2390,7 +2390,7 @@ void main() {
     'filesystem File:getSize preserves upstream missing-file open errors',
     () async {
       final adapter = _TestLoveFilesystemAdapter();
-      final runtime = Interpreter();
+      final runtime = createLuaLikeTestRuntime();
 
       installLove2d(runtime: runtime, filesystemAdapter: adapter);
 
@@ -2415,7 +2415,7 @@ void main() {
     adapter.addFile('/source/locked.txt', 'payload');
     adapter.failOpen('/source/locked.txt', 'permission denied');
 
-    final runtime = Interpreter();
+    final runtime = createLuaLikeTestRuntime();
     installLove2d(runtime: runtime, filesystemAdapter: adapter);
     await luaCall(
       runtime,
@@ -2469,7 +2469,7 @@ void main() {
     () async {
       final adapter = _TestLoveFilesystemAdapter();
       adapter.addFile('/source/main.lua', 'return true');
-      final runtime = Interpreter();
+      final runtime = createLuaLikeTestRuntime();
       installLove2d(runtime: runtime, filesystemAdapter: adapter);
       await luaCall(
         runtime,
@@ -2498,7 +2498,7 @@ void main() {
       adapter.addFile('/source/unknown-modtime.txt', 'abcdef');
       adapter.overrideModified('/source/unknown-modtime.txt', null);
 
-      final runtime = Interpreter();
+      final runtime = createLuaLikeTestRuntime();
       installLove2d(runtime: runtime, filesystemAdapter: adapter);
       await luaCall(
         runtime,
@@ -2562,7 +2562,7 @@ void main() {
         DateTime.fromMillisecondsSinceEpoch(-1000, isUtc: true),
       );
 
-      final runtime = Interpreter();
+      final runtime = createLuaLikeTestRuntime();
       installLove2d(runtime: runtime, filesystemAdapter: adapter);
       await luaCall(
         runtime,
@@ -2648,7 +2648,7 @@ void main() {
       adapter.overrideSize('/source/oversized.txt', 0x20000000000000);
       adapter.overridePosition('/source/oversized.txt', 0x20000000000000);
 
-      final runtime = Interpreter();
+      final runtime = createLuaLikeTestRuntime();
       installLove2d(runtime: runtime, filesystemAdapter: adapter);
       await luaCall(
         runtime,
@@ -2700,7 +2700,7 @@ void main() {
       final adapter = _TestLoveFilesystemAdapter();
       adapter.addFile('/source/seek.txt', 'abcdef');
 
-      final runtime = Interpreter();
+      final runtime = createLuaLikeTestRuntime();
       installLove2d(runtime: runtime, filesystemAdapter: adapter);
       await luaCall(
         runtime,
@@ -2729,7 +2729,7 @@ void main() {
       final adapter = _TestLoveFilesystemAdapter();
       adapter.addFile('/source/fractional.txt', 'abcdef');
 
-      final runtime = Interpreter();
+      final runtime = createLuaLikeTestRuntime();
       installLove2d(runtime: runtime, filesystemAdapter: adapter);
       await luaCall(
         runtime,
@@ -2794,7 +2794,7 @@ void main() {
       final adapter = _TestLoveFilesystemAdapter();
       adapter.addFile('/source/fractional.txt', 'abcdef');
 
-      final runtime = Interpreter();
+      final runtime = createLuaLikeTestRuntime();
       installLove2d(runtime: runtime, filesystemAdapter: adapter);
       await luaCall(
         runtime,
@@ -2831,7 +2831,7 @@ void main() {
     'filesystem File flush and close return false on backend failures like upstream LOVE',
     () async {
       final adapter = _TestLoveFilesystemAdapter();
-      final runtime = Interpreter();
+      final runtime = createLuaLikeTestRuntime();
 
       installLove2d(runtime: runtime, filesystemAdapter: adapter);
       await luaCall(
@@ -2866,7 +2866,7 @@ void main() {
       final adapter = _TestLoveFilesystemAdapter();
       adapter.addFile('/source/fractional.txt', 'abcdef');
 
-      final runtime = Interpreter();
+      final runtime = createLuaLikeTestRuntime();
       installLove2d(runtime: runtime, filesystemAdapter: adapter);
       await luaCall(
         runtime,
@@ -2905,7 +2905,7 @@ void main() {
       final adapter = _TestLoveFilesystemAdapter();
       adapter.addFile('/source/fractional.txt', 'abcdef');
 
-      final runtime = Interpreter();
+      final runtime = createLuaLikeTestRuntime();
       installLove2d(runtime: runtime, filesystemAdapter: adapter);
       await luaCall(
         runtime,
@@ -2937,7 +2937,7 @@ void main() {
       final adapter = _TestLoveFilesystemAdapter();
       adapter.addFile('/source/fractional.txt', 'abcdef');
 
-      final runtime = Interpreter();
+      final runtime = createLuaLikeTestRuntime();
       installLove2d(runtime: runtime, filesystemAdapter: adapter);
       await luaCall(
         runtime,
@@ -2964,7 +2964,7 @@ void main() {
     'filesystem write APIs reject explicit negative sizes like upstream LOVE',
     () async {
       final adapter = _TestLoveFilesystemAdapter();
-      final runtime = Interpreter();
+      final runtime = createLuaLikeTestRuntime();
 
       installLove2d(runtime: runtime, filesystemAdapter: adapter);
       await luaCall(
@@ -3013,7 +3013,7 @@ void main() {
     'filesystem File:write preserves upstream lowercase data type errors',
     () async {
       final adapter = _TestLoveFilesystemAdapter();
-      final runtime = Interpreter();
+      final runtime = createLuaLikeTestRuntime();
 
       installLove2d(runtime: runtime, filesystemAdapter: adapter);
       await luaCall(
@@ -3047,7 +3047,7 @@ void main() {
     'filesystem module write APIs preserve upstream Data type-name errors',
     () async {
       final adapter = _TestLoveFilesystemAdapter();
-      final runtime = Interpreter();
+      final runtime = createLuaLikeTestRuntime();
 
       installLove2d(runtime: runtime, filesystemAdapter: adapter);
       await luaCall(
@@ -3094,7 +3094,7 @@ void main() {
       final adapter = _TestLoveFilesystemAdapter();
       adapter.addFile('/source/numeric-strings.txt', 'abcdef');
 
-      final runtime = Interpreter();
+      final runtime = createLuaLikeTestRuntime();
       installLove2d(runtime: runtime, filesystemAdapter: adapter);
       await luaCall(
         runtime,
@@ -3171,7 +3171,7 @@ void main() {
     () async {
       final adapter = _TestLoveFilesystemAdapter();
 
-      final runtime = Interpreter();
+      final runtime = createLuaLikeTestRuntime();
       installLove2d(runtime: runtime, filesystemAdapter: adapter);
       await luaCall(
         runtime,
@@ -3222,7 +3222,7 @@ void main() {
   test('filesystem write APIs preserve LOVE low-level open errors', () async {
     final adapter = _TestLoveFilesystemAdapter();
 
-    final runtime = Interpreter();
+    final runtime = createLuaLikeTestRuntime();
     installLove2d(runtime: runtime, filesystemAdapter: adapter);
     await luaCall(
       runtime,
@@ -3270,7 +3270,7 @@ void main() {
   test(
     'filesystem init and setSymlinksEnabled require LOVE argument types',
     () async {
-      final runtime = Interpreter();
+      final runtime = createLuaLikeTestRuntime();
       installLove2d(runtime: runtime);
 
       await expectLater(
@@ -3307,7 +3307,7 @@ void main() {
       final adapter = _TestLoveFilesystemAdapter();
       adapter.addFile('/source/main.lua', 'return true');
 
-      final runtime = Interpreter();
+      final runtime = createLuaLikeTestRuntime();
       installLove2d(runtime: runtime, filesystemAdapter: adapter);
 
       expect(
@@ -3420,7 +3420,7 @@ void main() {
   test(
     'filesystem require path setters match upstream semicolon splitting',
     () async {
-      final runtime = Interpreter();
+      final runtime = createLuaLikeTestRuntime();
       installLove2d(runtime: runtime);
 
       expect(
@@ -3483,7 +3483,7 @@ void main() {
       final adapter = _TestLoveFilesystemAdapter();
       adapter.addFile('/source/main.lua', 'return "source"');
 
-      final runtime = Interpreter();
+      final runtime = createLuaLikeTestRuntime();
       installLove2d(runtime: runtime, filesystemAdapter: adapter);
       await luaCall(
         runtime,
@@ -3522,7 +3522,7 @@ void main() {
       final initialAdapter = _TestLoveFilesystemAdapter(
         appdataDirectory: '/appdata-initial',
       );
-      final runtime = Interpreter();
+      final runtime = createLuaLikeTestRuntime();
 
       installLove2d(runtime: runtime, filesystemAdapter: initialAdapter);
       await luaCall(
@@ -3603,7 +3603,7 @@ void main() {
         '/source/game.love',
         _encodeZip(<String, String>{'main.lua': 'return 1'}),
       );
-      final runtime = Interpreter();
+      final runtime = createLuaLikeTestRuntime();
 
       installLove2d(runtime: runtime, filesystemAdapter: initialAdapter);
       await luaCall(
@@ -3649,7 +3649,7 @@ void main() {
         '/appdata-initial/love/game/mods.zip',
         _encodeZip(<String, String>{'main.lua': 'return 1'}),
       );
-      final runtime = Interpreter();
+      final runtime = createLuaLikeTestRuntime();
 
       installLove2d(runtime: runtime, filesystemAdapter: initialAdapter);
       await luaCall(
@@ -3720,7 +3720,7 @@ void main() {
         '/appdata-initial/love/game/mods/main.lua',
         'return "initial"',
       );
-      final runtime = Interpreter();
+      final runtime = createLuaLikeTestRuntime();
 
       installLove2d(runtime: runtime, filesystemAdapter: initialAdapter);
       await luaCall(
@@ -3795,7 +3795,7 @@ void main() {
         '/appdata-initial/love/game/secondary/main.lua',
         'return "secondary-initial"',
       );
-      final runtime = Interpreter();
+      final runtime = createLuaLikeTestRuntime();
 
       installLove2d(runtime: runtime, filesystemAdapter: initialAdapter);
       await luaCall(
@@ -3862,7 +3862,7 @@ void main() {
         '/appdata-initial/love/game/mods.zip',
         _encodeZip(<String, String>{'main.lua': 'return 1'}),
       );
-      final runtime = Interpreter();
+      final runtime = createLuaLikeTestRuntime();
 
       installLove2d(runtime: runtime, filesystemAdapter: initialAdapter);
       await luaCall(
@@ -3927,7 +3927,7 @@ void main() {
       final initialAdapter = _TestLoveFilesystemAdapter(
         appdataDirectory: '/appdata-initial',
       );
-      final runtime = Interpreter();
+      final runtime = createLuaLikeTestRuntime();
 
       installLove2d(runtime: runtime, filesystemAdapter: initialAdapter);
       await luaCall(
@@ -4014,7 +4014,7 @@ void main() {
     () async {
       final adapter = _TestLoveFilesystemAdapter();
       adapter.addFile('/source/main.lua', 'return true');
-      final runtime = Interpreter();
+      final runtime = createLuaLikeTestRuntime();
       installLove2d(runtime: runtime, filesystemAdapter: adapter);
       await luaCall(
         runtime,
@@ -4070,7 +4070,7 @@ void main() {
   test(
     'filesystem lines preserves upstream filename argerror wording',
     () async {
-      final runtime = Interpreter();
+      final runtime = createLuaLikeTestRuntime();
       installLove2d(
         runtime: runtime,
         filesystemAdapter: _TestLoveFilesystemAdapter(),
@@ -4098,7 +4098,7 @@ void main() {
     adapter.addFile('/source/locked-lines.txt', 'alpha\nbeta\n');
     adapter.failOpen('/source/locked-lines.txt', 'permission denied');
 
-    final runtime = Interpreter();
+    final runtime = createLuaLikeTestRuntime();
     installLove2d(runtime: runtime, filesystemAdapter: adapter);
     await luaCall(
       runtime,
@@ -4145,7 +4145,7 @@ void main() {
     () async {
       final adapter = _TestLoveFilesystemAdapter();
       final runtime = LoveScriptRuntime(filesystemAdapter: adapter);
-      final interpreter = runtime.runtime as Interpreter;
+      final interpreter = runtime.runtime;
 
       final archiveData = await luaCall(
         interpreter,
@@ -4271,7 +4271,7 @@ testbed = {
     () async {
       final adapter = _TestLoveFilesystemAdapter();
       final runtime = LoveScriptRuntime(filesystemAdapter: adapter);
-      final interpreter = runtime.runtime as Interpreter;
+      final interpreter = runtime.runtime;
 
       final archiveData = await luaCall(
         interpreter,
@@ -4362,7 +4362,7 @@ testbed = {
       );
 
       final runtime = LoveScriptRuntime(filesystemAdapter: adapter);
-      final interpreter = runtime.runtime as Interpreter;
+      final interpreter = runtime.runtime;
       _allowStringMount(interpreter, '/mods/extra.zip');
 
       expect(
@@ -4417,7 +4417,7 @@ testbed = {
       );
 
       final runtime = LoveScriptRuntime(filesystemAdapter: adapter);
-      final interpreter = runtime.runtime as Interpreter;
+      final interpreter = runtime.runtime;
       _allowStringMount(interpreter, '/mods/extra.zip');
 
       expect(
@@ -4485,7 +4485,7 @@ testbed = {
       );
 
       final runtime = LoveScriptRuntime(filesystemAdapter: adapter);
-      final interpreter = runtime.runtime as Interpreter;
+      final interpreter = runtime.runtime;
       _allowStringMount(interpreter, '/mods/selfextracting.bin');
 
       expect(
@@ -4544,7 +4544,7 @@ testbed = {
       );
 
       final runtime = LoveScriptRuntime(filesystemAdapter: adapter);
-      final interpreter = runtime.runtime as Interpreter;
+      final interpreter = runtime.runtime;
       _allowStringMount(interpreter, '/mods/extra.tar');
 
       expect(
@@ -4602,7 +4602,7 @@ testbed = {
       );
 
       final runtime = LoveScriptRuntime(filesystemAdapter: adapter);
-      final interpreter = runtime.runtime as Interpreter;
+      final interpreter = runtime.runtime;
       _allowStringMount(interpreter, '/mods/extra.tbz2');
 
       expect(
@@ -4652,7 +4652,7 @@ testbed = {
     () async {
       final adapter = _TestLoveFilesystemAdapter();
       final runtime = LoveScriptRuntime(filesystemAdapter: adapter);
-      final interpreter = runtime.runtime as Interpreter;
+      final interpreter = runtime.runtime;
 
       final archiveData = await luaCall(
         interpreter,
@@ -4724,7 +4724,7 @@ testbed = {
     () async {
       final adapter = _TestLoveFilesystemAdapter();
       final runtime = LoveScriptRuntime(filesystemAdapter: adapter);
-      final interpreter = runtime.runtime as Interpreter;
+      final interpreter = runtime.runtime;
 
       final archiveData = await luaCall(
         interpreter,
@@ -4796,7 +4796,7 @@ testbed = {
       );
 
       final runtime = LoveScriptRuntime(filesystemAdapter: adapter);
-      final interpreter = runtime.runtime as Interpreter;
+      final interpreter = runtime.runtime;
       _allowStringMount(interpreter, '/mods/extra.wad');
 
       expect(
@@ -4855,7 +4855,7 @@ testbed = {
     () async {
       final adapter = _TestLoveFilesystemAdapter();
       final runtime = LoveScriptRuntime(filesystemAdapter: adapter);
-      final interpreter = runtime.runtime as Interpreter;
+      final interpreter = runtime.runtime;
 
       final archiveData = await luaCall(
         interpreter,
@@ -4926,7 +4926,7 @@ testbed = {
       );
 
       final runtime = LoveScriptRuntime(filesystemAdapter: adapter);
-      final interpreter = runtime.runtime as Interpreter;
+      final interpreter = runtime.runtime;
       _allowStringMount(interpreter, '/mods/extra.hog');
 
       expect(
@@ -4985,7 +4985,7 @@ testbed = {
       );
 
       final runtime = LoveScriptRuntime(filesystemAdapter: adapter);
-      final interpreter = runtime.runtime as Interpreter;
+      final interpreter = runtime.runtime;
       _allowStringMount(interpreter, '/mods/extra.grp');
 
       expect(
@@ -5044,7 +5044,7 @@ testbed = {
       );
 
       final runtime = LoveScriptRuntime(filesystemAdapter: adapter);
-      final interpreter = runtime.runtime as Interpreter;
+      final interpreter = runtime.runtime;
       _allowStringMount(interpreter, '/mods/extra.pak');
 
       expect(
@@ -5105,7 +5105,7 @@ testbed = {
       );
 
       final runtime = LoveScriptRuntime(filesystemAdapter: adapter);
-      final interpreter = runtime.runtime as Interpreter;
+      final interpreter = runtime.runtime;
       _allowStringMount(interpreter, '/mods/extra.slb');
 
       expect(
@@ -5158,7 +5158,7 @@ testbed = {
     () async {
       final adapter = _TestLoveFilesystemAdapter();
       final runtime = LoveScriptRuntime(filesystemAdapter: adapter);
-      final interpreter = runtime.runtime as Interpreter;
+      final interpreter = runtime.runtime;
 
       final archiveData = await luaCall(
         interpreter,
@@ -5242,7 +5242,7 @@ testbed = {
       );
 
       final runtime = LoveScriptRuntime(filesystemAdapter: adapter);
-      final interpreter = runtime.runtime as Interpreter;
+      final interpreter = runtime.runtime;
       _allowStringMount(interpreter, '/mods/extra.iso');
 
       expect(
@@ -5295,7 +5295,7 @@ testbed = {
     adapter.addFileBytes('/mods/extra.7z', _fake7zBytes());
 
     final runtime = LoveScriptRuntime(filesystemAdapter: adapter);
-    final interpreter = runtime.runtime as Interpreter;
+    final interpreter = runtime.runtime;
     _allowStringMount(interpreter, '/mods/extra.7z');
 
     expect(
@@ -5329,7 +5329,7 @@ testbed = {
       );
 
       final runtime = LoveScriptRuntime(filesystemAdapter: adapter);
-      final interpreter = runtime.runtime as Interpreter;
+      final interpreter = runtime.runtime;
       _allowStringMount(interpreter, '/mods/extra.7z');
 
       expect(
@@ -5390,7 +5390,7 @@ testbed = {
       );
 
       final runtime = LoveScriptRuntime(filesystemAdapter: adapter);
-      final interpreter = runtime.runtime as Interpreter;
+      final interpreter = runtime.runtime;
       _allowStringMount(interpreter, '/mods/literal.7z');
 
       expect(
@@ -5443,7 +5443,7 @@ testbed = {
       adapter.failReadFileBytes('/mods/fallback.zip', 'direct reads disabled');
 
       final runtime = LoveScriptRuntime(filesystemAdapter: adapter);
-      final interpreter = runtime.runtime as Interpreter;
+      final interpreter = runtime.runtime;
       _allowStringMount(interpreter, '/mods/fallback.zip');
 
       expect(
@@ -5508,7 +5508,7 @@ testbed = {
       );
 
       final runtime = LoveScriptRuntime(filesystemAdapter: adapter);
-      final interpreter = runtime.runtime as Interpreter;
+      final interpreter = runtime.runtime;
 
       await luaCall(
         interpreter,
@@ -5608,7 +5608,7 @@ testbed = {
       );
 
       final runtime = LoveScriptRuntime(filesystemAdapter: adapter);
-      final interpreter = runtime.runtime as Interpreter;
+      final interpreter = runtime.runtime;
 
       await luaCall(
         interpreter,
@@ -5700,7 +5700,7 @@ testbed = {
       );
 
       final runtime = LoveScriptRuntime(filesystemAdapter: adapter);
-      final interpreter = runtime.runtime as Interpreter;
+      final interpreter = runtime.runtime;
 
       await luaCall(
         interpreter,
@@ -5742,7 +5742,7 @@ testbed = {
       );
 
       final runtime = LoveScriptRuntime(filesystemAdapter: adapter);
-      final interpreter = runtime.runtime as Interpreter;
+      final interpreter = runtime.runtime;
       _allowStringMount(interpreter, '/outside/base');
 
       expect(
@@ -5777,7 +5777,7 @@ testbed = {
     () async {
       final adapter = _TestLoveFilesystemAdapter();
       final runtime = LoveScriptRuntime(filesystemAdapter: adapter);
-      final interpreter = runtime.runtime as Interpreter;
+      final interpreter = runtime.runtime;
       final archiveData = _genericDataWrapper(
         _encodeZip(<String, String>{'pkg/init.lua': 'return { value = 314 }'}),
       );
@@ -5832,7 +5832,7 @@ testbed = {
     () async {
       final adapter = _TestLoveFilesystemAdapter();
       final runtime = LoveScriptRuntime(filesystemAdapter: adapter);
-      final interpreter = runtime.runtime as Interpreter;
+      final interpreter = runtime.runtime;
       final archiveData = _genericDataWrapper(
         _encode7z(<String, String>{
           'pkg/init.lua': 'return { value = 717, kind = "7z" }',
@@ -5890,7 +5890,7 @@ testbed = {
     () async {
       final adapter = _TestLoveFilesystemAdapter();
       final runtime = LoveScriptRuntime(filesystemAdapter: adapter);
-      final interpreter = runtime.runtime as Interpreter;
+      final interpreter = runtime.runtime;
 
       final fileData = await luaCall(
         interpreter,
@@ -5991,7 +5991,7 @@ testbed = {
     () async {
       final adapter = _TestLoveFilesystemAdapter();
       final runtime = LoveScriptRuntime(filesystemAdapter: adapter);
-      final interpreter = runtime.runtime as Interpreter;
+      final interpreter = runtime.runtime;
 
       final archiveData = await luaCall(
         interpreter,
@@ -6097,7 +6097,7 @@ testbed = {
     () async {
       final adapter = _TestLoveFilesystemAdapter();
       final runtime = LoveScriptRuntime(filesystemAdapter: adapter);
-      final interpreter = runtime.runtime as Interpreter;
+      final interpreter = runtime.runtime;
 
       final firstArchive = _genericDataWrapper(
         _encodeZip(<String, String>{'pkg/init.lua': 'return { value = 1 }'}),
@@ -6179,7 +6179,7 @@ testbed = {
       );
 
       final runtime = LoveScriptRuntime(filesystemAdapter: adapter);
-      final interpreter = runtime.runtime as Interpreter;
+      final interpreter = runtime.runtime;
       final dropped = await wrapLoveFilesystemDroppedFileForRuntime(
         interpreter,
         LoveFilesystemDroppedFile(
@@ -6263,7 +6263,7 @@ testbed = {
       );
 
       final runtime = LoveScriptRuntime(filesystemAdapter: adapter);
-      final interpreter = runtime.runtime as Interpreter;
+      final interpreter = runtime.runtime;
       final dropped = await wrapLoveFilesystemDroppedFileForRuntime(
         interpreter,
         LoveFilesystemDroppedFile(
@@ -6340,7 +6340,7 @@ testbed = {
       );
 
       final runtime = LoveScriptRuntime(filesystemAdapter: adapter);
-      final interpreter = runtime.runtime as Interpreter;
+      final interpreter = runtime.runtime;
 
       await wrapLoveFilesystemDroppedFileForRuntime(
         interpreter,
@@ -6398,7 +6398,7 @@ testbed = {
       );
 
       final runtime = LoveScriptRuntime(filesystemAdapter: adapter);
-      final interpreter = runtime.runtime as Interpreter;
+      final interpreter = runtime.runtime;
 
       await wrapLoveFilesystemDroppedFileForRuntime(
         interpreter,
@@ -6451,7 +6451,7 @@ testbed = {
       adapter.addFile('/drop/notes.txt', 'alpha\nbeta\n');
 
       final runtime = LoveScriptRuntime(filesystemAdapter: adapter);
-      final interpreter = runtime.runtime as Interpreter;
+      final interpreter = runtime.runtime;
       final dropped = await wrapLoveFilesystemDroppedFileForRuntime(
         interpreter,
         LoveFilesystemDroppedFile(
@@ -6477,7 +6477,7 @@ testbed = {
       adapter.addFile('/drop/notes.txt', 'alpha\nbeta\n');
 
       final runtime = LoveScriptRuntime(filesystemAdapter: adapter);
-      final interpreter = runtime.runtime as Interpreter;
+      final interpreter = runtime.runtime;
       final dropped = await wrapLoveFilesystemDroppedFileForRuntime(
         interpreter,
         LoveFilesystemDroppedFile(
@@ -6510,7 +6510,7 @@ testbed = {
       adapter.addFile('/drop/notes.txt', 'alpha\nbeta\n');
 
       final runtime = LoveScriptRuntime(filesystemAdapter: adapter);
-      final interpreter = runtime.runtime as Interpreter;
+      final interpreter = runtime.runtime;
       final dropped = await wrapLoveFilesystemDroppedFileForRuntime(
         interpreter,
         LoveFilesystemDroppedFile(
@@ -6548,7 +6548,7 @@ testbed = {
       adapter.failOpen('/drop/blocked.txt', 'permission denied');
 
       final runtime = LoveScriptRuntime(filesystemAdapter: adapter);
-      final interpreter = runtime.runtime as Interpreter;
+      final interpreter = runtime.runtime;
       final dropped = await wrapLoveFilesystemDroppedFileForRuntime(
         interpreter,
         LoveFilesystemDroppedFile(
@@ -6582,7 +6582,7 @@ testbed = {
       final adapter = _TestLoveFilesystemAdapter();
       adapter.addFile('/source/main.lua', 'return true');
 
-      final runtime = Interpreter();
+      final runtime = createLuaLikeTestRuntime();
       installLove2d(runtime: runtime, filesystemAdapter: adapter);
 
       expect(
@@ -6699,7 +6699,7 @@ testbed = {
       final adapter = _TestLoveFilesystemAdapter();
       adapter.addFile('/source/objects.txt', 'hello');
       final runtime = LoveScriptRuntime(filesystemAdapter: adapter);
-      final interpreter = runtime.runtime as Interpreter;
+      final interpreter = runtime.runtime;
 
       await luaCall(
         interpreter,
@@ -6753,7 +6753,7 @@ testbed = {
   test(
     'filesystem setFused only honors the first upstream-compatible call',
     () async {
-      final firstRuntime = Interpreter();
+      final firstRuntime = createLuaLikeTestRuntime();
       installLove2d(
         runtime: firstRuntime,
         filesystemAdapter: _TestLoveFilesystemAdapter(),
@@ -6788,7 +6788,7 @@ testbed = {
         isFalse,
       );
 
-      final secondRuntime = Interpreter();
+      final secondRuntime = createLuaLikeTestRuntime();
       installLove2d(
         runtime: secondRuntime,
         filesystemAdapter: _TestLoveFilesystemAdapter(),
@@ -7434,7 +7434,7 @@ void _allowStringMount(LuaRuntime runtime, String archivePath) {
 }
 
 Future<Object?> _callRawPath(
-  Interpreter runtime,
+  LuaRuntime runtime,
   List<String> path, [
   List<Object?> args = const <Object?>[],
 ]) async {
@@ -7458,7 +7458,7 @@ Future<Object?> _callBuiltin(
   return luaResolveCallResult((callable as BuiltinFunction).call(args));
 }
 
-Map<dynamic, dynamic> _packageTable(Interpreter runtime) {
+Map<dynamic, dynamic> _packageTable(LuaRuntime runtime) {
   final packageValue = runtime.globals.get('package');
   expect(packageValue, isA<Value>());
   final raw = (packageValue! as Value).raw;
@@ -7466,7 +7466,7 @@ Map<dynamic, dynamic> _packageTable(Interpreter runtime) {
   return raw as Map<dynamic, dynamic>;
 }
 
-List<dynamic> _packageSearchers(Interpreter runtime) {
+List<dynamic> _packageSearchers(LuaRuntime runtime) {
   final packageTable = _packageTable(runtime);
   final searchersValue = packageTable['searchers'];
   expect(searchersValue, isA<Value>());

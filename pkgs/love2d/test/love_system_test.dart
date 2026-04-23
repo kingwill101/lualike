@@ -1,12 +1,11 @@
 import 'package:flutter_test/flutter_test.dart';
-import 'package:lualike/lualike.dart';
 import 'package:love2d/love2d.dart';
 import 'test_support/lua_api_test_helpers.dart';
 
 void main() {
   group('love.system bindings', () {
     test('report host-backed system state', () async {
-      final runtime = Interpreter();
+      final runtime = createLuaLikeTestRuntime();
       final host = LoveHeadlessHost(
         system: LoveSystemState(
           os: 'Linux',
@@ -59,7 +58,7 @@ void main() {
     test(
       'use async platform handlers and normalize power state values',
       () async {
-        final runtime = Interpreter();
+        final runtime = createLuaLikeTestRuntime();
         var clipboard = 'external clipboard';
         final openedUrls = <String>[];
         final vibrations = <double>[];

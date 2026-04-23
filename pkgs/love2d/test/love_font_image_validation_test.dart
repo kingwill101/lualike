@@ -8,7 +8,7 @@ void main() {
     test(
       'newImageRasterizer uses LOVE error text for non-rgba image data',
       () async {
-        final runtime = Interpreter();
+        final runtime = createLuaLikeTestRuntime();
         installLove2d(runtime: runtime, host: LoveHeadlessHost());
 
         final imageData = await luaCall(
@@ -37,7 +37,7 @@ void main() {
     test(
       'graphics.newImageFont uses LOVE error text for non-rgba image data',
       () async {
-        final runtime = Interpreter();
+        final runtime = createLuaLikeTestRuntime();
         installLove2d(runtime: runtime, host: LoveHeadlessHost());
 
         final imageData = await luaCall(

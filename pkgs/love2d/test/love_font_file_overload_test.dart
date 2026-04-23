@@ -1,5 +1,4 @@
 import 'package:flutter_test/flutter_test.dart';
-import 'package:lualike/lualike.dart';
 import 'package:love2d/love2d.dart';
 import 'package:love2d/src/runtime/filesystem/love_filesystem_runtime.dart';
 
@@ -13,7 +12,7 @@ void main() {
       'auto-detected true type constructors accept mounted File objects',
       () async {
         final veraBytes = await (await love2dVeraFontFile()).readAsBytes();
-        final runtime = Interpreter();
+        final runtime = createLuaLikeTestRuntime();
         installLove2d(
           runtime: runtime,
           host: LoveHeadlessHost(),
@@ -83,7 +82,7 @@ void main() {
 
     test('true type constructors accept mounted File objects', () async {
       final veraBytes = await (await love2dVeraFontFile()).readAsBytes();
-      final runtime = Interpreter();
+      final runtime = createLuaLikeTestRuntime();
       installLove2d(
         runtime: runtime,
         host: LoveHeadlessHost(),
@@ -153,7 +152,7 @@ void main() {
     });
 
     test('image font constructors accept mounted File objects', () async {
-      final runtime = Interpreter();
+      final runtime = createLuaLikeTestRuntime();
       installLove2d(
         runtime: runtime,
         host: LoveHeadlessHost(),

@@ -9,7 +9,7 @@ void main() {
       'RecordingDevice:type and RecordingDevice:typeOf require a RecordingDevice receiver',
       () async {
         final device = LoveRecordingDevice(name: 'Test Mic');
-        final runtime = Interpreter();
+        final runtime = createLuaLikeTestRuntime();
         installLove2d(runtime: runtime, host: LoveHeadlessHost());
         LoveRuntimeContext.attach(runtime).audio.recordingDevices.add(device);
 

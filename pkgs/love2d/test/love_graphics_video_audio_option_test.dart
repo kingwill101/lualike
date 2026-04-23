@@ -13,7 +13,7 @@ void main() {
     test(
       'Theora-only videos leave source nil by default and explicit audio=true errors',
       () async {
-        final runtime = Interpreter();
+        final runtime = createLuaLikeTestRuntime();
         installLove2d(
           runtime: runtime,
           host: LoveHeadlessHost(),
@@ -59,7 +59,7 @@ void main() {
     test(
       'non-boolean truthy audio flags attempt audio without requiring success',
       () async {
-        final runtime = Interpreter();
+        final runtime = createLuaLikeTestRuntime();
         installLove2d(
           runtime: runtime,
           host: LoveHeadlessHost(),
@@ -91,7 +91,7 @@ void main() {
     test(
       'array-style settings tables ignore indexed truthy values like the vendored sample',
       () async {
-        final runtime = Interpreter();
+        final runtime = createLuaLikeTestRuntime();
         installLove2d(
           runtime: runtime,
           host: LoveHeadlessHost(),
@@ -123,7 +123,7 @@ void main() {
     test(
       'newVideo detaches an input VideoStream when audio wiring is disabled',
       () async {
-        final runtime = Interpreter();
+        final runtime = createLuaLikeTestRuntime();
         installLove2d(
           runtime: runtime,
           host: LoveHeadlessHost(),
@@ -186,7 +186,7 @@ void main() {
     test(
       'default newVideo attaches a Source when the Ogg stream advertises Vorbis audio',
       () async {
-        final runtime = Interpreter();
+        final runtime = createLuaLikeTestRuntime();
         installLove2d(
           runtime: runtime,
           host: LoveHeadlessHost(),
@@ -220,7 +220,7 @@ void main() {
     test(
       'newVideo respects whether love.audio is loaded before wiring audio',
       () async {
-        final runtime = Interpreter();
+        final runtime = createLuaLikeTestRuntime();
         installLove2d(
           runtime: runtime,
           host: LoveHeadlessHost(),
@@ -272,7 +272,7 @@ void main() {
     test(
       'default newVideo detaches when audio backend setup throws a non-Exception error',
       () async {
-        final runtime = Interpreter();
+        final runtime = createLuaLikeTestRuntime();
         installLove2d(
           runtime: runtime,
           host: LoveHeadlessHost(
@@ -309,7 +309,7 @@ void main() {
     test(
       'explicit audio=true wraps non-Exception backend failures as missing audio',
       () async {
-        final runtime = Interpreter();
+        final runtime = createLuaLikeTestRuntime();
         installLove2d(
           runtime: runtime,
           host: LoveHeadlessHost(
@@ -357,7 +357,7 @@ void main() {
       'Video release stops the attached Source like the upstream destructor',
       () async {
         final backends = <_RecordingAudioBackend>[];
-        final runtime = Interpreter();
+        final runtime = createLuaLikeTestRuntime();
         installLove2d(
           runtime: runtime,
           host: LoveHeadlessHost(
@@ -404,7 +404,7 @@ void main() {
     );
 
     test('newVideo accepts File inputs and rejects FileData inputs', () async {
-      final runtime = Interpreter();
+      final runtime = createLuaLikeTestRuntime();
       installLove2d(
         runtime: runtime,
         host: LoveHeadlessHost(),
@@ -463,7 +463,7 @@ void main() {
     test(
       'boolean second argument is rejected like the upstream wrapper',
       () async {
-        final runtime = Interpreter();
+        final runtime = createLuaLikeTestRuntime();
         installLove2d(
           runtime: runtime,
           host: LoveHeadlessHost(),

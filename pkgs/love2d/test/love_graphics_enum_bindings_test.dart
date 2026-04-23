@@ -2,9 +2,11 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:lualike/lualike.dart';
 import 'package:love2d/love2d.dart';
 
+import 'test_support/lua_api_test_helpers.dart';
+
 void main() {
   test('graphics enum tables are exposed on love.graphics and as globals', () {
-    final runtime = Interpreter();
+    final runtime = createLuaLikeTestRuntime();
     installLove2d(runtime: runtime, host: LoveHeadlessHost());
 
     expect(
@@ -53,7 +55,7 @@ void main() {
   });
 }
 
-Object? _tableField(Interpreter runtime, List<String> path) {
+Object? _tableField(LuaRuntime runtime, List<String> path) {
   var current = runtime.getCurrentEnv().get(path.first);
   for (final segment in path.skip(1)) {
     final table = current is Value ? current.raw : current;

@@ -11,7 +11,7 @@ void main() {
     test(
       'CompressedImageData type metadata survives release while other methods fail',
       () async {
-        final runtime = Interpreter();
+        final runtime = createLuaLikeTestRuntime();
         installLove2d(runtime: runtime, host: LoveHeadlessHost());
 
         final fileData = await luaCall(

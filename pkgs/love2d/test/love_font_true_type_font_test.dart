@@ -6,7 +6,7 @@ import 'test_support/lua_api_test_helpers.dart';
 void main() {
   group('love.graphics true type fonts', () {
     test('reject invalid unicode scalars in hasGlyphs', () async {
-      final runtime = Interpreter();
+      final runtime = createLuaLikeTestRuntime();
       installLove2d(runtime: runtime, host: LoveHeadlessHost());
 
       final font = await luaCall(
@@ -42,7 +42,7 @@ void main() {
     });
 
     test('expose LOVE object semantics', () async {
-      final runtime = Interpreter();
+      final runtime = createLuaLikeTestRuntime();
       installLove2d(runtime: runtime, host: LoveHeadlessHost());
 
       final font = await luaCall(
@@ -69,7 +69,7 @@ void main() {
     });
 
     test('validate glyph-like arguments for kerning and hasGlyphs', () async {
-      final runtime = Interpreter();
+      final runtime = createLuaLikeTestRuntime();
       installLove2d(runtime: runtime, host: LoveHeadlessHost());
 
       final font = await luaCall(

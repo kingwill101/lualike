@@ -1,5 +1,4 @@
 import 'package:flutter_test/flutter_test.dart';
-import 'package:lualike/lualike.dart';
 import 'package:love2d/love2d.dart';
 import 'package:love2d/src/runtime/filesystem/love_filesystem_runtime.dart';
 
@@ -9,7 +8,7 @@ import 'test_support/lua_api_test_helpers.dart';
 void main() {
   group('love.font optional arguments', () {
     test('true type constructors accept nil hinting before dpiscale', () async {
-      final runtime = Interpreter();
+      final runtime = createLuaLikeTestRuntime();
       installLove2d(runtime: runtime, host: LoveHeadlessHost());
 
       final rasterizer = await luaCall(
@@ -66,7 +65,7 @@ void main() {
     test(
       'image font constructors accept nil extraspacing before later arguments',
       () async {
-        final runtime = Interpreter();
+        final runtime = createLuaLikeTestRuntime();
         installLove2d(runtime: runtime, host: LoveHeadlessHost());
 
         final imageData = await luaCall(
@@ -108,7 +107,7 @@ void main() {
     );
 
     test('bmfont constructors accept nil dpiscale', () async {
-      final runtime = Interpreter();
+      final runtime = createLuaLikeTestRuntime();
       installLove2d(runtime: runtime, host: LoveHeadlessHost());
 
       final definition = await luaCall(
@@ -141,7 +140,7 @@ void main() {
     test(
       'graphics.newFont treats nil source size like the single-argument auto path',
       () async {
-        final runtime = Interpreter();
+        final runtime = createLuaLikeTestRuntime();
         installLove2d(runtime: runtime, host: LoveHeadlessHost());
 
         final sourceDir = await love2dResourceDirectory();
@@ -179,7 +178,7 @@ void main() {
     test(
       'graphics.setNewFont treats nil source size like the single-argument auto path',
       () async {
-        final runtime = Interpreter();
+        final runtime = createLuaLikeTestRuntime();
         installLove2d(runtime: runtime, host: LoveHeadlessHost());
 
         final sourceDir = await love2dResourceDirectory();

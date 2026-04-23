@@ -1,5 +1,4 @@
 import 'package:flutter_test/flutter_test.dart';
-import 'package:lualike/lualike.dart';
 import 'package:love2d/love2d.dart';
 
 import 'test_support/font_test_support.dart';
@@ -10,7 +9,7 @@ void main() {
     test(
       'fractional numeric glyph lookups truncate toward zero like LOVE',
       () async {
-        final runtime = Interpreter();
+        final runtime = createLuaLikeTestRuntime();
         installLove2d(runtime: runtime, host: LoveHeadlessHost());
 
         final veraBytes = await (await love2dVeraFontFile()).readAsBytes();
@@ -66,7 +65,7 @@ void main() {
     test(
       'fractional numeric hasGlyphs inputs truncate before unicode validation',
       () async {
-        final runtime = Interpreter();
+        final runtime = createLuaLikeTestRuntime();
         installLove2d(runtime: runtime, host: LoveHeadlessHost());
 
         final rasterizer = await luaCall(
@@ -96,7 +95,7 @@ void main() {
     test(
       'fractional image font extra spacing truncates toward zero like LOVE',
       () async {
-        final runtime = Interpreter();
+        final runtime = createLuaLikeTestRuntime();
         installLove2d(runtime: runtime, host: LoveHeadlessHost());
 
         final imageData = await luaCall(

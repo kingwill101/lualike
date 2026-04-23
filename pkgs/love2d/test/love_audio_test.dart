@@ -10,10 +10,10 @@ import 'test_support/lua_api_test_helpers.dart';
 
 void main() {
   group('love.audio bindings', () {
-    late Interpreter runtime;
+    late LuaRuntime runtime;
 
     setUp(() {
-      runtime = Interpreter();
+      runtime = createLuaLikeTestRuntime();
       installLove2d(runtime: runtime, host: LoveHeadlessHost());
     });
 
@@ -171,7 +171,7 @@ void main() {
     });
 
     test('setMixWithSystem returns the host result', () async {
-      final runtime = Interpreter();
+      final runtime = createLuaLikeTestRuntime();
       installLove2d(
         runtime: runtime,
         host: LoveHeadlessHost(
@@ -580,7 +580,7 @@ void main() {
     test(
       'newSource reads mounted LOVE filesystem strings and rejects missing filenames',
       () async {
-        final runtime = Interpreter();
+        final runtime = createLuaLikeTestRuntime();
         installLove2d(
           runtime: runtime,
           host: LoveHeadlessHost(),

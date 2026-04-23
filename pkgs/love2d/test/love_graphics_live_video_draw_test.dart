@@ -1,7 +1,6 @@
 import 'dart:typed_data';
 
 import 'package:flutter_test/flutter_test.dart';
-import 'package:lualike/lualike.dart';
 import 'package:love2d/love2d.dart';
 import 'package:love2d/src/runtime/filesystem/love_filesystem_runtime.dart';
 
@@ -36,7 +35,7 @@ void main() {
       'queues a live video command when a presentation handle is available',
       () async {
         final provider = _FakeLiveVideoFrameProvider();
-        final runtime = Interpreter();
+        final runtime = createLuaLikeTestRuntime();
         final host = LoveHeadlessHost(
           videoFrameProviderFactory: (source, {bytes, metadata}) async {
             return provider;
@@ -83,7 +82,7 @@ void main() {
 
     test('queues a live video command when drawing with a Quad', () async {
       final provider = _FakeLiveVideoFrameProvider();
-      final runtime = Interpreter();
+      final runtime = createLuaLikeTestRuntime();
       final host = LoveHeadlessHost(
         videoFrameProviderFactory: (source, {bytes, metadata}) async {
           return provider;
@@ -136,7 +135,7 @@ void main() {
       'queues a live video command when scissor and tint are active',
       () async {
         final provider = _FakeLiveVideoFrameProvider();
-        final runtime = Interpreter();
+        final runtime = createLuaLikeTestRuntime();
         final host = LoveHeadlessHost(
           videoFrameProviderFactory: (source, {bytes, metadata}) async {
             return provider;
@@ -199,7 +198,7 @@ void main() {
       'queues a live video command when alpha blending uses premultiplied mode',
       () async {
         final provider = _FakeLiveVideoFrameProvider();
-        final runtime = Interpreter();
+        final runtime = createLuaLikeTestRuntime();
         final host = LoveHeadlessHost(
           videoFrameProviderFactory: (source, {bytes, metadata}) async {
             return provider;
@@ -248,7 +247,7 @@ void main() {
       'queues a live video command when drawing with a Transform object',
       () async {
         final provider = _FakeLiveVideoFrameProvider();
-        final runtime = Interpreter();
+        final runtime = createLuaLikeTestRuntime();
         final host = LoveHeadlessHost(
           videoFrameProviderFactory: (source, {bytes, metadata}) async {
             return provider;
@@ -301,7 +300,7 @@ void main() {
       'queues a live video command when replace blending keeps source alpha opaque',
       () async {
         final provider = _FakeLiveVideoFrameProvider();
-        final runtime = Interpreter();
+        final runtime = createLuaLikeTestRuntime();
         final host = LoveHeadlessHost(
           videoFrameProviderFactory: (source, {bytes, metadata}) async {
             return provider;
@@ -350,7 +349,7 @@ void main() {
       'queues a live video command when none blending keeps source alpha opaque',
       () async {
         final provider = _FakeLiveVideoFrameProvider();
-        final runtime = Interpreter();
+        final runtime = createLuaLikeTestRuntime();
         final host = LoveHeadlessHost(
           videoFrameProviderFactory: (source, {bytes, metadata}) async {
             return provider;
@@ -399,7 +398,7 @@ void main() {
       'falls back to image snapshots when the draw state cannot stay live',
       () async {
         final provider = _FakeLiveVideoFrameProvider();
-        final runtime = Interpreter();
+        final runtime = createLuaLikeTestRuntime();
         final host = LoveHeadlessHost(
           videoFrameProviderFactory: (source, {bytes, metadata}) async {
             return provider;
@@ -448,7 +447,7 @@ void main() {
       'falls back to image snapshots when replace blending uses translucent alpha',
       () async {
         final provider = _FakeLiveVideoFrameProvider();
-        final runtime = Interpreter();
+        final runtime = createLuaLikeTestRuntime();
         final host = LoveHeadlessHost(
           videoFrameProviderFactory: (source, {bytes, metadata}) async {
             return provider;
@@ -502,7 +501,7 @@ void main() {
       'falls back to image snapshots when none blending uses translucent alpha',
       () async {
         final provider = _FakeLiveVideoFrameProvider();
-        final runtime = Interpreter();
+        final runtime = createLuaLikeTestRuntime();
         final host = LoveHeadlessHost(
           videoFrameProviderFactory: (source, {bytes, metadata}) async {
             return provider;
@@ -556,7 +555,7 @@ void main() {
       'falls back to image snapshots when colorMask disables channels',
       () async {
         final provider = _FakeLiveVideoFrameProvider();
-        final runtime = Interpreter();
+        final runtime = createLuaLikeTestRuntime();
         final host = LoveHeadlessHost(
           videoFrameProviderFactory: (source, {bytes, metadata}) async {
             return provider;
@@ -605,7 +604,7 @@ void main() {
       'falls back to image snapshots when a Quad targets a non-zero layer',
       () async {
         final provider = _FakeLiveVideoFrameProvider();
-        final runtime = Interpreter();
+        final runtime = createLuaLikeTestRuntime();
         final host = LoveHeadlessHost(
           videoFrameProviderFactory: (source, {bytes, metadata}) async {
             return provider;
@@ -657,7 +656,7 @@ void main() {
       'falls back to image snapshots with a Transform object while preserving video scaling',
       () async {
         final provider = _FakeLiveVideoFrameProvider();
-        final runtime = Interpreter();
+        final runtime = createLuaLikeTestRuntime();
         final host = LoveHeadlessHost(
           videoFrameProviderFactory: (source, {bytes, metadata}) async {
             return provider;
@@ -715,7 +714,7 @@ void main() {
       'falls back to image snapshots when a registered fragment shader is active',
       () async {
         final provider = _FakeLiveVideoFrameProvider();
-        final runtime = Interpreter();
+        final runtime = createLuaLikeTestRuntime();
         final host = LoveHeadlessHost(
           videoFrameProviderFactory: (source, {bytes, metadata}) async {
             return provider;
@@ -774,7 +773,7 @@ void main() {
       'falls back to image snapshots when a supported LOVE shader subset is active',
       () async {
         final provider = _FakeLiveVideoFrameProvider();
-        final runtime = Interpreter();
+        final runtime = createLuaLikeTestRuntime();
         final host = LoveHeadlessHost(
           videoFrameProviderFactory: (source, {bytes, metadata}) async {
             return provider;

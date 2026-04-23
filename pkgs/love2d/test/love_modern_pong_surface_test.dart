@@ -7,6 +7,8 @@ import 'package:lualike/src/io/io_device.dart';
 import 'package:love2d/love2d.dart';
 import 'package:love2d/src/runtime/filesystem/love_filesystem_runtime.dart';
 
+import 'test_support/lua_api_test_helpers.dart';
+
 void main() {
   group('Modern-Pong surface', () {
     test('shader send and setShader snapshot into draw commands', () async {
@@ -202,7 +204,7 @@ end
           id: 1,
           gamepadButtons: <String>{'dpup'},
         );
-        final runtime = Interpreter();
+        final runtime = createLuaLikeTestRuntime();
         installLove2d(
           runtime: runtime,
           host: LoveHeadlessHost(
@@ -332,6 +334,25 @@ end
         expect(background.shader, isNotNull);
         expect(background.shader!.kind, LoveShaderKind.radialGradient);
       },
+    );
+
+    test(
+      'vendored Modern-Pong main menu loads under bytecode',
+      () async {
+        final backendFactory = _RecordingAudioBackendFactory();
+        final runtime = await _createModernPongRuntime(
+          backendFactory: backendFactory,
+          engineMode: EngineMode.luaBytecode,
+        );
+        await _loadModernPong(runtime).timeout(const Duration(seconds: 10));
+
+        runtime.context.beginDrawFrame();
+        await runtime.callDrawIfDefined();
+
+        expect(backendFactory.loadedSources, contains('sounds/theme.mp3'));
+        expect(runtime.context.graphics.commands, isNotEmpty);
+      },
+      timeout: const Timeout(Duration(seconds: 15)),
     );
 
     test(
@@ -939,14 +960,16 @@ class _MemoryReadIODevice extends BaseIODevice {
 
 Future<LoveScriptRuntime> _createModernPongRuntime({
   _RecordingAudioBackendFactory? backendFactory,
+  EngineMode? engineMode,
   LoveJoystickManager? joysticks,
 }) async {
   late LoveScriptRuntime runtime;
   runtime = LoveScriptRuntime(
+    engineMode: engineMode,
     host: LoveHeadlessHost(
       joysticks: joysticks,
       audioBackendFactory: backendFactory?.create,
-      imageLoader: (source, {bytes, settings}) async {
+      imageLoader: (source, {bytes, settings, assetKey}) async {
         final resolvedBytes =
             bytes ??
             await LoveFilesystemState.of(runtime.runtime).readAllBytes(source);
@@ -1039,7 +1062,7 @@ Future<bool> _currentStateIs(
 }
 
 Future<Object?> _call(
-  Interpreter runtime,
+  LuaRuntime runtime,
   List<String> path, [
   List<Object?> args = const <Object?>[],
 ]) async {
@@ -1047,7 +1070,7 @@ Future<Object?> _call(
 }
 
 Future<Object?> _callMethod(
-  Interpreter runtime,
+  LuaRuntime runtime,
   Object? target,
   String method, [
   List<Object?> args = const <Object?>[],
@@ -1066,7 +1089,7 @@ Future<Object?> _callMethod(
   );
 }
 
-BuiltinFunction _rawFunction(Interpreter runtime, List<String> path) {
+BuiltinFunction _rawFunction(LuaRuntime runtime, List<String> path) {
   var current = runtime.getCurrentEnv().get(path.first);
   for (final segment in path.skip(1)) {
     final table = current is Value ? current.raw : current;

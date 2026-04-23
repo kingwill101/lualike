@@ -5,7 +5,6 @@ import 'dart:ui' as ui;
 import 'package:flame/components.dart' show Vector2;
 import 'package:flutter_test/flutter_test.dart';
 import 'package:love2d/love2d.dart';
-import 'package:love2d/src/runtime/flame/love_flame_harness_renderer.dart';
 import 'package:vector_math/vector_math_64.dart' as vm;
 
 const String _desaturationTintShaderSource = '''

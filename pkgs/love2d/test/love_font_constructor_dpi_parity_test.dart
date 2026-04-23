@@ -1,5 +1,4 @@
 import 'package:flutter_test/flutter_test.dart';
-import 'package:lualike/lualike.dart';
 import 'package:love2d/love2d.dart';
 import 'test_support/font_test_support.dart';
 import 'test_support/lua_api_test_helpers.dart';
@@ -7,7 +6,7 @@ import 'test_support/lua_api_test_helpers.dart';
 void main() {
   group('love.font constructor dpi parity', () {
     test('image font constructors accept zero dpiscale', () async {
-      final runtime = Interpreter();
+      final runtime = createLuaLikeTestRuntime();
       installLove2d(runtime: runtime, host: LoveHeadlessHost());
 
       final imageData = await luaCall(
@@ -44,7 +43,7 @@ void main() {
     });
 
     test('bmfont constructors accept negative dpiscale', () async {
-      final runtime = Interpreter();
+      final runtime = createLuaLikeTestRuntime();
       installLove2d(runtime: runtime, host: LoveHeadlessHost());
 
       final definition = await luaCall(

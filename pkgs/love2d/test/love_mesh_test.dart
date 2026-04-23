@@ -236,6 +236,33 @@ void main() {
         expect(drawnVertices.last.x, 11.0);
         expect(drawnVertices.last.y, 12.0);
 
+        await luaCallMethod(mesh, 'setVertex', <Object?>[
+          1,
+          99.0,
+          98.0,
+          0.0,
+          0.0,
+        ]);
+        command.mesh.setVertices(const <LoveMeshVertex>[
+          LoveMeshVertex(x: -1, y: -2),
+        ], startVertex: 3);
+        final isolatedVertices = command.mesh.verticesForDraw();
+        expect(isolatedVertices.first.x, -1.0);
+        expect(isolatedVertices.first.y, -2.0);
+
+        LoveRuntimeContext.of(runtime).beginDrawFrame();
+        await luaCall(
+          runtime,
+          const ['love', 'graphics', 'draw'],
+          <Object?>[mesh],
+        );
+        final nextCommand = host.graphics.commands.single as LoveMeshCommand;
+        final nextVertices = nextCommand.mesh.verticesForDraw();
+        expect(nextVertices.first.x, 5.0);
+        expect(nextVertices.first.y, 6.0);
+        expect(nextVertices.last.x, 99.0);
+        expect(nextVertices.last.y, 98.0);
+
         await luaCallMethod(mesh, 'setVertexMap');
         expect(await luaCallMethod(mesh, 'getVertexMap'), isNull);
 
@@ -245,13 +272,13 @@ void main() {
   });
 }
 
-Interpreter _newRuntime({LoveHost? host}) {
-  final runtime = Interpreter();
+LuaRuntime _newRuntime({LoveHost? host}) {
+  final runtime = createLuaLikeTestRuntime();
   installLove2d(runtime: runtime, host: host ?? LoveHeadlessHost());
   return runtime;
 }
 
-Future<Object?> _newTestImage(Interpreter runtime) async {
+Future<Object?> _newTestImage(LuaRuntime runtime) async {
   final imageData = await luaCall(
     runtime,
     const ['love', 'image', 'newImageData'],

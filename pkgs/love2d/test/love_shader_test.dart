@@ -666,8 +666,8 @@ vec4 effect(vec4 color, Image texture, vec2 texture_coords, vec2 screen_coords) 
   });
 }
 
-Interpreter _newRuntime({LoveHost? host}) {
-  final runtime = Interpreter();
+LuaRuntime _newRuntime({LoveHost? host}) {
+  final runtime = createLuaLikeTestRuntime();
   installLove2d(runtime: runtime, host: host ?? LoveHeadlessHost());
   return runtime;
 }

@@ -79,6 +79,82 @@ void main() {
     },
   );
 
+  testWidgets(
+    'LoveFlameHost reuses cached font metrics and text measurements',
+    (tester) async {
+      late final LoveFlameHost<World> host;
+      final font = await tester.runAsync(() async {
+        host = LoveFlameHost<World>(game: FlameGame<World>(world: World()));
+        return host.loadDefaultTrueTypeFont(
+          size: 16.0,
+          hinting: 'normal',
+          dpiScale: 1.0,
+          defaultFilter: LoveGraphicsDefaultFilter.standard,
+        );
+      });
+
+      expect(font, isNotNull);
+      expect(host.debugFontMetricsCacheSize, 1);
+      expect(host.debugTextWidthCacheSize, 0);
+
+      final family = font!.family!;
+      final width = host.debugMeasureTextWidth(
+        family: family,
+        size: font.size,
+        text: 'repeat me',
+      );
+      expect(width, greaterThan(0.0));
+      expect(host.debugTextWidthCacheSize, 1);
+
+      expect(
+        host.debugMeasureTextWidth(
+          family: family,
+          size: font.size,
+          text: 'repeat me',
+        ),
+        width,
+      );
+      expect(host.debugTextWidthCacheSize, 1);
+
+      final wrapLimit =
+          host.debugMeasureTextWidth(
+            family: family,
+            size: font.size,
+            text: 'A',
+          ) +
+          host.debugMeasureTextWidth(
+                family: family,
+                size: font.size,
+                text: 'A B',
+              ) /
+              2.0;
+      final wrapped = host.debugWrapText(
+        family: family,
+        size: font.size,
+        text: 'A B',
+        wrapLimit: wrapLimit,
+      );
+      expect(wrapped.lines, <String>['A ', 'B']);
+
+      final cachedWidthEntriesAfterFirstWrap = host.debugTextWidthCacheSize;
+      expect(cachedWidthEntriesAfterFirstWrap, greaterThan(1));
+      expect(
+        cachedWidthEntriesAfterFirstWrap,
+        lessThanOrEqualTo(host.debugTextWidthCacheCapacity),
+      );
+
+      final wrappedAgain = host.debugWrapText(
+        family: family,
+        size: font.size,
+        text: 'A B',
+        wrapLimit: wrapLimit,
+      );
+      expect(wrappedAgain.lines, wrapped.lines);
+      expect(wrappedAgain.width, wrapped.width);
+      expect(host.debugTextWidthCacheSize, cachedWidthEntriesAfterFirstWrap);
+    },
+  );
+
   testWidgets('LoveFlameHost loads the bundled default font via Flutter', (
     tester,
   ) async {

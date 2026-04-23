@@ -4,7 +4,7 @@ part of '../love_api_bindings.dart';
 ///
 /// This forwards the step parameters into the wrapped world and selects either
 /// synchronous or queued callback dispatch depending on whether the current
-/// interpreter can safely run callbacks inline.
+/// Lua runtime can safely run the registered callbacks inline.
 Value _buildPhysicsWorldUpdateBinding(
   LibraryContext context,
   BuiltinFunctionBuilder builder,
@@ -20,7 +20,7 @@ Value _buildPhysicsWorldUpdateBinding(
         final positionIterations = args.length >= 4 && _valueAt(args, 3) != null
             ? _requireRoundedInt(args, 3, 'World:update')
             : null;
-        final useSyncCallbacks = context.interpreter is Interpreter;
+        final useSyncCallbacks = _physicsCanUseSyncCallbacks(context, world);
         if (!useSyncCallbacks) {
           await _preparePhysicsWorldContactFilterIfNeeded(context, world, dt);
         }

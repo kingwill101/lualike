@@ -1,5 +1,4 @@
 import 'package:flutter_test/flutter_test.dart';
-import 'package:lualike/lualike.dart';
 import 'package:love2d/love2d.dart';
 import 'test_support/font_test_support.dart';
 import 'test_support/lua_api_test_helpers.dart';
@@ -9,7 +8,7 @@ void main() {
     test(
       'image rasterizers expose LOVE Object type, typeOf, and release behavior',
       () async {
-        final runtime = Interpreter();
+        final runtime = createLuaLikeTestRuntime();
         installLove2d(runtime: runtime, host: LoveHeadlessHost());
 
         final imageData = await luaCall(
@@ -48,7 +47,7 @@ void main() {
     test(
       'glyph data objects expose LOVE Data/Object semantics and clone independently',
       () async {
-        final runtime = Interpreter();
+        final runtime = createLuaLikeTestRuntime();
         installLove2d(runtime: runtime, host: LoveHeadlessHost());
 
         final imageData = await luaCall(

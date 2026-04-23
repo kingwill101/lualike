@@ -13,7 +13,7 @@ void main() {
         final host = LoveHeadlessHost(
           windowMetrics: const LoveWindowMetrics(width: 4, height: 4),
         );
-        final runtime = Interpreter();
+        final runtime = createLuaLikeTestRuntime();
         installLove2d(runtime: runtime, host: host);
 
         final compressed = await _newCompressedData(
@@ -58,7 +58,7 @@ void main() {
         final host = LoveHeadlessHost(
           windowMetrics: const LoveWindowMetrics(width: 4, height: 4),
         );
-        final runtime = Interpreter();
+        final runtime = createLuaLikeTestRuntime();
         installLove2d(runtime: runtime, host: host);
 
         final compressed = await _newCompressedData(
@@ -111,7 +111,7 @@ void main() {
         final host = LoveHeadlessHost(
           windowMetrics: const LoveWindowMetrics(width: 4, height: 4),
         );
-        final runtime = Interpreter();
+        final runtime = createLuaLikeTestRuntime();
         installLove2d(runtime: runtime, host: host);
 
         final red = await _newCompressedData(
@@ -163,7 +163,7 @@ void main() {
         final host = LoveHeadlessHost(
           windowMetrics: const LoveWindowMetrics(width: 4, height: 4),
         );
-        final runtime = Interpreter();
+        final runtime = createLuaLikeTestRuntime();
         installLove2d(runtime: runtime, host: host);
 
         final red = await _newCompressedData(
@@ -234,7 +234,7 @@ void main() {
       final host = LoveHeadlessHost(
         windowMetrics: const LoveWindowMetrics(width: 4, height: 4),
       );
-      final runtime = Interpreter();
+      final runtime = createLuaLikeTestRuntime();
       installLove2d(runtime: runtime, host: host);
 
       final compressed = await _newCompressedData(
@@ -278,7 +278,7 @@ void main() {
         final host = LoveHeadlessHost(
           windowMetrics: const LoveWindowMetrics(width: 4, height: 4),
         );
-        final runtime = Interpreter();
+        final runtime = createLuaLikeTestRuntime();
         installLove2d(runtime: runtime, host: host);
 
         final compressed = await _newCompressedData(
@@ -336,7 +336,7 @@ void main() {
         final host = LoveHeadlessHost(
           windowMetrics: const LoveWindowMetrics(width: 4, height: 4),
         );
-        final runtime = Interpreter();
+        final runtime = createLuaLikeTestRuntime();
         installLove2d(runtime: runtime, host: host);
 
         final block = Uint8List(16)
@@ -400,7 +400,7 @@ void main() {
         final host = LoveHeadlessHost(
           windowMetrics: const LoveWindowMetrics(width: 4, height: 4),
         );
-        final runtime = Interpreter();
+        final runtime = createLuaLikeTestRuntime();
         installLove2d(runtime: runtime, host: host);
 
         final compressed = await _newCompressedData(
@@ -453,7 +453,7 @@ void main() {
         final host = LoveHeadlessHost(
           windowMetrics: const LoveWindowMetrics(width: 4, height: 4),
         );
-        final runtime = Interpreter();
+        final runtime = createLuaLikeTestRuntime();
         installLove2d(runtime: runtime, host: host);
 
         final compressed = await _newCompressedData(
@@ -501,7 +501,7 @@ void main() {
         final host = LoveHeadlessHost(
           windowMetrics: const LoveWindowMetrics(width: 4, height: 4),
         );
-        final runtime = Interpreter();
+        final runtime = createLuaLikeTestRuntime();
         installLove2d(runtime: runtime, host: host);
 
         final first = await _newCompressedData(
@@ -558,7 +558,7 @@ void main() {
         final host = LoveHeadlessHost(
           windowMetrics: const LoveWindowMetrics(width: 4, height: 4),
         );
-        final runtime = Interpreter();
+        final runtime = createLuaLikeTestRuntime();
         installLove2d(runtime: runtime, host: host);
 
         final compressed = await _newCompressedData(
@@ -621,7 +621,7 @@ void main() {
         final host = LoveHeadlessHost(
           windowMetrics: const LoveWindowMetrics(width: 4, height: 4),
         );
-        final runtime = Interpreter();
+        final runtime = createLuaLikeTestRuntime();
         installLove2d(runtime: runtime, host: host);
 
         final first = await _newCompressedData(
@@ -697,7 +697,7 @@ void main() {
         final host = LoveHeadlessHost(
           windowMetrics: const LoveWindowMetrics(width: 4, height: 4),
         );
-        final runtime = Interpreter();
+        final runtime = createLuaLikeTestRuntime();
         installLove2d(runtime: runtime, host: host);
 
         final red = await _newCompressedData(
@@ -769,7 +769,7 @@ void main() {
         final host = LoveHeadlessHost(
           windowMetrics: const LoveWindowMetrics(width: 4, height: 4),
         );
-        final runtime = Interpreter();
+        final runtime = createLuaLikeTestRuntime();
         installLove2d(runtime: runtime, host: host);
 
         final compressed = await _newCompressedData(
@@ -831,7 +831,7 @@ void main() {
         final host = LoveHeadlessHost(
           windowMetrics: const LoveWindowMetrics(width: 4, height: 4),
         );
-        final runtime = Interpreter();
+        final runtime = createLuaLikeTestRuntime();
         installLove2d(runtime: runtime, host: host);
 
         final compressed = await _newCompressedData(
@@ -888,7 +888,7 @@ void main() {
 }
 
 Future<Object?> _newCompressedData(
-  Interpreter runtime,
+  LuaRuntime runtime,
   String filename,
   Uint8List bytes,
 ) async {

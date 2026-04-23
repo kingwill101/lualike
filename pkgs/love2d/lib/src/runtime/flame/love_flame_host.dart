@@ -1,13 +1,17 @@
 library;
 
+import 'dart:async';
+import 'dart:collection';
 import 'dart:math' as math;
+import 'dart:ui' as ui;
+
+import 'package:flame/cache.dart';
 import 'package:flame/components.dart';
 import 'package:flame/game.dart';
 import 'package:flutter/foundation.dart'
-    show TargetPlatform, defaultTargetPlatform, kIsWeb;
+    show TargetPlatform, defaultTargetPlatform, kIsWeb, visibleForTesting;
 import 'package:flutter/services.dart';
 import 'package:flutter/widgets.dart';
-import 'dart:ui' as ui;
 
 import 'love_flame_audio.dart';
 import 'love_flame_media_kit_audio.dart';
@@ -19,6 +23,8 @@ const String _loveDefaultTrueTypeFontAssetPath =
 
 /// The cache key used for the bundled default TrueType font instance.
 const String _loveDefaultTrueTypeFontCacheKey = '__love2d_default_vera__';
+const int _loveFontMetricsCacheCapacity = 64;
+const int _loveTextWidthCacheCapacity = 512;
 
 /// A [LoveHost] implementation that maps LOVE services onto Flame and Flutter.
 class LoveFlameHost<W extends World> implements LoveHost {
@@ -41,6 +47,7 @@ class LoveFlameHost<W extends World> implements LoveHost {
     LoveWindowMessageBoxHandler? windowMessageBoxHandler,
     LoveAudioBackendFactory? audioBackendFactory,
     LoveVideoFrameProviderFactory? videoFrameProviderFactory,
+    void Function(LoveWindowMetrics metrics)? onWindowMetricsChanged,
   }) : _clock = clock ?? SystemLoveClock(),
        _random = random ?? LoveRandomGenerator(),
        _keyboard = keyboard ?? _defaultKeyboardState(),
@@ -56,7 +63,12 @@ class LoveFlameHost<W extends World> implements LoveHost {
        _windowMessageBoxHandler = windowMessageBoxHandler,
        _assetBundle = assetBundle ?? rootBundle,
        _audioBackendFactory = audioBackendFactory,
-       _videoFrameProviderFactory = videoFrameProviderFactory;
+       _videoFrameProviderFactory = videoFrameProviderFactory,
+       _onWindowMetricsChanged = onWindowMetricsChanged {
+    // Use full Flutter asset keys so mounted LOVE source files can share one
+    // Flame-owned image cache without relying on the default assets/images/ prefix.
+    game.images = Images(prefix: '', bundle: _assetBundle);
+  }
 
   /// The owning Flame game.
   final FlameGame<W> game;
@@ -70,7 +82,14 @@ class LoveFlameHost<W extends World> implements LoveHost {
   final LoveGraphicsFrame _graphics;
   final Map<String, LoveImage> _images = <String, LoveImage>{};
   final Map<String, Future<String>> _fontFamilies = <String, Future<String>>{};
+  final LinkedHashMap<({String family, double size}), _LoveFontMetrics>
+  _fontMetricsCache =
+      LinkedHashMap<({String family, double size}), _LoveFontMetrics>();
+  final LinkedHashMap<({String family, double size, String text}), double>
+  _textWidthCache =
+      LinkedHashMap<({String family, double size, String text}), double>();
   LoveWindowMetrics? _windowOverride;
+  Size? _hostViewportSize;
   List<LoveWindowDisplay>? _windowDisplaysOverride;
   bool _windowHasFocus;
   bool _windowHasMouseFocus;
@@ -78,6 +97,7 @@ class LoveFlameHost<W extends World> implements LoveHost {
   final AssetBundle _assetBundle;
   final LoveAudioBackendFactory? _audioBackendFactory;
   final LoveVideoFrameProviderFactory? _videoFrameProviderFactory;
+  final void Function(LoveWindowMetrics metrics)? _onWindowMetricsChanged;
 
   @override
   LoveClock get clock => _clock;
@@ -167,6 +187,7 @@ class LoveFlameHost<W extends World> implements LoveHost {
     String source, {
     Uint8List? bytes,
     Map<dynamic, dynamic>? settings,
+    String? assetKey,
   }) async {
     final cached = _images[source];
     if (cached != null) {
@@ -174,16 +195,19 @@ class LoveFlameHost<W extends World> implements LoveHost {
     }
 
     final encodedBytes = bytes == null
-        ? await _loadImageBytes(source)
+        ? await _loadImageBytes(assetKey ?? source)
         : ByteData.sublistView(bytes);
-    if (encodedBytes == null && !_canUseFlameImageCache(source)) {
+    if (encodedBytes == null) {
       throw StateError('No bundled Flutter image asset found for "$source".');
     }
 
-    final image = encodedBytes == null
-        ? await game.images.load(_normalizedFlameImageKey(source))
-        : await _decodeImage(encodedBytes);
-    final imageData = encodedBytes == null
+    final image = assetKey == null
+        ? await game.images.fetchOrGenerate(
+            source,
+            () => _decodeImage(encodedBytes),
+          )
+        : await _loadAssetKeyImage(assetKey, encodedBytes);
+    final imageData = bytes == null && assetKey == null
         ? await _decodeImageData(image)
         : LoveImageData.decodeEncodedBytes(
             bytes: encodedBytes.buffer.asUint8List(
@@ -201,6 +225,33 @@ class LoveFlameHost<W extends World> implements LoveHost {
     );
     _images[source] = resolved;
     return resolved;
+  }
+
+  /// Preloads [assetKey] into Flame's image cache using the host decoder path.
+  Future<void> prewarmImageAsset(String assetKey) async {
+    if (game.images.containsKey(assetKey)) {
+      return;
+    }
+
+    final encodedBytes = await _loadImageBytes(assetKey);
+    if (encodedBytes == null) {
+      throw StateError('No bundled Flutter image asset found for "$assetKey".');
+    }
+
+    final imageData = LoveImageData.decodeEncodedBytes(
+      bytes: encodedBytes.buffer.asUint8List(
+        encodedBytes.offsetInBytes,
+        encodedBytes.lengthInBytes,
+      ),
+      source: assetKey,
+    );
+    final image = await _decodeImageDataToUiImage(imageData);
+    if (game.images.containsKey(assetKey)) {
+      image.dispose();
+      return;
+    }
+
+    game.images.add(assetKey, image);
   }
 
   @override
@@ -269,6 +320,30 @@ class LoveFlameHost<W extends World> implements LoveHost {
   @override
   int get imageCount => _images.length;
 
+  @visibleForTesting
+  int get debugFontMetricsCacheSize => _fontMetricsCache.length;
+
+  @visibleForTesting
+  int get debugTextWidthCacheSize => _textWidthCache.length;
+
+  @visibleForTesting
+  int get debugTextWidthCacheCapacity => _loveTextWidthCacheCapacity;
+
+  @visibleForTesting
+  double debugMeasureTextWidth({
+    required String family,
+    required double size,
+    required String text,
+  }) => _measureTextWidth(family: family, size: size, text: text);
+
+  @visibleForTesting
+  LoveFontWrapResult debugWrapText({
+    required String family,
+    required double size,
+    required String text,
+    required double wrapLimit,
+  }) => _wrapText(family: family, size: size, text: text, wrapLimit: wrapLimit);
+
   @override
   String get rendererName => 'LuaLike Flutter';
 
@@ -283,13 +358,18 @@ class LoveFlameHost<W extends World> implements LoveHost {
 
   @override
   LoveWindowMetrics get windowMetrics {
+    final hostViewportDimensions = _resolvedHostViewportDimensions();
     final override = _windowOverride;
     if (override != null) {
-      return override.copyWith(dpiScale: _devicePixelRatio(override.dpiScale));
+      return override.copyWith(
+        dpiScale: _devicePixelRatio(override.dpiScale),
+        desktopWidth: hostViewportDimensions?.width ?? override.desktopWidth,
+        desktopHeight: hostViewportDimensions?.height ?? override.desktopHeight,
+      );
     }
 
-    final width = _gameDimension(game.canvasSize.x, 800);
-    final height = _gameDimension(game.canvasSize.y, 600);
+    final width = hostViewportDimensions?.width ?? 800;
+    final height = hostViewportDimensions?.height ?? 600;
     return LoveWindowMetrics(
       width: width,
       height: height,
@@ -302,6 +382,16 @@ class LoveFlameHost<W extends World> implements LoveHost {
   @override
   set windowMetrics(LoveWindowMetrics value) {
     _windowOverride = value;
+    _onWindowMetricsChanged?.call(windowMetrics);
+  }
+
+  /// Updates the current Flutter host viewport without mutating LOVE mode size.
+  void updateHostViewportSize(Size size) {
+    if (size.width <= 0 || size.height <= 0 || _hostViewportSize == size) {
+      return;
+    }
+
+    _hostViewportSize = size;
   }
 
   @override
@@ -358,6 +448,23 @@ class LoveFlameHost<W extends World> implements LoveHost {
     return rawValue > 0 ? rawValue.round() : fallback;
   }
 
+  ({int width, int height})? _resolvedHostViewportDimensions() {
+    final viewportSize = _hostViewportSize;
+    if (viewportSize != null) {
+      return (
+        width: _gameDimension(viewportSize.width, 800),
+        height: _gameDimension(viewportSize.height, 600),
+      );
+    }
+    if (game.hasLayout) {
+      return (
+        width: _gameDimension(game.canvasSize.x, 800),
+        height: _gameDimension(game.canvasSize.y, 600),
+      );
+    }
+    return null;
+  }
+
   Future<ByteData?> _loadImageBytes(String source) async {
     try {
       return await _assetBundle.load(source);
@@ -396,6 +503,22 @@ class LoveFlameHost<W extends World> implements LoveHost {
     }
   }
 
+  Future<ui.Image> _loadAssetKeyImage(
+    String assetKey,
+    ByteData encodedBytes,
+  ) async {
+    try {
+      return await game.images.load(assetKey);
+    } catch (_) {
+      // A failed Flame load leaves behind a pending cache entry, so clear it
+      // before seeding the cache from the bytes we already resolved.
+      game.images.clear(assetKey);
+      final image = await _decodeImage(encodedBytes);
+      game.images.add(assetKey, image);
+      return image;
+    }
+  }
+
   Future<LoveImageData?> _decodeImageData(ui.Image image) async {
     final byteData = await image.toByteData(format: ui.ImageByteFormat.rawRgba);
     if (byteData == null) {
@@ -411,6 +534,30 @@ class LoveFlameHost<W extends World> implements LoveHost {
       height: image.height,
       bytes: bytes,
     );
+  }
+
+  Future<ui.Image> _decodeImageDataToUiImage(LoveImageData imageData) {
+    final pixels = Uint8List(imageData.width * imageData.height * 4);
+    for (var y = 0; y < imageData.height; y++) {
+      for (var x = 0; x < imageData.width; x++) {
+        final color = imageData.getPixel(x, y).clamped();
+        final offset = ((y * imageData.width) + x) * 4;
+        pixels[offset] = (color.r * 255).round();
+        pixels[offset + 1] = (color.g * 255).round();
+        pixels[offset + 2] = (color.b * 255).round();
+        pixels[offset + 3] = (color.a * 255).round();
+      }
+    }
+
+    final completer = Completer<ui.Image>();
+    ui.decodeImageFromPixels(
+      pixels,
+      imageData.width,
+      imageData.height,
+      ui.PixelFormat.rgba8888,
+      completer.complete,
+    );
+    return completer.future;
   }
 
   Future<String> _loadFontFamily(String source, Uint8List bytes) async {
@@ -492,17 +639,30 @@ class LoveFlameHost<W extends World> implements LoveHost {
     required String family,
     required double size,
   }) {
+    final cacheKey = (family: family, size: size);
+    final cached = _readLruCache(_fontMetricsCache, cacheKey);
+    if (cached != null) {
+      return cached;
+    }
+
     final painter = _textPainter(family: family, size: size, text: 'Hg')
       ..layout();
     final height = painter.height;
     final baseline = painter.computeDistanceToActualBaseline(
       TextBaseline.alphabetic,
     );
-    return (
+    final metrics = (
       ascent: baseline,
       descent: (height - baseline).clamp(0.0, double.infinity),
       height: height,
     );
+    _writeLruCache(
+      _fontMetricsCache,
+      cacheKey,
+      metrics,
+      _loveFontMetricsCacheCapacity,
+    );
+    return metrics;
   }
 
   double _measureTextWidth({
@@ -514,9 +674,22 @@ class LoveFlameHost<W extends World> implements LoveHost {
       return 0.0;
     }
 
+    final cacheKey = (family: family, size: size, text: text);
+    final cached = _readLruCache(_textWidthCache, cacheKey);
+    if (cached != null) {
+      return cached;
+    }
+
     final painter = _textPainter(family: family, size: size, text: text)
       ..layout();
-    return painter.width;
+    final width = painter.width;
+    _writeLruCache(
+      _textWidthCache,
+      cacheKey,
+      width,
+      _loveTextWidthCacheCapacity,
+    );
+    return width;
   }
 
   LoveFontWrapResult _wrapText({
@@ -664,12 +837,6 @@ class LoveFlameHost<W extends World> implements LoveHost {
     return source;
   }
 
-  bool _canUseFlameImageCache(String source) {
-    return !source.contains('/') ||
-        source.startsWith('images/') ||
-        source.startsWith('assets/images/');
-  }
-
   static LoveSystemState _defaultSystemState() {
     return LoveSystemState(
       os: _defaultLoveOs(),
@@ -734,5 +901,29 @@ class LoveFlameHost<W extends World> implements LoveHost {
 
   static Future<void> _vibrateDevice(double seconds) {
     return HapticFeedback.vibrate();
+  }
+}
+
+typedef _LoveFontMetrics = ({double ascent, double descent, double height});
+
+T? _readLruCache<K, T>(LinkedHashMap<K, T> cache, K key) {
+  if (!cache.containsKey(key)) {
+    return null;
+  }
+
+  final value = cache.remove(key) as T;
+  cache[key] = value;
+  return value;
+}
+
+void _writeLruCache<K, T>(
+  LinkedHashMap<K, T> cache,
+  K key,
+  T value,
+  int capacity,
+) {
+  cache[key] = value;
+  if (cache.length > capacity) {
+    cache.remove(cache.keys.first);
   }
 }

@@ -6,7 +6,7 @@ import 'test_support/lua_api_test_helpers.dart';
 void main() {
   group('love.event bindings', () {
     test('push, poll, clear, and quit manage the event queue', () async {
-      final runtime = Interpreter();
+      final runtime = createLuaLikeTestRuntime();
       installLove2d(runtime: runtime, host: LoveHeadlessHost());
 
       expect(
@@ -30,7 +30,12 @@ void main() {
       expect(iterator, isA<BuiltinFunction>());
       final poll = iterator! as BuiltinFunction;
 
-      expect(await luaCallCallable(poll), <Object?>['custom', 123, 'two', true]);
+      expect(await luaCallCallable(poll), <Object?>[
+        'custom',
+        123,
+        'two',
+        true,
+      ]);
       expect(await luaCallCallable(poll), <Object?>['focus', false]);
       expect(await luaCallCallable(poll), isNull);
 
@@ -49,7 +54,7 @@ void main() {
     test(
       'wait resolves queued and future events and pump is harmless',
       () async {
-        final runtime = Interpreter();
+        final runtime = createLuaLikeTestRuntime();
         installLove2d(runtime: runtime, host: LoveHeadlessHost());
 
         await luaCall(

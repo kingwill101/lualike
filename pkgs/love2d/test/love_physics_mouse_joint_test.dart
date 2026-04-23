@@ -5,11 +5,11 @@ import 'test_support/lua_api_test_helpers.dart';
 
 void main() {
   group('love.physics mouse joints', () {
-    late Interpreter runtime;
+    late LuaRuntime runtime;
     late LuaLike lua;
 
     setUp(() {
-      runtime = Interpreter();
+      runtime = createLuaLikeTestRuntime();
       lua = LuaLike(runtime: runtime);
       installLove2d(runtime: runtime);
     });

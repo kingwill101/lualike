@@ -1,12 +1,11 @@
 import 'package:flutter_test/flutter_test.dart';
-import 'package:lualike/lualike.dart';
 import 'package:love2d/love2d.dart';
 import 'test_support/lua_api_test_helpers.dart';
 
 void main() {
   group('love.font LuaJIT numeric text coercion parity', () {
     test('Font:getWidth and Font:getWrap stringify 1.0 like LuaJIT', () async {
-      final runtime = Interpreter();
+      final runtime = createLuaLikeTestRuntime();
       installLove2d(runtime: runtime, host: LoveHeadlessHost());
 
       final font = await luaCall(
@@ -41,7 +40,7 @@ void main() {
     test(
       'Font:getWidth and Font:getWrap preserve LuaJIT formatting for -0.0 and 1000.0',
       () async {
-        final runtime = Interpreter();
+        final runtime = createLuaLikeTestRuntime();
         installLove2d(runtime: runtime, host: LoveHeadlessHost());
 
         final font = await luaCall(
@@ -125,7 +124,7 @@ void main() {
     test(
       'Font:getWrap colored text numeric segments stringify 1.0 like LuaJIT',
       () async {
-        final runtime = Interpreter();
+        final runtime = createLuaLikeTestRuntime();
         installLove2d(runtime: runtime, host: LoveHeadlessHost());
 
         final font = await luaCall(

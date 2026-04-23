@@ -1,6 +1,5 @@
 import 'package:archive/archive.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:lualike/lualike.dart';
 import 'package:love2d/love2d.dart';
 
 import 'test_support/memory_filesystem_test_support.dart';
@@ -19,7 +18,7 @@ void main() {
         },
       );
       final runtime = LoveScriptRuntime(filesystemAdapter: adapter);
-      final interpreter = runtime.runtime as Interpreter;
+      final interpreter = runtime.runtime;
 
       await runtime.execute('''
 testbed = {}

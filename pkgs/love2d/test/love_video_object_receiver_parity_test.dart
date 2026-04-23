@@ -53,8 +53,8 @@ void main() {
   });
 }
 
-Interpreter _newMountedVideoRuntime() {
-  final runtime = Interpreter();
+LuaRuntime _newMountedVideoRuntime() {
+  final runtime = createLuaLikeTestRuntime();
   installLove2d(
     runtime: runtime,
     host: LoveHeadlessHost(),

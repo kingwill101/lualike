@@ -1,5 +1,4 @@
 import 'package:flutter_test/flutter_test.dart';
-import 'package:lualike/lualike.dart';
 import 'package:love2d/love2d.dart';
 import 'test_support/lua_api_test_helpers.dart';
 
@@ -8,7 +7,7 @@ void main() {
     test(
       'graphics.newFont inherits the current graphics default filter',
       () async {
-        final runtime = Interpreter();
+        final runtime = createLuaLikeTestRuntime();
         installLove2d(runtime: runtime, host: LoveHeadlessHost());
 
         await luaCall(
@@ -32,7 +31,7 @@ void main() {
     );
 
     test('Font:setFilter mirrors LOVE filter argument behavior', () async {
-      final runtime = Interpreter();
+      final runtime = createLuaLikeTestRuntime();
       installLove2d(runtime: runtime, host: LoveHeadlessHost());
 
       final font = await luaCall(

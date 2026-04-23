@@ -64,7 +64,7 @@ class LoveMouseCursor {
 }
 
 /// Tracks keyboard state, scancode mappings, and text-input settings.
-class LoveKeyboardState {
+class LoveKeyboardState extends ChangeNotifier {
   /// Creates keyboard state with optional repeat and text-input defaults.
   LoveKeyboardState({
     this.keyRepeat = false,
@@ -127,10 +127,16 @@ class LoveKeyboardState {
 
   /// Enables or disables text input and optionally updates the input [area].
   void setTextInput(bool enable, {LoveTextInputArea? area}) {
+    final nextArea = area ?? textInputArea;
+    if (textInputEnabled == enable && textInputArea == nextArea) {
+      return;
+    }
+
     textInputEnabled = enable;
     if (area != null) {
       textInputArea = area;
     }
+    notifyListeners();
   }
 
   /// Marks [key] as pressed or released.
@@ -158,7 +164,7 @@ class LoveKeyboardState {
 }
 
 /// Tracks mouse position, buttons, cursor state, and relative-mode flags.
-class LoveMouseState {
+class LoveMouseState extends ChangeNotifier {
   /// Creates mouse state with optional initial position and visibility.
   LoveMouseState({
     double x = 0.0,
@@ -222,21 +228,47 @@ class LoveMouseState {
 
   /// Updates the x position and tracks whether it came from the system.
   void setX(double x, {bool fromSystemEvent = false}) {
-    _x = x.floorToDouble();
-    _programmaticPositionActive = !fromSystemEvent;
+    final nextX = x.floorToDouble();
+    final nextProgrammaticPositionActive = !fromSystemEvent;
+    if (_x == nextX &&
+        _programmaticPositionActive == nextProgrammaticPositionActive) {
+      return;
+    }
+
+    _x = nextX;
+    _programmaticPositionActive = nextProgrammaticPositionActive;
+    notifyListeners();
   }
 
   /// Updates the y position and tracks whether it came from the system.
   void setY(double y, {bool fromSystemEvent = false}) {
-    _y = y.floorToDouble();
-    _programmaticPositionActive = !fromSystemEvent;
+    final nextY = y.floorToDouble();
+    final nextProgrammaticPositionActive = !fromSystemEvent;
+    if (_y == nextY &&
+        _programmaticPositionActive == nextProgrammaticPositionActive) {
+      return;
+    }
+
+    _y = nextY;
+    _programmaticPositionActive = nextProgrammaticPositionActive;
+    notifyListeners();
   }
 
   /// Updates both mouse coordinates at once.
   void setPosition(double x, double y, {bool fromSystemEvent = false}) {
-    _x = x.floorToDouble();
-    _y = y.floorToDouble();
-    _programmaticPositionActive = !fromSystemEvent;
+    final nextX = x.floorToDouble();
+    final nextY = y.floorToDouble();
+    final nextProgrammaticPositionActive = !fromSystemEvent;
+    if (_x == nextX &&
+        _y == nextY &&
+        _programmaticPositionActive == nextProgrammaticPositionActive) {
+      return;
+    }
+
+    _x = nextX;
+    _y = nextY;
+    _programmaticPositionActive = nextProgrammaticPositionActive;
+    notifyListeners();
   }
 
   /// Returns whether any button in [buttons] is currently pressed.
@@ -261,18 +293,33 @@ class LoveMouseState {
 
   /// Updates whether the mouse cursor should be visible.
   void setVisible(bool visible) {
+    if (_visible == visible) {
+      return;
+    }
+
     _visible = visible;
+    notifyListeners();
   }
 
   /// Enables or disables relative mouse mode.
   bool setRelativeMode(bool enabled) {
+    if (relativeMode == enabled) {
+      return true;
+    }
+
     relativeMode = enabled;
+    notifyListeners();
     return true;
   }
 
   /// Sets the active cursor, or clears it when omitted.
   void setCursor([LoveMouseCursor? cursor]) {
+    if (_cursor == cursor) {
+      return;
+    }
+
     _cursor = cursor;
+    notifyListeners();
   }
 
   /// Returns a cached system cursor for [type].

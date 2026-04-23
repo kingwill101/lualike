@@ -573,7 +573,7 @@ Value _wrapImage(LibraryRegistrationContext context, LoveImage image) {
       },
     ),
     'replacePixels': Value(
-      builder.create((args) {
+      builder.create((args) async {
         final image = _requireImage(args, 0, 'Image:replacePixels');
         final replacement = _requireImageData(args, 1, 'Image:replacePixels');
         final isLayeredImage = image.textureType != '2d';
@@ -663,20 +663,31 @@ Value _wrapImage(LibraryRegistrationContext context, LoveImage image) {
             reloadMipmaps && mipmap == 1 && updatedMipmaps.length > 1
             ? targetData.generateMipmaps()
             : List<LoveImageData>.unmodifiable(updatedMipmaps);
+        final runtime = _runtimeContext(context);
+        final updatedNativeImage = await _maybeHostNativeImageFromImageData(
+          runtime,
+          resolvedMipmaps.first,
+          sourceLabel: targetImage.source,
+        );
+        final prefersImageDataRendering = updatedNativeImage == null;
 
         final table = _tableIdentityIfPresent(args.first);
         if (table != null) {
           final updatedTargetImage = targetImage.copyWith(
             imageData: resolvedMipmaps.first,
             imageDataMipmaps: resolvedMipmaps,
-            preferImageDataRendering: true,
+            preferImageDataRendering: prefersImageDataRendering,
+            clearNativeImage: prefersImageDataRendering,
+            nativeImage: updatedNativeImage,
           );
 
           if (sliceImages == null) {
             table[_loveImageObjectKey] = image.copyWith(
               imageData: resolvedMipmaps.first,
               imageDataMipmaps: resolvedMipmaps,
-              preferImageDataRendering: true,
+              preferImageDataRendering: prefersImageDataRendering,
+              clearNativeImage: prefersImageDataRendering,
+              nativeImage: updatedNativeImage,
             );
           } else {
             final updatedSlices = List<LoveImage>.from(sliceImages);
@@ -811,7 +822,7 @@ Value _wrapCanvas(LibraryRegistrationContext context, LoveCanvas canvas) {
       functionName: 'getMipmapMode',
     ),
     'newImageData': Value(
-      builder.create((args) {
+      builder.create((args) async {
         // Mirrors LOVE's Canvas.cpp / wrap_Canvas.cpp validation.
         final canvas = _requireCanvas(args, 0, 'Canvas:newImageData');
         if (!canvas.readable) {
@@ -899,6 +910,19 @@ Value _wrapCanvas(LibraryRegistrationContext context, LoveCanvas canvas) {
             );
         if (unsupportedReason != null) {
           throw LuaError('Canvas:newImageData $unsupportedReason');
+        }
+
+        final hostReadback = await _maybeFlameCanvasReadbackImageData(
+          runtime,
+          readbackSnapshot,
+          mipmap: mipmap,
+          x: x,
+          y: y,
+          width: width,
+          height: height,
+        );
+        if (hostReadback != null) {
+          return _wrapImageData(context, hostReadback);
         }
 
         return _wrapImageData(
@@ -1028,6 +1052,77 @@ Value _wrapCanvas(LibraryRegistrationContext context, LoveCanvas canvas) {
   });
   _loveCanvasWrapperCache[canvas] = table;
   return table;
+}
+
+Future<LoveImageData?> _maybeFlameCanvasReadbackImageData(
+  LoveRuntimeContext runtime,
+  LoveCanvasSnapshot snapshot, {
+  required int mipmap,
+  required int x,
+  required int y,
+  required int width,
+  required int height,
+}) async {
+  if (runtime.host is! LoveFlameHost) {
+    return null;
+  }
+
+  final recorder = ui.PictureRecorder();
+  final canvas = ui.Canvas(recorder);
+  if (snapshot.width > 0 && snapshot.height > 0) {
+    canvas.scale(
+      snapshot.pixelWidth / snapshot.width,
+      snapshot.pixelHeight / snapshot.height,
+    );
+  }
+
+  final viewportSize = ui.Size(
+    snapshot.width.toDouble(),
+    snapshot.height.toDouble(),
+  );
+  LoveSurfaceSnapshotPainter(
+    snapshot: snapshot.surface,
+    viewportSize: viewportSize,
+  ).paint(canvas, viewportSize);
+
+  final picture = recorder.endRecording();
+  ui.Image? image;
+  try {
+    image = await picture.toImage(snapshot.pixelWidth, snapshot.pixelHeight);
+  } finally {
+    picture.dispose();
+  }
+
+  try {
+    final byteData = await image.toByteData(format: ui.ImageByteFormat.rawRgba);
+    if (byteData == null) {
+      return null;
+    }
+
+    var imageData = LoveImageData.fromRgbaBytes(
+      width: snapshot.pixelWidth,
+      height: snapshot.pixelHeight,
+      bytes: byteData.buffer.asUint8List(
+        byteData.offsetInBytes,
+        byteData.lengthInBytes,
+      ),
+    );
+    if (mipmap > 1) {
+      final mipmaps = imageData.generateMipmaps();
+      final level = math.min(mipmap, mipmaps.length) - 1;
+      imageData = mipmaps[level];
+    }
+    if (x == 0 &&
+        y == 0 &&
+        width == imageData.width &&
+        height == imageData.height) {
+      return imageData;
+    }
+
+    return imageData.copyRegion(x: x, y: y, width: width, height: height);
+  } finally {
+    image.dispose();
+  }
 }
 
 /// Wraps [imageData] as a Lua-facing `ImageData` object table.
@@ -1626,7 +1721,9 @@ Map<Object?, Object?> _textureEntries(
       builder.create((args) {
         final texture = requireTexture(args, 'Texture:getDepthSampleMode');
         final compareMode = texture.depthSampleMode;
-        return compareMode == null ? null : _compareModeName(compareMode);
+        return compareMode == null
+            ? Value(null)
+            : _compareModeName(compareMode);
       }),
       functionName: 'getDepthSampleMode',
     ),

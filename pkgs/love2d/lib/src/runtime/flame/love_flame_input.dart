@@ -3,6 +3,7 @@ library;
 import 'dart:async';
 import 'dart:ui' as ui;
 
+import 'package:flame/camera.dart';
 import 'package:flutter/gestures.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter/widgets.dart';
@@ -49,12 +50,14 @@ class LoveFlameInputAdapter {
     required LoveHost host,
     required LoveScriptRuntime? Function() runtimeProvider,
     Size? Function()? viewportSizeProvider,
+    CameraComponent? Function()? cameraProvider,
     LoveJoystickInputAdapter? joystickInput,
     this.onError,
     this.consumeKeyboardEvents = true,
   }) : _host = host,
        _runtimeProvider = runtimeProvider,
        _viewportSizeProvider = viewportSizeProvider,
+       _cameraProvider = cameraProvider,
        _joystickInput =
            joystickInput ??
            LoveJoystickInputAdapter(
@@ -71,6 +74,9 @@ class LoveFlameInputAdapter {
 
   /// Supplies the current rendered viewport size for coordinate conversion.
   final Size? Function()? _viewportSizeProvider;
+
+  /// Supplies Flame's fixed-resolution camera for presentation conversion.
+  final CameraComponent? Function()? _cameraProvider;
 
   /// The joystick adapter used for physical and synthesized gamepad input.
   final LoveJoystickInputAdapter _joystickInput;
@@ -491,11 +497,11 @@ class LoveFlameInputAdapter {
       return localPosition;
     }
 
-    return loveViewportToLogicalPoint(
-      viewportPoint: localPosition,
+    return loveFlamePresentationGeometry(
       windowMetrics: _host.windowMetrics,
       viewportSize: viewportSize,
-    );
+      camera: _cameraProvider?.call(),
+    ).viewportToLogicalPoint(localPosition);
   }
 
   /// Converts a viewport-local Flutter delta to LOVE logical coordinates.
@@ -505,11 +511,11 @@ class LoveFlameInputAdapter {
       return localDelta;
     }
 
-    return loveViewportDeltaToLogicalDelta(
-      viewportDelta: localDelta,
+    return loveFlamePresentationGeometry(
       windowMetrics: _host.windowMetrics,
       viewportSize: viewportSize,
-    );
+      camera: _cameraProvider?.call(),
+    ).viewportDeltaToLogicalDelta(localDelta);
   }
 
   /// Whether [event] originated from a touch pointer.

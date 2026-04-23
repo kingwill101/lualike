@@ -1,12 +1,11 @@
 import 'package:flutter_test/flutter_test.dart';
-import 'package:lualike/lualike.dart';
 import 'package:love2d/love2d.dart';
 import 'test_support/lua_api_test_helpers.dart';
 
 void main() {
   group('love.window query bindings', () {
     test('report host-backed window query state', () async {
-      final runtime = Interpreter();
+      final runtime = createLuaLikeTestRuntime();
       final host = LoveHeadlessHost(
         windowMetrics: const LoveWindowMetrics(
           width: 800,
@@ -137,7 +136,7 @@ void main() {
     test(
       'setFullscreen updates fullscreen state and accepts alias values',
       () async {
-        final runtime = Interpreter();
+        final runtime = createLuaLikeTestRuntime();
         final host = LoveHeadlessHost(
           windowMetrics: const LoveWindowMetrics(
             fullscreen: false,
@@ -176,7 +175,7 @@ void main() {
     );
 
     test('default safe area falls back to full window bounds', () async {
-      final runtime = Interpreter();
+      final runtime = createLuaLikeTestRuntime();
       final host = LoveHeadlessHost(
         windowMetrics: const LoveWindowMetrics(width: 320, height: 240),
       );
@@ -192,7 +191,7 @@ void main() {
     test(
       'display orientation is normalized to documented LOVE constants',
       () async {
-        final runtime = Interpreter();
+        final runtime = createLuaLikeTestRuntime();
         final host = LoveHeadlessHost(
           windowMetrics: const LoveWindowMetrics(display: 2),
           windowDisplays: const <LoveWindowDisplay>[
@@ -235,7 +234,7 @@ void main() {
     );
 
     test('dpi conversion APIs use the current window scale', () async {
-      final runtime = Interpreter();
+      final runtime = createLuaLikeTestRuntime();
       final host = LoveHeadlessHost(
         windowMetrics: const LoveWindowMetrics(dpiScale: 2.0),
       );
@@ -265,7 +264,7 @@ void main() {
     });
 
     test('close updates open and visible state', () async {
-      final runtime = Interpreter();
+      final runtime = createLuaLikeTestRuntime();
       final host = LoveHeadlessHost();
 
       installLove2d(runtime: runtime, host: host);
@@ -294,7 +293,7 @@ void main() {
     test(
       'setPosition, icon, and display sleep state update window state',
       () async {
-        final runtime = Interpreter();
+        final runtime = createLuaLikeTestRuntime();
         final host = LoveHeadlessHost(
           windowMetrics: const LoveWindowMetrics(
             x: 12,
@@ -361,7 +360,7 @@ void main() {
     );
 
     test('mode, title, and vsync APIs round-trip window state', () async {
-      final runtime = Interpreter();
+      final runtime = createLuaLikeTestRuntime();
       final host = LoveHeadlessHost(
         windowMetrics: const LoveWindowMetrics(
           width: 800,
@@ -481,7 +480,7 @@ void main() {
     test(
       'maximize, minimize, restore, and requestAttention update window state',
       () async {
-        final runtime = Interpreter();
+        final runtime = createLuaLikeTestRuntime();
         final host = LoveHeadlessHost(
           windowMetrics: const LoveWindowMetrics(
             resizable: true,
@@ -572,7 +571,7 @@ void main() {
     test(
       'maximize is ignored for fullscreen or non-resizable windows',
       () async {
-        final runtime = Interpreter();
+        final runtime = createLuaLikeTestRuntime();
         final host = LoveHeadlessHost(
           windowMetrics: const LoveWindowMetrics(
             resizable: false,
@@ -602,7 +601,7 @@ void main() {
     );
 
     test('showMessageBox forwards simple and custom dialog requests', () async {
-      final runtime = Interpreter();
+      final runtime = createLuaLikeTestRuntime();
       LoveWindowMessageBoxData? lastMessageBox;
       final host = LoveHeadlessHost(
         windowMessageBoxHandler: (data) {

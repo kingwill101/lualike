@@ -111,18 +111,56 @@ class LoveMesh {
   /// Creates a mesh from [vertices] and optional draw settings.
   LoveMesh({
     required List<LoveMeshVertex> vertices,
-    this.drawMode = LoveMeshDrawMode.fan,
+    LoveMeshDrawMode drawMode = LoveMeshDrawMode.fan,
     this.usage = LoveMeshUsage.dynamicUsage,
     List<LoveMeshAttributeFormat>? vertexFormat,
   }) : _vertices = vertices.map((vertex) => vertex.copy()).toList(),
+       _drawMode = drawMode,
        vertexFormat = vertexFormat != null
            ? List<LoveMeshAttributeFormat>.unmodifiable(vertexFormat)
            : List<LoveMeshAttributeFormat>.unmodifiable(defaultVertexFormat);
 
-  final List<LoveMeshVertex> _vertices;
+  LoveMesh._snapshot({
+    required List<LoveMeshVertex> vertices,
+    required LoveMeshDrawMode drawMode,
+    required this.usage,
+    required this.vertexFormat,
+    LoveImage? texture,
+    List<int>? vertexMap,
+    int? drawRangeMin,
+    int? drawRangeMax,
+    required Map<String, bool> attributeEnabled,
+  }) : _vertices = vertices,
+       _verticesShared = true,
+       _drawMode = drawMode,
+       _texture = texture,
+       _vertexMap = vertexMap == null ? null : List<int>.of(vertexMap),
+       _drawRangeMin = drawRangeMin,
+       _drawRangeMax = drawRangeMax {
+    _attributeEnabled.addAll(attributeEnabled);
+  }
+
+  List<LoveMeshVertex> _vertices;
+  bool _verticesShared = false;
+  int _revision = 0;
+  int? _cachedVerticesForDrawRevision;
+  List<LoveMeshVertex>? _cachedVerticesForDraw;
+  int? _cachedSnapshotVerticesRevision;
+  List<LoveMeshVertex>? _cachedSnapshotVertices;
 
   /// The draw mode for this mesh. Mutable via Mesh:setDrawMode.
-  LoveMeshDrawMode drawMode;
+  LoveMeshDrawMode get drawMode => _drawMode;
+
+  set drawMode(LoveMeshDrawMode value) {
+    if (_drawMode == value) {
+      return;
+    }
+
+    _drawMode = value;
+    _markChanged();
+  }
+
+  LoveMeshDrawMode _drawMode;
 
   /// The usage hint assigned when this mesh was created.
   final LoveMeshUsage usage;
@@ -148,18 +186,21 @@ class LoveMesh {
   void setImageTexture(LoveImage? image) {
     _texture = image;
     _canvasTexture = null;
+    _markChanged();
   }
 
   /// Assigns [canvas] as the mesh texture.
   void setCanvasTexture(LoveCanvas? canvas) {
     _canvasTexture = canvas;
     _texture = null;
+    _markChanged();
   }
 
   /// Removes any assigned texture object from this mesh.
   void clearTexture() {
     _texture = null;
     _canvasTexture = null;
+    _markChanged();
   }
 
   // ---------------------------------------------------------------------------
@@ -175,6 +216,7 @@ class LoveMesh {
   /// Replaces the optional vertex map with [map].
   void setVertexMapData(List<int>? map) {
     _vertexMap = map == null ? null : List<int>.of(map);
+    _markChanged();
   }
 
   // ---------------------------------------------------------------------------
@@ -192,12 +234,14 @@ class LoveMesh {
   void setDrawRange(int? min, int? max) {
     _drawRangeMin = min;
     _drawRangeMax = max;
+    _markChanged();
   }
 
   /// Clears any active draw range restriction.
   void clearDrawRange() {
     _drawRangeMin = null;
     _drawRangeMax = null;
+    _markChanged();
   }
 
   // ---------------------------------------------------------------------------
@@ -210,8 +254,10 @@ class LoveMesh {
   bool isAttributeEnabled(String name) => _attributeEnabled[name] ?? true;
 
   /// Sets whether the attribute named [name] is enabled for drawing.
-  void setAttributeEnabled(String name, bool enabled) =>
-      _attributeEnabled[name] = enabled;
+  void setAttributeEnabled(String name, bool enabled) {
+    _attributeEnabled[name] = enabled;
+    _markChanged();
+  }
 
   // ---------------------------------------------------------------------------
   // flush – no-op in the command-based runtime
@@ -235,6 +281,11 @@ class LoveMesh {
   /// Returns the effective vertex stream used for drawing after applying the
   /// optional vertex map and draw range.
   List<LoveMeshVertex> verticesForDraw() {
+    final cached = _cachedVerticesForDraw;
+    if (cached != null && _cachedVerticesForDrawRevision == _revision) {
+      return cached;
+    }
+
     final mapped = _vertexMap == null
         ? _vertices
         : _vertexMap!
@@ -242,17 +293,20 @@ class LoveMesh {
               .map((index) => _vertices[index - 1])
               .toList(growable: false);
 
-    if (_drawRangeMin == null || mapped.isEmpty) {
-      return List<LoveMeshVertex>.unmodifiable(
-        mapped.map((vertex) => vertex.copy()),
-      );
-    }
+    final vertices = _drawRangeMin == null || mapped.isEmpty
+        ? mapped
+        : _rangedVertices(mapped);
 
+    final result = List<LoveMeshVertex>.unmodifiable(vertices);
+    _cachedVerticesForDraw = result;
+    _cachedVerticesForDrawRevision = _revision;
+    return result;
+  }
+
+  List<LoveMeshVertex> _rangedVertices(List<LoveMeshVertex> mapped) {
     final start = (_drawRangeMin! - 1).clamp(0, mapped.length);
     final end = _drawRangeMax!.clamp(start, mapped.length);
-    return List<LoveMeshVertex>.unmodifiable(
-      mapped.sublist(start, end).map((vertex) => vertex.copy()),
-    );
+    return mapped.sublist(start, end);
   }
 
   // ---------------------------------------------------------------------------
@@ -282,12 +336,32 @@ class LoveMesh {
   /// Canvas textures are snapshotted into images so the result can be rendered
   /// without retaining a live canvas dependency.
   LoveMesh copyForDraw() {
-    final result = copy();
-    if (result._canvasTexture case final LoveCanvas canvas?) {
-      result._texture = canvas.snapshot();
-      result._canvasTexture = null;
+    final texture = _canvasTexture?.snapshot() ?? _texture;
+    return LoveMesh._snapshot(
+      vertices: _snapshotVertices(),
+      drawMode: drawMode,
+      usage: usage,
+      vertexFormat: vertexFormat,
+      texture: texture,
+      vertexMap: _vertexMap,
+      drawRangeMin: _drawRangeMin,
+      drawRangeMax: _drawRangeMax,
+      attributeEnabled: _attributeEnabled,
+    );
+  }
+
+  List<LoveMeshVertex> _snapshotVertices() {
+    final cached = _cachedSnapshotVertices;
+    if (cached != null && _cachedSnapshotVerticesRevision == _revision) {
+      return cached;
     }
-    return result;
+
+    final snapshot = List<LoveMeshVertex>.unmodifiable(
+      _vertices.map((vertex) => vertex.copy()),
+    );
+    _cachedSnapshotVertices = snapshot;
+    _cachedSnapshotVerticesRevision = _revision;
+    return snapshot;
   }
 
   // ---------------------------------------------------------------------------
@@ -328,6 +402,7 @@ class LoveMesh {
 
     final startIndex = startVertex - 1;
     final requiredLength = startIndex + resolvedCount;
+    _ensureOwnVertices();
     while (_vertices.length < requiredLength) {
       _vertices.add(const LoveMeshVertex(x: 0, y: 0));
     }
@@ -335,5 +410,19 @@ class LoveMesh {
     for (var index = 0; index < resolvedCount; index++) {
       _vertices[startIndex + index] = vertices[index].copy();
     }
+    _markChanged();
+  }
+
+  void _ensureOwnVertices() {
+    if (!_verticesShared) {
+      return;
+    }
+
+    _vertices = _vertices.map((vertex) => vertex.copy()).toList();
+    _verticesShared = false;
+  }
+
+  void _markChanged() {
+    _revision++;
   }
 }

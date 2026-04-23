@@ -321,7 +321,7 @@ bool _physicsLuaTruthy(Object? value) {
   return first != null && first != false;
 }
 
-/// Invokes a Lua physics callback through the active interpreter.
+/// Invokes a Lua physics callback through the active Lua runtime.
 ///
 /// Returns only the first Lua result because the physics callback entrypoints in
 /// this file treat callback returns as scalar decisions or values.
@@ -333,7 +333,7 @@ Future<Object?> _physicsInvokeLuaCallback(
 ) async {
   final interpreter = context.interpreter;
   if (interpreter == null) {
-    throw LuaError('$symbol requires an interpreter runtime');
+    throw LuaError('$symbol requires a Lua runtime');
   }
   return _physicsFirstResult(
     await interpreter.callFunction(

@@ -8,7 +8,7 @@ void main() {
     test(
       'Font:getWrap ignores entries after the first hole in colored text tables',
       () async {
-        final runtime = Interpreter();
+        final runtime = createLuaLikeTestRuntime();
         installLove2d(runtime: runtime, host: LoveHeadlessHost());
 
         final font = await luaCall(
@@ -36,7 +36,7 @@ void main() {
     test(
       'Font:getWrap treats colored text tables without index 1 as empty text',
       () async {
-        final runtime = Interpreter();
+        final runtime = createLuaLikeTestRuntime();
         installLove2d(runtime: runtime, host: LoveHeadlessHost());
 
         final font = await luaCall(
@@ -58,7 +58,7 @@ void main() {
     );
 
     test('Font:getWidth rejects colored text tables like LOVE', () async {
-      final runtime = Interpreter();
+      final runtime = createLuaLikeTestRuntime();
       installLove2d(runtime: runtime, host: LoveHeadlessHost());
 
       final font = await luaCall(

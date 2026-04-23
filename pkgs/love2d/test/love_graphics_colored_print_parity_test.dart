@@ -7,7 +7,7 @@ void main() {
   group('love.graphics colored print parity', () {
     test('print and printf accept numeric and colored text inputs', () async {
       final host = LoveHeadlessHost();
-      final runtime = Interpreter();
+      final runtime = createLuaLikeTestRuntime();
       installLove2d(runtime: runtime, host: host);
 
       final font = await luaCall(
@@ -60,7 +60,7 @@ void main() {
     });
 
     test('print and printf validate partial color tables like LOVE', () async {
-      final runtime = Interpreter();
+      final runtime = createLuaLikeTestRuntime();
       installLove2d(runtime: runtime, host: LoveHeadlessHost());
 
       final font = await luaCall(

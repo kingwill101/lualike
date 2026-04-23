@@ -5,11 +5,85 @@ import 'test_support/lua_api_test_helpers.dart';
 
 void main() {
   group('love core bindings', () {
-    late Interpreter runtime;
+    late LuaRuntime runtime;
 
     setUp(() {
-      runtime = Interpreter();
+      runtime = createLuaLikeTestRuntime();
       installLove2d(runtime: runtime);
+    });
+
+    test('LoveScriptRuntime records explicit engine mode', () {
+      final scriptRuntime = LoveScriptRuntime(
+        engineMode: EngineMode.luaBytecode,
+      );
+
+      expect(scriptRuntime.lua.engineMode, EngineMode.luaBytecode);
+      expect(
+        LoveRuntimeContext.of(scriptRuntime.runtime).engineMode,
+        EngineMode.luaBytecode,
+      );
+    });
+
+    test('LOVE runtimes disable automatic GC by default', () async {
+      final scriptRuntime = LoveScriptRuntime(runtime: runtime);
+
+      expect(runtime.gc.isStopped, isTrue);
+      expect(runtime.gc.autoTriggerEnabled, isFalse);
+      expect(LoveRuntimeContext.of(runtime).automaticGc, isFalse);
+
+      await scriptRuntime.execute('gcRunning = collectgarbage("isrunning")');
+
+      expect(scriptRuntime.unwrapGlobal('gcRunning'), isFalse);
+    });
+
+    test('LOVE runtimes can opt back into automatic GC', () async {
+      final scriptRuntime = LoveScriptRuntime(
+        automaticGc: true,
+        host: LoveHeadlessHost(),
+      );
+
+      expect(scriptRuntime.runtime.gc.isStopped, isFalse);
+      expect(scriptRuntime.runtime.gc.autoTriggerEnabled, isTrue);
+      expect(scriptRuntime.context.automaticGc, isTrue);
+
+      await scriptRuntime.execute('gcRunning = collectgarbage("isrunning")');
+
+      expect(scriptRuntime.unwrapGlobal('gcRunning'), isTrue);
+    });
+
+    test('bytecode runtime dispatches LOVE table callbacks', () async {
+      final scriptRuntime = LoveScriptRuntime(
+        engineMode: EngineMode.luaBytecode,
+        host: LoveHeadlessHost(),
+      );
+
+      await scriptRuntime.execute('''
+function love.resize(width, height)
+  if width == 640 and height == 360 then
+    love.event.quit()
+  end
+end
+''');
+      expect(scriptRuntime.userLoveCallback('resize'), isNotNull);
+
+      await scriptRuntime.callResizeIfDefined(640, 360);
+      final event = scriptRuntime.context.events.poll();
+
+      expect(event?.name, 'quit');
+    });
+
+    test('bytecode runtime preserves nil-returning LOVE getters', () async {
+      final scriptRuntime = LoveScriptRuntime(
+        engineMode: EngineMode.luaBytecode,
+        host: LoveHeadlessHost(),
+      );
+
+      await scriptRuntime.execute('''
+local canvas = love.graphics.newCanvas(16, 16)
+result = tostring(canvas:getDepthSampleMode())
+''');
+
+      expect(scriptRuntime.unwrapGlobal('result'), 'nil');
     });
 
     test('getVersion and isVersionCompatible follow LOVE 11.5', () async {

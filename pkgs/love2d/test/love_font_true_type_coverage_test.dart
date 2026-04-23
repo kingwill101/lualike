@@ -1,5 +1,4 @@
 import 'package:flutter_test/flutter_test.dart';
-import 'package:lualike/lualike.dart';
 import 'package:love2d/love2d.dart';
 import 'package:love2d/src/runtime/filesystem/love_filesystem_runtime.dart';
 
@@ -9,7 +8,7 @@ import 'test_support/lua_api_test_helpers.dart';
 void main() {
   group('source-backed true type glyph coverage', () {
     test('rasterizers use cmap coverage for hasGlyphs', () async {
-      final runtime = Interpreter();
+      final runtime = createLuaLikeTestRuntime();
       installLove2d(runtime: runtime, host: LoveHeadlessHost());
 
       final veraBytes = await (await love2dVeraFontFile()).readAsBytes();
@@ -80,7 +79,7 @@ void main() {
     });
 
     test('graphics.newFont keeps source-backed true type coverage', () async {
-      final runtime = Interpreter();
+      final runtime = createLuaLikeTestRuntime();
       installLove2d(runtime: runtime, host: LoveHeadlessHost());
 
       final sourceDir = await love2dResourceDirectory();
@@ -129,7 +128,7 @@ void main() {
     test(
       'source-backed rasterizers use parsed outline metrics for glyph data',
       () async {
-        final runtime = Interpreter();
+        final runtime = createLuaLikeTestRuntime();
         installLove2d(runtime: runtime, host: LoveHeadlessHost());
 
         final veraBytes = await (await love2dVeraFontFile()).readAsBytes();
@@ -182,7 +181,7 @@ void main() {
     test(
       'source-backed rasterizers and rasterizer-backed fonts use parsed vertical metrics',
       () async {
-        final runtime = Interpreter();
+        final runtime = createLuaLikeTestRuntime();
         installLove2d(runtime: runtime, host: LoveHeadlessHost());
 
         final veraBytes = await (await love2dVeraFontFile()).readAsBytes();

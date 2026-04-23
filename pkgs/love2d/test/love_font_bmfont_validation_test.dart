@@ -8,7 +8,7 @@ void main() {
     test(
       'newBMFontRasterizer uses LOVE error text for invalid page ids',
       () async {
-        final runtime = Interpreter();
+        final runtime = createLuaLikeTestRuntime();
         installLove2d(runtime: runtime, host: LoveHeadlessHost());
 
         final definition = await luaCall(
@@ -42,7 +42,7 @@ void main() {
     test(
       'newBMFontRasterizer uses LOVE error text for invalid character coordinates',
       () async {
-        final runtime = Interpreter();
+        final runtime = createLuaLikeTestRuntime();
         installLove2d(runtime: runtime, host: LoveHeadlessHost());
 
         final definition = await luaCall(
@@ -79,7 +79,7 @@ void main() {
     test(
       'newBMFontRasterizer uses LOVE error text for invalid widths',
       () async {
-        final runtime = Interpreter();
+        final runtime = createLuaLikeTestRuntime();
         installLove2d(runtime: runtime, host: LoveHeadlessHost());
 
         final definition = await luaCall(
@@ -113,7 +113,7 @@ void main() {
     test(
       'newBMFontRasterizer uses LOVE error text for invalid heights',
       () async {
-        final runtime = Interpreter();
+        final runtime = createLuaLikeTestRuntime();
         installLove2d(runtime: runtime, host: LoveHeadlessHost());
 
         final definition = await luaCall(

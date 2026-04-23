@@ -10,7 +10,7 @@ void main() {
     test(
       'World type metadata survives release while other methods fail',
       () async {
-        final runtime = Interpreter();
+        final runtime = createLuaLikeTestRuntime();
         installLove2d(runtime: runtime);
 
         final world = await luaCall(
@@ -31,7 +31,7 @@ void main() {
     test(
       'Body type metadata survives release while other methods fail',
       () async {
-        final runtime = Interpreter();
+        final runtime = createLuaLikeTestRuntime();
         installLove2d(runtime: runtime);
 
         final world = await luaCall(
@@ -57,7 +57,7 @@ void main() {
     test(
       'Fixture type metadata survives release while other methods fail',
       () async {
-        final runtime = Interpreter();
+        final runtime = createLuaLikeTestRuntime();
         installLove2d(runtime: runtime);
 
         final world = await luaCall(
@@ -93,7 +93,7 @@ void main() {
     test(
       'CircleShape type metadata survives release while other methods fail',
       () async {
-        final runtime = Interpreter();
+        final runtime = createLuaLikeTestRuntime();
         installLove2d(runtime: runtime);
 
         final shape = await luaCall(
@@ -114,7 +114,7 @@ void main() {
     test(
       'DistanceJoint type metadata survives release while other methods fail',
       () async {
-        final runtime = Interpreter();
+        final runtime = createLuaLikeTestRuntime();
         installLove2d(runtime: runtime);
 
         final world = await luaCall(
@@ -150,7 +150,7 @@ void main() {
     test(
       'Contact type metadata survives release while other methods fail',
       () async {
-        final runtime = Interpreter();
+        final runtime = createLuaLikeTestRuntime();
         installLove2d(runtime: runtime);
 
         final world = await luaCallList(

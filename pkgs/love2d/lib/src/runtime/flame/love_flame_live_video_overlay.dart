@@ -1,3 +1,4 @@
+import 'package:flame/camera.dart';
 import 'package:flutter/foundation.dart' show ValueListenable;
 import 'package:flutter/material.dart';
 import 'package:media_kit_video/media_kit_video.dart' as media_kit_video;
@@ -74,10 +75,12 @@ class LoveFlameLiveVideoOverlay extends StatelessWidget {
     super.key,
     required this.presentedFrameListenable,
     required this.windowMetricsProvider,
+    this.cameraProvider,
   });
 
   final ValueListenable<LoveGraphicsSurfaceSnapshot> presentedFrameListenable;
   final LoveWindowMetrics Function() windowMetricsProvider;
+  final CameraComponent? Function()? cameraProvider;
 
   @override
   Widget build(BuildContext context) {
@@ -85,14 +88,13 @@ class LoveFlameLiveVideoOverlay extends StatelessWidget {
       builder: (context, constraints) {
         final viewportSize = Size(constraints.maxWidth, constraints.maxHeight);
         final windowMetrics = _resolveWindowMetrics(viewportSize);
-        final destinationRect = loveViewportDestinationRect(
+        final presentation = loveFlamePresentationGeometry(
           windowMetrics: windowMetrics,
           viewportSize: viewportSize,
+          camera: cameraProvider?.call(),
         );
-        final logicalViewportSize = loveLogicalViewportSize(
-          windowMetrics: windowMetrics,
-          viewportSize: viewportSize,
-        );
+        final destinationRect = presentation.destinationRect;
+        final logicalViewportSize = presentation.logicalSize;
         if (destinationRect.width <= 0 ||
             destinationRect.height <= 0 ||
             logicalViewportSize.width <= 0 ||

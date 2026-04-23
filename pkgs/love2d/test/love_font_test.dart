@@ -4,6 +4,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:lualike/lualike.dart';
 import 'package:love2d/love2d.dart';
 import 'package:love2d/src/runtime/filesystem/love_filesystem_runtime.dart';
+import 'package:vector_math/vector_math_64.dart' as vm;
 
 import 'test_support/font_test_support.dart';
 import 'test_support/memory_filesystem_test_support.dart';
@@ -11,10 +12,84 @@ import 'test_support/lua_api_test_helpers.dart';
 
 void main() {
   group('love.font bindings', () {
+    test('text commands snapshot font configuration cheaply', () {
+      final fallback = LoveFont(
+        size: 12,
+        glyphAdvances: const <int, double>{0x42: 2.0},
+        supportsCodepointCallback: (codepoint) => codepoint == 0x42,
+      );
+      final font = LoveFont(
+        size: 12,
+        glyphAdvances: const <int, double>{0x41: 1.0},
+        supportsCodepointCallback: (codepoint) => codepoint == 0x41,
+      );
+      font.setFallbacks(<LoveFont>[fallback]);
+
+      final command = LoveTextCommand(
+        color: LoveColor.white,
+        lineWidth: 1,
+        lineStyle: LoveGraphicsLineStyle.smooth,
+        lineJoin: LoveGraphicsLineJoin.miter,
+        blendMode: LoveGraphicsBlendMode.alpha,
+        blendAlphaMode: LoveGraphicsBlendAlphaMode.alphaMultiply,
+        colorMask: LoveGraphicsColorMask.all,
+        wireframe: false,
+        scissor: null,
+        transform: vm.Matrix4.identity(),
+        textTransform: vm.Matrix4.identity(),
+        font: font,
+        spans: const <LoveTextSpan>[LoveTextSpan(text: 'AB')],
+        x: 0,
+        y: 0,
+      );
+
+      font
+        ..size = 24
+        ..glyphAdvances = const <int, double>{0x41: 99.0};
+      font.setFallbacks(const <LoveFont>[]);
+
+      expect(command.font.size, 12);
+      expect(command.font.measureWidth('A'), 1.0);
+      expect(command.font.measureWidth('B'), 2.0);
+      expect(command.font.fallbacks, <LoveFont>[fallback]);
+    });
+
+    test('graphics push and pop preserve font object identity', () async {
+      final runtime = createLuaLikeTestRuntime();
+      installLove2d(runtime: runtime, host: LoveHeadlessHost());
+
+      final font = await luaCallRaw(
+        runtime,
+        const ['love', 'graphics', 'newFont'],
+        const <Object?>[18],
+      );
+      await luaCall(
+        runtime,
+        const ['love', 'graphics', 'setFont'],
+        <Object?>[font],
+      );
+      await luaCall(runtime, const ['love', 'graphics', 'push'], const ['all']);
+      await luaCallMethod(font, 'setLineHeight', const <Object?>[2.0]);
+      await luaCall(
+        runtime,
+        const ['love', 'graphics', 'setNewFont'],
+        const [12],
+      );
+      await luaCall(runtime, const ['love', 'graphics', 'pop']);
+
+      final restored = await luaCallRaw(runtime, const [
+        'love',
+        'graphics',
+        'getFont',
+      ]);
+      expect(restored, same(font));
+      expect(await luaCallMethod(font, 'getLineHeight'), 2.0);
+    });
+
     test(
       'newTrueTypeRasterizer exposes LOVE object semantics for metrics',
       () async {
-        final runtime = Interpreter();
+        final runtime = createLuaLikeTestRuntime();
         installLove2d(runtime: runtime, host: LoveHeadlessHost());
 
         final rasterizer = await luaCallList(
@@ -39,7 +114,7 @@ void main() {
     );
 
     test('default font constructors use LOVE default size 12', () async {
-      final runtime = Interpreter();
+      final runtime = createLuaLikeTestRuntime();
       installLove2d(runtime: runtime, host: LoveHeadlessHost());
 
       final defaultRasterizer = await luaCallList(runtime, const [
@@ -64,7 +139,7 @@ void main() {
     test(
       'newImageRasterizer exposes image glyph metrics and missing glyphs',
       () async {
-        final runtime = Interpreter();
+        final runtime = createLuaLikeTestRuntime();
         installLove2d(runtime: runtime, host: LoveHeadlessHost());
 
         final imageData = await luaCallList(
@@ -126,7 +201,7 @@ void main() {
     );
 
     test('image font constructors reject non-rgba8 image data', () async {
-      final runtime = Interpreter();
+      final runtime = createLuaLikeTestRuntime();
       installLove2d(runtime: runtime, host: LoveHeadlessHost());
 
       final imageData = await luaCallList(
@@ -169,7 +244,7 @@ void main() {
     test(
       'newRasterizer uses true type overloads and graphics accepts rasterizers',
       () async {
-        final runtime = Interpreter();
+        final runtime = createLuaLikeTestRuntime();
         installLove2d(runtime: runtime, host: LoveHeadlessHost());
 
         final imageRasterizer = await luaCallList(
@@ -219,7 +294,7 @@ void main() {
     test(
       'font bindings accept LuaString inputs for glyphs and filenames',
       () async {
-        final runtime = Interpreter();
+        final runtime = createLuaLikeTestRuntime();
         installLove2d(
           runtime: runtime,
           host: LoveHeadlessHost(),
@@ -300,7 +375,7 @@ void main() {
                 );
               },
         );
-        final runtime = Interpreter();
+        final runtime = createLuaLikeTestRuntime();
         installLove2d(runtime: runtime, host: host);
 
         final sourceDir = await love2dResourceDirectory();
@@ -367,7 +442,7 @@ void main() {
                 );
               },
         );
-        final runtime = Interpreter();
+        final runtime = createLuaLikeTestRuntime();
         installLove2d(runtime: runtime, host: host);
 
         final font = await luaCallList(
@@ -391,7 +466,7 @@ void main() {
       'graphics.newFont loads mounted filename sources through LOVE filesystem',
       () async {
         final veraBytes = await (await love2dVeraFontFile()).readAsBytes();
-        final runtime = Interpreter();
+        final runtime = createLuaLikeTestRuntime();
         installLove2d(
           runtime: runtime,
           host: LoveHeadlessHost(),
@@ -468,7 +543,7 @@ void main() {
       'graphics.newFont without size uses LOVE default size 12 for mounted files',
       () async {
         final veraBytes = await (await love2dVeraFontFile()).readAsBytes();
-        final runtime = Interpreter();
+        final runtime = createLuaLikeTestRuntime();
         installLove2d(
           runtime: runtime,
           host: LoveHeadlessHost(),
@@ -519,7 +594,7 @@ void main() {
     );
 
     test('graphics.newFont rejects unresolved filename sources', () async {
-      final runtime = Interpreter();
+      final runtime = createLuaLikeTestRuntime();
       installLove2d(runtime: runtime, host: LoveHeadlessHost());
 
       await expectLater(
@@ -543,7 +618,7 @@ void main() {
     test(
       'font line height does not change Font:getHeight and scales Text height',
       () async {
-        final runtime = Interpreter();
+        final runtime = createLuaLikeTestRuntime();
         installLove2d(runtime: runtime, host: LoveHeadlessHost());
 
         final font = await luaCallList(
@@ -570,7 +645,7 @@ void main() {
     );
 
     test('font hasGlyphs requires at least one glyph argument', () async {
-      final runtime = Interpreter();
+      final runtime = createLuaLikeTestRuntime();
       installLove2d(runtime: runtime, host: LoveHeadlessHost());
 
       final font = await luaCallList(
@@ -600,7 +675,7 @@ void main() {
     });
 
     test('graphics.newImageFont uses spacer-delimited glyph widths', () async {
-      final runtime = Interpreter();
+      final runtime = createLuaLikeTestRuntime();
       installLove2d(runtime: runtime, host: LoveHeadlessHost());
 
       final imageData = await luaCallList(
@@ -625,7 +700,7 @@ void main() {
     });
 
     test('image font fallbacks contribute missing glyph widths', () async {
-      final runtime = Interpreter();
+      final runtime = createLuaLikeTestRuntime();
       installLove2d(runtime: runtime, host: LoveHeadlessHost());
 
       final imageData = await luaCallList(

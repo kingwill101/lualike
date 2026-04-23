@@ -1,14 +1,53 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:flame/game.dart';
-import 'package:lualike/lualike.dart' show LuaString;
+import 'package:lualike/lualike.dart' show EngineMode, LuaString;
 import 'package:lualike/src/io/io_device.dart';
 import 'package:love2d/love2d.dart';
 import 'package:path/path.dart' as path;
 
 void main() {
   final binding = TestWidgetsFlutterBinding.ensureInitialized();
+
+  test('LoveFlameHarness defaults to bytecode runtime mode', () {
+    const harness = LoveFlameHarness(entryAsset: 'assets/game/main.lua');
+
+    expect(harness.engineMode, EngineMode.luaBytecode);
+    expect(harness.automaticGc, isFalse);
+  });
+
+  testWidgets(
+    'LoveFlameHarness stays in Prewarming until startup warmup completes',
+    (tester) async {
+      binding.handleAppLifecycleStateChanged(AppLifecycleState.resumed);
+      final warmupComplete = Completer<void>();
+      var warmupCalls = 0;
+
+      await tester.pumpWidget(
+        MaterialApp(
+          home: LoveFlameHarness(
+            entryAsset: 'assets/game/main.lua',
+            filesystemAdapter: _scriptAdapter('function love.load() end'),
+            onQuitRequested: () async {},
+            debugImageWarmupOverride: (_, _) {
+              warmupCalls++;
+              return warmupComplete.future;
+            },
+          ),
+        ),
+      );
+      await _pumpUntilStatus(tester, 'Prewarming');
+      expect(warmupCalls, 1);
+      expect(find.text('Prewarming LOVE assets...'), findsOneWidget);
+      expect(find.text('Running'), findsNothing);
+
+      warmupComplete.complete();
+      await _pumpUntilStatus(tester, 'Running');
+    },
+  );
 
   testWidgets(
     'LoveFlameHarness dispatches love.resize on viewport changes without a synthetic startup callback',
@@ -93,6 +132,61 @@ end
       await _pumpUntilStatus(tester, 'Running');
 
       await tester.tapAt(tester.getCenter(find.byType(LoveFlameHarness)));
+      await tester.pump();
+      await _pumpUntilStatus(tester, 'Quit');
+    },
+  );
+
+  testWidgets(
+    'LoveFlameHarness keeps the configured LOVE mode when the host viewport resizes',
+    (tester) async {
+      binding.handleAppLifecycleStateChanged(AppLifecycleState.resumed);
+      addTearDown(() async {
+        await binding.setSurfaceSize(null);
+      });
+      await binding.setSurfaceSize(const Size(640, 480));
+
+      const confScript = '''
+function love.conf(t)
+  t.window.width = 960
+  t.window.height = 540
+end
+''';
+      const mainScript = '''
+function love.resize(width, height)
+  local modeWidth, modeHeight = love.window.getMode()
+  if modeWidth ~= 960 or modeHeight ~= 540 then
+    error(string.format("mode:%d:%d resize:%d:%d", modeWidth, modeHeight, width, height))
+  end
+
+  if width == 800 and height == 480 then
+    love.event.quit()
+  end
+end
+''';
+      final adapter = LoveAssetBundleFilesystemAdapter(
+        bundle: _MapAssetBundle(<String, List<int>>{
+          'assets/game/conf.lua': confScript.codeUnits,
+          'assets/game/main.lua': mainScript.codeUnits,
+        }),
+        assetKeys: const <String>[
+          'assets/game/conf.lua',
+          'assets/game/main.lua',
+        ],
+      );
+
+      await tester.pumpWidget(
+        MaterialApp(
+          home: LoveFlameHarness(
+            entryAsset: 'assets/game/main.lua',
+            filesystemAdapter: adapter,
+            onQuitRequested: () async {},
+          ),
+        ),
+      );
+      await _pumpUntilStatus(tester, 'Running');
+
+      await binding.setSurfaceSize(const Size(800, 480));
       await tester.pump();
       await _pumpUntilStatus(tester, 'Quit');
     },
@@ -315,6 +409,10 @@ class _MapAssetBundle extends CachingAssetBundle {
 
   @override
   Future<ByteData> load(String key) async {
+    if (key == 'AssetManifest.bin') {
+      return _assetManifestDataForKeys(_assets.keys);
+    }
+
     final bytes = _assets[key];
     if (bytes == null) {
       throw StateError('Missing asset: $key');
@@ -322,6 +420,16 @@ class _MapAssetBundle extends CachingAssetBundle {
 
     return ByteData.sublistView(Uint8List.fromList(bytes));
   }
+}
+
+ByteData _assetManifestDataForKeys(Iterable<String> keys) {
+  final manifest = <String, List<Map<String, Object?>>>{
+    for (final key in keys)
+      key: <Map<String, Object?>>[
+        <String, Object?>{'asset': key},
+      ],
+  };
+  return const StandardMessageCodec().encodeMessage(manifest)!;
 }
 
 class _SequencedFilesystemAdapter implements LoveFilesystemAdapter {

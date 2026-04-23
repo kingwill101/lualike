@@ -1,5 +1,4 @@
 import 'package:flutter_test/flutter_test.dart';
-import 'package:lualike/lualike.dart';
 import 'package:love2d/love2d.dart';
 import 'test_support/font_test_support.dart';
 import 'test_support/lua_api_test_helpers.dart';
@@ -9,7 +8,7 @@ void main() {
     test(
       'setFont updates the current graphics font and returns no value',
       () async {
-        final runtime = Interpreter();
+        final runtime = createLuaLikeTestRuntime();
         installLove2d(runtime: runtime, host: LoveHeadlessHost());
 
         final defaultFont = await luaCall(runtime, const [

@@ -11,7 +11,7 @@ import 'test_support/lua_api_test_helpers.dart';
 void main() {
   group('love.font true type validation', () {
     test('newTrueTypeRasterizer rejects non-font FileData inputs', () async {
-      final runtime = Interpreter();
+      final runtime = createLuaLikeTestRuntime();
       installLove2d(runtime: runtime, host: LoveHeadlessHost());
 
       final fileData = await luaCall(
@@ -37,7 +37,7 @@ void main() {
     });
 
     test('newTrueTypeRasterizer rejects non-font filenames', () async {
-      final runtime = Interpreter();
+      final runtime = createLuaLikeTestRuntime();
       installLove2d(
         runtime: runtime,
         host: LoveHeadlessHost(),
@@ -71,7 +71,7 @@ void main() {
     test(
       'newRasterizer rejects invalid loaded font data with LOVE text',
       () async {
-        final runtime = Interpreter();
+        final runtime = createLuaLikeTestRuntime();
         installLove2d(runtime: runtime, host: LoveHeadlessHost());
 
         final fileData = await luaCall(
@@ -100,7 +100,7 @@ void main() {
     test(
       'graphics.newFont rejects invalid loaded font data with LOVE text',
       () async {
-        final runtime = Interpreter();
+        final runtime = createLuaLikeTestRuntime();
         installLove2d(runtime: runtime, host: LoveHeadlessHost());
 
         final fileData = await luaCall(

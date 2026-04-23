@@ -1,7 +1,6 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:lualike/lualike.dart';
 import 'package:love2d/love2d.dart';
-import 'package:love2d/src/runtime/flame/love_flame_harness_renderer.dart';
 
 const String _rawRegisteredFragmentShaderSource = '''
 // LOVE2D_FLUTTER_FRAGMENT_ASSET: packages/love2d/test_assets/shaders/runtime_effect_solid_color.frag
