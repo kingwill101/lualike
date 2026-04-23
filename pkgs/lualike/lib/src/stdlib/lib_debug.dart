@@ -258,6 +258,9 @@ class _GetHook extends BuiltinFunction {
 class _GetLocal extends BuiltinFunction {
   _GetLocal(LuaRuntime super.i);
 
+  @override
+  bool get isBytecodeDebugGetLocalBuiltin => true;
+
   String? _frameSourceKey(CallFrame frame) {
     return frame.callable?.functionBody?.span?.sourceUrl?.toString() ??
         frame.scriptPath;
@@ -816,6 +819,9 @@ class _SetHook extends BuiltinFunction {
 
 class _SetLocal extends BuiltinFunction {
   _SetLocal(LuaRuntime super.interpreter);
+
+  @override
+  bool get isBytecodeDebugSetLocalBuiltin => true;
 
   int _requireInt(Value value) {
     if (value.raw is! num) {

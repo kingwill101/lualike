@@ -138,6 +138,25 @@ class Interpreter extends AstVisitor<Object?>
     return value;
   }
 
+  @override
+  Value constantRawStringValue(String value) {
+    final key = luaStringCacheKeyFromRawString(value);
+    final cached = literalValueCache[key];
+    if (cached != null) {
+      cached.interpreter ??= this;
+      _syncCachedTypeMetatable(cached, type: 'string');
+      return cached;
+    }
+
+    final luaString = literalStringInternPool[key] ??= LuaString.fromBytes(
+      value.codeUnits,
+    );
+    final wrapped = Value(luaString)..interpreter = this;
+    _syncCachedTypeMetatable(wrapped, type: 'string');
+    literalValueCache[key] = wrapped;
+    return wrapped;
+  }
+
   /// Current environment for variable scope.
   Environment _currentEnv;
 
@@ -297,7 +316,7 @@ class Interpreter extends AstVisitor<Object?>
           frame.currentLine = line;
         }
       }
-      final hookArgs = <Object?>[constantStringValue(event.codeUnits)];
+      final hookArgs = <Object?>[constantRawStringValue(event)];
       if (line != null) {
         hookArgs.add(constantPrimitiveValue(line));
       }

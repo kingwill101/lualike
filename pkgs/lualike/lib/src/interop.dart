@@ -182,19 +182,25 @@ class LuaLike {
   /// The underlying LuaLike runtime instance.
   final LuaRuntime vm;
 
+  /// The execution engine mode selected for this facade.
+  final EngineMode engineMode;
+
   /// Creates a new bridge with a runtime instance.
-  /// If none is provided, a fresh AST interpreter is created.
-  factory LuaLike({LuaRuntime? runtime}) {
-    runtime ??= switch (LuaLikeConfig().defaultEngineMode) {
+  ///
+  /// If [runtime] is omitted, [engineMode] selects the runtime implementation.
+  /// When [engineMode] is omitted, [LuaLikeConfig.defaultEngineMode] is used.
+  factory LuaLike({LuaRuntime? runtime, EngineMode? engineMode}) {
+    final selectedMode = engineMode ?? LuaLikeConfig().defaultEngineMode;
+    runtime ??= switch (selectedMode) {
       EngineMode.ir => LualikeIrRuntime(),
       EngineMode.luaBytecode => LuaBytecodeRuntime(),
       EngineMode.ast => Interpreter(),
     };
-    return LuaLike._internal(runtime);
+    return LuaLike._internal(runtime, selectedMode);
   }
 
   /// Internal constructor
-  LuaLike._internal(LuaRuntime runtime) : vm = runtime;
+  LuaLike._internal(LuaRuntime runtime, this.engineMode) : vm = runtime;
 
   /// Register a Dart function to be callable from LuaLike
   void expose(String name, Function function) {
@@ -209,8 +215,6 @@ class LuaLike {
   /// and ensuring the debug library has access to the interpreter
   Future<Object?> execute(String code, {String? scriptPath}) async {
     try {
-      final mode = LuaLikeConfig().defaultEngineMode;
-
       if (scriptPath != null) {
         _updateScriptMetadata(vm, scriptPath);
       }
@@ -218,7 +222,7 @@ class LuaLike {
       final result = await executeCode(
         code,
         vm: vm,
-        mode: mode,
+        mode: engineMode,
         url: scriptPath,
         onRuntimeSetup: (runtime) {
           runtime.globals.interpreter = runtime;

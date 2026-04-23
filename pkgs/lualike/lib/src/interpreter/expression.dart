@@ -1179,7 +1179,7 @@ mixin InterpreterExpressionMixin on AstVisitor<Object?> {
           );
         }
         final result = await envValue.getValueAsync(
-          interpreter.constantStringValue(node.name.codeUnits),
+          interpreter.constantRawStringValue(node.name),
         );
         return result is Value ? result : interpreter.wrapRuntimeValue(result);
       } else if (envValue.raw == null) {
