@@ -178,6 +178,10 @@ class Interpreter extends AstVisitor<Object?>
   /// Fast path cache for local variable boxes in the current function.
   Map<String, Box<dynamic>>? _currentFastLocals;
 
+  /// Counts AST safe points so finalizer-sensitive loops can receive sparse
+  /// incremental GC progress without requiring loop-specific bookkeeping.
+  int _autoGcSafePointCounter = 0;
+
   /// Current script path being executed
   @override
   String? currentScriptPath;
@@ -849,7 +853,10 @@ class Interpreter extends AstVisitor<Object?>
 
   @override
   void runAutoGcAtSafePoint() {
-    if (gc.isStopped || !gc.autoTriggerEnabled) {
+    if (gc.isStopped ||
+        !gc.autoTriggerEnabled ||
+        gc.isManualCollectRunning ||
+        gc.isFinalizerActive) {
       return;
     }
     final threshold = gc.autoTriggerDebtThreshold;
@@ -865,7 +872,19 @@ class Interpreter extends AstVisitor<Object?>
     if (gc.isStopped || !gc.autoTriggerEnabled) {
       return false;
     }
-    return gc.allocationDebt > 0;
+    if (gc.isManualCollectRunning || gc.isFinalizerActive) {
+      return false;
+    }
+    if (gc.needsAsyncFinalizerDrain) {
+      return true;
+    }
+    final debt = gc.allocationDebt;
+    if (debt > 0) {
+      return true;
+    }
+    final threshold = gc.autoTriggerDebtThreshold;
+    return gc.shouldForceAsyncLoopRescue(loopCounter, debt, threshold) ||
+        gc.shouldAdvanceIncrementalLoopCycle(loopCounter);
   }
 
   @override
@@ -873,11 +892,37 @@ class Interpreter extends AstVisitor<Object?>
     if (gc.isStopped || !gc.autoTriggerEnabled) {
       return;
     }
-    final debt = gc.allocationDebt;
-    if (debt <= 0) {
+    if (gc.isManualCollectRunning || gc.isFinalizerActive) {
       return;
     }
-    runAutoGcAtSafePoint();
+    if (gc.needsAsyncFinalizerDrain) {
+      await _finishAutoFinalizerCycle();
+      return;
+    }
+    final debt = gc.allocationDebt;
+    if (debt > 0) {
+      runAutoGcAtSafePoint();
+      if (gc.needsAsyncFinalizerDrain) {
+        await _finishAutoFinalizerCycle();
+        return;
+      }
+    }
+    final threshold = gc.autoTriggerDebtThreshold;
+    if (gc.shouldForceAsyncLoopRescue(loopCounter, debt, threshold)) {
+      await _finishAutoFinalizerCycle();
+      return;
+    }
+    if (!gc.shouldAdvanceIncrementalLoopCycle(loopCounter)) {
+      return;
+    }
+    gc.performIncrementalStep(gc.loopIncrementalGcBudget());
+    if (gc.needsAsyncFinalizerDrain) {
+      await _finishAutoFinalizerCycle();
+      return;
+    }
+    if (gc.hasPendingAsyncFinalizers) {
+      await gc.drainPendingAsyncFinalizers();
+    }
   }
 
   int get externalGcRootProviderCount => _externalGcRootProviders.length;
@@ -1734,7 +1779,19 @@ class Interpreter extends AstVisitor<Object?>
     return defaultDebugInfoForFunction(this, function);
   }
 
+  Future<void> _finishAutoFinalizerCycle() async {
+    await gc.majorCollection(getRoots());
+  }
+
   Future<void> _runAutoGCAtSafePoint() async {
+    if (gc.isStopped ||
+        !gc.autoTriggerEnabled ||
+        gc.isManualCollectRunning ||
+        gc.isFinalizerActive) {
+      return;
+    }
+    _autoGcSafePointCounter += 1;
+    final safePointCounter = _autoGcSafePointCounter;
     final threshold = gc.autoTriggerDebtThreshold;
     final debt = gc.allocationDebt;
     if (Logger.enabled) {
@@ -1744,11 +1801,21 @@ class Interpreter extends AstVisitor<Object?>
         contextBuilder: () => {'debt': debt, 'threshold': threshold},
       );
     }
-    if (debt < threshold && !gc.hasPendingAsyncFinalizers) {
+    final hasPendingFinalizerWork =
+        gc.hasPendingFinalizers || gc.hasPendingAsyncFinalizers;
+    if (debt < threshold &&
+        !hasPendingFinalizerWork &&
+        !gc.shouldForceAsyncLoopRescue(safePointCounter, debt, threshold)) {
       return;
     }
     if (debt >= threshold) {
       gc.runPendingAutoTrigger();
+    }
+    if (gc.hasPendingFinalizers ||
+        gc.hasPendingAsyncFinalizers ||
+        gc.shouldForceAsyncLoopRescue(safePointCounter, debt, threshold)) {
+      await _finishAutoFinalizerCycle();
+      return;
     }
     if (gc.hasPendingAsyncFinalizers) {
       await gc.drainPendingAsyncFinalizers();
