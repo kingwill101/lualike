@@ -2,7 +2,6 @@ import 'dart:ui' as ui;
 import 'dart:typed_data';
 
 import 'package:flutter_test/flutter_test.dart';
-import 'package:lualike/lualike.dart';
 import 'package:love2d/love2d.dart';
 import 'package:love2d/src/runtime/filesystem/love_filesystem_runtime.dart';
 
@@ -15,7 +14,7 @@ void main() {
       'queues an image command when a frame provider is available',
       () async {
         final provider = _FakeVideoFrameProvider();
-        final runtime = Interpreter();
+        final runtime = createLuaLikeTestRuntime();
         final host = LoveHeadlessHost(
           videoFrameProviderFactory: (source, {bytes, metadata}) async {
             return provider;
@@ -67,7 +66,7 @@ void main() {
       'reuses the decoded native image when the provider returns the same snapshot',
       () async {
         final provider = _StickyVideoFrameProvider();
-        final runtime = Interpreter();
+        final runtime = createLuaLikeTestRuntime();
         final host = LoveHeadlessHost(
           videoFrameProviderFactory: (source, {bytes, metadata}) async {
             return provider;

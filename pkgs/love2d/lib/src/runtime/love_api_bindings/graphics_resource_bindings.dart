@@ -168,9 +168,37 @@ LoveImage _resolveImageFromImageData({
     formatLinear: resolvedSettings.linear,
     imageData: mipmaps.first,
     imageDataMipmaps: mipmaps,
-    preferImageDataRendering: true,
+    preferImageDataRendering: nativeImage == null,
     nativeImage: nativeImage,
   );
+}
+
+String _hostImageDataCacheKey(String sourceLabel, Uint8List encodedBytes) {
+  var hash = 0x811C9DC5;
+  for (final byte in encodedBytes) {
+    hash ^= byte;
+    hash = (hash * 0x01000193) & 0xFFFFFFFF;
+  }
+  return '$sourceLabel#${encodedBytes.length}#${hash.toRadixString(16)}';
+}
+
+Future<Object?> _maybeHostNativeImageFromImageData(
+  LoveRuntimeContext runtime,
+  LoveImageData imageData, {
+  required String sourceLabel,
+  Map<dynamic, dynamic>? settings,
+}) async {
+  final encodedBytes = imageData.encode('png');
+  try {
+    final image = await runtime.host.loadImage(
+      _hostImageDataCacheKey(sourceLabel, encodedBytes),
+      bytes: encodedBytes,
+      settings: settings,
+    );
+    return image.nativeImage;
+  } catch (_) {
+    return null;
+  }
 }
 
 /// Builds a runtime image from [LoveCompressedImageData].
@@ -267,7 +295,8 @@ LoveImage _resolveImageSettings(
           : resolvedSettings.linear,
       imageData: mipmaps.first,
       imageDataMipmaps: mipmaps,
-      preferImageDataRendering: true,
+      preferImageDataRendering:
+          image.preferImageDataRendering || image.nativeImage == null,
     );
   }
 
@@ -314,6 +343,11 @@ Future<LoveImage> _loadImageFromSource(
 }) async {
   final runtime = _runtimeContext(context);
   final fileData = await _requireResourceFileData(context, source, symbol);
+  final assetKey = await _resolveResourceAssetKeyIfPresent(
+    context,
+    source,
+    symbol: symbol,
+  );
   final bytes = Uint8List.fromList(fileData.bytes);
 
   try {
@@ -321,6 +355,7 @@ Future<LoveImage> _loadImageFromSource(
       source,
       bytes: bytes,
       settings: settings,
+      assetKey: assetKey,
     );
     return _resolveImageSettings(
       image.copyWith(filter: defaultFilter),
@@ -355,10 +390,19 @@ Future<LoveImageData> _loadImageDataFromSource(
 }) async {
   final runtime = _runtimeContext(context);
   final fileData = await _requireResourceFileData(context, source, symbol);
+  final assetKey = await _resolveResourceAssetKeyIfPresent(
+    context,
+    source,
+    symbol: symbol,
+  );
   final bytes = Uint8List.fromList(fileData.bytes);
 
   try {
-    final image = await runtime.host.loadImage(source, bytes: bytes);
+    final image = await runtime.host.loadImage(
+      source,
+      bytes: bytes,
+      assetKey: assetKey,
+    );
     final imageData = image.imageData;
     if (imageData != null) {
       return imageData.clone();
@@ -388,6 +432,12 @@ LoveApiImplementation _bindGraphicsNewImage(
         : null;
     final imageData = _imageDataIfPresent(_valueAt(args, 0));
     if (imageData != null) {
+      final nativeImage = await _maybeHostNativeImageFromImageData(
+        runtime,
+        imageData,
+        sourceLabel: 'ImageData',
+        settings: settings,
+      );
       return _wrapImage(
         context,
         _resolveImageFromImageData(
@@ -397,6 +447,7 @@ LoveApiImplementation _bindGraphicsNewImage(
           defaultMipmapFilter: runtime.graphics.defaultMipmapFilter,
           defaultMipmapSharpness: runtime.graphics.defaultMipmapSharpness,
           settings: settings,
+          nativeImage: nativeImage,
         ),
       );
     }

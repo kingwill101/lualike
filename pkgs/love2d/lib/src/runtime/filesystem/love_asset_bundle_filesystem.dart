@@ -59,6 +59,25 @@ class LoveAssetBundleFilesystemAdapter implements LoveFilesystemAdapter {
   /// Whether this adapter delegates unresolved paths to another adapter.
   bool get hasExplicitFallback => _fallback is! _LoveNoopFilesystemAdapter;
 
+  /// Returns the bundled asset keys rooted at [path].
+  ///
+  /// The returned keys are normalized into the adapter's virtual POSIX
+  /// namespace and exclude anything that would only resolve through the
+  /// fallback adapter.
+  Iterable<String> assetKeysUnder(String path) sync* {
+    final normalized = _normalizeAssetPath(path);
+    final prefix = normalized.isEmpty ? '' : '$normalized/';
+    final matches =
+        _assetKeys
+            .where(
+              (assetKey) =>
+                  assetKey == normalized || assetKey.startsWith(prefix),
+            )
+            .toList()
+          ..sort();
+    yield* matches;
+  }
+
   /// Returns a copy of this adapter that delegates misses to [fallback].
   LoveAssetBundleFilesystemAdapter withFallback(
     LoveFilesystemAdapter fallback,

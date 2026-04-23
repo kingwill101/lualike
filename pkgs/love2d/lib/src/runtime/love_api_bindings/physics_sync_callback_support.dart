@@ -7,7 +7,8 @@ final class _LovePhysicsSyncReturnSignal implements Exception {
   final Object? value;
 }
 
-/// Internal exception used when a synchronous physics callback uses unsupported features.
+/// Internal exception used when a synchronous physics callback uses unsupported
+/// features.
 final class _LovePhysicsSyncUnsupported implements Exception {
   const _LovePhysicsSyncUnsupported(this.message);
 
@@ -37,28 +38,48 @@ Value _physicsPackVarargsTable(List<Object?> values, LuaRuntime runtime) {
 
 /// Whether [callback] can be invoked through the synchronous physics bridge.
 ///
-/// Synchronous dispatch requires an [Interpreter] runtime and a callback shape
-/// that this file knows how to execute inline.
+/// Synchronous dispatch requires a [LuaRuntime] and a callback shape that this
+/// file knows how to execute inline.
 bool _physicsCanInvokeLuaCallbackSync(LibraryContext context, Value callback) {
-  return context.interpreter is Interpreter &&
+  return context.interpreter != null &&
       (callback.functionBody != null ||
           callback.raw is BuiltinFunction ||
           callback.raw is Function);
 }
 
+/// Whether all currently registered callbacks can use synchronous dispatch.
+bool _physicsCanUseSyncCallbacks(
+  LibraryContext context,
+  LovePhysicsWorld world,
+) {
+  if (context.interpreter == null) {
+    return false;
+  }
+
+  final callbacks = world.callbacks;
+  for (final callback in <Value?>[
+    callbacks.beginContact,
+    callbacks.endContact,
+    callbacks.preSolve,
+    callbacks.postSolve,
+    world.contactFilter,
+  ]) {
+    if (callback != null &&
+        !_physicsCanInvokeLuaCallbackSync(context, callback)) {
+      return false;
+    }
+  }
+
+  return true;
+}
+
 /// Invokes [callback] synchronously and returns its first Lua result.
-///
-/// Throws a [LuaError] when the current runtime is not an [Interpreter].
 Object? _physicsInvokeLuaCallbackSync(
   LibraryContext context,
   Value callback,
   List<Object?> args,
   String symbol,
 ) {
-  if (context.interpreter is! Interpreter) {
-    throw LuaError('$symbol requires an interpreter runtime');
-  }
-
   final result = _physicsWithLuaErrors(
     () => _LovePhysicsSyncLuaInvoker(context, symbol).invoke(callback, args),
   );
@@ -77,11 +98,11 @@ final class _LovePhysicsSyncLuaInvoker {
 
   /// The active runtime for this invocation.
   ///
-  /// Throws a [LuaError] when no interpreter runtime is available.
+  /// Throws a [LuaError] when no Lua runtime is available.
   LuaRuntime get runtime {
     final runtime = context.interpreter;
     if (runtime == null) {
-      throw LuaError('$symbol requires an interpreter runtime');
+      throw LuaError('$symbol requires a Lua runtime');
     }
     return runtime;
   }

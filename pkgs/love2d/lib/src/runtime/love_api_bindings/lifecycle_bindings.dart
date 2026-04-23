@@ -210,11 +210,16 @@ Object? _loveTableField(LuaRuntime runtime, String name) {
 /// Returns a user-defined `love.[name]` callback, excluding builtins.
 Value? _userLoveCallback(LuaRuntime runtime, String name) {
   final callback = _functionValue(_loveTableField(runtime, name));
-  if (callback == null || callback.raw is BuiltinFunction) {
+  if (callback == null || _isGeneratedLoveCallbackStub(callback)) {
     return null;
   }
 
   return callback;
+}
+
+bool _isGeneratedLoveCallbackStub(Value callback) {
+  final raw = callback.raw;
+  return raw is BuiltinFunction && raw is! LuaCallableArtifact;
 }
 
 /// Normalizes a Lua value to a callable [Value].

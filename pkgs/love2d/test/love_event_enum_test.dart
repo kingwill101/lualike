@@ -5,10 +5,10 @@ import 'test_support/lua_api_test_helpers.dart';
 
 void main() {
   group('Event enum', () {
-    late Interpreter runtime;
+    late LuaRuntime runtime;
 
     setUp(() {
-      runtime = Interpreter();
+      runtime = createLuaLikeTestRuntime();
       installLove2d(runtime: runtime, host: LoveHeadlessHost());
     });
 
@@ -189,7 +189,9 @@ void main() {
 
 List<Object?> _unwrapMulti(Object? result) {
   if (result is Value && result.isMulti) {
-    return (result.raw as List<Object?>).map(luaUnwrapValue).toList(growable: false);
+    return (result.raw as List<Object?>)
+        .map(luaUnwrapValue)
+        .toList(growable: false);
   }
   // LuaLike.execute converts multi-value returns into a plain Dart List<dynamic>
   // (each element already wrapped in Value). Handle that case here.

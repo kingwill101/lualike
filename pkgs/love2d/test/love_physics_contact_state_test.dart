@@ -6,10 +6,10 @@ import 'test_support/physics_test_support.dart';
 
 void main() {
   group('love.physics contact and inertia bindings', () {
-    late Interpreter runtime;
+    late LuaRuntime runtime;
 
     setUp(() {
-      runtime = Interpreter();
+      runtime = createLuaLikeTestRuntime();
       installLove2d(runtime: runtime);
     });
 

@@ -11,6 +11,7 @@ void main() {
     () async {
       final host = LoveHeadlessHost();
       final runtime = LoveScriptRuntime(
+        engineMode: EngineMode.luaBytecode,
         host: host,
         filesystemAdapter: LoveLualikeFilesystemAdapter(),
       );

@@ -11,7 +11,7 @@ void main() {
     test(
       'SoundData type and typeOf use Lua bad-argument text for wrong receivers',
       () async {
-        final runtime = Interpreter();
+        final runtime = createLuaLikeTestRuntime();
         installLove2d(runtime: runtime, host: LoveHeadlessHost());
 
         final soundData = await luaCall(
@@ -52,7 +52,7 @@ void main() {
     test(
       'Decoder type metadata survives release while other methods fail',
       () async {
-        final runtime = Interpreter();
+        final runtime = createLuaLikeTestRuntime();
         installLove2d(runtime: runtime, host: LoveHeadlessHost());
 
         final fileData = await luaCall(

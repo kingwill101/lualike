@@ -6,10 +6,10 @@ import 'test_support/lua_api_test_helpers.dart';
 
 void main() {
   group('love.audio lightuserdata queue bindings', () {
-    late Interpreter runtime;
+    late LuaRuntime runtime;
 
     setUp(() {
-      runtime = Interpreter();
+      runtime = createLuaLikeTestRuntime();
       installLove2d(runtime: runtime, host: LoveHeadlessHost());
     });
 

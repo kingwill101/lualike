@@ -1,7 +1,8 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:lualike/lualike.dart';
 import 'package:love2d/love2d.dart';
-import 'package:love2d/src/runtime/flame/love_flame_harness_renderer.dart';
+
+import 'test_support/lua_api_test_helpers.dart';
 
 const String _registeredFragmentHelperSource = '''
 #version 460 core
@@ -24,7 +25,7 @@ void main() {
     test(
       '_newRegisteredFragmentShader accepts loadable Flutter fragment assets',
       () async {
-        final runtime = Interpreter();
+        final runtime = createLuaLikeTestRuntime();
         installLove2d(runtime: runtime, host: LoveFlameHarnessGame().host);
 
         final result = await _call(
@@ -43,7 +44,7 @@ void main() {
     test(
       '_newRegisteredFragmentShader rejects missing Flutter fragment assets',
       () async {
-        final runtime = Interpreter();
+        final runtime = createLuaLikeTestRuntime();
         installLove2d(runtime: runtime, host: LoveFlameHarnessGame().host);
 
         await expectLater(
@@ -71,7 +72,7 @@ void main() {
 }
 
 Future<Object?> _call(
-  Interpreter runtime,
+  LuaRuntime runtime,
   List<String> path, [
   List<Object?> args = const <Object?>[],
 ]) async {
@@ -79,7 +80,7 @@ Future<Object?> _call(
   return result is Future<Object?> ? await result : result;
 }
 
-BuiltinFunction _rawFunction(Interpreter runtime, List<String> path) {
+BuiltinFunction _rawFunction(LuaRuntime runtime, List<String> path) {
   var current = runtime.getCurrentEnv().get(path.first);
   for (final segment in path.skip(1)) {
     final table = current is Value ? current.raw : current;

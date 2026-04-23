@@ -6,7 +6,7 @@ import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
 import 'package:flutter/scheduler.dart';
 import 'package:flutter/services.dart';
-import 'package:lualike/lualike.dart' show LuaError, Value;
+import 'package:lualike/lualike.dart' show EngineMode, LuaError, Value;
 
 import '../filesystem/love_asset_bundle_filesystem.dart';
 import '../filesystem/love_flutter_filesystem.dart';
@@ -21,6 +21,12 @@ import 'love_flame_mouse_cursor_bridge.dart';
 import 'love_registered_fragment_shader_cache.dart';
 import 'love_flame_text_input_bridge.dart';
 import 'love_flame_viewport_geometry.dart';
+
+const String _loveFlameLiveVideoOverlayKey = 'love-live-video-overlay';
+final RegExp _loveFlamePrewarmableImageAssetPattern = RegExp(
+  r'\.(png|jpg|jpeg|gif|webp|bmp|wbmp)$',
+  caseSensitive: false,
+);
 
 Future<LoveFilesystemAdapter> resolveLoveFlameHarnessFilesystemAdapter({
   required AssetBundle bundle,
@@ -69,6 +75,10 @@ class LoveFlameHarness extends StatefulWidget {
     this.videoFrameProviderFactory,
     this.onInputAdaptersReady,
     this.onQuitRequested,
+    this.engineMode = EngineMode.luaBytecode,
+    this.automaticGc = false,
+    this.debugImageWarmupOverride,
+    this.debugOnGameCreated,
   });
 
   /// The mounted LOVE entry asset, typically `main.lua`.
@@ -99,6 +109,25 @@ class LoveFlameHarness extends StatefulWidget {
   /// Called when the LOVE runtime requests shutdown.
   final Future<void> Function()? onQuitRequested;
 
+  /// The LuaLike engine used by the Flame-hosted LOVE runtime.
+  final EngineMode engineMode;
+
+  /// Whether Lualike's automatic GC safe points are enabled.
+  ///
+  /// Defaults to false so frame-time profiling can isolate interpreter and
+  /// rendering costs without GC pauses.
+  final bool automaticGc;
+
+  /// Testing hook that replaces bundled startup image warmup.
+  final Future<void> Function(
+    LoveFlameHarnessGame game,
+    LoveFilesystemState filesystem,
+  )?
+  debugImageWarmupOverride;
+
+  /// Testing and benchmark hook that exposes the created Flame game instance.
+  final void Function(LoveFlameHarnessGame game)? debugOnGameCreated;
+
   @override
   State<LoveFlameHarness> createState() => _LoveFlameHarnessState();
 }
@@ -119,6 +148,9 @@ class _LoveFlameHarnessState extends State<LoveFlameHarness>
         bundle: _bundle,
         filesystemAdapter: widget.filesystemAdapter,
         onQuitRequested: widget.onQuitRequested ?? _defaultQuitRequested,
+        engineMode: widget.engineMode,
+        automaticGc: widget.automaticGc,
+        debugImageWarmupOverride: widget.debugImageWarmupOverride,
       );
 
   Future<void> _defaultQuitRequested() async {
@@ -132,6 +164,9 @@ class _LoveFlameHarnessState extends State<LoveFlameHarness>
     super.initState();
     WidgetsBinding.instance.addObserver(this);
     _game.onTick = _controller.onFrame;
+    _game.onKeyEventHandler = (event, _) =>
+        _controller.input.handleKeyEvent(event);
+    widget.debugOnGameCreated?.call(_game);
     final lifecycleState = WidgetsBinding.instance.lifecycleState;
     if (lifecycleState != null) {
       _controller.handleAppLifecycleState(lifecycleState);
@@ -161,6 +196,7 @@ class _LoveFlameHarnessState extends State<LoveFlameHarness>
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
     _game.onTick = null;
+    _game.onKeyEventHandler = null;
     _controller.dispose();
     _game.disposePresentationNotifier();
     super.dispose();
@@ -204,16 +240,16 @@ class _LoveFlameHarnessState extends State<LoveFlameHarness>
                       ),
                     ),
                   ),
-                // Positioned(
-                //   right: 16,
-                //   top: 16,
-                //   child: _HarnessBadge(
-                //     child: Text(
-                //       _controller.statusLabel,
-                //       key: const Key('status-label'),
-                //     ),
-                //   ),
-                // ),
+                Positioned(
+                  right: 16,
+                  top: 16,
+                  child: _HarnessBadge(
+                    child: Text(
+                      _controller.statusLabel,
+                      key: const Key('status-label'),
+                    ),
+                  ),
+                ),
                 if (_controller.errorMessage case final error?)
                   if (!_controller.hasRuntimeErrorLoop)
                     Center(
@@ -240,9 +276,9 @@ class _LoveFlameHarnessState extends State<LoveFlameHarness>
                       ),
                     ),
                 if (!_controller.isReady && _controller.errorMessage == null)
-                  const Center(
+                  Center(
                     child: _HarnessBadge(
-                      child: Text('Loading LOVE runtime...'),
+                      child: Text(_controller.loadingMessage),
                     ),
                   ),
                 if (activeShaderDiagnostic != null)
@@ -286,6 +322,9 @@ class _LoveFlameHarnessController extends ChangeNotifier {
     required this.bundle,
     this.filesystemAdapter,
     required this.onQuitRequested,
+    required this.engineMode,
+    required this.automaticGc,
+    this.debugImageWarmupOverride,
   });
 
   final LoveFlameHarnessGame game;
@@ -293,6 +332,13 @@ class _LoveFlameHarnessController extends ChangeNotifier {
   final AssetBundle bundle;
   final LoveFilesystemAdapter? filesystemAdapter;
   final Future<void> Function() onQuitRequested;
+  final EngineMode engineMode;
+  final bool automaticGc;
+  final Future<void> Function(
+    LoveFlameHarnessGame game,
+    LoveFilesystemState filesystem,
+  )?
+  debugImageWarmupOverride;
 
   late final LoveJoystickInputAdapter joystickInput = LoveJoystickInputAdapter(
     host: game.host,
@@ -307,6 +353,7 @@ class _LoveFlameHarnessController extends ChangeNotifier {
     host: game.host,
     runtimeProvider: () => _runtime,
     viewportSizeProvider: () => _viewportSize,
+    cameraProvider: () => game.camera,
     joystickInput: joystickInput,
     onError: (error, stackTrace) => _recordError(
       error,
@@ -318,6 +365,7 @@ class _LoveFlameHarnessController extends ChangeNotifier {
   LoveScriptRuntime? _runtime;
   bool _disposed = false;
   bool _initialized = false;
+  bool _startupWarmupPending = false;
   bool _updateInFlight = false;
   bool _quitRequested = false;
   bool _restartRequested = false;
@@ -333,6 +381,9 @@ class _LoveFlameHarnessController extends ChangeNotifier {
   bool get isReady => _initialized;
   String? get errorMessage => _errorMessage;
   bool get hasRuntimeErrorLoop => _errorLoop != null;
+  String get loadingMessage => _startupWarmupPending
+      ? 'Prewarming LOVE assets...'
+      : 'Loading LOVE runtime...';
 
   String get statusLabel {
     if (_errorMessage != null) {
@@ -340,6 +391,9 @@ class _LoveFlameHarnessController extends ChangeNotifier {
     }
     if (_quitRequested) {
       return 'Quit';
+    }
+    if (_startupWarmupPending) {
+      return 'Prewarming';
     }
     if (!_initialized) {
       return 'Loading';
@@ -349,6 +403,7 @@ class _LoveFlameHarnessController extends ChangeNotifier {
 
   Future<void> initialize() async {
     _initialized = false;
+    _startupWarmupPending = false;
     _updateInFlight = false;
     _quitRequested = false;
     _restartRequested = false;
@@ -372,6 +427,8 @@ class _LoveFlameHarnessController extends ChangeNotifier {
       final runtime = LoveScriptRuntime(
         host: game.host,
         filesystemAdapter: adapter,
+        engineMode: engineMode,
+        automaticGc: automaticGc,
       );
       runtimeForError = runtime;
       final filesystem = LoveFilesystemState.of(runtime.runtime);
@@ -411,6 +468,12 @@ class _LoveFlameHarnessController extends ChangeNotifier {
       runtime.context.graphics.origin();
       await runtime.callDrawIfDefined();
       await _commitPresentedFrame(runtime);
+      await _awaitStartupWarmups(
+        imageWarmup:
+            debugImageWarmupOverride?.call(game, filesystem) ??
+            _prewarmBundleSourceImages(filesystem),
+        surfaceSnapshot: game.presentedFrame,
+      );
       if (await _restartIfRequested()) {
         return;
       }
@@ -563,6 +626,84 @@ class _LoveFlameHarnessController extends ChangeNotifier {
       );
     } finally {
       _updateInFlight = false;
+    }
+  }
+
+  Future<void> _awaitStartupWarmups({
+    required Future<void> imageWarmup,
+    required LoveGraphicsSurfaceSnapshot surfaceSnapshot,
+  }) async {
+    if (!_startupWarmupPending) {
+      _startupWarmupPending = true;
+      if (!_disposed) {
+        notifyListeners();
+      }
+    }
+
+    try {
+      await imageWarmup;
+      await game.images.ready();
+      await loveFlameRegisteredFragmentShaderCache.readyForAssets(
+        loveRegisteredFragmentShaderAssetsInSurface(surfaceSnapshot),
+      );
+    } finally {
+      if (_startupWarmupPending) {
+        _startupWarmupPending = false;
+        if (!_disposed) {
+          notifyListeners();
+        }
+      }
+    }
+  }
+
+  Future<void> _prewarmBundleSourceImages(
+    LoveFilesystemState filesystem,
+  ) async {
+    final assetAdapter = switch (filesystem.adapter) {
+      final LoveAssetBundleFilesystemAdapter adapter => adapter,
+      _ => null,
+    };
+    if (assetAdapter == null) {
+      return;
+    }
+
+    final sourceBaseDirectory = filesystem.getSourceBaseDirectory();
+    if (sourceBaseDirectory.isEmpty) {
+      return;
+    }
+
+    final assetKeys = assetAdapter
+        .assetKeysUnder(sourceBaseDirectory)
+        .where(_loveFlamePrewarmableImageAssetPattern.hasMatch)
+        .toList(growable: false);
+    if (assetKeys.isEmpty) {
+      return;
+    }
+
+    await Future.wait(
+      assetKeys.map(_prewarmBundledImageAsset),
+      eagerError: false,
+    );
+  }
+
+  Future<void> _prewarmBundledImageAsset(String assetKey) async {
+    try {
+      await game.host.prewarmImageAsset(assetKey);
+    } catch (error, stackTrace) {
+      game.images.clear(assetKey);
+      FlutterError.reportError(
+        FlutterErrorDetails(
+          exception: error,
+          stack: stackTrace,
+          library: 'love2d',
+          context: ErrorDescription(
+            'while prewarming the bundled LOVE image asset "$assetKey"',
+          ),
+          informationCollector: () sync* {
+            yield ErrorDescription('Entry asset: $entryAsset');
+          },
+        ),
+      );
     }
   }
 
@@ -725,14 +866,7 @@ class _LoveFlameHarnessController extends ChangeNotifier {
   }
 
   void _syncHostMetrics(Size size) {
-    final width = size.width.round();
-    final height = size.height.round();
-    game.host.windowMetrics = game.host.windowMetrics.copyWith(
-      width: width,
-      height: height,
-      desktopWidth: width,
-      desktopHeight: height,
-    );
+    game.host.updateHostViewportSize(size);
   }
 
   void _recordError(
@@ -853,8 +987,7 @@ class _LoveHarnessViewport extends StatefulWidget {
   State<_LoveHarnessViewport> createState() => _LoveHarnessViewportState();
 }
 
-class _LoveHarnessViewportState extends State<_LoveHarnessViewport>
-    with SingleTickerProviderStateMixin {
+class _LoveHarnessViewportState extends State<_LoveHarnessViewport> {
   late final FocusNode _focusNode = FocusNode(debugLabel: 'love-harness');
   late final LoveFlameMouseCursorBridge _mouseCursorBridge =
       LoveFlameMouseCursorBridge(mouse: widget.controller.game.host.mouse);
@@ -870,44 +1003,43 @@ class _LoveHarnessViewportState extends State<_LoveHarnessViewport>
   String? _systemCursorType;
   double _imageCursorX = 0;
   double _imageCursorY = 0;
-  late final Ticker _textInputTicker = createTicker((_) {
-    _textInputBridge.sync();
-    _syncCursorState();
-  });
-  bool _textInputTickerStarted = false;
+  bool _textInputSyncScheduled = false;
+  bool _cursorSyncScheduled = false;
+
+  LoveMouseState get _mouseState => widget.controller.game.host.mouse;
+  LoveKeyboardState get _keyboardState => widget.controller.game.host.keyboard;
 
   @override
   void initState() {
     super.initState();
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (!mounted) {
-        return;
-      }
-
-      _textInputBridge.sync();
-      _syncCursorState();
-      if (_textInputTickerStarted) {
-        return;
-      }
-
-      _textInputTickerStarted = true;
-      _textInputTicker.start();
-    });
+    _focusNode.addListener(_handleFocusNodeChanged);
+    _mouseState.addListener(_handleMouseStateChanged);
+    _keyboardState.addListener(_handleKeyboardStateChanged);
+    _scheduleViewportSync(syncTextInput: true, syncCursor: true);
   }
 
   @override
   void didUpdateWidget(covariant _LoveHarnessViewport oldWidget) {
     super.didUpdateWidget(oldWidget);
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (mounted) {
-        _textInputBridge.sync();
-      }
-    });
+    final oldMouse = oldWidget.controller.game.host.mouse;
+    final oldKeyboard = oldWidget.controller.game.host.keyboard;
+    if (!identical(oldMouse, _mouseState)) {
+      oldMouse.removeListener(_handleMouseStateChanged);
+      _mouseState.addListener(_handleMouseStateChanged);
+    }
+    if (!identical(oldKeyboard, _keyboardState)) {
+      oldKeyboard.removeListener(_handleKeyboardStateChanged);
+      _keyboardState.addListener(_handleKeyboardStateChanged);
+    }
+    _syncCursorState(markNeedsBuild: false);
+    _scheduleViewportSync(syncTextInput: true, syncCursor: true);
   }
 
   @override
   void dispose() {
-    _textInputTicker.dispose();
+    _focusNode.removeListener(_handleFocusNodeChanged);
+    _mouseState.removeListener(_handleMouseStateChanged);
+    _keyboardState.removeListener(_handleKeyboardStateChanged);
     _textInputBridge.dispose();
     _focusNode.dispose();
     super.dispose();
@@ -915,84 +1047,80 @@ class _LoveHarnessViewportState extends State<_LoveHarnessViewport>
 
   @override
   Widget build(BuildContext context) {
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (mounted) {
-        _textInputBridge.sync();
-      }
-    });
-
-    return Focus(
-      autofocus: true,
-      focusNode: _focusNode,
-      onFocusChange: (focused) {
-        widget.controller.input.handleFocusChanged(focused);
-        _textInputBridge.sync();
-      },
-      onKeyEvent: (_, event) => widget.controller.input.handleKeyEvent(event),
-      child: MouseRegion(
-        cursor: _mouseCursor,
-        onEnter: widget.controller.input.handlePointerEnter,
-        onExit: widget.controller.input.handlePointerExit,
-        child: Listener(
-          behavior: HitTestBehavior.opaque,
-          onPointerDown: (event) {
-            _focusNode.requestFocus();
-            widget.controller.input.handlePointerDown(event);
-          },
-          onPointerMove: widget.controller.input.handlePointerMove,
-          onPointerHover: widget.controller.input.handlePointerHover,
-          onPointerUp: widget.controller.input.handlePointerUp,
-          onPointerCancel: widget.controller.input.handlePointerCancel,
-          onPointerSignal: widget.controller.input.handlePointerSignal,
-          child: _ViewportSizeReporter(
-            onSizeChanged: widget.onViewportSizeChanged,
-            child: DecoratedBox(
-              decoration: const BoxDecoration(
-                gradient: LinearGradient(
-                  colors: [Color(0xFF050816), Color(0xFF101827)],
-                  begin: Alignment.topLeft,
-                  end: Alignment.bottomRight,
-                ),
+    return MouseRegion(
+      cursor: _mouseCursor,
+      onEnter: widget.controller.input.handlePointerEnter,
+      onExit: widget.controller.input.handlePointerExit,
+      child: Listener(
+        behavior: HitTestBehavior.opaque,
+        onPointerDown: (event) {
+          _focusNode.requestFocus();
+          widget.controller.input.handlePointerDown(event);
+        },
+        onPointerMove: widget.controller.input.handlePointerMove,
+        onPointerHover: widget.controller.input.handlePointerHover,
+        onPointerUp: widget.controller.input.handlePointerUp,
+        onPointerCancel: widget.controller.input.handlePointerCancel,
+        onPointerSignal: widget.controller.input.handlePointerSignal,
+        child: _ViewportSizeReporter(
+          onSizeChanged: _handleViewportSizeChanged,
+          child: DecoratedBox(
+            decoration: const BoxDecoration(
+              gradient: LinearGradient(
+                colors: [Color(0xFF050816), Color(0xFF101827)],
+                begin: Alignment.topLeft,
+                end: Alignment.bottomRight,
               ),
-              child: Stack(
-                children: [
-                  Positioned.fill(child: GameWidget(game: widget.game)),
-                  Positioned.fill(
-                    child: LoveFlameLiveVideoOverlay(
-                      presentedFrameListenable:
-                          widget.game.presentedFrameListenable,
-                      windowMetricsProvider:
-                          () => widget.controller.game.host.windowMetrics,
+            ),
+            child: Stack(
+              children: [
+                Positioned.fill(
+                  child: GameWidget<LoveFlameHarnessGame>(
+                    game: widget.game,
+                    focusNode: _focusNode,
+                    autofocus: true,
+                    overlayBuilderMap: {
+                      _loveFlameLiveVideoOverlayKey: (context, game) {
+                        return LoveFlameLiveVideoOverlay(
+                          presentedFrameListenable:
+                              game.presentedFrameListenable,
+                          windowMetricsProvider: () => game.host.windowMetrics,
+                          cameraProvider: () => game.camera,
+                        );
+                      },
+                    },
+                    initialActiveOverlays: const <String>[
+                      _loveFlameLiveVideoOverlayKey,
+                    ],
+                  ),
+                ),
+                if (_imageCursor case final imageCursor?)
+                  Positioned(
+                    key: const Key('love-image-cursor'),
+                    left: _imageCursorX - imageCursor.hotspotX,
+                    top: _imageCursorY - imageCursor.hotspotY,
+                    child: IgnorePointer(
+                      child: _LoveImageCursorOverlay(cursor: imageCursor),
                     ),
                   ),
-                  if (_imageCursor case final imageCursor?)
-                    Positioned(
-                      key: const Key('love-image-cursor'),
-                      left: _imageCursorX - imageCursor.hotspotX,
-                      top: _imageCursorY - imageCursor.hotspotY,
-                      child: IgnorePointer(
-                        child: _LoveImageCursorOverlay(cursor: imageCursor),
-                      ),
+                if (_systemCursorType case final systemCursorType?)
+                  Positioned(
+                    key: const Key('love-system-cursor'),
+                    left:
+                        _imageCursorX -
+                        _loveSystemCursorOverlayForType(
+                          systemCursorType,
+                        ).hotspotX,
+                    top:
+                        _imageCursorY -
+                        _loveSystemCursorOverlayForType(
+                          systemCursorType,
+                        ).hotspotY,
+                    child: IgnorePointer(
+                      child: _LoveSystemCursorOverlay(type: systemCursorType),
                     ),
-                  if (_systemCursorType case final systemCursorType?)
-                    Positioned(
-                      key: const Key('love-system-cursor'),
-                      left:
-                          _imageCursorX -
-                          _loveSystemCursorOverlayForType(
-                            systemCursorType,
-                          ).hotspotX,
-                      top:
-                          _imageCursorY -
-                          _loveSystemCursorOverlayForType(
-                            systemCursorType,
-                          ).hotspotY,
-                      child: IgnorePointer(
-                        child: _LoveSystemCursorOverlay(type: systemCursorType),
-                      ),
-                    ),
-                ],
-              ),
+                  ),
+              ],
             ),
           ),
         ),
@@ -1000,7 +1128,81 @@ class _LoveHarnessViewportState extends State<_LoveHarnessViewport>
     );
   }
 
-  void _syncCursorState() {
+  void _handleFocusNodeChanged() {
+    widget.controller.input.handleFocusChanged(_focusNode.hasFocus);
+    _scheduleViewportSync(syncTextInput: true, syncCursor: true);
+  }
+
+  void _handleKeyboardStateChanged() {
+    _scheduleTextInputSync();
+  }
+
+  void _handleMouseStateChanged() {
+    if (_canSyncCursorImmediately) {
+      _syncCursorState();
+      return;
+    }
+
+    _scheduleCursorSync();
+  }
+
+  bool get _canSyncCursorImmediately =>
+      mounted &&
+      WidgetsBinding.instance.schedulerPhase !=
+          SchedulerPhase.persistentCallbacks;
+
+  void _handleViewportSizeChanged(Size size) {
+    widget.onViewportSizeChanged(size);
+    _scheduleViewportSync(syncTextInput: true, syncCursor: true);
+  }
+
+  void _scheduleViewportSync({
+    bool syncTextInput = false,
+    bool syncCursor = false,
+  }) {
+    if (syncTextInput) {
+      _scheduleTextInputSync();
+    }
+    if (syncCursor) {
+      _scheduleCursorSync();
+    }
+  }
+
+  void _scheduleTextInputSync() {
+    if (_textInputSyncScheduled) {
+      return;
+    }
+
+    _textInputSyncScheduled = true;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _textInputSyncScheduled = false;
+      if (!mounted) {
+        return;
+      }
+
+      _textInputBridge.sync();
+    });
+    WidgetsBinding.instance.scheduleFrame();
+  }
+
+  void _scheduleCursorSync() {
+    if (_cursorSyncScheduled) {
+      return;
+    }
+
+    _cursorSyncScheduled = true;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _cursorSyncScheduled = false;
+      if (!mounted) {
+        return;
+      }
+
+      _syncCursorState();
+    });
+    WidgetsBinding.instance.scheduleFrame();
+  }
+
+  void _syncCursorState({bool markNeedsBuild = true}) {
     final cursor = _mouseCursorBridge.sync();
     final mouse = widget.controller.game.host.mouse;
     final renderObject = context.findRenderObject();
@@ -1008,13 +1210,14 @@ class _LoveHarnessViewportState extends State<_LoveHarnessViewport>
       final RenderBox box when box.hasSize => box.size,
       _ => null,
     };
-    final viewportCursorPosition = viewportSize == null
-        ? Offset(mouse.x, mouse.y)
-        : loveLogicalToViewportPoint(
-            logicalPoint: Offset(mouse.x, mouse.y),
-            windowMetrics: widget.controller.game.host.windowMetrics,
-            viewportSize: viewportSize,
-          );
+    final viewportCursorPosition = switch (viewportSize) {
+      null => Offset(mouse.x, mouse.y),
+      final size => loveFlamePresentationGeometry(
+        windowMetrics: widget.controller.game.host.windowMetrics,
+        viewportSize: size,
+        camera: widget.game.camera,
+      ).logicalToViewportPoint(Offset(mouse.x, mouse.y)),
+    };
     final cursorValue = mouse.cursor;
     final overlayActive =
         mouse.visible &&
@@ -1048,7 +1251,12 @@ class _LoveHarnessViewportState extends State<_LoveHarnessViewport>
       return;
     }
 
-    if (!mounted) {
+    final canMarkNeedsBuild =
+        markNeedsBuild &&
+        mounted &&
+        WidgetsBinding.instance.schedulerPhase !=
+            SchedulerPhase.persistentCallbacks;
+    if (!canMarkNeedsBuild) {
       _mouseCursor = cursor;
       _imageCursor = imageCursor;
       _systemCursorType = systemCursorType;

@@ -7,10 +7,10 @@ import 'test_support/lua_api_test_helpers.dart';
 
 void main() {
   group('love.math module', () {
-    late Interpreter runtime;
+    late LuaRuntime runtime;
 
     setUp(() {
-      runtime = Interpreter();
+      runtime = createLuaLikeTestRuntime();
       installLove2d(runtime: runtime);
     });
 
@@ -255,10 +255,10 @@ void main() {
   });
 
   group('love.math RandomGenerator', () {
-    late Interpreter runtime;
+    late LuaRuntime runtime;
 
     setUp(() {
-      runtime = Interpreter();
+      runtime = createLuaLikeTestRuntime();
       installLove2d(runtime: runtime);
     });
 
@@ -308,10 +308,10 @@ void main() {
   });
 
   group('love.math BezierCurve', () {
-    late Interpreter runtime;
+    late LuaRuntime runtime;
 
     setUp(() {
-      runtime = Interpreter();
+      runtime = createLuaLikeTestRuntime();
       installLove2d(runtime: runtime);
     });
 

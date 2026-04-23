@@ -1,5 +1,4 @@
 import 'package:flutter_test/flutter_test.dart';
-import 'package:lualike/lualike.dart';
 import 'package:love2d/love2d.dart';
 import 'test_support/lua_api_test_helpers.dart';
 
@@ -10,7 +9,7 @@ void main() {
       () async {
         final clock = TestLoveClock(nowSeconds: 0);
         final host = LoveHeadlessHost(clock: clock);
-        final runtime = Interpreter();
+        final runtime = createLuaLikeTestRuntime();
 
         installLove2d(runtime: runtime, host: host);
 
@@ -50,7 +49,7 @@ void main() {
     test(
       'stepExternal keeps LOVE timer state aligned with an external loop',
       () {
-        final runtime = Interpreter();
+        final runtime = createLuaLikeTestRuntime();
 
         installLove2d(runtime: runtime, host: LoveHeadlessHost());
 

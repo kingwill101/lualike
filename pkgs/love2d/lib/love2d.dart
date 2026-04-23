@@ -5,6 +5,8 @@
 /// point in Flutter with [LoveFlameHarness].
 library;
 
+export 'package:lualike/lualike.dart' show EngineMode;
+
 export 'src/generated/love_api_reference.g.dart' hide installLove2d;
 export 'src/generated/love_api_stubs.g.dart' show loveApiStubImplementations;
 export 'src/install_love2d.dart' show attachLoveHost, installLove2d;
@@ -13,6 +15,12 @@ export 'src/love_api_support.dart';
 export 'src/runtime/flame/love_flame_harness.dart' show LoveFlameHarness;
 export 'src/runtime/flame/love_flame_host.dart' show LoveFlameHost;
 export 'src/runtime/flame/love_flame_input.dart' show LoveFlameInputAdapter;
+export 'src/runtime/flame/love_flame_harness_renderer.dart'
+    show
+        LoveFlameFrameTimingSample,
+        LoveFlameFrameTimingStats,
+        LoveFlameHarnessGame,
+        LoveFlameRenderStats;
 export 'src/runtime/input/love_joystick_input_adapter.dart'
     show LoveJoystickInputAdapter;
 export 'src/runtime/filesystem/love_asset_bundle_filesystem.dart'

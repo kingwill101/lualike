@@ -1,7 +1,6 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:lualike/lualike.dart';
 import 'package:love2d/love2d.dart';
-import 'package:love2d/src/runtime/flame/love_flame_harness_renderer.dart';
 import 'test_support/lua_api_test_helpers.dart';
 
 const String _unsupportedShaderMessage =
@@ -35,7 +34,7 @@ void main() {
     test(
       'validateShader returns true for the supported radial gradient subset',
       () async {
-        final runtime = Interpreter();
+        final runtime = createLuaLikeTestRuntime();
         installLove2d(runtime: runtime, host: LoveHeadlessHost());
 
         final result = await luaCallList(
@@ -66,7 +65,7 @@ vec4 effect(vec4 color, Image texture, vec2 texture_coords, vec2 screen_coords) 
     test(
       'validateShader returns false plus a backend message for unsupported source',
       () async {
-        final runtime = Interpreter();
+        final runtime = createLuaLikeTestRuntime();
         installLove2d(runtime: runtime, host: LoveHeadlessHost());
 
         final result = await luaCallList(
@@ -93,7 +92,7 @@ vec4 effect(vec4 color, Image texture, vec2 texture_coords, vec2 screen_coords) 
     test(
       'validateShader uses the same unsupported path for vertex plus pixel overloads',
       () async {
-        final runtime = Interpreter();
+        final runtime = createLuaLikeTestRuntime();
         installLove2d(runtime: runtime, host: LoveHeadlessHost());
 
         final result = await luaCallList(
@@ -121,7 +120,7 @@ vec4 effect(vec4 color, Image texture, vec2 texture_coords, vec2 screen_coords) 
     test(
       'validateShader returns true for registered Flutter fragment-asset shaders',
       () async {
-        final runtime = Interpreter();
+        final runtime = createLuaLikeTestRuntime();
         installLove2d(runtime: runtime, host: LoveFlameHarnessGame().host);
 
         final result = await luaCallList(
@@ -137,7 +136,7 @@ vec4 effect(vec4 color, Image texture, vec2 texture_coords, vec2 screen_coords) 
     test(
       'validateShader returns false when the Flutter host cannot load a registered fragment asset',
       () async {
-        final runtime = Interpreter();
+        final runtime = createLuaLikeTestRuntime();
         installLove2d(runtime: runtime, host: LoveFlameHarnessGame().host);
 
         final result = await luaCallList(
@@ -158,7 +157,7 @@ vec4 effect(vec4 color, Image texture, vec2 texture_coords, vec2 screen_coords) 
     );
 
     test('validateShader preserves missing path-like string errors', () {
-      final runtime = Interpreter();
+      final runtime = createLuaLikeTestRuntime();
       installLove2d(runtime: runtime, host: LoveHeadlessHost());
 
       expect(

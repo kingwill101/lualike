@@ -5,7 +5,7 @@ import 'package:love2d/love2d.dart';
 void main() {
   test('filesystem FileData clone preserves LOVE filedata semantics', () async {
     final runtime = LoveScriptRuntime();
-    final interpreter = runtime.runtime as Interpreter;
+    final interpreter = runtime.runtime;
 
     final original =
         await _callRawPath(
@@ -33,7 +33,7 @@ void main() {
 }
 
 Future<Object?> _callRawPath(
-  Interpreter runtime,
+  LuaRuntime runtime,
   List<String> path, [
   List<Object?> args = const <Object?>[],
 ]) async {

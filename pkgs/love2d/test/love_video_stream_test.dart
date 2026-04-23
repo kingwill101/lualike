@@ -13,7 +13,7 @@ void main() {
     test(
       'newVideoStream missing argument uses the normal argument-1 type error',
       () async {
-        final runtime = Interpreter();
+        final runtime = createLuaLikeTestRuntime();
         installLove2d(runtime: runtime, host: LoveHeadlessHost());
 
         await expectLater(
@@ -32,7 +32,7 @@ void main() {
     );
 
     test('newVideoStream supports filename and File inputs', () async {
-      final runtime = Interpreter();
+      final runtime = createLuaLikeTestRuntime();
       installLove2d(
         runtime: runtime,
         host: LoveHeadlessHost(),
@@ -87,7 +87,7 @@ void main() {
     test(
       'newVideoStream reports the upstream file-open error for missing sources',
       () async {
-        final runtime = Interpreter();
+        final runtime = createLuaLikeTestRuntime();
         installLove2d(
           runtime: runtime,
           host: LoveHeadlessHost(),
@@ -135,7 +135,7 @@ void main() {
     );
 
     test('playback controls update tell and preserve pause state', () async {
-      final runtime = Interpreter();
+      final runtime = createLuaLikeTestRuntime();
       installLove2d(
         runtime: runtime,
         host: LoveHeadlessHost(),
@@ -182,7 +182,7 @@ void main() {
     test(
       'VideoStream:seek uses Lua bad-argument text for invalid offsets',
       () async {
-        final runtime = Interpreter();
+        final runtime = createLuaLikeTestRuntime();
         installLove2d(
           runtime: runtime,
           host: LoveHeadlessHost(),
@@ -215,7 +215,7 @@ void main() {
     );
 
     test('setSync shares and detaches timing state across streams', () async {
-      final runtime = Interpreter();
+      final runtime = createLuaLikeTestRuntime();
       installLove2d(
         runtime: runtime,
         host: LoveHeadlessHost(),
@@ -264,7 +264,7 @@ void main() {
     test(
       'setSync accepts Source inputs and detaches back to independent timing',
       () async {
-        final runtime = Interpreter();
+        final runtime = createLuaLikeTestRuntime();
         installLove2d(
           runtime: runtime,
           host: LoveHeadlessHost(),
@@ -316,7 +316,7 @@ void main() {
     );
 
     test('setSync rejects unsupported sync targets', () async {
-      final runtime = Interpreter();
+      final runtime = createLuaLikeTestRuntime();
       installLove2d(
         runtime: runtime,
         host: LoveHeadlessHost(),
@@ -349,7 +349,7 @@ void main() {
     });
 
     test('newVideoStream rejects non-Theora inputs', () async {
-      final runtime = Interpreter();
+      final runtime = createLuaLikeTestRuntime();
       installLove2d(
         runtime: runtime,
         host: LoveHeadlessHost(),
@@ -381,7 +381,7 @@ void main() {
     test(
       'newVideoStream rejects FileData inputs to match the source wrapper',
       () async {
-        final runtime = Interpreter();
+        final runtime = createLuaLikeTestRuntime();
         installLove2d(
           runtime: runtime,
           host: LoveHeadlessHost(),
@@ -440,7 +440,7 @@ void main() {
     test(
       'VideoStream release is idempotent and invalidates the wrapper',
       () async {
-        final runtime = Interpreter();
+        final runtime = createLuaLikeTestRuntime();
         installLove2d(
           runtime: runtime,
           host: LoveHeadlessHost(),

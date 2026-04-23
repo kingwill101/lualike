@@ -2,12 +2,14 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:lualike/lualike.dart';
 import 'package:love2d/love2d.dart';
 
+import 'test_support/lua_api_test_helpers.dart';
+
 void main() {
   group('love.thread Channel receiver parity', () {
     test(
       'Channel type metadata survives release while other methods fail',
       () async {
-        final runtime = Interpreter();
+        final runtime = createLuaLikeTestRuntime();
         installLove2d(runtime: runtime, host: LoveHeadlessHost());
 
         final channel = await _call(runtime, const [
@@ -90,7 +92,7 @@ void main() {
 }
 
 Future<Object?> _call(
-  Interpreter runtime,
+  LuaRuntime runtime,
   List<String> path, [
   List<Object?> args = const <Object?>[],
 ]) async {
@@ -107,7 +109,7 @@ Future<Object?> _callMethod(
   );
 }
 
-BuiltinFunction _rawFunction(Interpreter runtime, List<String> path) {
+BuiltinFunction _rawFunction(LuaRuntime runtime, List<String> path) {
   var current = runtime.getCurrentEnv().get(path.first);
   for (final segment in path.skip(1)) {
     final table = current is Value ? current.raw : current;

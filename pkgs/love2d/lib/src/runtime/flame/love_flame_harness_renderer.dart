@@ -1,11 +1,16 @@
 import 'dart:async';
+import 'dart:collection';
 import 'dart:math' as math;
 import 'dart:typed_data';
 import 'dart:ui' as ui;
 
+import 'package:flame/camera.dart';
+import 'package:flame/events.dart';
 import 'package:flame/game.dart';
+import 'package:flame/sprite.dart' show SpriteBatch;
 import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:vector_math/vector_math_64.dart' as vm;
 
 import '../love_runtime.dart';
@@ -20,15 +25,435 @@ final Set<LoveImage> _pendingStaticShaderSamplerImages = <LoveImage>{};
 final Map<LoveCanvas, ui.Image> _liveCanvasShaderSamplerImages =
     <LoveCanvas, ui.Image>{};
 final Set<LoveCanvas> _pendingLiveCanvasShaderSamplerImages = <LoveCanvas>{};
+final Map<ui.Image, SpriteBatch> _flameAtlasSpriteBatchCache =
+    <ui.Image, SpriteBatch>{};
+const int _loveCanvasSnapshotPictureCacheCapacity = 128;
+const int _loveTextPainterCacheCapacity = 256;
+const int _loveFrameTimingHistoryCapacity = 240;
+final LinkedHashMap<_LoveTextPainterCacheKey, TextPainter>
+_loveTextPainterCache = LinkedHashMap<_LoveTextPainterCacheKey, TextPainter>();
+final LinkedHashMap<LoveCanvasSnapshot, ui.Picture>
+_loveCanvasSnapshotPictures = LinkedHashMap<LoveCanvasSnapshot, ui.Picture>();
 
-class LoveFlameHarnessGame extends FlameGame {
+/// Per-frame counters for the LOVE-to-Flame renderer's major hot paths.
+class LoveFlameRenderStats {
+  const LoveFlameRenderStats({
+    this.renderedCommands = 0,
+    this.softwareSurfaceFallbacks = 0,
+    this.atlasBatchCommands = 0,
+    this.atlasBatchItems = 0,
+    this.textPainterCacheHits = 0,
+    this.textPainterCacheMisses = 0,
+    this.textLayoutDuration = Duration.zero,
+    this.surfaceClearLayers = 0,
+    this.commandBlendLayers = 0,
+    this.commandShaderLayers = 0,
+    this.commandRadialMaskLayers = 0,
+    this.imageRadialOverlayLayers = 0,
+    this.meshCompositeLayers = 0,
+    this.meshAlphaMaskLayers = 0,
+  });
+
+  final int renderedCommands;
+  final int softwareSurfaceFallbacks;
+  final int atlasBatchCommands;
+  final int atlasBatchItems;
+  final int textPainterCacheHits;
+  final int textPainterCacheMisses;
+  final Duration textLayoutDuration;
+  final int surfaceClearLayers;
+  final int commandBlendLayers;
+  final int commandShaderLayers;
+  final int commandRadialMaskLayers;
+  final int imageRadialOverlayLayers;
+  final int meshCompositeLayers;
+  final int meshAlphaMaskLayers;
+
+  int get totalSaveLayers =>
+      surfaceClearLayers +
+      commandBlendLayers +
+      commandShaderLayers +
+      commandRadialMaskLayers +
+      imageRadialOverlayLayers +
+      meshCompositeLayers +
+      meshAlphaMaskLayers;
+}
+
+class _LoveFlameRenderStatsAccumulator {
+  int renderedCommands = 0;
+  int softwareSurfaceFallbacks = 0;
+  int atlasBatchCommands = 0;
+  int atlasBatchItems = 0;
+  int textPainterCacheHits = 0;
+  int textPainterCacheMisses = 0;
+  int textLayoutMicros = 0;
+  int surfaceClearLayers = 0;
+  int commandBlendLayers = 0;
+  int commandShaderLayers = 0;
+  int commandRadialMaskLayers = 0;
+  int imageRadialOverlayLayers = 0;
+  int meshCompositeLayers = 0;
+  int meshAlphaMaskLayers = 0;
+
+  LoveFlameRenderStats snapshot() {
+    return LoveFlameRenderStats(
+      renderedCommands: renderedCommands,
+      softwareSurfaceFallbacks: softwareSurfaceFallbacks,
+      atlasBatchCommands: atlasBatchCommands,
+      atlasBatchItems: atlasBatchItems,
+      textPainterCacheHits: textPainterCacheHits,
+      textPainterCacheMisses: textPainterCacheMisses,
+      textLayoutDuration: Duration(microseconds: textLayoutMicros),
+      surfaceClearLayers: surfaceClearLayers,
+      commandBlendLayers: commandBlendLayers,
+      commandShaderLayers: commandShaderLayers,
+      commandRadialMaskLayers: commandRadialMaskLayers,
+      imageRadialOverlayLayers: imageRadialOverlayLayers,
+      meshCompositeLayers: meshCompositeLayers,
+      meshAlphaMaskLayers: meshAlphaMaskLayers,
+    );
+  }
+}
+
+/// A single recorded frame with CPU-side update/render timings.
+class LoveFlameFrameTimingSample {
+  const LoveFlameFrameTimingSample({
+    this.deltaSeconds = 0,
+    this.updateDuration = Duration.zero,
+    this.renderDuration = Duration.zero,
+    this.renderStats = const LoveFlameRenderStats(),
+  });
+
+  /// The simulation delta Flame passed into `update`.
+  final double deltaSeconds;
+
+  /// The CPU time spent inside `LoveFlameHarnessGame.update`.
+  final Duration updateDuration;
+
+  /// The CPU time spent inside `LoveFlameHarnessGame.render`.
+  final Duration renderDuration;
+
+  /// The renderer counters recorded for this frame.
+  final LoveFlameRenderStats renderStats;
+
+  /// The combined CPU cost of the recorded update and render work.
+  Duration get cpuFrameDuration => updateDuration + renderDuration;
+}
+
+/// A rolling summary of recently recorded Flame frame timings.
+class LoveFlameFrameTimingStats {
+  const LoveFlameFrameTimingStats({
+    this.sampleCount = 0,
+    this.averageDeltaSeconds = 0,
+    this.p95DeltaSeconds = 0,
+    this.maxDeltaSeconds = 0,
+    this.averageUpdateDuration = Duration.zero,
+    this.p95UpdateDuration = Duration.zero,
+    this.maxUpdateDuration = Duration.zero,
+    this.averageRenderDuration = Duration.zero,
+    this.p95RenderDuration = Duration.zero,
+    this.maxRenderDuration = Duration.zero,
+    this.averageCpuFrameDuration = Duration.zero,
+    this.p95CpuFrameDuration = Duration.zero,
+    this.maxCpuFrameDuration = Duration.zero,
+    this.averageRenderedCommands = 0,
+    this.maxRenderedCommands = 0,
+    this.averageAtlasBatchCommands = 0,
+    this.maxAtlasBatchCommands = 0,
+    this.averageAtlasBatchItems = 0,
+    this.maxAtlasBatchItems = 0,
+    this.averageTextPainterCacheHits = 0,
+    this.maxTextPainterCacheHits = 0,
+    this.averageTextPainterCacheMisses = 0,
+    this.maxTextPainterCacheMisses = 0,
+    this.averageTextLayoutDuration = Duration.zero,
+    this.maxTextLayoutDuration = Duration.zero,
+    this.averageSaveLayers = 0,
+    this.maxSaveLayers = 0,
+    this.averageSoftwareSurfaceFallbacks = 0,
+    this.maxSoftwareSurfaceFallbacks = 0,
+    this.lastFrame = const LoveFlameFrameTimingSample(),
+  });
+
+  /// The number of samples represented by this summary.
+  final int sampleCount;
+
+  /// The average recorded frame delta in seconds.
+  final double averageDeltaSeconds;
+
+  /// The p95 recorded frame delta in seconds.
+  final double p95DeltaSeconds;
+
+  /// The maximum recorded frame delta in seconds.
+  final double maxDeltaSeconds;
+
+  /// The average CPU time spent updating each sampled frame.
+  final Duration averageUpdateDuration;
+
+  /// The p95 CPU time spent updating sampled frames.
+  final Duration p95UpdateDuration;
+
+  /// The maximum CPU time spent updating a sampled frame.
+  final Duration maxUpdateDuration;
+
+  /// The average CPU time spent rendering each sampled frame.
+  final Duration averageRenderDuration;
+
+  /// The p95 CPU time spent rendering sampled frames.
+  final Duration p95RenderDuration;
+
+  /// The maximum CPU time spent rendering a sampled frame.
+  final Duration maxRenderDuration;
+
+  /// The average combined CPU update+render time per sampled frame.
+  final Duration averageCpuFrameDuration;
+
+  /// The p95 combined CPU update+render time across sampled frames.
+  final Duration p95CpuFrameDuration;
+
+  /// The maximum combined CPU update+render time across sampled frames.
+  final Duration maxCpuFrameDuration;
+
+  /// The average number of renderer commands processed per sampled frame.
+  final double averageRenderedCommands;
+
+  /// The maximum number of renderer commands processed in a sampled frame.
+  final int maxRenderedCommands;
+
+  /// The average number of atlas-batched commands processed per sampled frame.
+  final double averageAtlasBatchCommands;
+
+  /// The maximum number of atlas-batched commands processed in a sampled frame.
+  final int maxAtlasBatchCommands;
+
+  /// The average number of atlas-batched items processed per sampled frame.
+  final double averageAtlasBatchItems;
+
+  /// The maximum number of atlas-batched items processed in a sampled frame.
+  final int maxAtlasBatchItems;
+
+  /// The average number of cached text painter hits per sampled frame.
+  final double averageTextPainterCacheHits;
+
+  /// The maximum number of cached text painter hits in a sampled frame.
+  final int maxTextPainterCacheHits;
+
+  /// The average number of text painter cache misses per sampled frame.
+  final double averageTextPainterCacheMisses;
+
+  /// The maximum number of text painter cache misses in a sampled frame.
+  final int maxTextPainterCacheMisses;
+
+  /// The average CPU time spent laying out uncached text painters per frame.
+  final Duration averageTextLayoutDuration;
+
+  /// The maximum CPU time spent laying out uncached text painters in one frame.
+  final Duration maxTextLayoutDuration;
+
+  /// The average number of `saveLayer` calls recorded per sampled frame.
+  final double averageSaveLayers;
+
+  /// The maximum number of `saveLayer` calls recorded in a sampled frame.
+  final int maxSaveLayers;
+
+  /// The average number of software-surface fallbacks per sampled frame.
+  final double averageSoftwareSurfaceFallbacks;
+
+  /// The maximum number of software-surface fallbacks in a sampled frame.
+  final int maxSoftwareSurfaceFallbacks;
+
+  /// The most recently recorded frame sample.
+  final LoveFlameFrameTimingSample lastFrame;
+}
+
+class _LoveFlameFrameTimingRecorder {
+  _LoveFlameFrameTimingRecorder({required this.capacity});
+
+  final int capacity;
+  final ListQueue<LoveFlameFrameTimingSample> _samples =
+      ListQueue<LoveFlameFrameTimingSample>();
+
+  List<LoveFlameFrameTimingSample> get samples =>
+      List<LoveFlameFrameTimingSample>.unmodifiable(_samples);
+
+  void clear() => _samples.clear();
+
+  void add(LoveFlameFrameTimingSample sample) {
+    if (_samples.length == capacity) {
+      _samples.removeFirst();
+    }
+    _samples.addLast(sample);
+  }
+
+  LoveFlameFrameTimingStats snapshot() {
+    if (_samples.isEmpty) {
+      return const LoveFlameFrameTimingStats();
+    }
+
+    final samples = _samples.toList(growable: false);
+    var totalDeltaSeconds = 0.0;
+    var totalUpdateMicros = 0;
+    var totalRenderMicros = 0;
+    var totalCpuFrameMicros = 0;
+    var totalRenderedCommands = 0;
+    var totalAtlasBatchCommands = 0;
+    var totalAtlasBatchItems = 0;
+    var totalTextPainterCacheHits = 0;
+    var totalTextPainterCacheMisses = 0;
+    var totalTextLayoutMicros = 0;
+    var totalSaveLayers = 0;
+    var totalSoftwareSurfaceFallbacks = 0;
+    var maxRenderedCommands = 0;
+    var maxAtlasBatchCommands = 0;
+    var maxAtlasBatchItems = 0;
+    var maxTextPainterCacheHits = 0;
+    var maxTextPainterCacheMisses = 0;
+    var maxTextLayoutMicros = 0;
+    var maxSaveLayers = 0;
+    var maxSoftwareSurfaceFallbacks = 0;
+    final deltaSeconds = <double>[];
+    final updateMicros = <int>[];
+    final renderMicros = <int>[];
+    final cpuFrameMicros = <int>[];
+
+    for (final sample in samples) {
+      final sampleUpdateMicros = sample.updateDuration.inMicroseconds;
+      final sampleRenderMicros = sample.renderDuration.inMicroseconds;
+      final sampleCpuFrameMicros = sample.cpuFrameDuration.inMicroseconds;
+      final sampleSaveLayers = sample.renderStats.totalSaveLayers;
+      final sampleRenderedCommands = sample.renderStats.renderedCommands;
+      final sampleAtlasBatchCommands = sample.renderStats.atlasBatchCommands;
+      final sampleAtlasBatchItems = sample.renderStats.atlasBatchItems;
+      final sampleTextPainterCacheHits =
+          sample.renderStats.textPainterCacheHits;
+      final sampleTextPainterCacheMisses =
+          sample.renderStats.textPainterCacheMisses;
+      final sampleTextLayoutMicros =
+          sample.renderStats.textLayoutDuration.inMicroseconds;
+      final sampleSoftwareSurfaceFallbacks =
+          sample.renderStats.softwareSurfaceFallbacks;
+
+      totalDeltaSeconds += sample.deltaSeconds;
+      totalUpdateMicros += sampleUpdateMicros;
+      totalRenderMicros += sampleRenderMicros;
+      totalCpuFrameMicros += sampleCpuFrameMicros;
+      totalRenderedCommands += sampleRenderedCommands;
+      totalAtlasBatchCommands += sampleAtlasBatchCommands;
+      totalAtlasBatchItems += sampleAtlasBatchItems;
+      totalTextPainterCacheHits += sampleTextPainterCacheHits;
+      totalTextPainterCacheMisses += sampleTextPainterCacheMisses;
+      totalTextLayoutMicros += sampleTextLayoutMicros;
+      totalSaveLayers += sampleSaveLayers;
+      totalSoftwareSurfaceFallbacks += sampleSoftwareSurfaceFallbacks;
+      maxRenderedCommands = math.max(
+        maxRenderedCommands,
+        sampleRenderedCommands,
+      );
+      maxAtlasBatchCommands = math.max(
+        maxAtlasBatchCommands,
+        sampleAtlasBatchCommands,
+      );
+      maxAtlasBatchItems = math.max(maxAtlasBatchItems, sampleAtlasBatchItems);
+      maxTextPainterCacheHits = math.max(
+        maxTextPainterCacheHits,
+        sampleTextPainterCacheHits,
+      );
+      maxTextPainterCacheMisses = math.max(
+        maxTextPainterCacheMisses,
+        sampleTextPainterCacheMisses,
+      );
+      maxTextLayoutMicros = math.max(
+        maxTextLayoutMicros,
+        sampleTextLayoutMicros,
+      );
+      maxSaveLayers = math.max(maxSaveLayers, sampleSaveLayers);
+      maxSoftwareSurfaceFallbacks = math.max(
+        maxSoftwareSurfaceFallbacks,
+        sampleSoftwareSurfaceFallbacks,
+      );
+      deltaSeconds.add(sample.deltaSeconds);
+      updateMicros.add(sampleUpdateMicros);
+      renderMicros.add(sampleRenderMicros);
+      cpuFrameMicros.add(sampleCpuFrameMicros);
+    }
+
+    deltaSeconds.sort();
+    updateMicros.sort();
+    renderMicros.sort();
+    cpuFrameMicros.sort();
+
+    return LoveFlameFrameTimingStats(
+      sampleCount: samples.length,
+      averageDeltaSeconds: totalDeltaSeconds / samples.length,
+      p95DeltaSeconds: _percentileDouble(deltaSeconds, 0.95),
+      maxDeltaSeconds: deltaSeconds.last,
+      averageUpdateDuration: _averageDuration(
+        totalMicroseconds: totalUpdateMicros,
+        sampleCount: samples.length,
+      ),
+      p95UpdateDuration: _durationFromMicroseconds(
+        _percentileInt(updateMicros, 0.95),
+      ),
+      maxUpdateDuration: _durationFromMicroseconds(updateMicros.last),
+      averageRenderDuration: _averageDuration(
+        totalMicroseconds: totalRenderMicros,
+        sampleCount: samples.length,
+      ),
+      p95RenderDuration: _durationFromMicroseconds(
+        _percentileInt(renderMicros, 0.95),
+      ),
+      maxRenderDuration: _durationFromMicroseconds(renderMicros.last),
+      averageCpuFrameDuration: _averageDuration(
+        totalMicroseconds: totalCpuFrameMicros,
+        sampleCount: samples.length,
+      ),
+      p95CpuFrameDuration: _durationFromMicroseconds(
+        _percentileInt(cpuFrameMicros, 0.95),
+      ),
+      maxCpuFrameDuration: _durationFromMicroseconds(cpuFrameMicros.last),
+      averageRenderedCommands: totalRenderedCommands / samples.length,
+      maxRenderedCommands: maxRenderedCommands,
+      averageAtlasBatchCommands: totalAtlasBatchCommands / samples.length,
+      maxAtlasBatchCommands: maxAtlasBatchCommands,
+      averageAtlasBatchItems: totalAtlasBatchItems / samples.length,
+      maxAtlasBatchItems: maxAtlasBatchItems,
+      averageTextPainterCacheHits: totalTextPainterCacheHits / samples.length,
+      maxTextPainterCacheHits: maxTextPainterCacheHits,
+      averageTextPainterCacheMisses:
+          totalTextPainterCacheMisses / samples.length,
+      maxTextPainterCacheMisses: maxTextPainterCacheMisses,
+      averageTextLayoutDuration: _averageDuration(
+        totalMicroseconds: totalTextLayoutMicros,
+        sampleCount: samples.length,
+      ),
+      maxTextLayoutDuration: Duration(microseconds: maxTextLayoutMicros),
+      averageSaveLayers: totalSaveLayers / samples.length,
+      maxSaveLayers: maxSaveLayers,
+      averageSoftwareSurfaceFallbacks:
+          totalSoftwareSurfaceFallbacks / samples.length,
+      maxSoftwareSurfaceFallbacks: maxSoftwareSurfaceFallbacks,
+      lastFrame: samples.last,
+    );
+  }
+}
+
+/// Flame game host that presents a LOVE surface through the compatibility harness.
+class LoveFlameHarnessGame extends FlameGame with KeyboardEvents {
   LoveFlameHarnessGame({
     this.audioBackendFactory,
     LoveVideoFrameProviderFactory? videoFrameProviderFactory,
     AssetBundle? assetBundle,
   }) : _assetBundle = assetBundle,
        _videoFrameProviderFactory =
-           videoFrameProviderFactory ?? _defaultVideoFrameProviderFactory();
+           videoFrameProviderFactory ?? _defaultVideoFrameProviderFactory(),
+       super(
+         camera: CameraComponent.withFixedResolution(
+           width: const LoveWindowMetrics().width.toDouble(),
+           height: const LoveWindowMetrics().height.toDouble(),
+         ),
+       ) {
+    syncPresentationCamera(windowMetrics: const LoveWindowMetrics());
+  }
 
   final LoveAudioBackendFactory? audioBackendFactory;
   final AssetBundle? _assetBundle;
@@ -39,6 +464,8 @@ class LoveFlameHarnessGame extends FlameGame {
     assetBundle: _assetBundle,
     audioBackendFactory: audioBackendFactory,
     videoFrameProviderFactory: _videoFrameProviderFactory,
+    onWindowMetricsChanged: (windowMetrics) =>
+        syncPresentationCamera(windowMetrics: windowMetrics),
   );
   late LoveGraphicsSurfaceSnapshot _presentedFrame = host.graphics
       .snapshotScreenSurface();
@@ -49,8 +476,68 @@ class LoveFlameHarnessGame extends FlameGame {
   bool _presentationNotifierDisposed = false;
 
   void Function(double dt)? onTick;
+  KeyEventResult Function(KeyEvent event, Set<LogicalKeyboardKey> keysPressed)?
+  onKeyEventHandler;
+  LoveFlameRenderStats _lastRenderStats = const LoveFlameRenderStats();
+  final Stopwatch _updateStopwatch = Stopwatch();
+  final Stopwatch _renderStopwatch = Stopwatch();
+  final _LoveFlameFrameTimingRecorder _frameTimingRecorder =
+      _LoveFlameFrameTimingRecorder(capacity: _loveFrameTimingHistoryCapacity);
+  double _lastUpdateDeltaSeconds = 0;
+  Duration _lastUpdateDuration = Duration.zero;
 
   LoveGraphicsSurfaceSnapshot get presentedFrame => _presentedFrame;
+  LoveFlameRenderStats get lastRenderStats => _lastRenderStats;
+
+  /// Returns a rolling timing summary for recently rendered frames.
+  LoveFlameFrameTimingStats get frameTimingStats =>
+      _frameTimingRecorder.snapshot();
+
+  /// Returns the recorded recent frame samples used to build [frameTimingStats].
+  List<LoveFlameFrameTimingSample> get recentFrameTimingSamples =>
+      _frameTimingRecorder.samples;
+
+  /// Clears the rolling frame-timing window.
+  void resetFrameTimingStats() {
+    _frameTimingRecorder.clear();
+    _lastUpdateDeltaSeconds = 0;
+    _lastUpdateDuration = Duration.zero;
+  }
+
+  /// Returns the current logical presentation geometry for the LOVE surface.
+  LoveFlamePresentationGeometry get presentationGeometry =>
+      loveFlamePresentationGeometry(
+        windowMetrics: host.windowMetrics,
+        viewportSize: hasLayout ? Size(canvasSize.x, canvasSize.y) : Size.zero,
+        camera: camera,
+      );
+
+  /// Synchronizes Flame's fixed-resolution camera to the active LOVE surface.
+  void syncPresentationCamera({LoveWindowMetrics? windowMetrics}) {
+    final metrics = windowMetrics ?? host.windowMetrics;
+    final viewportSize = hasLayout
+        ? Size(canvasSize.x, canvasSize.y)
+        : Size.zero;
+    final logicalSize = loveLogicalViewportSize(
+      windowMetrics: metrics,
+      viewportSize: viewportSize,
+    );
+    final width = logicalSize.width;
+    final height = logicalSize.height;
+    if (width <= 0 || height <= 0) {
+      return;
+    }
+
+    final viewport = camera.viewport;
+    if (viewport is! FixedResolutionViewport ||
+        viewport.resolution.x != width ||
+        viewport.resolution.y != height) {
+      camera.viewport = FixedResolutionViewport(
+        resolution: Vector2(width, height),
+      );
+    }
+    camera.viewfinder.position.setValues(width / 2, height / 2);
+  }
 
   void presentFrame(LoveGraphicsSurfaceSnapshot frame) {
     _presentedFrame = frame;
@@ -79,39 +566,83 @@ class LoveFlameHarnessGame extends FlameGame {
 
   @override
   void update(double dt) {
-    super.update(dt);
-    onTick?.call(dt);
+    _updateStopwatch
+      ..reset()
+      ..start();
+    try {
+      super.update(dt);
+      onTick?.call(dt);
+    } finally {
+      _updateStopwatch.stop();
+      _lastUpdateDeltaSeconds = dt;
+      _lastUpdateDuration = _updateStopwatch.elapsed;
+    }
+  }
+
+  @override
+  KeyEventResult onKeyEvent(
+    KeyEvent event,
+    Set<LogicalKeyboardKey> keysPressed,
+  ) {
+    return onKeyEventHandler?.call(event, keysPressed) ??
+        KeyEventResult.ignored;
+  }
+
+  @override
+  void onGameResize(Vector2 size) {
+    super.onGameResize(size);
+    syncPresentationCamera();
   }
 
   @override
   void render(Canvas canvas) {
-    final frame = _presentedFrame;
-    final viewportSize = Size(canvasSize.x, canvasSize.y);
-    super.render(canvas);
-    final destinationRect = loveViewportDestinationRect(
-      windowMetrics: host.windowMetrics,
-      viewportSize: viewportSize,
-    );
-    final logicalViewportSize = loveLogicalViewportSize(
-      windowMetrics: host.windowMetrics,
-      viewportSize: viewportSize,
-    );
-    if (destinationRect.width <= 0 ||
-        destinationRect.height <= 0 ||
-        logicalViewportSize.width <= 0 ||
-        logicalViewportSize.height <= 0) {
-      return;
-    }
+    _renderStopwatch
+      ..reset()
+      ..start();
+    var recordedFrame = false;
+    try {
+      final frame = _presentedFrame;
+      super.render(canvas);
+      final presentation = presentationGeometry;
+      final destinationRect = presentation.destinationRect;
+      final logicalViewportSize = presentation.logicalSize;
+      if (destinationRect.width <= 0 ||
+          destinationRect.height <= 0 ||
+          logicalViewportSize.width <= 0 ||
+          logicalViewportSize.height <= 0) {
+        return;
+      }
 
-    canvas.save();
-    canvas.clipRect(destinationRect);
-    canvas.translate(destinationRect.left, destinationRect.top);
-    canvas.scale(
-      destinationRect.width / logicalViewportSize.width,
-      destinationRect.height / logicalViewportSize.height,
-    );
-    _renderSurfaceSnapshot(canvas, frame, logicalViewportSize);
-    canvas.restore();
+      canvas.save();
+      canvas.clipRect(destinationRect);
+      canvas.translate(destinationRect.left, destinationRect.top);
+      canvas.scale(
+        destinationRect.width / logicalViewportSize.width,
+        destinationRect.height / logicalViewportSize.height,
+      );
+      final renderStats = _LoveFlameRenderStatsAccumulator();
+      _renderSurfaceSnapshot(
+        canvas,
+        frame,
+        logicalViewportSize,
+        stats: renderStats,
+      );
+      _lastRenderStats = renderStats.snapshot();
+      canvas.restore();
+      recordedFrame = true;
+    } finally {
+      _renderStopwatch.stop();
+      if (recordedFrame) {
+        _frameTimingRecorder.add(
+          LoveFlameFrameTimingSample(
+            deltaSeconds: _lastUpdateDeltaSeconds,
+            updateDuration: _lastUpdateDuration,
+            renderDuration: _renderStopwatch.elapsed,
+            renderStats: _lastRenderStats,
+          ),
+        );
+      }
+    }
   }
 }
 
@@ -143,11 +674,47 @@ LoveVideoFrameProviderFactory? _defaultVideoFrameProviderFactory() {
   return loveMediaKitVideoFrameProviderFactory();
 }
 
+Duration _averageDuration({
+  required int totalMicroseconds,
+  required int sampleCount,
+}) {
+  if (sampleCount <= 0) {
+    return Duration.zero;
+  }
+  return _durationFromMicroseconds(totalMicroseconds / sampleCount);
+}
+
+Duration _durationFromMicroseconds(num microseconds) {
+  return Duration(microseconds: microseconds.round());
+}
+
+double _percentileDouble(List<double> sortedValues, double percentile) {
+  return sortedValues[_percentileIndex(sortedValues.length, percentile)];
+}
+
+int _percentileInt(List<int> sortedValues, double percentile) {
+  return sortedValues[_percentileIndex(sortedValues.length, percentile)];
+}
+
+bool _approximatelyEqual(double left, double right, [double epsilon = 1e-6]) {
+  return (left - right).abs() <= epsilon;
+}
+
+int _percentileIndex(int length, double percentile) {
+  final rawIndex = (length * percentile).ceil() - 1;
+  return math.max(0, math.min(length - 1, rawIndex));
+}
+
 Rect _rectForScissor(LoveScissorRect scissor) {
   return Rect.fromLTWH(scissor.x, scissor.y, scissor.width, scissor.height);
 }
 
-void _renderRecordedCommand(Canvas canvas, LoveDrawCommand command) {
+void _renderRecordedCommand(
+  Canvas canvas,
+  LoveDrawCommand command, {
+  _LoveFlameRenderStatsAccumulator? stats,
+}) {
+  stats?.renderedCommands++;
   canvas.save();
   final scissor = command.scissor;
   if (scissor != null) {
@@ -157,12 +724,15 @@ void _renderRecordedCommand(Canvas canvas, LoveDrawCommand command) {
   final shaderLayerPaint = _shaderLayerPaintForCommand(command);
   final radialGradientMaskPaint = _radialGradientMaskPaintForCommand(command);
   if (layerPaint != null) {
+    stats?.commandBlendLayers++;
     canvas.saveLayer(null, layerPaint);
   }
   if (shaderLayerPaint != null) {
+    stats?.commandShaderLayers++;
     canvas.saveLayer(null, shaderLayerPaint);
   }
   if (radialGradientMaskPaint != null) {
+    stats?.commandRadialMaskLayers++;
     canvas.saveLayer(null, Paint());
   }
   canvas.save();
@@ -177,7 +747,7 @@ void _renderRecordedCommand(Canvas canvas, LoveDrawCommand command) {
     case LoveStencilClearCommand():
       break;
     case final LoveParticleSystemCommand particleSystem:
-      _renderParticleSystemCommand(canvas, particleSystem);
+      _renderParticleSystemCommand(canvas, particleSystem, stats: stats);
     case final LoveRectangleCommand rectangle:
       final paint = Paint()
         ..color = _toFlutterColor(rectangle.color)
@@ -307,44 +877,26 @@ void _renderRecordedCommand(Canvas canvas, LoveDrawCommand command) {
       final wrapWidth = text.limit != null && text.limit! > 0
           ? text.limit!
           : null;
-      final painter =
-          TextPainter(
-            text: TextSpan(
-              children: text.spans
-                  .map(
-                    (segment) => TextSpan(
-                      text: segment.text,
-                      style: TextStyle(
-                        color: _toFlutterColor(
-                          text.color.modulate(segment.color ?? LoveColor.white),
-                        ),
-                        fontSize: text.font.size,
-                        height: text.font.lineHeight,
-                        fontFamily: text.font.family ?? 'monospace',
-                      ),
-                    ),
-                  )
-                  .toList(growable: false),
-            ),
-            textDirection: TextDirection.ltr,
-            textAlign: _textAlignForLove(text.align),
-            maxLines: null,
-          )..layout(
-            minWidth: wrapWidth ?? 0.0,
-            maxWidth: wrapWidth ?? double.infinity,
-          );
+      final painter = _textPainterForSpans(
+        spans: text.spans,
+        baseColor: text.color,
+        font: text.font,
+        align: text.align,
+        wrapWidth: wrapWidth,
+        stats: stats,
+      );
       canvas.transform(text.textTransform.storage);
       painter.paint(canvas, Offset.zero);
     case final LoveTextObjectCommand text:
-      _renderTextObjectCommand(canvas, text);
+      _renderTextObjectCommand(canvas, text, stats: stats);
     case final LoveImageCommand image:
-      _renderImageCommand(canvas, image);
+      _renderImageCommand(canvas, image, stats: stats);
     case LoveVideoCommand():
       break;
     case final LoveSpriteBatchCommand spriteBatch:
-      _renderSpriteBatchCommand(canvas, spriteBatch);
+      _renderSpriteBatchCommand(canvas, spriteBatch, stats: stats);
     case final LoveMeshCommand mesh:
-      _renderMeshCommand(canvas, mesh);
+      _renderMeshCommand(canvas, mesh, stats: stats);
   }
 
   canvas.restore();
@@ -361,7 +913,11 @@ void _renderRecordedCommand(Canvas canvas, LoveDrawCommand command) {
   canvas.restore();
 }
 
-void _renderTextObjectCommand(Canvas canvas, LoveTextObjectCommand text) {
+void _renderTextObjectCommand(
+  Canvas canvas,
+  LoveTextObjectCommand text, {
+  _LoveFlameRenderStatsAccumulator? stats,
+}) {
   for (final entry in text.textObject.entries) {
     if (entry.spans.isEmpty) {
       continue;
@@ -370,32 +926,14 @@ void _renderTextObjectCommand(Canvas canvas, LoveTextObjectCommand text) {
     final wrapWidth = entry.wrapLimit != null && entry.wrapLimit! > 0
         ? entry.wrapLimit!
         : null;
-    final painter =
-        TextPainter(
-          text: TextSpan(
-            children: entry.spans
-                .map(
-                  (segment) => TextSpan(
-                    text: segment.text,
-                    style: TextStyle(
-                      color: _toFlutterColor(
-                        text.color.modulate(segment.color ?? LoveColor.white),
-                      ),
-                      fontSize: text.textObject.font.size,
-                      height: text.textObject.font.lineHeight,
-                      fontFamily: text.textObject.font.family ?? 'monospace',
-                    ),
-                  ),
-                )
-                .toList(growable: false),
-          ),
-          textDirection: TextDirection.ltr,
-          textAlign: _textAlignForLove(entry.align),
-          maxLines: null,
-        )..layout(
-          minWidth: wrapWidth ?? 0.0,
-          maxWidth: wrapWidth ?? double.infinity,
-        );
+    final painter = _textPainterForSpans(
+      spans: entry.spans,
+      baseColor: text.color,
+      font: text.textObject.font,
+      align: entry.align,
+      wrapWidth: wrapWidth,
+      stats: stats,
+    );
 
     canvas.save();
     canvas.transform(text.drawTransform.storage);
@@ -405,7 +943,197 @@ void _renderTextObjectCommand(Canvas canvas, LoveTextObjectCommand text) {
   }
 }
 
-void _renderImageCommand(Canvas canvas, LoveImageCommand image) {
+TextPainter _textPainterForSpans({
+  required List<LoveTextSpan> spans,
+  required LoveColor baseColor,
+  required LoveFont font,
+  required String align,
+  required double? wrapWidth,
+  _LoveFlameRenderStatsAccumulator? stats,
+}) {
+  final resolvedWrapWidth = wrapWidth != null && wrapWidth > 0
+      ? wrapWidth
+      : null;
+  final textAlign = _textAlignForLove(align);
+  final family = font.family ?? 'monospace';
+  final segments = spans
+      .map(
+        (segment) => _LoveTextPainterSegmentKey(
+          text: segment.text,
+          colorArgb: _toFlutterColor(
+            baseColor.modulate(segment.color ?? LoveColor.white),
+          ).toARGB32(),
+        ),
+      )
+      .toList(growable: false);
+  final cacheKey = _LoveTextPainterCacheKey(
+    family: family,
+    size: font.size,
+    lineHeight: font.lineHeight,
+    align: textAlign,
+    wrapWidth: resolvedWrapWidth,
+    segments: segments,
+  );
+  final cached = _loveTextPainterCache.remove(cacheKey);
+  if (cached != null) {
+    stats?.textPainterCacheHits++;
+    _loveTextPainterCache[cacheKey] = cached;
+    return cached;
+  }
+  stats?.textPainterCacheMisses++;
+  final layoutStopwatch = Stopwatch()..start();
+
+  final painter =
+      TextPainter(
+        text: TextSpan(
+          children: segments
+              .map(
+                (segment) => TextSpan(
+                  text: segment.text,
+                  style: TextStyle(
+                    color: Color(segment.colorArgb),
+                    fontSize: font.size,
+                    height: font.lineHeight,
+                    fontFamily: family,
+                  ),
+                ),
+              )
+              .toList(growable: false),
+        ),
+        textDirection: TextDirection.ltr,
+        textAlign: textAlign,
+        maxLines: null,
+      )..layout(
+        minWidth: resolvedWrapWidth ?? 0.0,
+        maxWidth: resolvedWrapWidth ?? double.infinity,
+      );
+  layoutStopwatch.stop();
+  stats?.textLayoutMicros += layoutStopwatch.elapsedMicroseconds;
+  _loveTextPainterCache[cacheKey] = painter;
+  if (_loveTextPainterCache.length > _loveTextPainterCacheCapacity) {
+    final eldestKey = _loveTextPainterCache.keys.first;
+    _loveTextPainterCache.remove(eldestKey)?.dispose();
+  }
+  return painter;
+}
+
+class _LoveTextPainterSegmentKey {
+  const _LoveTextPainterSegmentKey({
+    required this.text,
+    required this.colorArgb,
+  });
+
+  final String text;
+  final int colorArgb;
+
+  @override
+  bool operator ==(Object other) {
+    return other is _LoveTextPainterSegmentKey &&
+        other.text == text &&
+        other.colorArgb == colorArgb;
+  }
+
+  @override
+  int get hashCode => Object.hash(text, colorArgb);
+}
+
+class _LoveTextPainterCacheKey {
+  const _LoveTextPainterCacheKey({
+    required this.family,
+    required this.size,
+    required this.lineHeight,
+    required this.align,
+    required this.wrapWidth,
+    required this.segments,
+  });
+
+  final String family;
+  final double size;
+  final double lineHeight;
+  final TextAlign align;
+  final double? wrapWidth;
+  final List<_LoveTextPainterSegmentKey> segments;
+
+  @override
+  bool operator ==(Object other) {
+    return other is _LoveTextPainterCacheKey &&
+        other.family == family &&
+        other.size == size &&
+        other.lineHeight == lineHeight &&
+        other.align == align &&
+        other.wrapWidth == wrapWidth &&
+        _listEquals(other.segments, segments);
+  }
+
+  @override
+  int get hashCode => Object.hash(
+    family,
+    size,
+    lineHeight,
+    align,
+    wrapWidth,
+    Object.hashAll(segments),
+  );
+}
+
+bool _listEquals<T>(List<T> left, List<T> right) {
+  if (identical(left, right)) {
+    return true;
+  }
+  if (left.length != right.length) {
+    return false;
+  }
+  for (var index = 0; index < left.length; index++) {
+    if (left[index] != right[index]) {
+      return false;
+    }
+  }
+  return true;
+}
+
+class _FlameAtlasBatchEntrySpec {
+  const _FlameAtlasBatchEntrySpec({
+    required this.transform,
+    required this.tint,
+    this.quad,
+    this.layer,
+  });
+
+  final vm.Matrix4 transform;
+  final LoveColor tint;
+  final LoveQuad? quad;
+  final int? layer;
+}
+
+class _FlameAtlasBatchItem {
+  const _FlameAtlasBatchItem({
+    required this.source,
+    required this.transform,
+    required this.color,
+  });
+
+  final Rect source;
+  final ui.RSTransform transform;
+  final Color color;
+}
+
+class _FlameAtlasBatchPlan {
+  const _FlameAtlasBatchPlan({
+    required this.atlas,
+    required this.filterQuality,
+    required this.items,
+  });
+
+  final ui.Image atlas;
+  final FilterQuality filterQuality;
+  final List<_FlameAtlasBatchItem> items;
+}
+
+void _renderImageCommand(
+  Canvas canvas,
+  LoveImageCommand image, {
+  _LoveFlameRenderStatsAccumulator? stats,
+}) {
   _renderResolvedImage(
     canvas,
     command: image,
@@ -414,13 +1142,15 @@ void _renderImageCommand(Canvas canvas, LoveImageCommand image) {
     layer: image.layer,
     drawTransform: image.drawTransform,
     tint: image.color.clamped(),
+    stats: stats,
   );
 }
 
 void _renderSpriteBatchCommand(
   Canvas canvas,
-  LoveSpriteBatchCommand spriteBatchCommand,
-) {
+  LoveSpriteBatchCommand spriteBatchCommand, {
+  _LoveFlameRenderStatsAccumulator? stats,
+}) {
   final entries = spriteBatchCommand.spriteBatch.spritesToDraw();
   if (entries.isEmpty) {
     return;
@@ -428,6 +1158,31 @@ void _renderSpriteBatchCommand(
 
   canvas.save();
   canvas.transform(spriteBatchCommand.drawTransform.storage);
+  final atlasBatchPlan =
+      spriteBatchCommand.spriteBatch.attachedAttributes.isEmpty
+      ? _flameAtlasBatchPlan(
+          command: spriteBatchCommand,
+          image: spriteBatchCommand.spriteBatch.texture,
+          entries: entries
+              .map(
+                (entry) => _FlameAtlasBatchEntrySpec(
+                  transform: entry.transform,
+                  quad: entry.quad,
+                  layer: entry.layer,
+                  tint: entry.color == null
+                      ? spriteBatchCommand.color
+                      : spriteBatchCommand.color.modulate(entry.color!),
+                ),
+              )
+              .toList(growable: false),
+        )
+      : null;
+  if (atlasBatchPlan != null) {
+    _renderFlameAtlasBatch(canvas, atlasBatchPlan, stats: stats);
+    canvas.restore();
+    return;
+  }
+
   for (final entry in entries) {
     _renderResolvedImage(
       canvas,
@@ -439,6 +1194,7 @@ void _renderSpriteBatchCommand(
       tint: entry.color == null
           ? spriteBatchCommand.color
           : spriteBatchCommand.color.modulate(entry.color!),
+      stats: stats,
     );
   }
   canvas.restore();
@@ -446,8 +1202,9 @@ void _renderSpriteBatchCommand(
 
 void _renderParticleSystemCommand(
   Canvas canvas,
-  LoveParticleSystemCommand particleSystemCommand,
-) {
+  LoveParticleSystemCommand particleSystemCommand, {
+  _LoveFlameRenderStatsAccumulator? stats,
+}) {
   final particles = particleSystemCommand.particleSystem.particles;
   if (particles.isEmpty) {
     return;
@@ -455,6 +1212,25 @@ void _renderParticleSystemCommand(
 
   canvas.save();
   canvas.transform(particleSystemCommand.drawTransform.storage);
+  final atlasBatchPlan = _flameAtlasBatchPlan(
+    command: particleSystemCommand,
+    image: particleSystemCommand.particleSystem.texture,
+    entries: particles
+        .map(
+          (particle) => _FlameAtlasBatchEntrySpec(
+            transform: particle.transform,
+            quad: particle.quad,
+            tint: particleSystemCommand.color.modulate(particle.color),
+          ),
+        )
+        .toList(growable: false),
+  );
+  if (atlasBatchPlan != null) {
+    _renderFlameAtlasBatch(canvas, atlasBatchPlan, stats: stats);
+    canvas.restore();
+    return;
+  }
+
   for (final particle in particles) {
     _renderResolvedImage(
       canvas,
@@ -463,9 +1239,156 @@ void _renderParticleSystemCommand(
       quad: particle.quad,
       drawTransform: particle.transform,
       tint: particleSystemCommand.color.modulate(particle.color),
+      stats: stats,
     );
   }
   canvas.restore();
+}
+
+_FlameAtlasBatchPlan? _flameAtlasBatchPlan({
+  required LoveDrawCommand command,
+  required LoveImage image,
+  required List<_FlameAtlasBatchEntrySpec> entries,
+}) {
+  if (entries.isEmpty || image.textureType != '2d') {
+    return null;
+  }
+  if (_radialGradientImageOverlayPaintForCommand(command) != null) {
+    return null;
+  }
+
+  ui.Image? atlas;
+  FilterQuality? filterQuality;
+  final items = <_FlameAtlasBatchItem>[];
+  for (final entry in entries) {
+    final resolvedImage = resolveDrawableImageForLayer(
+      image,
+      layer: entry.layer,
+    );
+    if (resolvedImage == null || resolvedImage is LoveCanvasSnapshot) {
+      return null;
+    }
+    final rawImage = resolvedImage.nativeImage;
+    // Some LOVE images keep imageData rendering enabled for parity, but if a
+    // decoded ui.Image is also available we can still batch them efficiently.
+    if (rawImage is! ui.Image) {
+      return null;
+    }
+    if (_registeredFragmentPaintForCommand(
+          command,
+          sourceImage: resolvedImage,
+        ) !=
+        null) {
+      return null;
+    }
+
+    final batchTransform = _flameAtlasBatchTransform(entry.transform);
+    if (batchTransform == null) {
+      return null;
+    }
+
+    final sourceRect = entry.quad == null
+        ? Rect.fromLTWH(
+            0,
+            0,
+            resolvedImage.width.toDouble(),
+            resolvedImage.height.toDouble(),
+          )
+        : Rect.fromLTWH(
+            entry.quad!.x,
+            entry.quad!.y,
+            entry.quad!.width,
+            entry.quad!.height,
+          );
+    if (sourceRect.isEmpty) {
+      continue;
+    }
+
+    final resolvedFilterQuality = _filterQualityForLove(resolvedImage.filter);
+    if (atlas == null) {
+      atlas = rawImage;
+      filterQuality = resolvedFilterQuality;
+    } else if (!identical(atlas, rawImage) ||
+        filterQuality != resolvedFilterQuality) {
+      return null;
+    }
+
+    items.add(
+      _FlameAtlasBatchItem(
+        source: sourceRect,
+        transform: batchTransform,
+        color: _toFlutterColor(entry.tint),
+      ),
+    );
+  }
+
+  if (atlas == null || filterQuality == null || items.isEmpty) {
+    return null;
+  }
+
+  return _FlameAtlasBatchPlan(
+    atlas: atlas,
+    filterQuality: filterQuality,
+    items: items,
+  );
+}
+
+ui.RSTransform? _flameAtlasBatchTransform(vm.Matrix4 matrix) {
+  final storage = matrix.storage;
+  if (storage[2] != 0 ||
+      storage[3] != 0 ||
+      storage[6] != 0 ||
+      storage[7] != 0 ||
+      storage[8] != 0 ||
+      storage[9] != 0 ||
+      storage[10] != 1 ||
+      storage[11] != 0 ||
+      storage[14] != 0 ||
+      storage[15] != 1) {
+    return null;
+  }
+
+  final a = storage[0];
+  final b = storage[1];
+  final c = storage[4];
+  final d = storage[5];
+  if (!_approximatelyEqual(c, -b) || !_approximatelyEqual(d, a)) {
+    return null;
+  }
+
+  final scale = math.sqrt((a * a) + (b * b));
+  if (scale <= 1e-9 || (a * d) - (b * c) <= 0) {
+    return null;
+  }
+
+  return ui.RSTransform(a, b, storage[12], storage[13]);
+}
+
+void _renderFlameAtlasBatch(
+  Canvas canvas,
+  _FlameAtlasBatchPlan batch, {
+  _LoveFlameRenderStatsAccumulator? stats,
+}) {
+  final spriteBatch = _flameAtlasSpriteBatchCache.putIfAbsent(
+    batch.atlas,
+    () => SpriteBatch(batch.atlas, defaultBlendMode: BlendMode.modulate),
+  );
+  spriteBatch.clear();
+  for (final item in batch.items) {
+    spriteBatch.addTransform(
+      source: item.source,
+      transform: item.transform,
+      color: item.color,
+    );
+  }
+
+  stats?.atlasBatchCommands++;
+  stats?.atlasBatchItems += batch.items.length;
+  spriteBatch.render(
+    canvas,
+    paint: Paint()..filterQuality = batch.filterQuality,
+  );
+  spriteBatch.clear();
 }
 
 void _renderResolvedImage(
@@ -476,6 +1399,7 @@ void _renderResolvedImage(
   int? layer,
   required vm.Matrix4 drawTransform,
   required LoveColor tint,
+  _LoveFlameRenderStatsAccumulator? stats,
 }) {
   final resolvedImage = resolveDrawableImageForLayer(image, layer: layer);
   if (resolvedImage == null) {
@@ -507,6 +1431,7 @@ void _renderResolvedImage(
     sourceImage: resolvedImage,
   );
   if (radialGradientOverlayPaint != null) {
+    stats?.imageRadialOverlayLayers++;
     canvas.saveLayer(destinationRect, Paint());
   }
   if (registeredShaderPaint != null) {
@@ -520,6 +1445,7 @@ void _renderResolvedImage(
 
   switch (resolvedImage) {
     case final LoveCanvasSnapshot snapshot:
+      final picture = _pictureForCanvasSnapshot(snapshot);
       canvas.save();
       canvas.clipRect(destinationRect);
       canvas.translate(-sourceRect.left, -sourceRect.top);
@@ -533,11 +1459,7 @@ void _renderResolvedImage(
             ),
         );
       }
-      _renderSurfaceSnapshot(
-        canvas,
-        snapshot.surface,
-        Size(snapshot.width.toDouble(), snapshot.height.toDouble()),
-      );
+      canvas.drawPicture(picture);
       if (tint != LoveColor.white) {
         canvas.restore();
       }
@@ -585,7 +1507,11 @@ void _renderResolvedImage(
   canvas.restore();
 }
 
-void _renderMeshCommand(Canvas canvas, LoveMeshCommand mesh) {
+void _renderMeshCommand(
+  Canvas canvas,
+  LoveMeshCommand mesh, {
+  _LoveFlameRenderStatsAccumulator? stats,
+}) {
   final vertices = mesh.mesh.verticesForDraw();
   if (vertices.isEmpty || mesh.instanceCount <= 0) {
     return;
@@ -752,6 +1678,7 @@ void _renderMeshCommand(Canvas canvas, LoveMeshCommand mesh) {
           radialGradientOverlayPaint != null) &&
       meshBounds != null) {
     for (var instance = 0; instance < mesh.instanceCount; instance++) {
+      stats?.meshCompositeLayers++;
       canvas.saveLayer(meshBounds, Paint());
       canvas.drawVertices(uiVertices, ui.BlendMode.srcOver, paint);
       if (texturedRgbTintOverlayPaint != null) {
@@ -770,6 +1697,7 @@ void _renderMeshCommand(Canvas canvas, LoveMeshCommand mesh) {
       }
       if (texturedVertexAlphaTintOverlayPaint != null &&
           texturedAlphaTintVertices != null) {
+        stats?.meshAlphaMaskLayers++;
         canvas.saveLayer(meshBounds, Paint()..blendMode = BlendMode.dstIn);
         canvas.drawVertices(
           texturedAlphaTintVertices,
@@ -1498,6 +2426,7 @@ Future<ui.Image> _imageDataToUiImage(LoveImageData imageData) {
 }
 
 Future<ui.Image> _canvasSnapshotToUiImage(LoveCanvasSnapshot snapshot) async {
+  final logicalPicture = _pictureForCanvasSnapshot(snapshot);
   final recorder = ui.PictureRecorder();
   final canvas = Canvas(recorder);
   if (snapshot.width > 0 && snapshot.height > 0) {
@@ -1506,17 +2435,41 @@ Future<ui.Image> _canvasSnapshotToUiImage(LoveCanvasSnapshot snapshot) async {
       snapshot.pixelHeight / snapshot.height,
     );
   }
-  _renderSurfaceSnapshot(
-    canvas,
-    snapshot.surface,
-    Size(snapshot.width.toDouble(), snapshot.height.toDouble()),
-  );
+  canvas.drawPicture(logicalPicture);
   final picture = recorder.endRecording();
   try {
     return await picture.toImage(snapshot.pixelWidth, snapshot.pixelHeight);
   } finally {
     picture.dispose();
   }
+}
+
+ui.Picture _pictureForCanvasSnapshot(LoveCanvasSnapshot snapshot) {
+  final cached = _loveCanvasSnapshotPictures.remove(snapshot);
+  if (cached != null) {
+    _loveCanvasSnapshotPictures[snapshot] = cached;
+    return cached;
+  }
+
+  final picture = _recordCanvasSnapshotPicture(snapshot);
+  _loveCanvasSnapshotPictures[snapshot] = picture;
+  if (_loveCanvasSnapshotPictures.length >
+      _loveCanvasSnapshotPictureCacheCapacity) {
+    final eldestKey = _loveCanvasSnapshotPictures.keys.first;
+    _loveCanvasSnapshotPictures.remove(eldestKey)?.dispose();
+  }
+  return picture;
+}
+
+ui.Picture _recordCanvasSnapshotPicture(LoveCanvasSnapshot snapshot) {
+  final recorder = ui.PictureRecorder();
+  final canvas = Canvas(recorder);
+  _renderSurfaceSnapshot(
+    canvas,
+    snapshot.surface,
+    Size(snapshot.width.toDouble(), snapshot.height.toDouble()),
+  );
+  return recorder.endRecording();
 }
 
 Paint? _radialGradientImageOverlayPaintForCommand(LoveDrawCommand command) {
@@ -1610,9 +2563,12 @@ ui.ColorFilter? _desaturationTintColorFilter(LoveShader shader) {
 void _renderSurfaceSnapshot(
   Canvas canvas,
   LoveGraphicsSurfaceSnapshot surface,
-  Size viewportSize,
-) {
-  if (_surfaceRequiresSoftwareFallback(surface)) {
+  Size viewportSize, {
+  _LoveFlameRenderStatsAccumulator? stats,
+}) {
+  final softwareFallbackPlan = _softwareFallbackPlan(surface, viewportSize);
+  if (softwareFallbackPlan.requiresFullFallback) {
+    stats?.softwareSurfaceFallbacks++;
     final pixelWidth = viewportSize.width.ceil();
     final pixelHeight = viewportSize.height.ceil();
     if (pixelWidth <= 0 || pixelHeight <= 0) {
@@ -1628,6 +2584,7 @@ void _renderSurfaceSnapshot(
     _renderImageData(canvas, imageData);
     return;
   }
+  final softwarePatchRect = softwareFallbackPlan.patchRect;
 
   if (viewportSize.width > 0 && viewportSize.height > 0) {
     final clearRect = surface.clearScissor == null
@@ -1638,6 +2595,7 @@ void _renderSurfaceSnapshot(
       colorMask: surface.clearColorMask,
     );
     if (clearLayerPaint != null) {
+      stats?.surfaceClearLayers++;
       canvas.saveLayer(clearRect, clearLayerPaint);
     }
     canvas.drawRect(
@@ -1650,25 +2608,50 @@ void _renderSurfaceSnapshot(
   }
 
   for (final command in surface.commands) {
-    _renderRecordedCommand(canvas, command);
+    if (softwarePatchRect != null &&
+        _commandRequiresSoftwareFallback(command)) {
+      continue;
+    }
+    _renderRecordedCommand(canvas, command, stats: stats);
+  }
+
+  if (softwarePatchRect case final Rect patchRect) {
+    _renderSoftwarePatchSurface(canvas, surface, patchRect);
   }
 }
 
-bool _surfaceRequiresSoftwareFallback(LoveGraphicsSurfaceSnapshot surface) {
+({Rect? patchRect, bool requiresFullFallback}) _softwareFallbackPlan(
+  LoveGraphicsSurfaceSnapshot surface,
+  Size viewportSize,
+) {
   if (!surface.clearColorMask.allEnabled) {
-    return true;
+    return (patchRect: null, requiresFullFallback: true);
   }
 
+  Rect? patchRect;
   for (final command in surface.commands) {
     if (command is LoveStencilClearCommand ||
         command.writesStencil ||
-        command.stencilCompare != LoveGraphicsCompareMode.always ||
-        _commandRequiresSoftwareFallback(command)) {
-      return true;
+        command.stencilCompare != LoveGraphicsCompareMode.always) {
+      return (patchRect: null, requiresFullFallback: true);
     }
+
+    if (!_commandRequiresSoftwareFallback(command)) {
+      continue;
+    }
+
+    if (_softwareFallbackRectForCommand(command, viewportSize)
+        case final Rect fallbackRect) {
+      patchRect = patchRect == null
+          ? fallbackRect
+          : patchRect.expandToInclude(fallbackRect);
+      continue;
+    }
+
+    return (patchRect: null, requiresFullFallback: true);
   }
 
-  return false;
+  return (patchRect: patchRect, requiresFullFallback: false);
 }
 
 bool _commandRequiresSoftwareFallback(LoveDrawCommand command) {
@@ -1680,6 +2663,171 @@ bool _commandRequiresSoftwareFallback(LoveDrawCommand command) {
       command.blendAlphaMode == LoveGraphicsBlendAlphaMode.premultiplied ||
       _commandUsesTransformedRadialGradientShader(command) ||
       !command.colorMask.allEnabled;
+}
+
+void _renderSoftwarePatchSurface(
+  Canvas canvas,
+  LoveGraphicsSurfaceSnapshot surface,
+  Rect patchRect,
+) {
+  final patchBounds = _pixelAlignedRect(patchRect);
+  if (patchBounds == null) {
+    return;
+  }
+
+  final imageData = LoveCanvasRasterizer.rasterizeSurfaceRegion(
+    left: patchBounds.left.round(),
+    top: patchBounds.top.round(),
+    pixelWidth: patchBounds.width.round(),
+    pixelHeight: patchBounds.height.round(),
+    format: 'rgba8',
+    snapshot: surface,
+  );
+  canvas.saveLayer(patchBounds, Paint()..blendMode = ui.BlendMode.src);
+  canvas.translate(patchBounds.left, patchBounds.top);
+  _renderImageData(canvas, imageData);
+  canvas.restore();
+}
+
+Rect? _pixelAlignedRect(Rect rect) {
+  final left = rect.left.floor();
+  final top = rect.top.floor();
+  final right = rect.right.ceil();
+  final bottom = rect.bottom.ceil();
+  if (right <= left || bottom <= top) {
+    return null;
+  }
+
+  return Rect.fromLTWH(
+    left.toDouble(),
+    top.toDouble(),
+    (right - left).toDouble(),
+    (bottom - top).toDouble(),
+  );
+}
+
+Rect? _softwareFallbackRectForCommand(
+  LoveDrawCommand command,
+  Size viewportSize,
+) {
+  Rect? bounds = switch (command) {
+    final LoveRectangleCommand rectangle => _transformedBounds(
+      command.transform,
+      <Offset>[
+        Offset(rectangle.x, rectangle.y),
+        Offset(rectangle.x + rectangle.width, rectangle.y),
+        Offset(rectangle.x + rectangle.width, rectangle.y + rectangle.height),
+        Offset(rectangle.x, rectangle.y + rectangle.height),
+      ],
+      expandBy:
+          rectangle.mode == LoveGraphicsDrawMode.line || rectangle.wireframe
+          ? rectangle.lineWidth / 2
+          : 0,
+    ),
+    final LoveCircleCommand circle => _transformedBounds(
+      command.transform,
+      <Offset>[
+        Offset(circle.x - circle.radius, circle.y - circle.radius),
+        Offset(circle.x + circle.radius, circle.y - circle.radius),
+        Offset(circle.x + circle.radius, circle.y + circle.radius),
+        Offset(circle.x - circle.radius, circle.y + circle.radius),
+      ],
+      expandBy: circle.mode == LoveGraphicsDrawMode.line || circle.wireframe
+          ? circle.lineWidth / 2
+          : 0,
+    ),
+    final LoveEllipseCommand ellipse => _transformedBounds(
+      command.transform,
+      <Offset>[
+        Offset(ellipse.x - ellipse.radiusX, ellipse.y - ellipse.radiusY),
+        Offset(ellipse.x + ellipse.radiusX, ellipse.y - ellipse.radiusY),
+        Offset(ellipse.x + ellipse.radiusX, ellipse.y + ellipse.radiusY),
+        Offset(ellipse.x - ellipse.radiusX, ellipse.y + ellipse.radiusY),
+      ],
+      expandBy: ellipse.mode == LoveGraphicsDrawMode.line || ellipse.wireframe
+          ? ellipse.lineWidth / 2
+          : 0,
+    ),
+    final LoveArcCommand arc => _transformedBounds(command.transform, <Offset>[
+      Offset(arc.x - arc.radius, arc.y - arc.radius),
+      Offset(arc.x + arc.radius, arc.y - arc.radius),
+      Offset(arc.x + arc.radius, arc.y + arc.radius),
+      Offset(arc.x - arc.radius, arc.y + arc.radius),
+    ], expandBy: arc.lineWidth / 2),
+    final LoveLineCommand line => _transformedBounds(
+      command.transform,
+      line.points
+          .map((point) => Offset(point.x, point.y))
+          .toList(growable: false),
+      expandBy: line.lineWidth / 2,
+    ),
+    final LovePolygonCommand polygon => _transformedBounds(
+      command.transform,
+      polygon.points
+          .map((point) => Offset(point.x, point.y))
+          .toList(growable: false),
+      expandBy: polygon.mode == LoveGraphicsDrawMode.line || polygon.wireframe
+          ? polygon.lineWidth / 2
+          : 0,
+    ),
+    final LovePointsCommand points => _transformedBounds(
+      command.transform,
+      points.points
+          .map((point) => Offset(point.x, point.y))
+          .toList(growable: false),
+      expandBy: points.pointSize / 2,
+    ),
+    _ => null,
+  };
+
+  if (command.scissor case final LoveScissorRect scissor) {
+    final scissorRect = _rectForScissor(scissor);
+    bounds = bounds?.intersect(scissorRect) ?? scissorRect;
+  }
+
+  if (bounds == null) {
+    return null;
+  }
+
+  final clippedBounds = bounds.intersect(Offset.zero & viewportSize);
+  return clippedBounds.isEmpty ? null : clippedBounds;
+}
+
+Rect? _transformedBounds(
+  vm.Matrix4 transform,
+  List<Offset> points, {
+  double expandBy = 0,
+}) {
+  if (points.isEmpty) {
+    return null;
+  }
+
+  var minX = double.infinity;
+  var minY = double.infinity;
+  var maxX = double.negativeInfinity;
+  var maxY = double.negativeInfinity;
+  for (final point in points) {
+    final mapped = transform.transformed3(vm.Vector3(point.dx, point.dy, 0));
+    if (mapped.x < minX) {
+      minX = mapped.x;
+    }
+    if (mapped.y < minY) {
+      minY = mapped.y;
+    }
+    if (mapped.x > maxX) {
+      maxX = mapped.x;
+    }
+    if (mapped.y > maxY) {
+      maxY = mapped.y;
+    }
+  }
+
+  return Rect.fromLTRB(
+    minX - expandBy,
+    minY - expandBy,
+    maxX + expandBy,
+    maxY + expandBy,
+  );
 }
 
 bool _commandUsesTransformedRadialGradientShader(LoveDrawCommand command) {

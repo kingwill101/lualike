@@ -1,5 +1,4 @@
 import 'package:flutter_test/flutter_test.dart';
-import 'package:lualike/lualike.dart';
 import 'package:love2d/love2d.dart';
 import 'package:love2d/src/runtime/filesystem/love_filesystem_runtime.dart';
 
@@ -11,7 +10,7 @@ void main() {
   group('love.font kerning overload dispatch', () {
     test('source-backed fonts accept both documented overloads', () async {
       final veraBytes = await (await love2dVeraFontFile()).readAsBytes();
-      final runtime = Interpreter();
+      final runtime = createLuaLikeTestRuntime();
       installLove2d(
         runtime: runtime,
         host: LoveHeadlessHost(),
@@ -45,7 +44,7 @@ void main() {
       'mixed kerning arguments follow LOVE left-argument dispatch',
       () async {
         final veraBytes = await (await love2dVeraFontFile()).readAsBytes();
-        final runtime = Interpreter();
+        final runtime = createLuaLikeTestRuntime();
         installLove2d(
           runtime: runtime,
           host: LoveHeadlessHost(),

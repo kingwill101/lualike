@@ -1,5 +1,4 @@
 import 'package:flutter_test/flutter_test.dart';
-import 'package:lualike/lualike.dart';
 import 'package:love2d/love2d.dart';
 import 'package:love2d/src/runtime/filesystem/love_filesystem_runtime.dart';
 
@@ -11,7 +10,7 @@ void main() {
     test(
       'newBMFontRasterizer reads BMFont definitions and preserves kerning in graphics fonts',
       () async {
-        final runtime = Interpreter();
+        final runtime = createLuaLikeTestRuntime();
         installLove2d(runtime: runtime, host: LoveHeadlessHost());
 
         final fileData = await luaCallList(
@@ -77,7 +76,7 @@ void main() {
     test(
       'newRasterizer autodetects BMFont file data and loads relative page images',
       () async {
-        final runtime = Interpreter();
+        final runtime = createLuaLikeTestRuntime();
         installLove2d(
           runtime: runtime,
           host: LoveHeadlessHost(),
@@ -120,7 +119,7 @@ void main() {
     );
 
     test('graphics.newFont loads BMFont definitions directly', () async {
-      final runtime = Interpreter();
+      final runtime = createLuaLikeTestRuntime();
       installLove2d(runtime: runtime, host: LoveHeadlessHost());
 
       final fileData = await luaCallList(
@@ -156,7 +155,7 @@ void main() {
     test(
       'bmfont fallbacks contribute missing glyph widths and kerning',
       () async {
-        final runtime = Interpreter();
+        final runtime = createLuaLikeTestRuntime();
         installLove2d(runtime: runtime, host: LoveHeadlessHost());
 
         final primaryDefinition = await luaCallList(

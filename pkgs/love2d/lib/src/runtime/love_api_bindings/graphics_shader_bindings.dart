@@ -267,13 +267,40 @@ bool _shaderSourceContainsUniform(LoveShader shader, String name) {
 
 /// Returns whether [source] appears to declare a uniform named [name].
 bool _sourceContainsUniformName(String source, String name) {
-  // Match "extern <type> <name>" or "uniform <type> <name>" with word
-  // boundaries.  We use a simple RegExp that handles optional whitespace and
-  // the most common forms; it is not a full GLSL parser.
-  final pattern = RegExp(
-    r'(?:extern|uniform)\s+\w[\w\s]*\s+' + RegExp.escape(name) + r'\b',
-  );
-  return pattern.hasMatch(source);
+  if (source.isEmpty) {
+    return false;
+  }
+  return _uniformNamesForSource(source).contains(name);
+}
+
+final Map<String, Set<String>> _uniformNamesByShaderSource =
+    <String, Set<String>>{};
+
+Set<String> _uniformNamesForSource(String source) {
+  return _uniformNamesByShaderSource.putIfAbsent(source, () {
+    // Match "extern <type> <name>" or "uniform <type> <name>" declarations.
+    // This remains a heuristic text scan, not a full GLSL parser.
+    final names = <String>{};
+    final declarationPattern = RegExp(r'\b(?:extern|uniform)\b\s+([^;\n]+)');
+    final identifierPattern = RegExp(r'[A-Za-z_]\w*');
+    for (final declaration in declarationPattern.allMatches(source)) {
+      final body = declaration.group(1);
+      if (body == null) {
+        continue;
+      }
+      for (final declarator in body.split(',')) {
+        final declarationPart = declarator.split('=').first;
+        final identifiers = identifierPattern
+            .allMatches(declarationPart)
+            .map((match) => match.group(0)!)
+            .toList(growable: false);
+        if (identifiers.isNotEmpty) {
+          names.add(identifiers.last);
+        }
+      }
+    }
+    return names;
+  });
 }
 
 /// Binds `love.graphics.setShader`.

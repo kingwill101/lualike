@@ -1,5 +1,4 @@
 import 'package:flutter_test/flutter_test.dart';
-import 'package:lualike/lualike.dart';
 import 'package:love2d/love2d.dart';
 import 'package:love2d/src/runtime/filesystem/love_filesystem_runtime.dart';
 
@@ -13,7 +12,7 @@ void main() {
       'source-backed true type kerning follows LOVE dpi-normalized rounding',
       () async {
         final veraBytes = await (await love2dVeraFontFile()).readAsBytes();
-        final runtime = Interpreter();
+        final runtime = createLuaLikeTestRuntime();
         installLove2d(
           runtime: runtime,
           host: LoveHeadlessHost(),

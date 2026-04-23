@@ -5,7 +5,6 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:love2d/love2d.dart';
 import 'package:love2d/src/runtime/filesystem/love_filesystem_runtime.dart';
 import 'package:love2d/src/runtime/flame/love_flame_harness.dart';
-import 'package:love2d/src/runtime/flame/love_flame_harness_renderer.dart';
 import 'package:path/path.dart' as path;
 import 'package:path_provider_platform_interface/path_provider_platform_interface.dart';
 

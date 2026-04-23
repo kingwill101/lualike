@@ -9,7 +9,7 @@ void main() {
     test(
       'Font type metadata survives release while other methods fail',
       () async {
-        final runtime = Interpreter();
+        final runtime = createLuaLikeTestRuntime();
         installLove2d(runtime: runtime, host: LoveHeadlessHost());
 
         final font = await luaCall(
@@ -49,7 +49,7 @@ void main() {
     test(
       'Text type metadata survives release while other methods fail',
       () async {
-        final runtime = Interpreter();
+        final runtime = createLuaLikeTestRuntime();
         installLove2d(runtime: runtime, host: LoveHeadlessHost());
 
         final font = await luaCall(
@@ -94,7 +94,7 @@ void main() {
     test(
       'Canvas type metadata survives release while other methods fail',
       () async {
-        final runtime = Interpreter();
+        final runtime = createLuaLikeTestRuntime();
         installLove2d(runtime: runtime, host: LoveHeadlessHost());
 
         final canvas = await luaCall(
@@ -134,7 +134,7 @@ void main() {
     test(
       'ImageData type metadata survives release while other methods fail',
       () async {
-        final runtime = Interpreter();
+        final runtime = createLuaLikeTestRuntime();
         installLove2d(runtime: runtime, host: LoveHeadlessHost());
 
         final imageData = await luaCall(

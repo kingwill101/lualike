@@ -16,7 +16,7 @@ void main() {
       Uint8List? createdBytes;
       LoveVideoMetadata? createdMetadata;
 
-      final runtime = Interpreter();
+      final runtime = createLuaLikeTestRuntime();
       installLove2d(
         runtime: runtime,
         host: LoveHeadlessHost(
@@ -70,7 +70,7 @@ void main() {
     test('Video release is idempotent for frame-backed providers', () async {
       final provider = _FakeVideoFrameProvider();
 
-      final runtime = Interpreter();
+      final runtime = createLuaLikeTestRuntime();
       installLove2d(
         runtime: runtime,
         host: LoveHeadlessHost(
@@ -120,7 +120,7 @@ void main() {
       () async {
         final provider = _FakePlaybackVideoFrameProvider();
 
-        final runtime = Interpreter();
+        final runtime = createLuaLikeTestRuntime();
         installLove2d(
           runtime: runtime,
           host: LoveHeadlessHost(

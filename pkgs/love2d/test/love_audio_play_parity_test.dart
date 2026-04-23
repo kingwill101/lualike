@@ -5,10 +5,10 @@ import 'test_support/lua_api_test_helpers.dart';
 
 void main() {
   group('LOVE audio play parity', () {
-    late Interpreter runtime;
+    late LuaRuntime runtime;
 
     setUp(() {
-      runtime = Interpreter();
+      runtime = createLuaLikeTestRuntime();
       installLove2d(runtime: runtime, host: LoveHeadlessHost());
     });
 

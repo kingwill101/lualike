@@ -1,5 +1,4 @@
 import 'package:flutter_test/flutter_test.dart';
-import 'package:lualike/lualike.dart';
 import 'package:love2d/love2d.dart';
 
 import 'test_support/font_test_support.dart';
@@ -10,7 +9,7 @@ void main() {
     test(
       'source-backed rasterizers generate non-empty alpha coverage for composite glyphs',
       () async {
-        final runtime = Interpreter();
+        final runtime = createLuaLikeTestRuntime();
         installLove2d(runtime: runtime, host: LoveHeadlessHost());
 
         final veraBytes = await (await love2dVeraFontFile()).readAsBytes();

@@ -6,11 +6,11 @@ import 'test_support/physics_test_support.dart';
 
 void main() {
   group('love.physics world callbacks', () {
-    late Interpreter runtime;
+    late LuaRuntime runtime;
     late LuaLike lua;
 
     setUp(() {
-      runtime = Interpreter();
+      runtime = createLuaLikeTestRuntime();
       lua = LuaLike(runtime: runtime);
       installLove2d(runtime: runtime);
     });

@@ -8,11 +8,11 @@ import 'test_support/lua_api_test_helpers.dart';
 
 void main() {
   group('love.keyboard module', () {
-    late Interpreter runtime;
+    late LuaRuntime runtime;
     late LoveHeadlessHost host;
 
     setUp(() {
-      runtime = Interpreter();
+      runtime = createLuaLikeTestRuntime();
       host = LoveHeadlessHost();
       installLove2d(runtime: runtime, host: host);
     });
@@ -254,11 +254,11 @@ pressed = love.keyboard.isDown("right", "d")
   });
 
   group('love.mouse module', () {
-    late Interpreter runtime;
+    late LuaRuntime runtime;
     late LoveHeadlessHost host;
 
     setUp(() {
-      runtime = Interpreter();
+      runtime = createLuaLikeTestRuntime();
       host = LoveHeadlessHost();
       installLove2d(runtime: runtime, host: host);
     });
@@ -455,7 +455,7 @@ pressed = love.keyboard.isDown("right", "d")
     test(
       'newCursor reads mounted LOVE filesystem strings and rejects missing filenames',
       () async {
-        final runtime = Interpreter();
+        final runtime = createLuaLikeTestRuntime();
         final host = LoveHeadlessHost();
         installLove2d(
           runtime: runtime,

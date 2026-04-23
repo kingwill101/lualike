@@ -18,9 +18,10 @@ import 'package:lualike/lualike.dart'
     show
         Box,
         BuiltinFunction,
-        Interpreter,
         LuaChunkLoadRequest,
         LuaError,
+        LuaLike,
+        LuaCallableArtifact,
         LuaNumberParser,
         NumberUtils,
         LuaRuntime,
@@ -30,6 +31,7 @@ import 'package:lualike/src/ast.dart';
 import 'package:lualike/src/environment.dart';
 import 'package:lualike/src/number_limits.dart' show NumberLimits;
 import 'package:lualike/src/upvalue.dart';
+import 'package:path/path.dart' as path;
 import 'package:vector_math/vector_math_64.dart' show Matrix4, Vector3;
 
 import '../generated/love_api_reference.g.dart'
@@ -68,6 +70,8 @@ import 'system/love_system_extra_bindings.dart'
     show installLoveSystemExtraBindings;
 import 'window/love_window_extra_bindings.dart'
     show installLoveWindowExtraBindings;
+import 'flame/love_flame_harness_renderer.dart' show LoveSurfaceSnapshotPainter;
+import 'flame/love_flame_host.dart' show LoveFlameHost;
 import '../love_api_support.dart';
 import 'love_runtime.dart';
 

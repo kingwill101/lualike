@@ -180,13 +180,13 @@ void main() {
   });
 }
 
-Interpreter _newRuntime({LoveHost? host}) {
-  final runtime = Interpreter();
+LuaRuntime _newRuntime({LoveHost? host}) {
+  final runtime = createLuaLikeTestRuntime();
   installLove2d(runtime: runtime, host: host ?? LoveHeadlessHost());
   return runtime;
 }
 
-Future<Object?> _newTestImage(Interpreter runtime) async {
+Future<Object?> _newTestImage(LuaRuntime runtime) async {
   final imageData = await luaCall(
     runtime,
     const ['love', 'image', 'newImageData'],

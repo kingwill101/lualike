@@ -35,7 +35,7 @@ LoveApiImplementation _bindThreadGetChannel(
 /// Binds `love.thread.newThread`.
 ///
 /// LOVE accepts either a Lua code string or a filesystem-backed source file.
-/// This binding creates a child interpreter, installs the LOVE runtime into
+/// This binding creates a child LuaLike runtime, installs the LOVE runtime into
 /// it, mirrors the parent's filesystem state, and then loads the provided
 /// chunk for later execution.
 LoveApiImplementation _bindThreadNewThread(LibraryRegistrationContext context) {
@@ -75,15 +75,19 @@ LoveApiImplementation _bindThreadNewThread(LibraryRegistrationContext context) {
     final thread = LoveLuaThread(
       name: name,
       runner: (encodedArgs, thread) async {
-        final childRuntime = Interpreter();
+        final childLua = LuaLike(engineMode: parentRuntimeContext.engineMode);
+        final childRuntime = childLua.vm;
 
         ensureLoveApiRuntimeBindingsLoaded();
         ensureLoveFilesystemRuntimeBindingsLoaded();
 
-        LoveRuntimeContext.attach(
+        final childRuntimeContext = LoveRuntimeContext.attach(
           childRuntime,
           host: parentRuntimeContext.host,
+          engineMode: childLua.engineMode,
+          automaticGc: parentRuntimeContext.automaticGc,
         );
+        childRuntimeContext.applyGcPolicy(childRuntime);
         LoveFilesystemState.attach(
           childRuntime,
           adapter: parentFilesystem.adapter,

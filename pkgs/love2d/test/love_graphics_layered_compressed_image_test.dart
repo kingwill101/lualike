@@ -10,7 +10,7 @@ void main() {
     test(
       'newArrayImage accepts CompressedImageData slices and drawLayer records the selected layer',
       () async {
-        final runtime = Interpreter();
+        final runtime = createLuaLikeTestRuntime();
         final host = LoveHeadlessHost();
         installLove2d(runtime: runtime, host: host);
 
@@ -71,7 +71,7 @@ void main() {
     test(
       'newVolumeImage and newCubeImage accept CompressedImageData sources and preserve metadata',
       () async {
-        final runtime = Interpreter();
+        final runtime = createLuaLikeTestRuntime();
         installLove2d(runtime: runtime, host: LoveHeadlessHost());
 
         final ddsA = await _newCompressedData(
@@ -166,7 +166,7 @@ LoveImage arrayLikeImage(Object? wrapped) =>
     (wrapped! as Map<dynamic, dynamic>)['__love2d_image__'] as LoveImage;
 
 Future<Object?> _newCompressedData(
-  Interpreter runtime,
+  LuaRuntime runtime,
   String filename,
   Uint8List bytes,
 ) async {

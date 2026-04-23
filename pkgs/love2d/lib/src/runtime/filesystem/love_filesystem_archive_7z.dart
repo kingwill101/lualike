@@ -26,9 +26,54 @@ const int _sevenZipIdName = 0x11;
 const int _sevenZipIdMTime = 0x14;
 const int _sevenZipIdEncodedHeader = 0x17;
 
+const int _sevenZipMethodDelta = 3;
 const int _sevenZipMethodCopy = 0;
 const int _sevenZipMethodLzma = 0x030101;
 const int _sevenZipMethodLzma2 = 0x21;
+const int _sevenZipMethodBcj = 0x03030103;
+const int _sevenZipMethodBcj2 = 0x0303011b;
+const int _sevenZipMethodIa64 = 0x03030401;
+const int _sevenZipMethodPpc = 0x03030205;
+const int _sevenZipMethodArm = 0x03030501;
+const int _sevenZipMethodArmt = 0x03030701;
+const int _sevenZipMethodSparc = 0x03030805;
+const int _sevenZipMethodArm64 = 0x0a;
+
+const List<int> _sevenZipBcjMaskToBitNumber = <int>[0, 1, 2, 2, 3, 3, 3, 3];
+const List<int> _sevenZipIa64BranchTable = <int>[
+  0,
+  0,
+  0,
+  0,
+  0,
+  0,
+  0,
+  0,
+  0,
+  0,
+  0,
+  0,
+  0,
+  0,
+  0,
+  0,
+  4,
+  4,
+  6,
+  6,
+  0,
+  0,
+  7,
+  7,
+  4,
+  4,
+  0,
+  0,
+  4,
+  4,
+  0,
+  0,
+];
 
 Archive? decode7zArchive(List<int> bytes) {
   try {
@@ -725,23 +770,152 @@ Uint8List _decodeSevenZipFolder(
   int folderIndex,
 ) {
   final folder = description.folders[folderIndex];
-  if (folder.coders.length != 1 || folder.packStreams.length != 1) {
-    throw const FormatException('Unsupported 7z coder chain.');
+  if (folder.coders.length == 1) {
+    if (folder.packStreams.length != 1) {
+      throw const FormatException('Unsupported 7z coder chain.');
+    }
+
+    final packedBytes = _readSevenZipPackStreamBytes(
+      archiveBytes,
+      description,
+      folder.startPackStreamIndex,
+    );
+    return _decodeSevenZipCoder(
+      folder.coders.single,
+      packedBytes,
+      folder.mainUnpackSize,
+    );
   }
 
-  final coder = folder.coders.single;
-  final packStreamIndex = folder.startPackStreamIndex;
-  final start =
-      description.bytesDataOffset + description.packPositions[packStreamIndex];
-  final end =
-      description.bytesDataOffset +
-      description.packPositions[packStreamIndex + 1];
-  if (end < start || end > archiveBytes.length) {
-    throw const FormatException('Invalid 7z pack stream bounds.');
+  if (_isSupportedSevenZipLinearFilterFolder(folder)) {
+    final packedBytes = _readSevenZipPackStreamBytes(
+      archiveBytes,
+      description,
+      folder.startPackStreamIndex,
+    );
+    final mainCoder = folder.coders[0];
+    final filterCoder = folder.coders[1];
+    final mainUnpackSize = folder.unpackSizes[folder.bonds.single.outIndex];
+    if (mainUnpackSize != folder.mainUnpackSize) {
+      throw const FormatException('Unsupported 7z filter size transform.');
+    }
+
+    final decoded = _decodeSevenZipCoder(
+      mainCoder,
+      packedBytes,
+      mainUnpackSize,
+    );
+    return _applySevenZipFilter(filterCoder, decoded);
   }
 
-  final packedBytes = Uint8List.sublistView(archiveBytes, start, end);
-  final unpackSize = folder.mainUnpackSize;
+  if (_isSupportedSevenZipBcj2Folder(folder)) {
+    return _decodeSevenZipBcj2Folder(archiveBytes, description, folder);
+  }
+
+  throw const FormatException('Unsupported 7z coder chain.');
+}
+
+bool _isSupportedSevenZipLinearFilterFolder(_SevenZipFolder folder) {
+  if (folder.coders.length != 2 ||
+      folder.packStreams.length != 1 ||
+      folder.packStreams.single != 0 ||
+      folder.bonds.length != 1 ||
+      folder.bonds.single.inIndex != 1 ||
+      folder.bonds.single.outIndex != 0 ||
+      folder.unpackStreamIndex != 1) {
+    return false;
+  }
+
+  final mainCoder = folder.coders[0];
+  final filterCoder = folder.coders[1];
+  if (mainCoder.numInStreams != 1 || filterCoder.numInStreams != 1) {
+    return false;
+  }
+
+  return switch (filterCoder.methodId) {
+    _sevenZipMethodSparc => true,
+    _sevenZipMethodArm64 => true,
+    _sevenZipMethodIa64 => true,
+    _sevenZipMethodPpc => true,
+    _sevenZipMethodArm => true,
+    _sevenZipMethodArmt => true,
+    _sevenZipMethodBcj => true,
+    _sevenZipMethodDelta => true,
+    _ => false,
+  };
+}
+
+bool _isSupportedSevenZipBcj2Folder(_SevenZipFolder folder) {
+  return _isSupportedSevenZipTwoCoderBcj2Folder(folder) ||
+      _isSupportedSevenZipFourCoderBcj2Folder(folder);
+}
+
+bool _isSupportedSevenZipTwoCoderBcj2Folder(_SevenZipFolder folder) {
+  if (folder.coders.length != 2 ||
+      folder.packStreams.length != 4 ||
+      folder.bonds.length != 1 ||
+      folder.unpackStreamIndex != 1 ||
+      folder.packStreams[0] != 0 ||
+      folder.packStreams[1] != 2 ||
+      folder.packStreams[2] != 3 ||
+      folder.packStreams[3] != 4 ||
+      folder.bonds[0].inIndex != 1 ||
+      folder.bonds[0].outIndex != 0) {
+    return false;
+  }
+
+  final mainCoder = folder.coders[0];
+  final bcj2Coder = folder.coders[1];
+  return _isSupportedSevenZipMainCoder(mainCoder) &&
+      bcj2Coder.methodId == _sevenZipMethodBcj2 &&
+      bcj2Coder.numInStreams == 4 &&
+      bcj2Coder.props.isEmpty;
+}
+
+bool _isSupportedSevenZipFourCoderBcj2Folder(_SevenZipFolder folder) {
+  if (folder.coders.length != 4 ||
+      folder.packStreams.length != 4 ||
+      folder.bonds.length != 3 ||
+      folder.unpackStreamIndex != 3 ||
+      folder.packStreams[0] != 2 ||
+      folder.packStreams[1] != 6 ||
+      folder.packStreams[2] != 1 ||
+      folder.packStreams[3] != 0 ||
+      folder.bonds[0].inIndex != 5 ||
+      folder.bonds[0].outIndex != 0 ||
+      folder.bonds[1].inIndex != 4 ||
+      folder.bonds[1].outIndex != 1 ||
+      folder.bonds[2].inIndex != 3 ||
+      folder.bonds[2].outIndex != 2) {
+    return false;
+  }
+
+  final callCoder = folder.coders[0];
+  final jumpCoder = folder.coders[1];
+  final mainCoder = folder.coders[2];
+  final bcj2Coder = folder.coders[3];
+  return _isSupportedSevenZipMainCoder(callCoder) &&
+      _isSupportedSevenZipMainCoder(jumpCoder) &&
+      _isSupportedSevenZipMainCoder(mainCoder) &&
+      bcj2Coder.methodId == _sevenZipMethodBcj2 &&
+      bcj2Coder.numInStreams == 4 &&
+      bcj2Coder.props.isEmpty;
+}
+
+bool _isSupportedSevenZipMainCoder(_SevenZipCoder coder) =>
+    coder.numInStreams == 1 &&
+    switch (coder.methodId) {
+      _sevenZipMethodCopy => true,
+      _sevenZipMethodLzma => true,
+      _sevenZipMethodLzma2 => true,
+      _ => false,
+    };
+
+Uint8List _decodeSevenZipCoder(
+  _SevenZipCoder coder,
+  Uint8List packedBytes,
+  int unpackSize,
+) {
   return switch (coder.methodId) {
     _sevenZipMethodCopy => _decodeSevenZipCopy(packedBytes, unpackSize),
     _sevenZipMethodLzma => _decodeSevenZipLzma(
@@ -758,11 +932,618 @@ Uint8List _decodeSevenZipFolder(
   };
 }
 
+Uint8List _applySevenZipFilter(_SevenZipCoder coder, Uint8List bytes) {
+  return switch (coder.methodId) {
+    _sevenZipMethodSparc => _decodeSevenZipSparc(bytes, coder.props),
+    _sevenZipMethodArm64 => _decodeSevenZipArm64(bytes, coder.props),
+    _sevenZipMethodIa64 => _decodeSevenZipIa64(bytes, coder.props),
+    _sevenZipMethodPpc => _decodeSevenZipPpc(bytes, coder.props),
+    _sevenZipMethodArm => _decodeSevenZipArm(bytes, coder.props),
+    _sevenZipMethodArmt => _decodeSevenZipArmt(bytes, coder.props),
+    _sevenZipMethodBcj => _decodeSevenZipBcj(bytes, coder.props),
+    _sevenZipMethodDelta => _decodeSevenZipDelta(bytes, coder.props),
+    _ => throw const FormatException('Unsupported 7z filter method.'),
+  };
+}
+
+Uint8List _decodeSevenZipBcj2Folder(
+  Uint8List archiveBytes,
+  _SevenZipArchiveDescription description,
+  _SevenZipFolder folder,
+) {
+  if (_isSupportedSevenZipTwoCoderBcj2Folder(folder)) {
+    return _decodeSevenZipTwoCoderBcj2Folder(archiveBytes, description, folder);
+  }
+
+  const coderToPackStreamIndex = <int>[3, 2, 0];
+  final outputSize = folder.mainUnpackSize;
+  final callStream = _decodeSevenZipCoder(
+    folder.coders[0],
+    _readSevenZipPackStreamBytes(
+      archiveBytes,
+      description,
+      folder.startPackStreamIndex + coderToPackStreamIndex[0],
+    ),
+    folder.unpackSizes[0],
+  );
+  final jumpStream = _decodeSevenZipCoder(
+    folder.coders[1],
+    _readSevenZipPackStreamBytes(
+      archiveBytes,
+      description,
+      folder.startPackStreamIndex + coderToPackStreamIndex[1],
+    ),
+    folder.unpackSizes[1],
+  );
+  final mainStream = _decodeSevenZipCoder(
+    folder.coders[2],
+    _readSevenZipPackStreamBytes(
+      archiveBytes,
+      description,
+      folder.startPackStreamIndex + coderToPackStreamIndex[2],
+    ),
+    folder.unpackSizes[2],
+  );
+  final rangeStream = _readSevenZipPackStreamBytes(
+    archiveBytes,
+    description,
+    folder.startPackStreamIndex + 1,
+  );
+  return _decodeSevenZipBcj2(
+    mainStream: mainStream,
+    callStream: callStream,
+    jumpStream: jumpStream,
+    rangeStream: rangeStream,
+    outputSize: outputSize,
+  );
+}
+
+Uint8List _decodeSevenZipTwoCoderBcj2Folder(
+  Uint8List archiveBytes,
+  _SevenZipArchiveDescription description,
+  _SevenZipFolder folder,
+) {
+  final mainStream = _decodeSevenZipCoder(
+    folder.coders[0],
+    _readSevenZipPackStreamBytes(
+      archiveBytes,
+      description,
+      folder.startPackStreamIndex,
+    ),
+    folder.unpackSizes[0],
+  );
+  final callStream = _readSevenZipPackStreamBytes(
+    archiveBytes,
+    description,
+    folder.startPackStreamIndex + 1,
+  );
+  final jumpStream = _readSevenZipPackStreamBytes(
+    archiveBytes,
+    description,
+    folder.startPackStreamIndex + 2,
+  );
+  final rangeStream = _readSevenZipPackStreamBytes(
+    archiveBytes,
+    description,
+    folder.startPackStreamIndex + 3,
+  );
+  return _decodeSevenZipBcj2(
+    mainStream: mainStream,
+    callStream: callStream,
+    jumpStream: jumpStream,
+    rangeStream: rangeStream,
+    outputSize: folder.mainUnpackSize,
+  );
+}
+
+Uint8List _decodeSevenZipBcj2({
+  required Uint8List mainStream,
+  required Uint8List callStream,
+  required Uint8List jumpStream,
+  required Uint8List rangeStream,
+  required int outputSize,
+}) {
+  if ((callStream.length & 3) != 0 ||
+      (jumpStream.length & 3) != 0 ||
+      mainStream.length + callStream.length + jumpStream.length != outputSize) {
+    throw const FormatException('Invalid 7z BCJ2 stream sizes.');
+  }
+
+  const bcj2StreamMain = 0;
+  const bcj2StreamCall = 1;
+  const bcj2StreamJump = 2;
+  const bcj2DecStateOrig0 = 4;
+  const bcj2DecStateOrig = 8;
+  const bcj2DecStateOk = 9;
+  const kTopValue = 1 << 24;
+  const kNumModelBits = 11;
+  const kBitModelTotal = 1 << kNumModelBits;
+  const kNumMoveBits = 5;
+
+  final output = Uint8List(outputSize);
+  final probs = List<int>.filled(2 + 256, kBitModelTotal >> 1);
+  final temp = Uint8List(4);
+
+  var state = bcj2DecStateOk;
+  var ip = 0;
+  var range = 0;
+  var code = 0;
+  var mainIndex = 0;
+  var callIndex = 0;
+  var jumpIndex = 0;
+  var rangeIndex = 0;
+  var destIndex = 0;
+
+  for (; range != 5; range++) {
+    if (range == 1 && code != 0) {
+      throw const FormatException('Invalid 7z BCJ2 state.');
+    }
+    if (rangeIndex >= rangeStream.length) {
+      throw const FormatException('Truncated 7z BCJ2 range stream.');
+    }
+    code = _uint32((code << 8) | rangeStream[rangeIndex++]);
+  }
+  if (code == 0xffffffff) {
+    throw const FormatException('Invalid 7z BCJ2 range coder header.');
+  }
+  range = 0xffffffff;
+
+  while (true) {
+    if (state == bcj2StreamCall || state == bcj2StreamJump) {
+      state = bcj2DecStateOk;
+    } else {
+      if (range < kTopValue) {
+        if (rangeIndex >= rangeStream.length) {
+          throw const FormatException('Truncated 7z BCJ2 range stream.');
+        }
+        range = _uint32(range << 8);
+        code = _uint32((code << 8) | rangeStream[rangeIndex++]);
+      }
+
+      var remainingMain = mainStream.length - mainIndex;
+      if (remainingMain == 0) {
+        state = bcj2StreamMain;
+        break;
+      }
+
+      if (remainingMain > (output.length - destIndex)) {
+        remainingMain = output.length - destIndex;
+        if (remainingMain == 0) {
+          state = bcj2DecStateOrig;
+          break;
+        }
+      }
+
+      final mainLimit = mainIndex + remainingMain;
+      var currentMainIndex = mainIndex;
+      var currentDestIndex = destIndex;
+      if (temp[3] == 0x0f && (mainStream[currentMainIndex] & 0xf0) == 0x80) {
+        output[currentDestIndex] = mainStream[currentMainIndex];
+      } else {
+        while (true) {
+          final byte = mainStream[currentMainIndex];
+          output[currentDestIndex] = byte;
+          if (byte != 0x0f) {
+            if ((byte & 0xfe) == 0xe8) {
+              break;
+            }
+            currentDestIndex++;
+            currentMainIndex++;
+            if (currentMainIndex != mainLimit) {
+              continue;
+            }
+            break;
+          }
+
+          currentDestIndex++;
+          currentMainIndex++;
+          if (currentMainIndex == mainLimit) {
+            break;
+          }
+          if ((mainStream[currentMainIndex] & 0xf0) != 0x80) {
+            continue;
+          }
+          output[currentDestIndex] = mainStream[currentMainIndex];
+          break;
+        }
+      }
+
+      final consumedMain = currentMainIndex - mainIndex;
+      if (currentMainIndex == mainLimit) {
+        temp[3] = mainStream[currentMainIndex - 1];
+        mainIndex = currentMainIndex;
+        ip += consumedMain;
+        destIndex += consumedMain;
+        state = mainIndex == mainStream.length
+            ? bcj2StreamMain
+            : bcj2DecStateOrig;
+        break;
+      }
+
+      final branchByte = mainStream[currentMainIndex];
+      final prevByte = consumedMain == 0
+          ? temp[3]
+          : mainStream[currentMainIndex - 1];
+      temp[3] = branchByte;
+      mainIndex = currentMainIndex + 1;
+      ip += consumedMain + 1;
+      destIndex += consumedMain + 1;
+
+      final probIndex = branchByte == 0xe8 ? 2 + prevByte : 1;
+      final probability = probs[probIndex];
+      final bound = _uint32((range >> kNumModelBits) * probability);
+      if (code < bound) {
+        range = bound;
+        probs[probIndex] =
+            probability + ((kBitModelTotal - probability) >> kNumMoveBits);
+        continue;
+      }
+
+      range = _uint32(range - bound);
+      code = _uint32(code - bound);
+      probs[probIndex] = probability - (probability >> kNumMoveBits);
+    }
+
+    final isCall = temp[3] == 0xe8;
+    final branchStream = isCall ? callStream : jumpStream;
+    var branchIndex = isCall ? callIndex : jumpIndex;
+    if (branchIndex == branchStream.length) {
+      state = isCall ? bcj2StreamCall : bcj2StreamJump;
+      break;
+    }
+
+    var value = _readUint32BE(branchStream, branchIndex);
+    branchIndex += 4;
+    if (isCall) {
+      callIndex = branchIndex;
+    } else {
+      jumpIndex = branchIndex;
+    }
+
+    ip += 4;
+    value = _uint32(value - ip);
+    final remainingOutput = output.length - destIndex;
+    if (remainingOutput < 4) {
+      _writeUint32LE(temp, 0, value);
+      for (var index = 0; index < remainingOutput; index++) {
+        output[destIndex + index] = temp[index];
+      }
+      destIndex += remainingOutput;
+      state = bcj2DecStateOrig0 + remainingOutput;
+      break;
+    }
+
+    _writeUint32LE(output, destIndex, value);
+    temp[3] = (value >> 24) & 0xff;
+    destIndex += 4;
+  }
+
+  if (range < kTopValue && rangeIndex < rangeStream.length) {
+    range = _uint32(range << 8);
+    code = _uint32((code << 8) | rangeStream[rangeIndex++]);
+  }
+
+  if (mainIndex != mainStream.length ||
+      callIndex != callStream.length ||
+      jumpIndex != jumpStream.length ||
+      rangeIndex != rangeStream.length ||
+      code != 0 ||
+      destIndex != output.length ||
+      state != bcj2StreamMain) {
+    throw const FormatException('Invalid 7z BCJ2 decode result.');
+  }
+
+  return output;
+}
+
+Uint8List _decodeSevenZipBcj(Uint8List bytes, Uint8List props) {
+  if (props.isNotEmpty) {
+    throw const FormatException('Unsupported 7z BCJ properties.');
+  }
+
+  if (bytes.length <= 4) {
+    return bytes;
+  }
+
+  var bufferPos = 0;
+  var prevPos = -1;
+  var prevMask = 0;
+  final limit = bytes.length - 4;
+  while (bufferPos < limit) {
+    while (bufferPos < limit && (bytes[bufferPos] & 0xfe) != 0xe8) {
+      bufferPos++;
+    }
+    if (bufferPos >= limit) {
+      break;
+    }
+
+    final prevDistance = bufferPos - prevPos;
+    if (prevDistance > 3) {
+      prevMask = 0;
+    } else {
+      prevMask = (prevMask << (prevDistance - 1)) & 7;
+      if (prevMask != 0) {
+        final checkByte =
+            bytes[bufferPos + 4 - _sevenZipBcjMaskToBitNumber[prevMask]];
+        if (!_needsSevenZipBcjConversionForMsByte(checkByte)) {
+          prevPos = bufferPos;
+          bufferPos++;
+          continue;
+        }
+      }
+    }
+
+    prevPos = bufferPos;
+    if (_needsSevenZipBcjConversionForMsByte(bytes[bufferPos + 4])) {
+      var value = _readUint32LE(bytes, bufferPos + 1);
+      while (true) {
+        final converted = (value - (bufferPos + 5)) & 0xffffffff;
+        if (prevMask == 0) {
+          value = converted;
+          break;
+        }
+
+        final bitNumber = _sevenZipBcjMaskToBitNumber[prevMask] * 8;
+        if (!_needsSevenZipBcjConversionForMsByte(
+          (converted >> (24 - bitNumber)) & 0xff,
+        )) {
+          value = converted;
+          break;
+        }
+
+        value = converted ^ ((1 << (32 - bitNumber)) - 1);
+      }
+
+      _writeUint32LE(bytes, bufferPos + 1, value);
+      bufferPos += 5;
+      continue;
+    }
+
+    prevMask = ((prevMask << 1) | 1) & 7;
+    bufferPos++;
+  }
+
+  return bytes;
+}
+
+bool _needsSevenZipBcjConversionForMsByte(int byte) =>
+    (((byte + 1) & 0xfe) == 0);
+
+Uint8List _decodeSevenZipArm(Uint8List bytes, Uint8List props) {
+  if (props.isNotEmpty) {
+    throw const FormatException('Unsupported 7z ARM properties.');
+  }
+
+  final limit = bytes.length & ~3;
+  for (var offset = 0; offset < limit; offset += 4) {
+    if (bytes[offset + 3] != 0xeb) {
+      continue;
+    }
+
+    final value = _readUint32LE(bytes, offset);
+    final converted = _uint32(value - ((offset + 8) >> 2));
+    _writeUint32LE(bytes, offset, (converted & 0x00ffffff) | 0xeb000000);
+  }
+
+  return bytes;
+}
+
+Uint8List _decodeSevenZipIa64(Uint8List bytes, Uint8List props) {
+  if (props.isNotEmpty) {
+    throw const FormatException('Unsupported 7z IA64 properties.');
+  }
+
+  if (bytes.length < 16) {
+    return bytes;
+  }
+
+  final limit = bytes.length - 16;
+  for (var offset = 0; offset <= limit; offset += 16) {
+    final instructionTemplate = bytes[offset] & 0x1f;
+    final mask = _sevenZipIa64BranchTable[instructionTemplate];
+    for (var slot = 0, bitPos = 5; slot < 3; slot++, bitPos += 41) {
+      if (((mask >> slot) & 1) == 0) {
+        continue;
+      }
+
+      final bytePos = bitPos >> 3;
+      final bitRes = bitPos & 0x7;
+      var instruction = 0;
+      for (var index = 0; index < 6; index++) {
+        instruction |= bytes[offset + bytePos + index] << (8 * index);
+      }
+
+      var normalizedInstruction = instruction >> bitRes;
+      if (((normalizedInstruction >> 37) & 0xf) != 0x5 ||
+          ((normalizedInstruction >> 9) & 0x7) != 0) {
+        continue;
+      }
+
+      var source =
+          ((normalizedInstruction >> 13) & 0xfffff) |
+          (((normalizedInstruction >> 36) & 1) << 20);
+      source <<= 4;
+      final destination = _uint32(source - offset) >> 4;
+      normalizedInstruction &= ~((0x8fffff) << 13);
+      normalizedInstruction |= (destination & 0xfffff) << 13;
+      normalizedInstruction |= (destination & 0x100000) << (36 - 20);
+
+      instruction &= (1 << bitRes) - 1;
+      instruction |= normalizedInstruction << bitRes;
+      for (var index = 0; index < 6; index++) {
+        bytes[offset + bytePos + index] = (instruction >> (8 * index)) & 0xff;
+      }
+    }
+  }
+
+  return bytes;
+}
+
+Uint8List _decodeSevenZipArmt(Uint8List bytes, Uint8List props) {
+  if (props.isNotEmpty) {
+    throw const FormatException('Unsupported 7z ARMT properties.');
+  }
+
+  final limit = (bytes.length & ~1) - 2;
+  if (limit <= 0) {
+    return bytes;
+  }
+
+  for (var offset = 0; offset < limit;) {
+    final firstHigh = bytes[offset + 1];
+    final secondHigh = bytes[offset + 3];
+    if ((firstHigh & 0xf8) == 0xf0 && (secondHigh & 0xf8) == 0xf8) {
+      final first = _readUint16LE(bytes, offset);
+      final second = _readUint16LE(bytes, offset + 2);
+      final value = _uint32((first << 11) | (second & 0x07ff));
+      final converted = _uint32(value - ((offset + 4) >> 1));
+      _writeUint16LE(bytes, offset, ((converted >> 11) & 0x07ff) | 0xf000);
+      _writeUint16LE(bytes, offset + 2, (converted & 0x07ff) | 0xf800);
+      offset += 4;
+      continue;
+    }
+
+    offset += 2;
+  }
+
+  return bytes;
+}
+
+Uint8List _decodeSevenZipPpc(Uint8List bytes, Uint8List props) {
+  if (props.isNotEmpty) {
+    throw const FormatException('Unsupported 7z PPC properties.');
+  }
+
+  final limit = bytes.length & ~3;
+  for (var offset = 0; offset < limit; offset += 4) {
+    final value = _readUint32BE(bytes, offset);
+    if ((value & 0xfc000003) != 0x48000001) {
+      continue;
+    }
+
+    final converted = _uint32(value - offset);
+    _writeUint32BE(bytes, offset, (converted & 0x03ffffff) | 0x48000000);
+  }
+
+  return bytes;
+}
+
+Uint8List _decodeSevenZipSparc(Uint8List bytes, Uint8List props) {
+  if (props.isNotEmpty) {
+    throw const FormatException('Unsupported 7z SPARC properties.');
+  }
+
+  const flag = 1 << 22;
+  const candidateMask = 0xfe000003;
+  const valueAdjust = (flag << 2) - 1;
+  const rangeMask = (flag << 3) - 1;
+  final limit = bytes.length & ~3;
+  for (var offset = 0; offset < limit; offset += 4) {
+    final value = _readUint32BE(bytes, offset);
+    final rotated = _rotl32(value, 2);
+    var converted = _uint32(rotated + valueAdjust);
+    if ((converted & candidateMask) != 0) {
+      continue;
+    }
+
+    converted = _uint32(converted - offset);
+    converted &= rangeMask;
+    converted = _uint32(converted - valueAdjust);
+    _writeUint32BE(bytes, offset, _rotr32(converted, 2));
+  }
+
+  return bytes;
+}
+
+Uint8List _decodeSevenZipArm64(Uint8List bytes, Uint8List props) {
+  var pcBase = 0;
+  if (props.isEmpty) {
+    pcBase = 0;
+  } else if (props.length == 4) {
+    pcBase = _readUint32LE(props, 0);
+    if ((pcBase & 3) != 0) {
+      throw const FormatException('Unsupported 7z ARM64 properties.');
+    }
+  } else {
+    throw const FormatException('Unsupported 7z ARM64 properties.');
+  }
+
+  const adrpFlag = 1 << 20;
+  const adrpMask = (1 << 24) - (adrpFlag << 1);
+  final limit = bytes.length & ~3;
+  for (var offset = 0; offset < limit; offset += 4) {
+    final value = _readUint32LE(bytes, offset);
+    if (((value - 0x94000000) & 0xfc000000) == 0) {
+      final converted = _uint32(value - ((pcBase + offset) >> 2));
+      _writeUint32LE(bytes, offset, (converted & 0x03ffffff) | 0x94000000);
+      continue;
+    }
+
+    final adrpCandidate = _uint32(value - 0x90000000);
+    if ((adrpCandidate & 0x9f000000) != 0) {
+      continue;
+    }
+
+    final adjusted = _uint32(adrpCandidate + adrpFlag);
+    if ((adjusted & adrpMask) != 0) {
+      continue;
+    }
+
+    var z = (adjusted & 0xffffffe0) | (adjusted >> 26);
+    z = _uint32(z - ((((pcBase + offset) >> 9) & ~7)));
+
+    var result = adjusted & 0x1f;
+    result |= 0x90000000;
+    result |= _uint32(z << 26);
+    result |= 0x00ffffe0 & _uint32((z & ((adrpFlag << 1) - 1)) - adrpFlag);
+    _writeUint32LE(bytes, offset, result);
+  }
+
+  return bytes;
+}
+
+Uint8List _decodeSevenZipDelta(Uint8List bytes, Uint8List props) {
+  if (props.length != 1) {
+    throw const FormatException('Invalid 7z Delta properties.');
+  }
+
+  final delta = props[0] + 1;
+  final state = Uint8List(delta);
+  var stateIndex = 0;
+  for (var index = 0; index < bytes.length; index++) {
+    final value = (bytes[index] + state[stateIndex]) & 0xff;
+    bytes[index] = value;
+    state[stateIndex] = value;
+    stateIndex++;
+    if (stateIndex == delta) {
+      stateIndex = 0;
+    }
+  }
+
+  return bytes;
+}
+
 Uint8List _decodeSevenZipCopy(Uint8List packedBytes, int unpackSize) {
   if (packedBytes.length != unpackSize) {
     throw const FormatException('7z copy folder size mismatch.');
   }
   return Uint8List.fromList(packedBytes);
+}
+
+Uint8List _readSevenZipPackStreamBytes(
+  Uint8List archiveBytes,
+  _SevenZipArchiveDescription description,
+  int packStreamIndex,
+) {
+  final start =
+      description.bytesDataOffset + description.packPositions[packStreamIndex];
+  final end =
+      description.bytesDataOffset +
+      description.packPositions[packStreamIndex + 1];
+  if (end < start || end > archiveBytes.length) {
+    throw const FormatException('Invalid 7z pack stream bounds.');
+  }
+  return Uint8List.sublistView(archiveBytes, start, end);
 }
 
 Uint8List _decodeSevenZipLzma(
@@ -996,6 +1777,43 @@ int _readUint32LE(List<int> bytes, int offset) {
       (bytes[offset + 2] << 16) |
       (bytes[offset + 3] << 24);
 }
+
+int _readUint16LE(List<int> bytes, int offset) =>
+    bytes[offset] | (bytes[offset + 1] << 8);
+
+int _readUint32BE(List<int> bytes, int offset) {
+  return (bytes[offset] << 24) |
+      (bytes[offset + 1] << 16) |
+      (bytes[offset + 2] << 8) |
+      bytes[offset + 3];
+}
+
+void _writeUint32LE(List<int> bytes, int offset, int value) {
+  bytes[offset] = value & 0xff;
+  bytes[offset + 1] = (value >> 8) & 0xff;
+  bytes[offset + 2] = (value >> 16) & 0xff;
+  bytes[offset + 3] = (value >> 24) & 0xff;
+}
+
+void _writeUint16LE(List<int> bytes, int offset, int value) {
+  bytes[offset] = value & 0xff;
+  bytes[offset + 1] = (value >> 8) & 0xff;
+}
+
+void _writeUint32BE(List<int> bytes, int offset, int value) {
+  bytes[offset] = (value >> 24) & 0xff;
+  bytes[offset + 1] = (value >> 16) & 0xff;
+  bytes[offset + 2] = (value >> 8) & 0xff;
+  bytes[offset + 3] = value & 0xff;
+}
+
+int _uint32(int value) => value & 0xffffffff;
+
+int _rotl32(int value, int shift) =>
+    _uint32((value << shift) | (_uint32(value) >> (32 - shift)));
+
+int _rotr32(int value, int shift) =>
+    _uint32((_uint32(value) >> shift) | (value << (32 - shift)));
 
 int _readUint64LE(List<int> bytes, int offset) {
   return bytes[offset] |

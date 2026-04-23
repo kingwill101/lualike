@@ -2,6 +2,8 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:lualike/lualike.dart';
 import 'package:love2d/love2d.dart';
 
+import 'test_support/lua_api_test_helpers.dart';
+
 const String _desaturationTintShaderSource = '''
 extern vec4 tint;
 extern number strength;
@@ -38,7 +40,7 @@ love.graphics.rectangle('fill', 0, 0, 8, 8)
     });
 
     test('validateShader reports success for the supported subset', () async {
-      final runtime = Interpreter();
+      final runtime = createLuaLikeTestRuntime();
       installLove2d(runtime: runtime, host: LoveHeadlessHost());
 
       final result = await _call(
@@ -53,7 +55,7 @@ love.graphics.rectangle('fill', 0, 0, 8, 8)
 }
 
 Future<Object?> _call(
-  Interpreter runtime,
+  LuaRuntime runtime,
   List<String> path, [
   List<Object?> args = const <Object?>[],
 ]) async {
@@ -61,7 +63,7 @@ Future<Object?> _call(
   return result is Future<Object?> ? await result : result;
 }
 
-BuiltinFunction _rawFunction(Interpreter runtime, List<String> path) {
+BuiltinFunction _rawFunction(LuaRuntime runtime, List<String> path) {
   var current = runtime.getCurrentEnv().get(path.first);
   for (final segment in path.skip(1)) {
     final table = current is Value ? current.raw : current;

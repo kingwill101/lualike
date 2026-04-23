@@ -1,14 +1,16 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:lualike/lualike.dart'
-    show BuiltinFunction, Interpreter, LuaError, Value;
+    show BuiltinFunction, LuaError, LuaRuntime, Value;
 import 'package:love2d/love2d.dart';
+
+import 'test_support/lua_api_test_helpers.dart';
 
 void main() {
   group('love.graphics.setBlendMode', () {
     test(
       'requires premultiplied alpha for multiply, lighten, and darken',
       () async {
-        final runtime = Interpreter();
+        final runtime = createLuaLikeTestRuntime();
         installLove2d(runtime: runtime, host: LoveHeadlessHost());
 
         for (final mode in const <String>['multiply', 'lighten', 'darken']) {
@@ -31,7 +33,7 @@ void main() {
     );
 
     test('accepts premultiplied alpha for multiply', () async {
-      final runtime = Interpreter();
+      final runtime = createLuaLikeTestRuntime();
       installLove2d(runtime: runtime, host: LoveHeadlessHost());
 
       await _call(
@@ -49,14 +51,14 @@ void main() {
 }
 
 Future<Object?> _call(
-  Interpreter runtime,
+  LuaRuntime runtime,
   List<String> path, [
   List<Object?> args = const <Object?>[],
 ]) async {
   return _resolveCallResult(_rawFunction(runtime, path).call(args));
 }
 
-BuiltinFunction _rawFunction(Interpreter runtime, List<String> path) {
+BuiltinFunction _rawFunction(LuaRuntime runtime, List<String> path) {
   var current = runtime.getCurrentEnv().get(path.first);
   for (final segment in path.skip(1)) {
     final table = current is Value ? current.raw : current;

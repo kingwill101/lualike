@@ -1,12 +1,11 @@
 import 'package:flutter_test/flutter_test.dart';
-import 'package:lualike/lualike.dart';
 import 'package:love2d/love2d.dart';
 import 'test_support/lua_api_test_helpers.dart';
 
 void main() {
   group('love.font zero-argument constructors', () {
     test('graphics.newFont() uses the LOVE default size 12 path', () async {
-      final runtime = Interpreter();
+      final runtime = createLuaLikeTestRuntime();
       installLove2d(runtime: runtime, host: LoveHeadlessHost());
 
       final implicitFont = await luaCall(runtime, const [
@@ -35,7 +34,7 @@ void main() {
     });
 
     test('graphics.setNewFont() uses the LOVE default size 12 path', () async {
-      final runtime = Interpreter();
+      final runtime = createLuaLikeTestRuntime();
       installLove2d(runtime: runtime, host: LoveHeadlessHost());
 
       final implicitFont = await luaCall(runtime, const [

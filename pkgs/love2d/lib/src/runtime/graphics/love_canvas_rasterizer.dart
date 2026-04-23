@@ -13,6 +13,8 @@ class LoveCanvasRasterizer {
     required this.pixelHeight,
     required this.format,
     required LoveColor clearColor,
+    this.originX = 0,
+    this.originY = 0,
     LoveGraphicsColorMask clearColorMask = LoveGraphicsColorMask.all,
     int clearStencil = 0,
     LoveScissorRect? clearScissor,
@@ -34,6 +36,12 @@ class LoveCanvasRasterizer {
 
   /// The LOVE pixel format used for the destination image.
   final String format;
+
+  /// The global X origin represented by the rasterized output.
+  final int originX;
+
+  /// The global Y origin represented by the rasterized output.
+  final int originY;
 
   /// The image data receiving rasterized draw output.
   final LoveImageData _data;
@@ -71,6 +79,30 @@ class LoveCanvasRasterizer {
     return rasterizer.result;
   }
 
+  /// Rasterizes a clipped region of a surface snapshot into a new [LoveImageData].
+  static LoveImageData rasterizeSurfaceRegion({
+    required int left,
+    required int top,
+    required int pixelWidth,
+    required int pixelHeight,
+    required String format,
+    required LoveGraphicsSurfaceSnapshot snapshot,
+  }) {
+    final rasterizer = LoveCanvasRasterizer(
+      pixelWidth: pixelWidth,
+      pixelHeight: pixelHeight,
+      format: format,
+      clearColor: snapshot.clearColor,
+      clearColorMask: snapshot.clearColorMask,
+      clearStencil: snapshot.clearStencil,
+      clearScissor: snapshot.clearScissor,
+      originX: left,
+      originY: top,
+    );
+    rasterizer.rasterize(snapshot);
+    return rasterizer.result;
+  }
+
   // --------------------------------------------------------------------------
   // Entry point
   // --------------------------------------------------------------------------
@@ -88,14 +120,24 @@ class LoveCanvasRasterizer {
     LoveGraphicsColorMask clearMask,
     LoveScissorRect? clearScissor,
   ) {
-    final left = clearScissor == null ? 0 : math.max(0, clearScissor.x.floor());
-    final top = clearScissor == null ? 0 : math.max(0, clearScissor.y.floor());
+    final left = clearScissor == null
+        ? 0
+        : math.max(0, clearScissor.x.floor() - originX);
+    final top = clearScissor == null
+        ? 0
+        : math.max(0, clearScissor.y.floor() - originY);
     final right = clearScissor == null
         ? pixelWidth
-        : math.min(pixelWidth, (clearScissor.x + clearScissor.width).ceil());
+        : math.min(
+            pixelWidth,
+            (clearScissor.x + clearScissor.width).ceil() - originX,
+          );
     final bottom = clearScissor == null
         ? pixelHeight
-        : math.min(pixelHeight, (clearScissor.y + clearScissor.height).ceil());
+        : math.min(
+            pixelHeight,
+            (clearScissor.y + clearScissor.height).ceil() - originY,
+          );
 
     if (left >= right || top >= bottom) {
       return;
@@ -521,11 +563,13 @@ class LoveCanvasRasterizer {
     for (var py = iy0; py <= iy1; py++) {
       for (var px = ix0; px <= ix1; px++) {
         // Scissor test.
+        final globalPx = px + originX;
+        final globalPy = py + originY;
         if (cmd.scissor != null &&
-            (px < cmd.scissor!.x ||
-                px >= cmd.scissor!.x + cmd.scissor!.width ||
-                py < cmd.scissor!.y ||
-                py >= cmd.scissor!.y + cmd.scissor!.height)) {
+            (globalPx < cmd.scissor!.x ||
+                globalPx >= cmd.scissor!.x + cmd.scissor!.width ||
+                globalPy < cmd.scissor!.y ||
+                globalPy >= cmd.scissor!.y + cmd.scissor!.height)) {
           continue;
         }
 
@@ -1312,8 +1356,8 @@ class LoveCanvasRasterizer {
     final gradientColor = loveShaderRadialGradientColorAt(
       shader,
       fallbackColor: cmd.color,
-      x: px + 0.5,
-      y: py + 0.5,
+      x: px + originX + 0.5,
+      y: py + originY + 0.5,
     );
     if (gradientColor == null) {
       return src;
@@ -1359,14 +1403,24 @@ class LoveCanvasRasterizer {
   }
 
   void _applyStencilClear(int value, LoveScissorRect? clearScissor) {
-    final left = clearScissor == null ? 0 : math.max(0, clearScissor.x.floor());
-    final top = clearScissor == null ? 0 : math.max(0, clearScissor.y.floor());
+    final left = clearScissor == null
+        ? 0
+        : math.max(0, clearScissor.x.floor() - originX);
+    final top = clearScissor == null
+        ? 0
+        : math.max(0, clearScissor.y.floor() - originY);
     final right = clearScissor == null
         ? pixelWidth
-        : math.min(pixelWidth, (clearScissor.x + clearScissor.width).ceil());
+        : math.min(
+            pixelWidth,
+            (clearScissor.x + clearScissor.width).ceil() - originX,
+          );
     final bottom = clearScissor == null
         ? pixelHeight
-        : math.min(pixelHeight, (clearScissor.y + clearScissor.height).ceil());
+        : math.min(
+            pixelHeight,
+            (clearScissor.y + clearScissor.height).ceil() - originY,
+          );
 
     if (left >= right || top >= bottom) {
       return;
@@ -1390,11 +1444,13 @@ class LoveCanvasRasterizer {
     LoveScissorRect? scissor,
   ) {
     if (px < 0 || px >= pixelWidth || py < 0 || py >= pixelHeight) return;
+    final globalPx = px + originX;
+    final globalPy = py + originY;
     if (scissor != null &&
-        (px < scissor.x ||
-            px >= scissor.x + scissor.width ||
-            py < scissor.y ||
-            py >= scissor.y + scissor.height)) {
+        (globalPx < scissor.x ||
+            globalPx >= scissor.x + scissor.width ||
+            globalPy < scissor.y ||
+            globalPy >= scissor.y + scissor.height)) {
       return;
     }
 
@@ -1492,7 +1548,7 @@ class LoveCanvasRasterizer {
 
   ({double x, double y}) _mapPt(Matrix4 m, double lx, double ly) {
     final v = m.transformed3(Vector3(lx, ly, 0));
-    return (x: v.x, y: v.y);
+    return (x: v.x - originX, y: v.y - originY);
   }
 
   List<({double x, double y})> _mapPoints(

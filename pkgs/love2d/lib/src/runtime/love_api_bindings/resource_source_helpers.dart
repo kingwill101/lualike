@@ -186,3 +186,46 @@ Future<String?> _resolveResourceSourcePath(
   );
   return coerced?.filename;
 }
+
+/// Resolves the Flutter asset key backing [source], when it is bundle-backed.
+///
+/// This converts LOVE-visible relative source paths into the mounted asset key
+/// rooted at the active source entry path. Non-bundle mounts return `null`,
+/// which lets the host keep using decoded bytes without probing Flame's image
+/// cache with an invalid asset key.
+Future<String?> _resolveResourceAssetKeyIfPresent(
+  LibraryRegistrationContext context,
+  Object? source, {
+  required String symbol,
+}) async {
+  final compat = _filesystemFileDataCompatIfPresent(source);
+  final filename = compat?.filename ?? _stringLike(source);
+  if (filename == null || filename.isEmpty) {
+    return null;
+  }
+
+  final filesystem = _filesystemStateForResource(context, symbol);
+  final normalizedFilename = path.posix.normalize(filename.replaceAll('\\', '/'));
+  final candidates = <String>{normalizedFilename};
+  final sourceBaseDirectory = filesystem
+      .getSourceBaseDirectory()
+      .replaceAll('\\', '/');
+  if (sourceBaseDirectory.isNotEmpty) {
+    candidates.add(
+      path.posix.normalize(
+        path.posix.join(sourceBaseDirectory, normalizedFilename),
+      ),
+    );
+  }
+
+  for (final candidate in candidates) {
+    if (candidate.isEmpty || candidate == '.') {
+      continue;
+    }
+    if (await filesystem.adapter.fileExists(candidate)) {
+      return candidate;
+    }
+  }
+
+  return null;
+}

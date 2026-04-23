@@ -9,7 +9,7 @@ void main() {
     test(
       'image font constructors reject malformed UTF-8 glyph lists',
       () async {
-        final runtime = Interpreter();
+        final runtime = createLuaLikeTestRuntime();
         installLove2d(runtime: runtime, host: LoveHeadlessHost());
 
         final imageData = await luaCall(
@@ -54,7 +54,7 @@ void main() {
     test(
       'glyph lookup and measurement APIs reject malformed UTF-8 LuaString inputs',
       () async {
-        final runtime = Interpreter();
+        final runtime = createLuaLikeTestRuntime();
         installLove2d(runtime: runtime, host: LoveHeadlessHost());
 
         final rasterizer = await luaCall(
@@ -115,7 +115,7 @@ void main() {
     test(
       'glyph data rejects invalid codepoints when re-encoding glyph strings',
       () async {
-        final runtime = Interpreter();
+        final runtime = createLuaLikeTestRuntime();
         installLove2d(runtime: runtime, host: LoveHeadlessHost());
 
         final rasterizer = await luaCall(

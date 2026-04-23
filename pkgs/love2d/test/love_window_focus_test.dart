@@ -1,13 +1,12 @@
 import 'package:flutter/gestures.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:lualike/lualike.dart';
 import 'package:love2d/love2d.dart';
 import 'test_support/lua_api_test_helpers.dart';
 
 void main() {
   group('love.window focus queries', () {
     test('read explicit host focus state', () async {
-      final runtime = Interpreter();
+      final runtime = createLuaLikeTestRuntime();
       final host = LoveHeadlessHost(
         windowHasFocus: true,
         windowHasMouseFocus: false,
@@ -38,7 +37,7 @@ void main() {
     });
 
     test('follow Flame input adapter focus updates', () async {
-      final runtime = Interpreter();
+      final runtime = createLuaLikeTestRuntime();
       final host = LoveHeadlessHost();
       final adapter = LoveFlameInputAdapter(
         host: host,

@@ -8,7 +8,7 @@ void main() {
     test(
       'source-backed module methods are installed and reset with graphics state',
       () async {
-        final runtime = Interpreter();
+        final runtime = createLuaLikeTestRuntime();
         installLove2d(runtime: runtime, host: LoveHeadlessHost());
 
         final love = runtime.getCurrentEnv().get('love')! as Value;
@@ -71,7 +71,7 @@ void main() {
     test(
       'new mipmapped images inherit the current default mipmap filter',
       () async {
-        final runtime = Interpreter();
+        final runtime = createLuaLikeTestRuntime();
         installLove2d(runtime: runtime, host: LoveHeadlessHost());
 
         await luaCallList(
@@ -104,7 +104,7 @@ void main() {
     test(
       'new mipmapped canvases inherit the current default mipmap filter',
       () async {
-        final runtime = Interpreter();
+        final runtime = createLuaLikeTestRuntime();
         installLove2d(runtime: runtime, host: LoveHeadlessHost());
 
         await luaCallList(

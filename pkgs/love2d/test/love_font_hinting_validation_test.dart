@@ -12,7 +12,7 @@ void main() {
     test(
       'newTrueTypeRasterizer uses LOVE enum error text for invalid hinting',
       () async {
-        final runtime = Interpreter();
+        final runtime = createLuaLikeTestRuntime();
         installLove2d(runtime: runtime, host: LoveHeadlessHost());
 
         await expectLater(
@@ -37,7 +37,7 @@ void main() {
       'graphics.newFont uses LOVE enum error text for invalid hinting',
       () async {
         final veraBytes = await (await love2dVeraFontFile()).readAsBytes();
-        final runtime = Interpreter();
+        final runtime = createLuaLikeTestRuntime();
         installLove2d(
           runtime: runtime,
           host: LoveHeadlessHost(),

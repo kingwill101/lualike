@@ -4,6 +4,8 @@ import 'package:love2d/love2d.dart';
 
 typedef LuaTestValueUnwrapper = Object? Function(Object? value);
 
+LuaRuntime createLuaLikeTestRuntime() => LuaLike().vm;
+
 Future<Object?> luaCall(
   Object runtime,
   List<String> path, [

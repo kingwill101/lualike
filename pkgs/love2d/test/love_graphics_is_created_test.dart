@@ -7,7 +7,7 @@ void main() {
   test(
     'love.graphics.isCreated is available as a source-backed shim',
     () async {
-      final runtime = Interpreter();
+      final runtime = createLuaLikeTestRuntime();
       installLove2d(runtime: runtime, host: LoveHeadlessHost());
 
       final love = runtime.getCurrentEnv().get('love')! as Value;

@@ -117,6 +117,7 @@ class LoveRegisteredFragmentShaderCache<TProgram, TShader>
   final Queue<String> _warmupQueue = ListQueue<String>();
 
   Future<void>? _bundleWarmupFuture;
+  Completer<void>? _readyCompleter;
   bool _drainScheduled = false;
   String? _activeAssetKey;
 
@@ -239,6 +240,55 @@ class LoveRegisteredFragmentShaderCache<TProgram, TShader>
     return future;
   }
 
+  /// Waits until all currently queued shader warmup work has completed.
+  Future<void> ready() async {
+    while (true) {
+      final bundleWarmupFuture = _bundleWarmupFuture;
+      if (bundleWarmupFuture != null) {
+        await bundleWarmupFuture;
+      }
+      if (_isWarmupIdle) {
+        return;
+      }
+
+      final completer = _readyCompleter ??= Completer<void>();
+      await completer.future;
+    }
+  }
+
+  /// Waits until [assetKeys] are either loaded or have failed.
+  Future<void> readyForAssets(Iterable<String> assetKeys) async {
+    final targets = assetKeys.toSet();
+    if (targets.isEmpty) {
+      return;
+    }
+
+    for (final assetKey in targets) {
+      queueWarmup(assetKey, prioritize: true);
+    }
+
+    if (_areAssetsResolved(targets)) {
+      return;
+    }
+
+    final completer = Completer<void>();
+    late final VoidCallback listener;
+    listener = () {
+      if (!_areAssetsResolved(targets) || completer.isCompleted) {
+        return;
+      }
+
+      removeListener(listener);
+      completer.complete();
+    };
+
+    addListener(listener);
+    listener();
+    if (!completer.isCompleted) {
+      await completer.future;
+    }
+  }
+
   /// Queues [assetKey] for background warmup if it is not already resolved.
   void queueWarmup(String assetKey, {bool prioritize = false}) {
     if (_programs.containsKey(assetKey) ||
@@ -281,6 +331,8 @@ class LoveRegisteredFragmentShaderCache<TProgram, TShader>
           ),
         ),
       );
+    } finally {
+      _completeReadyIfIdle();
     }
   }
 
@@ -298,6 +350,7 @@ class LoveRegisteredFragmentShaderCache<TProgram, TShader>
 
   Future<void> _drainQueue() async {
     if (_activeAssetKey != null || _warmupQueue.isEmpty) {
+      _completeReadyIfIdle();
       return;
     }
 
@@ -322,7 +375,38 @@ class LoveRegisteredFragmentShaderCache<TProgram, TShader>
       _activeAssetKey = null;
       notifyListeners();
       _scheduleQueueDrain();
+      _completeReadyIfIdle();
     }
+  }
+
+  bool get _isWarmupIdle =>
+      !_drainScheduled &&
+      _activeAssetKey == null &&
+      _warmupQueue.isEmpty &&
+      _pending.isEmpty;
+
+  void _completeReadyIfIdle() {
+    if (!_isWarmupIdle) {
+      return;
+    }
+
+    final completer = _readyCompleter;
+    if (completer == null || completer.isCompleted) {
+      return;
+    }
+
+    _readyCompleter = null;
+    completer.complete();
+  }
+
+  bool _areAssetsResolved(Set<String> assetKeys) {
+    for (final assetKey in assetKeys) {
+      final status = statusForAsset(assetKey);
+      if (!status.isReady && !status.hasError) {
+        return false;
+      }
+    }
+    return true;
   }
 
   void _reportAssetErrorIfNeeded(String assetKey) {

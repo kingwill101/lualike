@@ -8,7 +8,7 @@ void main() {
     test(
       'newBMFontRasterizer maps contiguous image tables to zero-based page ids',
       () async {
-        final runtime = Interpreter();
+        final runtime = createLuaLikeTestRuntime();
         installLove2d(runtime: runtime, host: LoveHeadlessHost());
 
         final definition = await luaCall(
@@ -49,7 +49,7 @@ void main() {
     test(
       'graphics.newFont ignores sparse BMFont page tables after the first hole',
       () async {
-        final runtime = Interpreter();
+        final runtime = createLuaLikeTestRuntime();
         installLove2d(runtime: runtime, host: LoveHeadlessHost());
 
         final definition = await luaCall(

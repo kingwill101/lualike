@@ -14,8 +14,10 @@ import 'dart:typed_data' show ByteData, BytesBuilder, Endian, Uint8List;
 import 'package:archive/archive.dart';
 import 'package:crypto/crypto.dart' as crypto;
 import 'package:flame_forge2d/flame_forge2d.dart' as forge2d;
+import 'package:flutter/foundation.dart' show ChangeNotifier;
 import 'package:image/image.dart' as package_image;
-import 'package:lualike/lualike.dart' show LuaRuntime, NumberUtils, Value;
+import 'package:lualike/lualike.dart'
+    show EngineMode, LuaRuntime, NumberUtils, Value;
 import 'package:vector_math/vector_math_64.dart' show Matrix4, Vector3;
 import 'sound/love_sound_host_decode_stub.dart'
     if (dart.library.io) 'sound/love_sound_host_decode_io.dart'
@@ -446,6 +448,7 @@ class LoveImage {
     List<LoveImageData>? imageDataMipmaps,
     List<LoveImage>? sliceImages,
     bool? preferImageDataRendering,
+    bool clearNativeImage = false,
     Object? nativeImage,
   }) {
     return LoveImage(
@@ -478,7 +481,7 @@ class LoveImage {
       sliceImages: sliceImages ?? this.sliceImages,
       preferImageDataRendering:
           preferImageDataRendering ?? this.preferImageDataRendering,
-      nativeImage: nativeImage ?? this.nativeImage,
+      nativeImage: clearNativeImage ? null : (nativeImage ?? this.nativeImage),
     );
   }
 }
@@ -516,6 +519,9 @@ class LoveGraphicsSurface {
        _lastClearScissor = clearScissor;
 
   final List<LoveDrawCommand> _commands = <LoveDrawCommand>[];
+  int _revision = 0;
+  int? _cachedSnapshotRevision;
+  LoveGraphicsSurfaceSnapshot? _cachedSnapshot;
   LoveColor _clearColor;
   LoveGraphicsColorMask _clearColorMask;
   int _clearStencil;
@@ -540,6 +546,9 @@ class LoveGraphicsSurface {
   List<LoveDrawCommand> get commands =>
       List<LoveDrawCommand>.unmodifiable(_commands);
 
+  /// Monotonically increasing revision for this surface's recorded contents.
+  int get revision => _revision;
+
   /// Starts a new frame for this surface and resets the command list.
   void begin({
     required LoveColor clearColor,
@@ -548,6 +557,7 @@ class LoveGraphicsSurface {
     LoveScissorRect? clearScissor,
   }) {
     _commands.clear();
+    _revision++;
     _clearColor = clearColor.clamped();
     _clearColorMask = clearColorMask;
     _clearStencil = clearStencil;
@@ -586,16 +596,23 @@ class LoveGraphicsSurface {
         colorMask: clearColorMask,
       ),
     );
+    _revision++;
   }
 
   /// Appends [command] to the recorded draw command list.
   void addCommand(LoveDrawCommand command) {
     _commands.add(command);
+    _revision++;
   }
 
   /// Returns an immutable snapshot of the current surface contents.
   LoveGraphicsSurfaceSnapshot snapshot() {
-    return LoveGraphicsSurfaceSnapshot(
+    final cachedSnapshot = _cachedSnapshot;
+    if (cachedSnapshot != null && _cachedSnapshotRevision == _revision) {
+      return cachedSnapshot;
+    }
+
+    final snapshot = LoveGraphicsSurfaceSnapshot(
       clearColor: _clearColor,
       clearColorMask: _clearColorMask,
       clearStencil: _clearStencil,
@@ -604,6 +621,9 @@ class LoveGraphicsSurface {
         List<LoveDrawCommand>.from(_commands),
       ),
     );
+    _cachedSnapshot = snapshot;
+    _cachedSnapshotRevision = _revision;
+    return snapshot;
   }
 }
 
@@ -670,6 +690,8 @@ class LoveCanvas extends LoveImage {
   LoveGraphicsWrap _wrap;
   LoveGraphicsCompareMode? _depthSampleMode;
   final List<LoveGraphicsSurface> _surfaces;
+  final Map<int, ({int revision, LoveCanvasSnapshot snapshot})>
+  _sliceSnapshotCache = <int, ({int revision, LoveCanvasSnapshot snapshot})>{};
 
   final int msaa;
   final LoveCanvasMipmapMode mipmapMode;
@@ -801,7 +823,12 @@ class LoveCanvas extends LoveImage {
 
   LoveCanvasSnapshot _snapshotForSlice(int slice) {
     final sliceSurface = surfaceForSlice(slice);
-    return LoveCanvasSnapshot(
+    final cached = _sliceSnapshotCache[slice];
+    if (cached != null && cached.revision == sliceSurface.revision) {
+      return cached.snapshot;
+    }
+
+    final snapshot = LoveCanvasSnapshot(
       source: '$source#slice$slice',
       width: width,
       height: height,
@@ -826,6 +853,11 @@ class LoveCanvas extends LoveImage {
       mipmapMode: mipmapMode,
       surface: sliceSurface.snapshot(),
     );
+    _sliceSnapshotCache[slice] = (
+      revision: sliceSurface.revision,
+      snapshot: snapshot,
+    );
+    return snapshot;
   }
 }
 
@@ -1467,6 +1499,14 @@ typedef LoveFontSupportsCodepoint = bool Function(int codepoint);
 const int _loveTabCodepoint = 0x09;
 const int _loveSpacesPerTab = 4;
 
+Map<int, double>? _immutableGlyphMetricMap(Map<int, double>? metrics) {
+  if (metrics == null) {
+    return null;
+  }
+
+  return Map<int, double>.unmodifiable(Map<int, double>.from(metrics));
+}
+
 /// Font metrics and layout helpers used by `love.graphics` text APIs.
 class LoveFont {
   LoveFont({
@@ -1495,22 +1535,46 @@ class LoveFont {
     LoveFontSupportsCodepoint? supportsCodepointCallback,
     this.isImplicitDefaultGraphicsFont = false,
   }) : dataType = dataType ?? fontType,
-       glyphAdvances = glyphAdvances == null
-           ? null
-           : Map<int, double>.unmodifiable(
-               Map<int, double>.from(glyphAdvances),
-             ),
-       glyphKernings = glyphKernings == null
-           ? null
-           : Map<int, double>.unmodifiable(
-               Map<int, double>.from(glyphKernings),
-             ),
+       _glyphAdvances = _immutableGlyphMetricMap(glyphAdvances),
+       _glyphKernings = _immutableGlyphMetricMap(glyphKernings),
        _measureWidthCallback = measureWidthCallback,
        _wrapTextCallback = wrapTextCallback,
        _supportsCodepointCallback = supportsCodepointCallback,
        _fallbacks = fallbacks == null
            ? <LoveFont>[]
            : List<LoveFont>.from(fallbacks);
+
+  LoveFont._snapshot({
+    required this.size,
+    this.family,
+    this.source,
+    required this.fontType,
+    required this.dataType,
+    this.glyphs,
+    this.glyphAdvance,
+    Map<int, double>? glyphAdvances,
+    Map<int, double>? glyphKernings,
+    required this.extraSpacing,
+    required this.hinting,
+    required this.dpiScale,
+    required this.lineHeight,
+    this.heightOverride,
+    this.ascentOverride,
+    this.descentOverride,
+    this.missingGlyphAdvance,
+    this.syntheticTabAdvance,
+    required this.filter,
+    required List<LoveFont> fallbacks,
+    LoveFontMeasureWidth? measureWidthCallback,
+    LoveFontWrapText? wrapTextCallback,
+    LoveFontSupportsCodepoint? supportsCodepointCallback,
+    required this.isImplicitDefaultGraphicsFont,
+  }) : _glyphAdvances = glyphAdvances,
+       _glyphKernings = glyphKernings,
+       _measureWidthCallback = measureWidthCallback,
+       _wrapTextCallback = wrapTextCallback,
+       _supportsCodepointCallback = supportsCodepointCallback,
+       _fallbacks = List<LoveFont>.from(fallbacks);
 
   /// The canonical font type used for TrueType-backed fonts.
   static const String trueTypeFontType = 'truetype';
@@ -1570,8 +1634,8 @@ class LoveFont {
   String dataType;
   String? glyphs;
   double? glyphAdvance;
-  Map<int, double>? glyphAdvances;
-  Map<int, double>? glyphKernings;
+  Map<int, double>? _glyphAdvances;
+  Map<int, double>? _glyphKernings;
   double extraSpacing;
   String hinting;
   double dpiScale;
@@ -1618,6 +1682,18 @@ class LoveFont {
 
   bool get _hasSyntheticTabAdvance =>
       syntheticTabAdvance != null && syntheticTabAdvance! > 0;
+
+  Map<int, double>? get glyphAdvances => _glyphAdvances;
+
+  set glyphAdvances(Map<int, double>? value) {
+    _glyphAdvances = _immutableGlyphMetricMap(value);
+  }
+
+  Map<int, double>? get glyphKernings => _glyphKernings;
+
+  set glyphKernings(Map<int, double>? value) {
+    _glyphKernings = _immutableGlyphMetricMap(value);
+  }
 
   bool get _hasLocalGlyphLayoutData =>
       fontType == imageFontType ||
@@ -1835,6 +1911,35 @@ class LoveFont {
   /// Returns a deep copy of this font configuration.
   LoveFont copy() {
     return LoveFont(
+      size: size,
+      family: family,
+      source: source,
+      fontType: fontType,
+      dataType: dataType,
+      glyphs: glyphs,
+      glyphAdvance: glyphAdvance,
+      glyphAdvances: glyphAdvances,
+      glyphKernings: glyphKernings,
+      extraSpacing: extraSpacing,
+      hinting: hinting,
+      dpiScale: dpiScale,
+      lineHeight: lineHeight,
+      heightOverride: heightOverride,
+      ascentOverride: ascentOverride,
+      descentOverride: descentOverride,
+      missingGlyphAdvance: missingGlyphAdvance,
+      syntheticTabAdvance: syntheticTabAdvance,
+      filter: filter,
+      fallbacks: _fallbacks,
+      measureWidthCallback: _measureWidthCallback,
+      wrapTextCallback: _wrapTextCallback,
+      supportsCodepointCallback: _supportsCodepointCallback,
+      isImplicitDefaultGraphicsFont: isImplicitDefaultGraphicsFont,
+    );
+  }
+
+  LoveFont _snapshotForDrawCommand() {
+    return LoveFont._snapshot(
       size: size,
       family: family,
       source: source,
@@ -2438,7 +2543,7 @@ class LoveTextCommand extends LoveDrawCommand {
     this.limit,
     this.align = 'left',
   }) : spans = List<LoveTextSpan>.unmodifiable(spans),
-       font = font.copy(),
+       font = font._snapshotForDrawCommand(),
        textTransform = Matrix4.copy(textTransform);
 
   final List<LoveTextSpan> spans;
@@ -2812,7 +2917,7 @@ class LoveGraphicsState {
     LoveGraphicsCullMode? meshCullMode,
   }) : color = (color ?? LoveColor.white).clamped(),
        backgroundColor = (backgroundColor ?? LoveColor.black).clamped(),
-       font = font?.copy() ?? LoveFont.fallback(),
+       font = font ?? LoveFont.fallback(),
        pointSize = pointSize ?? 1.0,
        lineWidth = lineWidth ?? 1.0,
        lineStyle = lineStyle ?? LoveGraphicsLineStyle.smooth,
@@ -2862,7 +2967,7 @@ class LoveGraphicsState {
     return LoveGraphicsState(
       color: color,
       backgroundColor: backgroundColor,
-      font: font.copy(),
+      font: font,
       scissor: scissor,
       pointSize: pointSize,
       lineWidth: lineWidth,
@@ -3682,6 +3787,7 @@ abstract interface class LoveHost {
     String source, {
     Uint8List? bytes,
     Map<dynamic, dynamic>? settings,
+    String? assetKey,
   });
 
   Future<LoveFont?> loadTrueTypeFont(
@@ -3751,6 +3857,7 @@ class LoveHeadlessHost implements LoveHost {
       String source, {
       Uint8List? bytes,
       Map<dynamic, dynamic>? settings,
+      String? assetKey,
     })?
     imageLoader,
     Future<LoveFont?> Function(
@@ -3819,6 +3926,7 @@ class LoveHeadlessHost implements LoveHost {
     String source, {
     Uint8List? bytes,
     Map<dynamic, dynamic>? settings,
+    String? assetKey,
   })?
   _imageLoader;
   final Future<LoveFont?> Function(
@@ -3928,6 +4036,7 @@ class LoveHeadlessHost implements LoveHost {
     String source, {
     Uint8List? bytes,
     Map<dynamic, dynamic>? settings,
+    String? assetKey,
   }) async {
     final cached = _images[source];
     if (cached != null) {
@@ -3936,7 +4045,12 @@ class LoveHeadlessHost implements LoveHost {
 
     final loader = _imageLoader;
     if (loader != null) {
-      final image = await loader(source, bytes: bytes, settings: settings);
+      final image = await loader(
+        source,
+        bytes: bytes,
+        settings: settings,
+        assetKey: assetKey,
+      );
       _images[source] = image;
       return image;
     }
@@ -4123,7 +4237,12 @@ List<LoveWindowDisplay> loveDefaultWindowDisplaysForMetrics(
 
 /// Runtime state attached to a [LuaRuntime] while a game is executing.
 class LoveRuntimeContext {
-  LoveRuntimeContext({LoveHost? host}) : _host = host ?? LoveHeadlessHost() {
+  LoveRuntimeContext({
+    LoveHost? host,
+    EngineMode? engineMode,
+    this.automaticGc = false,
+  }) : _host = host ?? LoveHeadlessHost(),
+       engineMode = engineMode ?? EngineMode.ast {
     _defaultGraphicsFont = _host.graphics.font;
     _resetTimerState();
   }
@@ -4133,6 +4252,12 @@ class LoveRuntimeContext {
 
   LoveHost _host;
   LoveFont? _defaultGraphicsFont;
+
+  /// The LuaLike engine mode used to create this LOVE runtime.
+  EngineMode engineMode;
+
+  /// Whether Lualike's automatic GC safe points are enabled for this runtime.
+  bool automaticGc;
 
   /// Whether deprecation warnings should be surfaced to Lua code.
   bool deprecationOutput = true;
@@ -4196,16 +4321,31 @@ class LoveRuntimeContext {
   int get fps => _fps;
 
   /// Attaches a runtime context to [runtime], replacing the host if provided.
-  static LoveRuntimeContext attach(LuaRuntime runtime, {LoveHost? host}) {
+  static LoveRuntimeContext attach(
+    LuaRuntime runtime, {
+    LoveHost? host,
+    EngineMode? engineMode,
+    bool? automaticGc,
+  }) {
     final existing = _contexts[runtime];
     if (existing != null) {
       if (host != null) {
         existing.replaceHost(host);
       }
+      if (engineMode != null) {
+        existing.engineMode = engineMode;
+      }
+      if (automaticGc != null) {
+        existing.automaticGc = automaticGc;
+      }
       return existing;
     }
 
-    final context = LoveRuntimeContext(host: host);
+    final context = LoveRuntimeContext(
+      host: host,
+      engineMode: engineMode,
+      automaticGc: automaticGc ?? false,
+    );
     _contexts[runtime] = context;
     return context;
   }
@@ -4213,6 +4353,18 @@ class LoveRuntimeContext {
   /// Returns the context attached to [runtime], creating one if needed.
   static LoveRuntimeContext of(LuaRuntime runtime) {
     return _contexts[runtime] ?? attach(runtime);
+  }
+
+  /// Applies this context's automatic GC policy to [runtime].
+  void applyGcPolicy(LuaRuntime runtime) {
+    if (automaticGc) {
+      runtime.gc.start();
+      runtime.gc.autoTriggerEnabled = true;
+      return;
+    }
+
+    runtime.gc.stop();
+    runtime.gc.autoTriggerEnabled = false;
   }
 
   /// Replaces the active host and resets dependent cached state.

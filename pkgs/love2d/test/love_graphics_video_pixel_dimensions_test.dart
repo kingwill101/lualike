@@ -13,7 +13,7 @@ void main() {
     test(
       'Video pixel-dimension methods expose source-backed wrapper parity',
       () async {
-        final runtime = Interpreter();
+        final runtime = createLuaLikeTestRuntime();
         installLove2d(
           runtime: runtime,
           host: LoveHeadlessHost(),
@@ -70,7 +70,7 @@ void main() {
     test(
       'newVideo defaults dpiscale to 1.0 like the vendored wrapper path',
       () async {
-        final runtime = Interpreter();
+        final runtime = createLuaLikeTestRuntime();
         installLove2d(
           runtime: runtime,
           host: LoveHeadlessHost(
@@ -122,7 +122,7 @@ void main() {
     test(
       'newVideo logical dimensions truncate after dpiscale like Video.cpp',
       () async {
-        final runtime = Interpreter();
+        final runtime = createLuaLikeTestRuntime();
         installLove2d(
           runtime: runtime,
           host: LoveHeadlessHost(),
@@ -158,7 +158,7 @@ void main() {
     test(
       'newVideo rejects non-numeric dpiscale values like the low-level wrapper path',
       () async {
-        final runtime = Interpreter();
+        final runtime = createLuaLikeTestRuntime();
         installLove2d(
           runtime: runtime,
           host: LoveHeadlessHost(),
@@ -194,7 +194,7 @@ void main() {
     test(
       'newVideo accepts zero dpiscale and preserves pixel dimensions',
       () async {
-        final runtime = Interpreter();
+        final runtime = createLuaLikeTestRuntime();
         installLove2d(
           runtime: runtime,
           host: LoveHeadlessHost(),
@@ -230,7 +230,7 @@ void main() {
     test(
       'newVideo accepts negative dpiscale and preserves pixel dimensions',
       () async {
-        final runtime = Interpreter();
+        final runtime = createLuaLikeTestRuntime();
         installLove2d(
           runtime: runtime,
           host: LoveHeadlessHost(),
