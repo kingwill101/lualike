@@ -3462,7 +3462,7 @@ extension OperatorExtension on Value {
       if (runtime != null && result.bytes.length <= _luaShortStringLimit) {
         return runtime.constantStringValue(result.bytes);
       }
-      return Value(result)..interpreter = runtime;
+      return Value.primitive(result, interpreter: runtime);
     }
 
     final badValue = !leftIsConcatable ? raw : otherRaw;
