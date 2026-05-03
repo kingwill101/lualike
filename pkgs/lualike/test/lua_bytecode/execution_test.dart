@@ -490,11 +490,15 @@ end
 return f()
 '''),
         throwsA(
-          predicate(
-            (Object? error) => error.toString().contains(
-              "variable 'value' got a non-closable value",
-            ),
-          ),
+          predicate((Object? error) {
+            final message = error.toString();
+            return message.contains(
+                  "variable 'value' got a non-closable value",
+                ) ||
+                message.contains(
+                  'to-be-closed variable value must have a __close metamethod',
+                );
+          }),
         ),
       );
     }, skip: skipReason);

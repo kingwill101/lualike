@@ -83,6 +83,25 @@ return table.maxn({})
           expect(_unwrap(result), equals(42));
         });
 
+        test('const upvalue assignment is blocked through closures', () async {
+          await expectLater(
+            () => executeCode('''
+local x <const> = 1
+local function mutate()
+  x = 2
+end
+mutate()
+''', mode: mode),
+            throwsA(
+              predicate(
+                (error) => error.toString().contains(
+                  "attempt to assign to const variable 'x'",
+                ),
+              ),
+            ),
+          );
+        });
+
         test(
           'global<const> * still allows rebinding explicit global functions',
           () async {

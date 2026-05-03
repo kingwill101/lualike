@@ -24,7 +24,8 @@ void main() {
   group('IR metamethods', () {
     test('invokes __add when operands provide metamethod', () async {
       final bridge = LuaLike(runtime: LualikeIrRuntime());
-      final result = await bridge.execute('''
+      final result = _unwrapResult(
+        await bridge.execute('''
         local mt = {
           __add = function(left, right)
             return left.value + right.value + 10
@@ -33,7 +34,8 @@ void main() {
         local lhs = setmetatable({value = 2}, mt)
         local rhs = setmetatable({value = 3}, mt)
         return lhs + rhs
-      ''');
+      '''),
+      );
       expect(result, equals(15));
     });
 
