@@ -64,6 +64,18 @@ void main() {
       expect((atan2 as Value).raw, closeTo(math.pi / 4, 1e-10));
     });
 
+    test('atan2 reports errors with atan2 name', () async {
+      await bridge.execute('''
+        ok, err = pcall(math.atan2)
+      ''');
+
+      expect((bridge.getGlobal('ok') as Value).raw, isFalse);
+      expect(
+        (bridge.getGlobal('err') as Value).unwrap(),
+        contains("bad argument #1 to 'atan2'"),
+      );
+    });
+
     test('exponential and logarithmic functions', () async {
       await bridge.execute('''
         exp = math.exp(1)
