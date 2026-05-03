@@ -45,6 +45,14 @@ Object? _publicCallResult(Object? result) {
   return result;
 }
 
+bool _isPrimitivePayload(Object? value) =>
+    value == null ||
+    value is bool ||
+    value is num ||
+    value is BigInt ||
+    value is String ||
+    value is LuaString;
+
 /// Closure-only payload for Lua function values.
 class LuaClosurePayload {
   LuaClosurePayload({
@@ -1021,13 +1029,7 @@ class Value extends Object implements Map<String, dynamic>, GCObject {
   /// keeping number->string survivors in weak-values tables and allowing
   /// string->string survivors in all-weak tables).
   bool get isPrimitiveLike {
-    final current = raw;
-    return current == null ||
-        current is bool ||
-        current is num ||
-        current is BigInt ||
-        current is String ||
-        current is LuaString;
+    return _isPrimitivePayload(raw);
   }
 
   bool get isStringLike {
@@ -1041,6 +1043,9 @@ class Value extends Object implements Map<String, dynamic>, GCObject {
 
   /// Creates a constant value that cannot be modified after initialization
   factory Value.constant(dynamic value, {Map<String, dynamic>? metatable}) {
+    if (metatable == null && _isPrimitivePayload(value)) {
+      return Value.primitive(value, isConst: true);
+    }
     return Value(value, metatable: metatable, isConst: true);
   }
 
@@ -1080,12 +1085,7 @@ class Value extends Object implements Map<String, dynamic>, GCObject {
     if (existing != null) {
       return existing;
     }
-    if (value == null ||
-        value is bool ||
-        value is num ||
-        value is BigInt ||
-        value is String ||
-        value is LuaString) {
+    if (_isPrimitivePayload(value)) {
       return Value.primitive(value);
     }
     final wrapped = Value(value);
@@ -1188,12 +1188,7 @@ class Value extends Object implements Map<String, dynamic>, GCObject {
       });
       return Value(newMap);
     }
-    if (value == null ||
-        value is bool ||
-        value is num ||
-        value is BigInt ||
-        value is String ||
-        value is LuaString) {
+    if (_isPrimitivePayload(value)) {
       return Value.primitive(value);
     }
     return Value(value);
@@ -1227,9 +1222,29 @@ class Value extends Object implements Map<String, dynamic>, GCObject {
       );
     }
     // For non-table values, copy with metatable
+    final current = raw;
+    final Map<String, dynamic>? copiedMetatable = metatable != null
+        ? Map<String, dynamic>.from(metatable!)
+        : null;
+    if (copiedMetatable == null && _isPrimitivePayload(current)) {
+      return Value.primitive(
+        current,
+        isConst: isConst,
+        isToBeClose: isToBeClose,
+        skipAllocationDebt: skipAllocationDebt,
+        skipGcRegistration: skipGcRegistration,
+        upvalues: upvalues,
+        interpreter: interpreter,
+        functionBody: functionBody,
+        closureEnvironment: closureEnvironment,
+        functionName: functionName,
+        debugLineDefined: debugLineDefined,
+        strippedDebugInfo: strippedDebugInfo,
+      );
+    }
     return Value(
-      raw,
-      metatable: metatable != null ? Map.from(metatable!) : null,
+      current,
+      metatable: copiedMetatable,
       isConst: isConst,
       isToBeClose: isToBeClose,
       skipAllocationDebt: skipAllocationDebt,
@@ -1436,7 +1451,7 @@ class Value extends Object implements Map<String, dynamic>, GCObject {
   /// Returns a new Value instance wrapping the input.
   static Value wrap(dynamic value) {
     if (value is Value) return value;
-    if (value == null || value is bool || value is num || value is BigInt) {
+    if (_isPrimitivePayload(value)) {
       return Value.primitive(value);
     }
     if (value is Map) {
