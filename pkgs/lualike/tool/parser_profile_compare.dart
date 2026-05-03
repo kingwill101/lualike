@@ -312,14 +312,12 @@ final class _Comparison {
       );
     }
 
-    buffer
-      ..writeln(
-        '| **Total** | `${_formatMs(total.baselineMeanMicros)}` | '
-        '`${_formatMs(total.latestMeanMicros)}` | '
-        '**`${_formatPercent(total.reductionPercent)}`** | '
-        '**`${_formatSpeedup(total.speedup)}`** |',
-      )
-      ..writeln();
+    buffer.writeln(
+      '| **Total** | `${_formatMs(total.baselineMeanMicros)}` | '
+      '`${_formatMs(total.latestMeanMicros)}` | '
+      '**`${_formatPercent(total.reductionPercent)}`** | '
+      '**`${_formatSpeedup(total.speedup)}`** |',
+    );
     return buffer.toString();
   }
 }
