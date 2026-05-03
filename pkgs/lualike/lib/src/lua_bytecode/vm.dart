@@ -8803,7 +8803,7 @@ bool _isSharedRuntimeConstant(LuaRuntime runtime, Value value) {
 
 Value _cloneBytecodeValue(Value source) {
   final raw = source.raw;
-  if (raw == null || raw is bool || raw is num || raw is BigInt) {
+  if (_canUsePrimitiveBytecodeClone(source)) {
     final clone = Value.primitive(
       raw,
       isMulti: source.isMulti,
@@ -8848,6 +8848,17 @@ Value _cloneBytecodeValue(Value source) {
   clone.metatableRef = source.metatableRef;
   clone.globalProxyEnvironment = source.globalProxyEnvironment;
   return clone;
+}
+
+bool _canUsePrimitiveBytecodeClone(Value source) {
+  final raw = source.raw;
+  if (raw == null || raw is bool || raw is num || raw is BigInt) {
+    return true;
+  }
+  if (raw is! String && raw is! LuaString) {
+    return false;
+  }
+  return source.metatable == null && source.metatableRef == null;
 }
 
 bool _isBookkeepingNeutralClone(Value source) {
