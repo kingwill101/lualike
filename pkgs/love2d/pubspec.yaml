@@ -4,6 +4,7 @@ version: 0.1.0
 publish_to: none
 repository: https://github.com/kingwill101/lualike
 
+resolution: workspace
 environment:
   sdk: ^3.9.0
   flutter: ">=3.35.0"
@@ -19,7 +20,8 @@ dependencies:
   flutter:
     sdk: flutter
   image: ^4.8.0
-  lualike: any
+  lualike:
+    path: ../lualike
   media_kit: ^1.2.6
   media_kit_libs_video: ^1.0.7
   media_kit_video: ^2.0.1
@@ -36,8 +38,6 @@ dev_dependencies:
     sdk: flutter
 
 flutter:
-  assets:
-    - third_party/love/extra/resources/Vera.ttf
   shaders:
     - test_assets/shaders/runtime_effect_solid_color.frag
     - test_assets/shaders/runtime_effect_uniform_texture.frag
