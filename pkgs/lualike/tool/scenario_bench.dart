@@ -57,6 +57,11 @@ const _groupScenarios = <String, List<String>>{
     'format-string-complex',
     'format-string-mixed',
   ],
+  'lua-string-parser-all': <String>[
+    'lua-string-parser-simple',
+    'lua-string-parser-escaped',
+    'lua-string-parser-byte',
+  ],
 };
 
 final _leafScenarios = <String>{
@@ -83,6 +88,9 @@ final _leafScenarios = <String>{
   'format-string-simple',
   'format-string-complex',
   'format-string-mixed',
+  'lua-string-parser-simple',
+  'lua-string-parser-escaped',
+  'lua-string-parser-byte',
 };
 
 final List<String> _scenarioNames = (<String>{
@@ -510,6 +518,36 @@ assert(n > 0)
       workUnits: 40000,
     ),
     'format-string-mixed' => _formatStringMixedScenario(),
+    'lua-string-parser-simple' => _luaStringParserScenario(
+      name: 'lua-string-parser-simple',
+      content: 'plain ascii text with numbers 12345 and punctuation !?',
+      workUnits: 40000,
+    ),
+    'lua-string-parser-escaped' => _luaStringParserScenario(
+      name: 'lua-string-parser-escaped',
+      content:
+          r'line\n tab\t byte\123 hex\x41 unicode\u{1f600} quote\" slash\\ z\z   '
+          '\nnext',
+      workUnits: 40000,
+    ),
+    'lua-string-parser-byte' => _luaStringParserScenario(
+      name: 'lua-string-parser-byte',
+      content: String.fromCharCodes(<int>[
+        0xE1,
+        0x6C,
+        0x6F,
+        0x5C,
+        0x78,
+        0x34,
+        0x31,
+        0x5C,
+        0x32,
+        0x35,
+        0x35,
+      ]),
+      sourceCodeUnitsAreBytes: true,
+      workUnits: 40000,
+    ),
     _ => throw ArgumentError.value(name, 'scenario', 'Unknown benchmark'),
   };
 }
@@ -679,6 +717,31 @@ _BenchScenario _formatStringMixedScenario() {
       var total = 0;
       for (var i = 0; i < workUnits; i++) {
         total += FormatStringParser.parse(formats[i % formats.length]).length;
+      }
+      if (total == 0) {
+        throw StateError('unexpected zero total');
+      }
+    },
+  );
+}
+
+_BenchScenario _luaStringParserScenario({
+  required String name,
+  required String content,
+  required int workUnits,
+  bool sourceCodeUnitsAreBytes = false,
+}) {
+  return _BenchScenario(
+    name: name,
+    workUnits: workUnits,
+    workLabel: 'string parses',
+    run: (_) async {
+      var total = 0;
+      for (var i = 0; i < workUnits; i++) {
+        total += LuaStringParser.parseStringContent(
+          content,
+          sourceCodeUnitsAreBytes: sourceCodeUnitsAreBytes,
+        ).length;
       }
       if (total == 0) {
         throw StateError('unexpected zero total');
