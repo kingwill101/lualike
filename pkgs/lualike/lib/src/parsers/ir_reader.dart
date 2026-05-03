@@ -207,11 +207,16 @@ class _LualikeIrReaderDefinition extends GrammarDefinition {
   }
 
   Parser _opcodeName() {
-    return pattern('A-Z0-9_')
-        .plus()
-        .flatten()
-        .trim(ref0(_whitespaceAndComments))
-        .map(LualikeIrOpcode.byName);
+    return pattern(
+      'A-Z0-9_',
+    ).plus().flatten().trim(ref0(_whitespaceAndComments)).map((value) {
+      final name = value;
+      final opcode = LualikeIrOpcode.tryByName(name);
+      if (opcode == null) {
+        throw FormatException('Unknown lualike_ir opcode $name');
+      }
+      return opcode;
+    });
   }
 
   Parser _instructionOperand() {
@@ -469,6 +474,8 @@ LualikeIrChunk _buildChunk(
     }
   }
 
+  // Treat debug metadata embedded in parsed prototypes as authoritative even
+  // when older emitters leave the chunk header flag unset.
   final effectiveHasDebugInfo =
       hasDebugInfo || _prototypeHasDebugInfo(mainPrototype);
 
@@ -558,6 +565,7 @@ LualikeIrInstruction _buildInstruction(
     properties,
     context: '${opcode.name.toLowerCase()} instruction',
   );
+  _validateInstructionOperands(mode, opcode, values.keys);
   return switch (mode) {
     'abc' => ABCInstruction(
       opcode: opcode,
@@ -593,6 +601,32 @@ LualikeIrInstruction _buildInstruction(
     ),
     final other => throw FormatException('Unsupported instruction mode $other'),
   };
+}
+
+void _validateInstructionOperands(
+  String mode,
+  LualikeIrOpcode opcode,
+  Iterable<String> keys,
+) {
+  final allowedKeys = switch (mode) {
+    'abc' => const {'a', 'b', 'c', 'k'},
+    'abx' => const {'a', 'bx'},
+    'asbx' => const {'a', 'sbx'},
+    'ax' => const {'ax'},
+    'asj' => const {'sj'},
+    'avbc' => const {'a', 'vb', 'vc', 'k'},
+    final other => throw FormatException('Unsupported instruction mode $other'),
+  };
+  final unexpectedKeys = keys
+      .where((key) => !allowedKeys.contains(key))
+      .toList(growable: false);
+  if (unexpectedKeys.isEmpty) {
+    return;
+  }
+  throw FormatException(
+    'Unexpected operand(s) for ${opcode.name} $mode: '
+    '${unexpectedKeys.join(', ')}',
+  );
 }
 
 class _ParsedPrototypeBuilder {
@@ -760,6 +794,16 @@ class _ParsedPrototypeBuilder {
     final resolvedRegisterCount = registerCount;
     if (resolvedRegisterCount == null) {
       throw FormatException('Prototype $label is missing register_count');
+    }
+    if (resolvedRegisterCount < 0) {
+      throw FormatException(
+        'Prototype $label register_count must be non-negative',
+      );
+    }
+    if (paramCount < 0) {
+      throw FormatException(
+        'Prototype $label param_count must be non-negative',
+      );
     }
 
     final constFlags =

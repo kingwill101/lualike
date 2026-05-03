@@ -34,6 +34,18 @@ return outer(5)
       expect(_unwrap(result), equals(<dynamic>[1, 2, 3]));
     });
 
+    test('forwards ambient chunk varargs to lowered main closure', () async {
+      final bridge = LuaLike(runtime: LualikeIrRuntime());
+      bridge.vm.getCurrentEnv().define(
+        '...',
+        Value.multi([Value(1), Value(2)]),
+      );
+
+      final result = await bridge.execute('return ...');
+
+      expect(_unwrap(result), equals(<dynamic>[1, 2]));
+    });
+
     test('forwards varargs through nested closure', () async {
       final bridge = LuaLike(runtime: LualikeIrRuntime());
       final result = await bridge.execute(

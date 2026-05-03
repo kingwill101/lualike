@@ -72,7 +72,7 @@ void main() {
     });
 
     test(
-      'compiles large integer literal assignment with SETTABLE fallback',
+      'compiles large integer literal assignment uses setTable for index > 0xFF',
       () {
         final program = parse('arr[999] = value');
         final instructions = _stripVarArgPrep(

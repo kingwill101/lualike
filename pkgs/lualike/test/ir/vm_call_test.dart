@@ -61,10 +61,8 @@ void main() {
       expect(actual, equals(42));
     });
 
-    test(
-      'pcall reports too-long __call chains from lowered bytecode',
-      () async {
-        final result = await executeCode('''
+    test('pcall reports too-long __call chains via IR engine', () async {
+      final result = await executeCode('''
         local target = {}
         for _ = 1, 16 do
           target = setmetatable({}, {__call = target})
@@ -73,12 +71,11 @@ void main() {
         return ok, string.find(message, "too long", 1, true) ~= nil
       ''', mode: EngineMode.ir);
 
-        final actual = result is Value ? result.raw : result;
-        expect(actual, equals(<dynamic>[false, true]));
-      },
-    );
+      final actual = result is Value ? result.raw : result;
+      expect(actual, equals(<dynamic>[false, true]));
+    });
 
-    test('pcall expands lowered bytecode return vectors', () async {
+    test('pcall expands IR multi-return vectors', () async {
       final result = await executeCode('''
         local ok, first, second = pcall(function()
           return "a", "b"

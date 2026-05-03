@@ -187,6 +187,70 @@ void main() {
       );
     });
 
+    test('rejects unknown opcodes with FormatException', () {
+      const source = '''
+      chunk {
+        prototype main register_count=1 {
+          instructions {
+            abc NOT_A_REAL_OPCODE a=0 b=0 c=0;
+          }
+        }
+      }
+      ''';
+
+      expect(
+        () => LualikeIrReader.parse(source),
+        throwsA(isA<FormatException>()),
+      );
+    });
+
+    test('rejects operands outside the selected instruction mode', () {
+      const source = '''
+      chunk {
+        prototype main register_count=1 {
+          instructions {
+            abc LOADNIL a=0 b=0 c=0 bx=7;
+          }
+        }
+      }
+      ''';
+
+      expect(
+        () => LualikeIrReader.parse(source),
+        throwsA(isA<FormatException>()),
+      );
+    });
+
+    test('rejects negative prototype count fields', () {
+      const negativeRegisterCount = '''
+      chunk {
+        prototype main register_count=-1 {
+          instructions {
+            abc RETURN0 a=0 b=0 c=0;
+          }
+        }
+      }
+      ''';
+      const negativeParamCount = '''
+      chunk {
+        prototype main register_count=1 param_count=-1 {
+          instructions {
+            abc RETURN0 a=0 b=0 c=0;
+          }
+        }
+      }
+      ''';
+
+      expect(
+        () => LualikeIrReader.parse(negativeRegisterCount),
+        throwsA(isA<FormatException>()),
+      );
+      expect(
+        () => LualikeIrReader.parse(negativeParamCount),
+        throwsA(isA<FormatException>()),
+      );
+    });
+
     test('round-trips formatter output through the reader', () {
       const source = '''
       chunk has_debug_info=true has_constant_hash=true {

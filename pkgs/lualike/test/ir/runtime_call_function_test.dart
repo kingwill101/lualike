@@ -47,6 +47,28 @@ void main() {
       final numeric = result is Value ? result.raw : result;
       expect(numeric, equals(42));
     });
+
+    test('reports too-long callable table chains', () async {
+      final bridge = LuaLike(runtime: LualikeIrRuntime());
+      final runtime = bridge.vm;
+
+      await bridge.execute('''
+        target = {}
+        for _ = 1, 16 do
+          target = setmetatable({}, {__call = target})
+        end
+      ''');
+
+      final target = bridge.getGlobal('target') as Value;
+      await expectLater(
+        runtime.callFunction(target, const <Object?>[]),
+        throwsA(
+          predicate<Object>(
+            (error) => error.toString().contains("__call' chain too long"),
+          ),
+        ),
+      );
+    });
   });
 
   group('LualikeIrRuntime load & stdlib integration', () {
