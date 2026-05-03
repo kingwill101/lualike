@@ -4,7 +4,8 @@ import 'package:lualike/src/runtime/lua_primitive.dart';
 import 'package:lualike/src/lua_string.dart';
 import 'package:lualike/src/value.dart';
 
-export 'package:lualike/src/runtime/lua_primitive.dart' show isLuaPrimitiveSlot;
+export 'package:lualike/src/runtime/lua_primitive.dart'
+    show isLuaPrimitiveSlot, isLuaScalarPrimitiveSlot;
 
 /// Lightweight internal runtime slot.
 ///
@@ -142,7 +143,7 @@ Value freshValueFromLuaSlot(
 /// This keeps primitive/string-cache policy centralized while preserving the
 /// lighter generic slot wrapper for objects, tables, and result carriers.
 Value cachedPrimitiveOrValue(LuaRuntime? runtime, LuaSlot slot) {
-  if (slot == null || slot is bool || slot is num || slot is BigInt) {
+  if (isLuaScalarPrimitiveSlot(slot)) {
     return runtime?.constantPrimitiveValue(slot) ?? Value.primitive(slot);
   }
   if (slot is String) {
