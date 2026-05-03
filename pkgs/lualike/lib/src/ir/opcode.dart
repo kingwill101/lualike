@@ -31,6 +31,7 @@ class LualikeIrOpcode {
   static const LualikeIrOpcode getI = LualikeIrOpcode._('GETI');
   static const LualikeIrOpcode getField = LualikeIrOpcode._('GETFIELD');
   static const LualikeIrOpcode setTabUp = LualikeIrOpcode._('SETTABUP');
+
   /// A lualike IR extension opcode — not present in the Lua 5.4 instruction
   /// set. `CHECKGLOBAL` enforces `global <const> *` declarations by verifying
   /// that a global variable write is permitted at the call site. Consumers of
