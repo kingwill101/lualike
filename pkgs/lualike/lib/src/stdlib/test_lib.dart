@@ -224,7 +224,7 @@ class TestLib {
 
     final ref = args[0] is num ? (args[0] as num).toInt() : 0;
     if (_registry.containsKey(ref)) {
-      return Value(_registry[ref]);
+      return _objectValue(runtime, _registry[ref]);
     }
 
     return _primitiveValue(runtime, null);
