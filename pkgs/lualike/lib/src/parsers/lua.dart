@@ -2219,14 +2219,17 @@ class _ParameterListParser extends Parser<Map<String, Object?>> {
 
 int _skipLuaTrivia(String buffer, int position) {
   var current = position;
-  while (current < buffer.length) {
+  final length = buffer.length;
+  while (current < length) {
     final codeUnit = buffer.codeUnitAt(current);
     if (_isLuaWhitespaceCodeUnit(codeUnit)) {
       current++;
       continue;
     }
 
-    if (!_startsLineComment(buffer, current)) {
+    if (codeUnit != 0x2D ||
+        current + 1 >= length ||
+        buffer.codeUnitAt(current + 1) != 0x2D) {
       break;
     }
 
@@ -2248,11 +2251,6 @@ bool _isLuaWhitespaceCodeUnit(int codeUnit) =>
     codeUnit == 0x0B ||
     codeUnit == 0x0C ||
     codeUnit == 0x0D;
-
-bool _startsLineComment(String buffer, int position) =>
-    position + 1 < buffer.length &&
-    buffer.codeUnitAt(position) == 0x2D &&
-    buffer.codeUnitAt(position + 1) == 0x2D;
 
 int _scanLineCommentEnd(String buffer, int position) {
   var current = position;
