@@ -7,6 +7,7 @@ import 'package:lualike/src/gc/gc_access.dart';
 import 'package:lualike/src/gc/memory_credits.dart';
 import 'dart:collection';
 
+import 'package:lualike/src/runtime/lua_primitive.dart';
 import 'package:lualike/src/runtime/lua_results.dart';
 import 'package:lualike/src/stdlib/metatables.dart';
 import 'package:lualike/src/upvalue.dart';
@@ -45,13 +46,7 @@ Object? _publicCallResult(Object? result) {
   return result;
 }
 
-bool _isPrimitivePayload(Object? value) =>
-    value == null ||
-    value is bool ||
-    value is num ||
-    value is BigInt ||
-    value is String ||
-    value is LuaString;
+bool _isPrimitivePayload(Object? value) => isLuaPrimitiveSlot(value);
 
 /// Closure-only payload for Lua function values.
 class LuaClosurePayload {
