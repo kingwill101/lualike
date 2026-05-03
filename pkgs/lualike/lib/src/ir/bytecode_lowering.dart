@@ -333,6 +333,16 @@ List<LuaBytecodeInstructionWord> _lowerInstructionSequence(
   LualikeIrInstruction instruction, {
   required int tempBase,
 }) {
+  if (instruction is ABCInstruction) {
+    final leftShiftImmediate = _lowerLeftShiftImmediateSequence(
+      instruction,
+      tempBase: tempBase,
+    );
+    if (leftShiftImmediate != null) {
+      return leftShiftImmediate;
+    }
+  }
+
   final arithmetic = _lowerArithmeticMetamethodSequence(
     instruction,
     tempBase: tempBase,
@@ -358,6 +368,44 @@ List<LuaBytecodeInstructionWord> _lowerInstructionSequence(
     }
   }
   return <LuaBytecodeInstructionWord>[_lowerInstruction(instruction)];
+}
+
+List<LuaBytecodeInstructionWord>? _lowerLeftShiftImmediateSequence(
+  ABCInstruction instruction, {
+  required int tempBase,
+}) {
+  if (instruction.opcode != LualikeIrOpcode.shlI) {
+    return null;
+  }
+
+  final immediate = _signExtend(instruction.c, 9);
+  return <LuaBytecodeInstructionWord>[
+    LuaBytecodeInstructionWord.asBx(
+      opcode: LuaBytecodeOpcodes.byName('LOADI').code,
+      a: tempBase,
+      sBx: immediate,
+    ),
+    LuaBytecodeInstructionWord.abc(
+      opcode: LuaBytecodeOpcodes.byName('SHL').code,
+      a: instruction.a,
+      b: instruction.b,
+      c: tempBase,
+    ),
+    LuaBytecodeInstructionWord.abc(
+      opcode: LuaBytecodeOpcodes.byName('MMBIN').code,
+      a: instruction.b,
+      b: tempBase,
+      c: _binaryMetamethodEvent(LualikeIrOpcode.shl)!,
+      k: instruction.k,
+    ),
+  ];
+}
+
+int _signExtend(int value, int bits) {
+  final signBit = 1 << (bits - 1);
+  final mask = (1 << bits) - 1;
+  final masked = value & mask;
+  return (masked & signBit) == 0 ? masked : masked - (1 << bits);
 }
 
 List<LuaBytecodeInstructionWord>? _lowerArithmeticMetamethodSequence(
@@ -470,13 +518,6 @@ String? _registerArithmeticOpcode(LualikeIrOpcode opcode) {
     LualikeIrOpcode.bxorK => 'BXOR',
     _ => null,
   };
-}
-
-int _signExtend(int value, int bitCount) {
-  final limit = 1 << (bitCount - 1);
-  final mask = (1 << bitCount) - 1;
-  final unsigned = value & mask;
-  return unsigned >= limit ? unsigned - (1 << bitCount) : unsigned;
 }
 
 int? _binaryMetamethodEvent(LualikeIrOpcode opcode) {

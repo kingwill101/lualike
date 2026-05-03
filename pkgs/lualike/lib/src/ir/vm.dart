@@ -6,6 +6,7 @@ import 'package:lualike/src/logging/logger.dart';
 import 'package:lualike/src/lua_error.dart';
 import 'package:lualike/src/number_limits.dart';
 import 'package:lualike/src/number_utils.dart';
+import 'package:lualike/src/runtime/lua_slot.dart';
 import 'package:lualike/src/runtime/vararg_table.dart';
 import 'package:lualike/src/runtime/lua_runtime.dart';
 import 'package:lualike/src/table_storage.dart';
@@ -118,6 +119,7 @@ class IrFrame {
     required List<LualikeIrUpvalueCell> capturedUpvalues,
     required this.returnBase,
     required this.expectedResults,
+    this.runtime,
   }) : upvalues = List<LualikeIrUpvalueCell>.from(capturedUpvalues),
        registers = List<dynamic>.filled(
          _initialRegisterCapacity(prototype, args),
@@ -137,11 +139,12 @@ class IrFrame {
       setRegister(i, i < args.length ? args[i] : null);
     }
     if (prototype.namedVarargRegister case final int register) {
-      setRegister(register, packVarargsTable(varargs));
+      setRegister(register, packVarargsTable(varargs, runtime: runtime));
     }
   }
 
   final LualikeIrPrototype prototype;
+  final LuaRuntime? runtime;
   final List<dynamic> registers;
   final List<LualikeIrUpvalueCell> upvalues;
   final List<dynamic> varargs;
@@ -405,6 +408,7 @@ class LualikeIrVm {
         capturedUpvalues: const <LualikeIrUpvalueCell>[],
         returnBase: 0,
         expectedResults: _returnAll,
+        runtime: runtime,
       ),
     ], isMainChunk: true);
     return _finalizeResults(rawResults);
@@ -432,6 +436,7 @@ class LualikeIrVm {
         capturedUpvalues: closure.upvalues,
         returnBase: 0,
         expectedResults: expectedResults,
+        runtime: runtime,
       ),
     ]);
     return _finalizeResults(rawResults);
@@ -738,6 +743,7 @@ class LualikeIrVm {
                   capturedUpvalues: closure.upvalues,
                   returnBase: base,
                   expectedResults: expectedResults,
+                  runtime: runtime,
                 ),
               );
               _pushCallStackFrame(frames.last);
@@ -787,6 +793,7 @@ class LualikeIrVm {
                   capturedUpvalues: closure.upvalues,
                   returnBase: currentReturnBase,
                   expectedResults: currentExpected,
+                  runtime: runtime,
                 ),
               );
               _pushCallStackFrame(frames.last);
@@ -1568,8 +1575,9 @@ class LualikeIrVm {
   }
 
   List<dynamic> _expandValue(dynamic value) {
-    if (value is Value && value.isMulti && value.raw is List) {
-      return List<dynamic>.from(value.raw as List);
+    final resultValues = luaResultValues(value);
+    if (resultValues != null) {
+      return List<dynamic>.from(resultValues);
     }
     if (value is List) {
       return List<dynamic>.from(value);
@@ -1602,11 +1610,7 @@ class LualikeIrVm {
   }
 
   Value _ensureValue(dynamic raw) {
-    if (raw is Value) {
-      _ensureInterpreterAttached(raw);
-      return raw;
-    }
-    final value = Value(raw);
+    final value = cachedPrimitiveOrValue(environment.interpreter, raw);
     _ensureInterpreterAttached(value);
     return value;
   }
@@ -1741,7 +1745,7 @@ class LualikeIrVm {
   }
 
   Value _valueOf(dynamic raw) {
-    return raw is Value ? raw : Value(raw);
+    return _ensureValue(raw);
   }
 
   ({bool handled, dynamic value}) _tryNumericBinary(
@@ -2184,7 +2188,7 @@ class LualikeIrVm {
     if (stringLib is! Value) {
       return result;
     }
-    final methodEntry = stringLib[Value(key.raw)];
+    final methodEntry = stringLib[cachedPrimitiveOrValue(runtime, key.raw)];
     if (methodEntry is! Value || methodEntry.raw == null) {
       return result;
     }
@@ -2209,7 +2213,7 @@ class LualikeIrVm {
       }
       final result = await _callValue(methodEntry, normalizedArgs);
       return result;
-    });
+    }, interpreter: runtime);
   }
 
   Future<Value> _awaitValue(dynamic value) async {
@@ -2245,7 +2249,7 @@ class LualikeIrVm {
       if (usedMetamethod && resolved.raw is List) {
         final list = resolved.raw as List;
         if (list.isEmpty) {
-          final nilValue = Value(null);
+          final nilValue = cachedPrimitiveOrValue(runtime, null);
           _ensureInterpreterAttached(nilValue);
           return nilValue;
         }
@@ -2397,12 +2401,12 @@ class LualikeIrVm {
     if (result == null) {
       return const [];
     }
+    final resultValues = luaResultValues(result);
+    if (resultValues != null) {
+      return List<dynamic>.from(resultValues);
+    }
     if (result is Value) {
       _ensureInterpreterAttached(result);
-      if (result.isMulti) {
-        final rawList = result.raw as List<Object?>;
-        return List<dynamic>.from(rawList);
-      }
       return <dynamic>[result];
     }
     if (result is List) {
@@ -2679,11 +2683,9 @@ class LualikeIrVm {
     if (value is Value && value.raw == null) {
       return true;
     }
-    if (value is Value && value.isMulti) {
-      final raw = value.raw;
-      if (raw is List && raw.isEmpty) {
-        return true;
-      }
+    final resultValues = luaResultValues(value);
+    if (resultValues != null && resultValues.isEmpty) {
+      return true;
     }
     return false;
   }
@@ -2713,16 +2715,9 @@ class LoopIrVm {
   final Environment environment;
 
   Value _ensureValue(dynamic raw) {
-    if (raw is Value) {
-      final runtime = environment.interpreter;
-      if (runtime != null && !identical(raw.interpreter, runtime)) {
-        raw.interpreter = runtime;
-      }
-      return raw;
-    }
-    final value = Value(raw);
     final runtime = environment.interpreter;
-    if (runtime != null) {
+    final value = cachedPrimitiveOrValue(runtime, raw);
+    if (runtime != null && !identical(value.interpreter, runtime)) {
       value.interpreter = runtime;
     }
     return value;
