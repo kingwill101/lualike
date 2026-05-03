@@ -895,14 +895,14 @@ class Interpreter extends AstVisitor<Object?>
       return;
     }
     if (gc.needsAsyncFinalizerDrain) {
-      await _finishAutoFinalizerCycle();
+      await _finishOrDrainAutoFinalizerCycle();
       return;
     }
     final debt = gc.allocationDebt;
     if (debt > 0) {
       runAutoGcAtSafePoint();
       if (gc.needsAsyncFinalizerDrain) {
-        await _finishAutoFinalizerCycle();
+        await _finishOrDrainAutoFinalizerCycle();
         return;
       }
     }
@@ -916,7 +916,7 @@ class Interpreter extends AstVisitor<Object?>
     }
     gc.performIncrementalStep(gc.loopIncrementalGcBudget());
     if (gc.needsAsyncFinalizerDrain) {
-      await _finishAutoFinalizerCycle();
+      await _finishOrDrainAutoFinalizerCycle();
       return;
     }
     if (gc.hasPendingAsyncFinalizers) {
@@ -1782,6 +1782,16 @@ class Interpreter extends AstVisitor<Object?>
     await gc.majorCollection(getRoots());
   }
 
+  Future<void> _finishOrDrainAutoFinalizerCycle() async {
+    if (gc.hasPendingAsyncFinalizers &&
+        !gc.hasPendingFinalizers &&
+        !gc.isCycleActive) {
+      await gc.drainPendingAsyncFinalizers();
+      return;
+    }
+    await _finishAutoFinalizerCycle();
+  }
+
   Future<void> _runAutoGCAtSafePoint() async {
     if (gc.isStopped ||
         !gc.autoTriggerEnabled ||
@@ -1810,14 +1820,13 @@ class Interpreter extends AstVisitor<Object?>
     if (debt >= threshold) {
       gc.runPendingAutoTrigger();
     }
-    if (gc.hasPendingFinalizers ||
-        gc.hasPendingAsyncFinalizers ||
-        gc.shouldForceAsyncLoopRescue(safePointCounter, debt, threshold)) {
-      await _finishAutoFinalizerCycle();
+    if (gc.needsAsyncFinalizerDrain) {
+      await _finishOrDrainAutoFinalizerCycle();
       return;
     }
-    if (gc.hasPendingAsyncFinalizers) {
-      await gc.drainPendingAsyncFinalizers();
+    if (gc.shouldForceAsyncLoopRescue(safePointCounter, debt, threshold)) {
+      await _finishAutoFinalizerCycle();
+      return;
     }
   }
 }

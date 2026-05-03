@@ -21,7 +21,7 @@ class MathLibrary extends Library {
     context.define("acos", _MathAcos(interpreter));
     context.define("asin", _MathAsin(interpreter));
     context.define("atan", atanFunc);
-    context.define("atan2", atanFunc);
+    context.define("atan2", _MathAtan(interpreter, "atan2"));
     context.define("ceil", _MathCeil(interpreter));
     context.define("cos", _MathCos(interpreter));
     context.define("deg", _MathDeg(interpreter));
@@ -67,7 +67,7 @@ dynamic _getFastNumber(Object? value, String funcName, int argNum) {
   ) when rawNumber is int || rawNumber is double || rawNumber is BigInt) {
     return rawNumber;
   }
-  return _getNumber(value as Value, funcName, argNum);
+  return _getNumber(value is Value ? value : Value(value), funcName, argNum);
 }
 
 Object? _tryFastMinMaxNumericResult(
@@ -97,6 +97,9 @@ Object? _tryFastMinMaxNumericResult(
 abstract class _MathBuiltin extends BuiltinFunction {
   _MathBuiltin([super.interpreter]);
 
+  // The bytecode VM may call these builtins directly without pushing a managed
+  // Lua frame. Keep subclasses limited to synchronous numeric work that does
+  // not inspect call-stack-only state or call back into Lua.
   @override
   bool get canBytecodeInlineWithoutManagedFrame => true;
 }
@@ -147,21 +150,23 @@ class _MathAsin extends _MathBuiltin {
 }
 
 class _MathAtan extends _MathBuiltin {
-  _MathAtan([super.interpreter]);
+  _MathAtan([super.interpreter, this.functionName = "atan"]);
+
+  final String functionName;
 
   @override
   Object? call(List<Object?> args) {
     if (args.isEmpty) {
       throw LuaError.typeError(
-        "bad argument #1 to 'atan' (number expected, got no value)",
+        "bad argument #1 to '$functionName' (number expected, got no value)",
       );
     }
 
-    final y = _getNumber(args[0] as Value, "atan", 1);
+    final y = _getNumber(args[0] as Value, functionName, 1);
     final double yDouble = NumberUtils.toDouble(y);
 
     if (args.length > 1) {
-      final x = _getNumber(args[1] as Value, "atan", 2);
+      final x = _getNumber(args[1] as Value, functionName, 2);
       final double xDouble = NumberUtils.toDouble(x);
       return primitiveValue(math.atan2(yDouble, xDouble));
     }
