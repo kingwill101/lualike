@@ -159,6 +159,20 @@ void main() {
     expect(identical(direct.multiResults![1], cachedNumber), true);
   });
 
+  test('fresh slot helpers keep temporary wrappers out of caches', () {
+    final interpreter = Interpreter();
+
+    final first = freshValueFromLuaSlot(interpreter, 'slot', isTempKey: true);
+    final second = freshValueFromLuaSlot(interpreter, 'slot', isTempKey: true);
+    final cached = interpreter.constantDartStringValue('slot');
+
+    expect(first.raw, 'slot');
+    expect(first.interpreter, same(interpreter));
+    expect(first.isTempKey, true);
+    expect(identical(first, second), false);
+    expect(identical(first, cached), false);
+  });
+
   test('public global primitive writes reuse the runtime cache', () {
     final lua = LuaLike(engineMode: EngineMode.ast);
     final runtime = lua.vm;
