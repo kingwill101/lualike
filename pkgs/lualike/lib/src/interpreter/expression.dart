@@ -57,8 +57,34 @@ Value? _resolveActiveGlobalValue(Interpreter interpreter) {
 }
 
 Value _detachTemporaryValue(Value value) {
+  final raw = value.raw;
+  if (value.metatable == null &&
+      (raw == null ||
+          raw is bool ||
+          raw is num ||
+          raw is BigInt ||
+          raw is String ||
+          raw is LuaString)) {
+    return Value.primitive(
+      raw,
+      isMulti: value.isMulti,
+      isConst: value.isConst,
+      isToBeClose: value.isToBeClose,
+      isTempKey: value.isTempKey,
+      skipAllocationDebt: value.skipAllocationDebt,
+      skipGcRegistration: value.skipGcRegistration,
+      upvalues: value.upvalues,
+      interpreter: value.interpreter,
+      functionBody: value.functionBody,
+      closureEnvironment: value.closureEnvironment,
+      functionName: value.functionName,
+      debugLineDefined: value.debugLineDefined,
+      strippedDebugInfo: value.strippedDebugInfo,
+    );
+  }
+
   return Value(
-    value.raw,
+    raw,
     metatable: value.metatable,
     isMulti: value.isMulti,
     isConst: value.isConst,
