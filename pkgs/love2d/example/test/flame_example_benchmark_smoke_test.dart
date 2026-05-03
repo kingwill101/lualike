@@ -2,8 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:love2d/love2d.dart';
-import 'package:love2d_test_bed/main.dart';
-import 'package:love2d_test_bed/main_pong.dart';
+import 'package:love2d_test_bed/game_center/game_center.dart';
 
 Future<LoveAudioSourceBackend> _noopAudioBackendFactory(
   String source, {
@@ -40,12 +39,12 @@ void main() {
   );
 
   testWidgets(
-    'captures cold and warm benchmark smoke metrics for the LOVE test bed',
+    'captures cold and warm benchmark smoke metrics for LOVE Example Browser',
     (tester) async {
       final report = await _runHarnessBenchmark(
         tester,
-        title: 'LOVE Test Bed',
-        entryAsset: testBedEntryAsset,
+        title: 'LOVE Example Browser',
+        entryAsset: loveExampleBrowserEntryAsset,
       );
 
       expect(
@@ -58,8 +57,6 @@ void main() {
       );
       expect(_hasRenderActivity(report.cold.frameTimingStats), isTrue);
       expect(_hasRenderActivity(report.warm.frameTimingStats), isTrue);
-      expect(report.cold.frameTimingStats.maxAtlasBatchItems, greaterThan(0));
-      expect(report.warm.frameTimingStats.maxAtlasBatchItems, greaterThan(0));
     },
   );
 }

@@ -2,58 +2,72 @@
 
 Runnable Flutter example for `package:love2d`.
 
-The app loads [`assets/scripts/test_bed.lua`](./assets/scripts/test_bed.lua)
-through the LOVE compatibility runtime and presents it in an adaptive workspace:
+## Table Of Contents
 
-- Wide windows show the live viewport and the Lua source side by side.
-- Narrow windows switch to a tabbed layout.
-- `Reload Script` recreates the harness so Lua changes can be exercised quickly.
+- [Running The App](#running-the-app)
+- [Included Demos](#included-demos)
+- [Mobile Controls](#mobile-controls)
+- [Vendored Demo Sources](#vendored-demo-sources)
+- [Relic Breach Asset Sync](#relic-breach-asset-sync)
 
-Run it with:
+## Running The App
 
-```bash
-flutter run -d linux
-```
+`flutter run -d linux` launches the Flame-based game center from `lib/main.dart`.
 
-Additional vendored LOVE demos are available through alternate entrypoints:
+The game center is the only app entrypoint now.
 
-```bash
-flutter run -d linux -t lib/main_pong.dart
-flutter run -d linux -t lib/main_example_browser.dart
-flutter run -d linux -t lib/main_example_video.dart
-flutter run -d linux -t lib/main_pocket_bomber.dart
-flutter run -d linux -t lib/main_shader_explorer.dart
-flutter run -d linux -t lib/main_relic_breach.dart
-```
+## Included Demos
 
-`main_example_video.dart` boots the existing vendored
-`assets/love_example_browser/examples/video_test.lua` sample directly, without
-changing the sample itself, so video playback can be validated independently of
-the browser UI.
+The menu currently includes:
 
-The example browser sources are cloned from
-`love2d-community/LOVE-Example-Browser` into
-[`assets/love_example_browser/`](./assets/love_example_browser/).
+- LOVE Example Browser
+- Modern Pong
+- Pocket Bomber
+- Shader Explorer
+- Relic Breach
 
-Pocket Bomber is cloned from
-[chongdashu/love2d-pocket-bomber-game](https://github.com/chongdashu/love2d-pocket-bomber-game)
-into [`assets/pocket_bomber/`](./assets/pocket_bomber/).
+The menu is responsive and scrollable on small screens.
 
-Modern Pong is cloned from
-[GwyrddGlas/Modern-Pong](https://github.com/GwyrddGlas/Modern-Pong) into
-[`assets/modern_pong/`](./assets/modern_pong/).
+## Mobile Controls
 
-Shader Explorer lives in
-[`assets/shader_explorer/`](./assets/shader_explorer/) and loads shader source
-from a copied local shader bundle in
-[`assets/shader_explorer/shaders/`](./assets/shader_explorer/shaders/), which
-is registered in `pubspec.yaml` and read through the LOVE asset filesystem.
+On compact screens, the launcher can show per-demo on-screen controls.
 
-Relic Breach lives in
-[`assets/relic_breach/`](./assets/relic_breach/). It now uses imported Kenney
-packs for the dungeon slice, character sprites, audio, and fonts. Before
-running it from a fresh checkout, sync and normalize the asset packs from
-`pkgs/love2d/`:
+Current demo behavior:
+
+- Modern Pong: left-side directional pad and a pause button
+- LOVE Example Browser: direct touch interaction plus an on-screen `Esc` button
+- Pocket Bomber: uses its own built-in touch controls
+- Shader Explorer: left directional pad plus right-side action buttons
+- Relic Breach: left directional pad plus right-side action buttons
+
+Current limitation:
+
+- the built-in virtual pad is digital key-based, not a true analog stick
+- left and right control clusters are supported, but they currently emit
+  discrete key presses rather than joystick axes
+
+## Vendored Demo Sources
+
+- LOVE Example Browser is cloned from
+  [love2d-community/LOVE-Example-Browser](https://github.com/love2d-community/LOVE-Example-Browser)
+  into [`assets/love_example_browser/`](./assets/love_example_browser/).
+- Pocket Bomber is cloned from
+  [chongdashu/love2d-pocket-bomber-game](https://github.com/chongdashu/love2d-pocket-bomber-game)
+  into [`assets/pocket_bomber/`](./assets/pocket_bomber/).
+- Modern Pong is cloned from
+  [GwyrddGlas/Modern-Pong](https://github.com/GwyrddGlas/Modern-Pong) into
+  [`assets/modern_pong/`](./assets/modern_pong/).
+- Shader Explorer lives in
+  [`assets/shader_explorer/`](./assets/shader_explorer/) and loads shader
+  source from a copied local shader bundle in
+  [`assets/shader_explorer/shaders/`](./assets/shader_explorer/shaders/).
+- Relic Breach lives in [`assets/relic_breach/`](./assets/relic_breach/).
+
+## Relic Breach Asset Sync
+
+Relic Breach uses imported Kenney packs for the dungeon slice, character
+sprites, audio, and fonts. Before running it from a fresh checkout, sync and
+normalize the asset packs from `pkgs/love2d/`:
 
 ```bash
 dart run tool/sync_relic_breach_assets.dart

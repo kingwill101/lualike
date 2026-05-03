@@ -98,6 +98,26 @@ end
       expect(runtime.unwrapGlobalTable('testbed')!['keypressed'], 'b|b|false');
       expect(runtime.unwrapGlobalTable('testbed')!['textinput'], '!');
     });
+
+    test('dispatches direct virtual key presses and releases', () async {
+      adapter.setVirtualKeyDown('space', down: true);
+      await _flushQueuedInput(adapter, runtime);
+
+      expect(host.keyboard.isDown(const <String>['space']), isTrue);
+      expect(
+        runtime.unwrapGlobalTable('testbed')!['keypressed'],
+        'space|space|false',
+      );
+
+      adapter.resetVirtualKeyboardState();
+      await _flushQueuedInput(adapter, runtime);
+
+      expect(host.keyboard.isDown(const <String>['space']), isFalse);
+      expect(
+        runtime.unwrapGlobalTable('testbed')!['keyreleased'],
+        'space|space',
+      );
+    });
   });
 
   group('LoveFlameInputAdapter pointer bridge', () {

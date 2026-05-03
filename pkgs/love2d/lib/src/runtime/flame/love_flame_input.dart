@@ -99,6 +99,10 @@ class LoveFlameInputAdapter {
   /// The synthesized gamepad axes currently reported to LOVE.
   final Map<String, double> _virtualGamepadAxes = <String, double>{};
 
+  /// The synthesized keyboard keys currently held down by virtual controls.
+  final Set<(String key, String scancode)> _virtualKeysDown =
+      <(String key, String scancode)>{};
+
   /// The text input state mirrored from the active Flutter text connection.
   late final LoveFlameTextInputState _textInputState = LoveFlameTextInputState(
     keyboard: keyboard,
@@ -202,6 +206,50 @@ class LoveFlameInputAdapter {
         : KeyEventResult.ignored;
   }
 
+  /// Drives a LOVE key constant directly without going through Flutter key maps.
+  void setVirtualKeyDown(String key, {String? scancode, required bool down}) {
+    final resolvedScancode = scancode ?? keyboard.getScancodeFromKey(key);
+    if (resolvedScancode == 'unknown') {
+      return;
+    }
+
+    final entry = (key, resolvedScancode);
+    if (down) {
+      if (!_virtualKeysDown.add(entry)) {
+        return;
+      }
+      keyboard.setKeyDown(key, scancode: resolvedScancode, down: true);
+      _dispatch(
+        (runtime) => runtime.queueKeyPressed(
+          key,
+          scancode: resolvedScancode,
+          isRepeat: false,
+        ),
+      );
+      return;
+    }
+
+    if (!_virtualKeysDown.remove(entry)) {
+      return;
+    }
+    keyboard.setKeyDown(key, scancode: resolvedScancode, down: false);
+    _dispatch(
+      (runtime) => runtime.queueKeyReleased(key, scancode: resolvedScancode),
+    );
+  }
+
+  /// Releases every active synthesized virtual keyboard key.
+  void resetVirtualKeyboardState() {
+    final entries = _virtualKeysDown.toList(growable: false);
+    _virtualKeysDown.clear();
+    for (final entry in entries) {
+      keyboard.setKeyDown(entry.$1, scancode: entry.$2, down: false);
+      _dispatch(
+        (runtime) => runtime.queueKeyReleased(entry.$1, scancode: entry.$2),
+      );
+    }
+  }
+
   /// Updates LOVE focus state when the viewport focus changes.
   void handleFocusChanged(bool focused) {
     _setFocusState(focused);
@@ -231,6 +279,7 @@ class LoveFlameInputAdapter {
     for (final scancode in keyboard.pressedScancodes.toList(growable: false)) {
       keyboard.setScancodeDown(scancode, down: false);
     }
+    _virtualKeysDown.clear();
     for (final button in mouse.buttonsDown.toList(growable: false)) {
       mouse.setButtonDown(button, down: false);
     }
