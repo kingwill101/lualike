@@ -3,23 +3,36 @@ import 'dart:collection';
 import 'package:lualike/src/lua_error.dart';
 import 'package:lualike/src/number_limits.dart';
 import 'package:lualike/src/number_utils.dart';
+import 'package:lualike/src/runtime/lua_slot.dart';
+import 'package:lualike/src/runtime/lua_runtime.dart';
 import 'package:lualike/src/value.dart';
 
-Value packVarargsTable(List<Object?> varargs) {
-  return Value(PackedVarargTable(varargs, copyValues: false));
+Value packVarargsTable(List<Object?> varargs, {LuaRuntime? runtime}) {
+  return Value(
+    PackedVarargTable(varargs, copyValues: false, runtime: runtime),
+    interpreter: runtime,
+  );
 }
 
 final class PackedVarargTable extends MapBase<dynamic, dynamic>
     implements VirtualLuaTable {
-  PackedVarargTable(List<Object?> values, {bool copyValues = true})
-    : _values = copyValues
-          ? List<Object?>.from(values, growable: false)
-          : values;
+  PackedVarargTable(
+    List<Object?> values, {
+    bool copyValues = true,
+    this.runtime,
+  }) : _values = copyValues
+           ? List<Object?>.from(values, growable: false)
+           : values;
 
   final List<Object?> _values;
   final Map<dynamic, dynamic> _extra = <dynamic, dynamic>{};
+  final LuaRuntime? runtime;
 
   int get _count => _values.length;
+
+  Value _nilValue() => cachedPrimitiveOrValue(runtime, null);
+
+  Value _wrapValue(Object? value) => cachedPrimitiveOrValue(runtime, value);
 
   static Object? _rawKey(Object? key) {
     return switch (key) {
@@ -66,7 +79,7 @@ final class PackedVarargTable extends MapBase<dynamic, dynamic>
   @override
   void operator []=(dynamic key, dynamic value) {
     final rawKey = _rawKey(key);
-    final wrapped = value is Value ? value : Value(value);
+    final wrapped = _wrapValue(value);
 
     if (rawKey == 'n') {
       if (value == null || (value is Value && value.raw == null)) {
@@ -120,12 +133,12 @@ final class PackedVarargTable extends MapBase<dynamic, dynamic>
   Object? expandedValueAt(int oneBasedIndex) {
     final count = expandedCount();
     if (oneBasedIndex < 1 || oneBasedIndex > count) {
-      return Value(null);
+      return _nilValue();
     }
     if (oneBasedIndex <= _count) {
       return _values[oneBasedIndex - 1];
     }
-    return _extra[oneBasedIndex] ?? Value(null);
+    return _extra[oneBasedIndex] ?? _nilValue();
   }
 
   @override

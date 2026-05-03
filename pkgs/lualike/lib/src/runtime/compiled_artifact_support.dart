@@ -6,6 +6,8 @@ import 'package:lualike/lualike.dart';
 import 'package:lualike/src/goto_validator.dart';
 import 'package:lualike/src/interpreter/upvalue_analyzer.dart';
 import 'package:lualike/src/legacy_ast_chunk_transport.dart';
+import 'package:lualike/src/runtime/lua_results.dart';
+import 'package:lualike/src/runtime/lua_slot.dart';
 import 'package:lualike/src/semantic_checker.dart';
 import 'package:lualike/src/upvalue.dart';
 import 'package:path/path.dart' as path;
@@ -22,6 +24,17 @@ final RegExp _constructsShortCircuitChunkPattern = RegExp(
   r'return\s+(.+?)\s*$',
   dotAll: true,
 );
+
+Iterable<Object?> _loadedChunkVarargs(List<Object?> callArgs) {
+  if (callArgs.length == 1) {
+    final resultValues = luaResultValues(callArgs.first);
+    if (resultValues != null) {
+      return resultValues;
+    }
+  }
+  return callArgs;
+}
+
 const int _maxCachedAnonymousTextLoads = 128;
 const int _maxCachedAnonymousTextLoadSourceLength = 512;
 final Expando<_AnonymousTextLoadCache> _anonymousTextLoadCaches =
@@ -576,7 +589,7 @@ Future<LuaChunkLoadResult> loadChunkWithLegacyAstSupport(
               result,
             );
 
-            loadEnv.declare("...", Value.multi(callArgs));
+            loadEnv.declare("...", LuaResults(_loadedChunkVarargs(callArgs)));
             runtime.setCurrentEnv(loadEnv);
             final prevPath = runtime.currentScriptPath;
             runtime.currentScriptPath = effectiveChunkName;
@@ -610,11 +623,9 @@ Future<LuaChunkLoadResult> loadChunkWithLegacyAstSupport(
           } on ReturnException catch (e) {
             return e.value;
           } on TailCallException catch (t) {
-            final callee = t.functionValue is Value
-                ? t.functionValue as Value
-                : Value(t.functionValue);
+            final callee = valueFromLuaSlot(runtime, t.functionValue);
             final normalizedArgs = t.args
-                .map((a) => a is Value ? a : Value(a))
+                .map((a) => valueFromLuaSlot(runtime, a))
                 .toList();
             return await runtime.callFunction(callee, normalizedArgs);
           } catch (e) {
@@ -645,7 +656,10 @@ Future<LuaChunkLoadResult> loadChunkWithLegacyAstSupport(
         final prevPath = runtime.currentScriptPath;
         runtime.currentScriptPath = effectiveChunkName;
         runtime.callStack.setScriptPath(effectiveChunkName);
-        loadEnv.declare('_SCRIPT_PATH', Value(effectiveChunkName));
+        loadEnv.declare(
+          '_SCRIPT_PATH',
+          valueFromLuaSlot(runtime, effectiveChunkName),
+        );
         try {
           final directFunction =
               await runtime.evaluateAst(loadedAstNode) as Value;
@@ -717,8 +731,11 @@ Future<LuaChunkLoadResult> loadChunkWithLegacyAstSupport(
           );
           final savedContext = _pushLoadedChunkFunctionContext(runtime, result);
 
-          loadEnv.declare("...", Value.multi(callArgs));
-          loadEnv.declare(constantName, Value(constantValue, isConst: true));
+          loadEnv.declare("...", LuaResults(_loadedChunkVarargs(callArgs)));
+          loadEnv.declare(
+            constantName,
+            Value.primitive(constantValue, isConst: true),
+          );
           runtime.setCurrentEnv(loadEnv);
           final prevPath = runtime.currentScriptPath;
           runtime.currentScriptPath = effectiveChunkName;
@@ -729,11 +746,15 @@ Future<LuaChunkLoadResult> loadChunkWithLegacyAstSupport(
             chunkName: effectiveChunkName,
             env: loadEnv,
           );
-          loadEnv.declare('_SCRIPT_PATH', Value(effectiveChunkName));
+          loadEnv.declare(
+            '_SCRIPT_PATH',
+            valueFromLuaSlot(runtime, effectiveChunkName),
+          );
 
           try {
             final firstValue = switch (compiledCondition) {
-              final _ConstructsShortCircuitExpr compiled => Value(
+              final _ConstructsShortCircuitExpr compiled => valueFromLuaSlot(
+                runtime,
                 _unwrapConstructsValue(compiled.evaluate(loadEnv)),
               ),
               _ => await _evaluateConstructsShortCircuitExpression(
@@ -742,10 +763,15 @@ Future<LuaChunkLoadResult> loadChunkWithLegacyAstSupport(
               ),
             };
             if (firstValue.isTruthy()) {
-              await _assignLoadedGlobal(loadEnv, 'IX', Value(true));
+              await _assignLoadedGlobal(
+                loadEnv,
+                'IX',
+                valueFromLuaSlot(runtime, true),
+              );
             }
             final resultValue = switch (compiledCondition) {
-              final _ConstructsShortCircuitExpr compiled => Value(
+              final _ConstructsShortCircuitExpr compiled => valueFromLuaSlot(
+                runtime,
                 _unwrapConstructsValue(compiled.evaluate(loadEnv)),
               ),
               _ => await _evaluateConstructsShortCircuitExpression(
@@ -797,7 +823,7 @@ Future<LuaChunkLoadResult> loadChunkWithLegacyAstSupport(
               result,
             );
 
-            loadEnv.declare("...", Value.multi(callArgs));
+            loadEnv.declare("...", LuaResults(_loadedChunkVarargs(callArgs)));
             runtime.setCurrentEnv(loadEnv);
             final prevPath = runtime.currentScriptPath;
             runtime.currentScriptPath = effectiveChunkName;
@@ -808,7 +834,10 @@ Future<LuaChunkLoadResult> loadChunkWithLegacyAstSupport(
               chunkName: effectiveChunkName,
               env: loadEnv,
             );
-            loadEnv.declare('_SCRIPT_PATH', Value(effectiveChunkName));
+            loadEnv.declare(
+              '_SCRIPT_PATH',
+              valueFromLuaSlot(runtime, effectiveChunkName),
+            );
 
             try {
               Object? executionResult;
@@ -856,11 +885,9 @@ Future<LuaChunkLoadResult> loadChunkWithLegacyAstSupport(
             logProfile('success');
             return e.value;
           } on TailCallException catch (t) {
-            final callee = t.functionValue is Value
-                ? t.functionValue as Value
-                : Value(t.functionValue);
+            final callee = valueFromLuaSlot(runtime, t.functionValue);
             final normalizedArgs = t.args
-                .map((a) => a is Value ? a : Value(a))
+                .map((a) => valueFromLuaSlot(runtime, a))
                 .toList();
             final value = await runtime.callFunction(callee, normalizedArgs);
             logProfile('success');
@@ -1324,12 +1351,9 @@ Environment _createSourceLoadEnv({
   return loadEnv;
 }
 
-Value _primaryValue(Object? value) {
-  if (value case Value(isMulti: true, raw: final List values)) {
-    final first = values.isNotEmpty ? values.first : Value(null);
-    return first is Value ? first : Value(first);
-  }
-  return value is Value ? value : Value(value);
+Value _primaryValue(LuaRuntime runtime, Object? value) {
+  final first = firstLuaResult(value);
+  return valueFromLuaSlot(runtime, first);
 }
 
 Future<Value> _evaluateConstructsShortCircuitExpression(
@@ -1340,20 +1364,20 @@ Future<Value> _evaluateConstructsShortCircuitExpression(
     case GroupedExpression(expr: final expr):
       return _evaluateConstructsShortCircuitExpression(runtime, expr);
     case NilValue():
-      return Value(null);
+      return valueFromLuaSlot(runtime, null);
     case BooleanLiteral(value: final value):
-      return Value(value);
+      return valueFromLuaSlot(runtime, value);
     case NumberLiteral(value: final value):
-      return Value(value);
+      return valueFromLuaSlot(runtime, value);
     case Identifier(name: final name):
       final value = runtime.getCurrentEnv().get(name);
-      return value is Value ? value : Value(value);
+      return valueFromLuaSlot(runtime, value);
     case UnaryExpression(op: 'not', expr: final expr):
       final value = await _evaluateConstructsShortCircuitExpression(
         runtime,
         expr,
       );
-      return Value(!value.isTruthy());
+      return valueFromLuaSlot(runtime, !value.isTruthy());
     case BinaryExpression(left: final left, op: 'and', right: final right):
       final leftValue = await _evaluateConstructsShortCircuitExpression(
         runtime,
@@ -1381,13 +1405,16 @@ Future<Value> _evaluateConstructsShortCircuitExpression(
         runtime,
         right,
       );
-      return Value(leftValue == rightValue);
+      return valueFromLuaSlot(runtime, leftValue == rightValue);
     case TableFieldAccess(table: final table, fieldName: final fieldName):
       final tableValue = await _evaluateConstructsShortCircuitExpression(
         runtime,
         table,
       );
-      return _primaryValue(await tableValue.getValueAsync(fieldName.name));
+      return _primaryValue(
+        runtime,
+        await tableValue.getValueAsync(fieldName.name),
+      );
     case TableIndexAccess(table: final table, index: final index):
       final tableValue = await _evaluateConstructsShortCircuitExpression(
         runtime,
@@ -1397,9 +1424,9 @@ Future<Value> _evaluateConstructsShortCircuitExpression(
         runtime,
         index,
       );
-      return _primaryValue(await tableValue.getValueAsync(indexValue));
+      return _primaryValue(runtime, await tableValue.getValueAsync(indexValue));
     default:
-      return _primaryValue(await runtime.evaluateAst(node));
+      return _primaryValue(runtime, await runtime.evaluateAst(node));
   }
 }
 
@@ -1728,7 +1755,7 @@ _SimpleTopLevelLiteralFunctionFactory? _matchSimpleTopLevelLiteralFunction(
     name: definition.name.first.name,
     create: () {
       final functionValue = Value(
-        (List<Object?> _) async => Value(literal),
+        (List<Object?> _) async => valueFromLuaSlot(runtime, literal),
         functionBody: body,
         closureEnvironment: closureEnv,
       );

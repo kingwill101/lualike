@@ -127,10 +127,9 @@ Future<({Value? source, String? errorMessage})> _materializeReaderSource(
     for (final chunk in byteChunks) {
       bytes.add(chunk);
     }
-    sourceValue = Value(LuaString.fromBytes(bytes.takeBytes()))
-      ..interpreter = runtime;
+    sourceValue = runtime.constantStringValue(bytes.takeBytes());
   } else {
-    sourceValue = Value(textChunks.join())..interpreter = runtime;
+    sourceValue = runtime.constantDartStringValue(textChunks.join());
   }
 
   return (source: sourceValue, errorMessage: null);
