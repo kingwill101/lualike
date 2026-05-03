@@ -135,7 +135,7 @@ class Interpreter extends AstVisitor<Object?>
     final luaString = literalStringInternPool[key] ??= LuaString.fromBytes(
       bytes,
     );
-    final value = Value(luaString)..interpreter = this;
+    final value = Value.primitive(luaString, interpreter: this);
     _syncCachedTypeMetatable(value, type: 'string');
     literalValueCache[key] = value;
     return value;
@@ -153,7 +153,7 @@ class Interpreter extends AstVisitor<Object?>
     }
 
     final luaString = literalStringInternPool[key] ??= encoded;
-    final wrapped = Value(luaString)..interpreter = this;
+    final wrapped = Value.primitive(luaString, interpreter: this);
     _syncCachedTypeMetatable(wrapped, type: 'string');
     literalValueCache[key] = wrapped;
     return wrapped;
@@ -169,7 +169,7 @@ class Interpreter extends AstVisitor<Object?>
       return cached;
     }
 
-    final wrapped = Value(value)..interpreter = this;
+    final wrapped = Value.primitive(value, interpreter: this);
     _syncCachedTypeMetatable(wrapped, type: 'string');
     literalValueCache[key] = wrapped;
     return wrapped;
