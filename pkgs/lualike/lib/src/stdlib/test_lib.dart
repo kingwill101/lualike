@@ -60,6 +60,10 @@ class TestLib {
     return cachedPrimitiveOrValue(runtime, raw);
   }
 
+  static Value _objectValue(LuaRuntime? runtime, Object? raw) {
+    return valueFromOptionalLuaSlot(runtime, raw);
+  }
+
   /// Simulates the gcage function from the Lua test suite
   /// Returns the age of an object in the garbage collector
   /// Possible values: "new", "survival", "old", "old0", "old1", "touched1", "touched2"
@@ -156,7 +160,7 @@ class TestLib {
     };
 
     // Initialize with "new" age
-    final value = Value(userData);
+    final value = _objectValue(runtime, userData);
     _gcAges[value] = "new";
     _gcColors[value] = "white";
 
@@ -175,7 +179,7 @@ class TestLib {
       '_type': 'lightuserdata',
     };
 
-    return Value(userData);
+    return _objectValue(runtime, userData);
   }
 
   /// Gets the value of a userdata object
@@ -324,7 +328,7 @@ class TestLib {
           obj.metatable!['__mode'].toString().contains('v'),
     };
 
-    return Value(result);
+    return _objectValue(runtime, result);
   }
 
   /// Returns information about a string
@@ -336,7 +340,7 @@ class TestLib {
     final str = args[0].toString();
     final result = <String, dynamic>{'length': str.length};
 
-    return Value(result);
+    return _objectValue(runtime, result);
   }
 }
 
