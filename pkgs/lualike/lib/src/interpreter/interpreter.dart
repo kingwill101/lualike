@@ -22,7 +22,10 @@ import 'package:lualike/src/number_utils.dart';
 import 'package:lualike/src/parse.dart' show looksLikeLuaFilePath;
 import 'package:lualike/src/runtime/compiled_artifact_support.dart';
 import 'package:lualike/src/runtime/chunk_loading_support.dart';
+import 'package:lualike/src/runtime/lua_results.dart';
 import 'package:lualike/src/runtime/lua_runtime.dart';
+import 'package:lualike/src/runtime/lua_slot.dart';
+import 'package:lualike/src/runtime/vararg_table.dart';
 import 'package:lualike/src/semantic_checker.dart';
 import 'package:lualike/src/stack.dart';
 import 'package:lualike/src/stdlib/init.dart' show initializeStandardLibrary;
@@ -156,6 +159,22 @@ class Interpreter extends AstVisitor<Object?>
     return wrapped;
   }
 
+  @override
+  Value constantDartStringValue(String value) {
+    final key = dartStringCacheKey(value);
+    final cached = literalValueCache[key];
+    if (cached != null) {
+      cached.interpreter ??= this;
+      _syncCachedTypeMetatable(cached, type: 'string');
+      return cached;
+    }
+
+    final wrapped = Value(value)..interpreter = this;
+    _syncCachedTypeMetatable(wrapped, type: 'string');
+    literalValueCache[key] = wrapped;
+    return wrapped;
+  }
+
   /// Current environment for variable scope.
   Environment _currentEnv;
 
@@ -211,7 +230,8 @@ class Interpreter extends AstVisitor<Object?>
 
   @override
   Value constantPrimitiveValue(Object? raw) {
-    Value create(Object? value) => Value.primitive(value, interpreter: this);
+    Value create(Object? value) =>
+        Value.primitive(value, isSharedPrimitive: true);
 
     final cached = switch (raw) {
       null => _cachedNilValue ??= create(null),
@@ -231,7 +251,6 @@ class Interpreter extends AstVisitor<Object?>
       ),
       _ => throw ArgumentError.value(raw, 'raw', 'Not a cached primitive'),
     };
-    cached.interpreter ??= this;
     _syncCachedTypeMetatable(cached, type: _cachedPrimitiveType(raw));
     return cached;
   }
@@ -248,6 +267,7 @@ class Interpreter extends AstVisitor<Object?>
       value.metatableRef = null;
       return;
     }
+    value.interpreter ??= this;
     MetaTable().applyDefaultMetatable(value);
   }
 
@@ -260,32 +280,9 @@ class Interpreter extends AstVisitor<Object?>
   /// GC-tracked runtime object. For immutable primitives whose type-wide
   /// metatables are inactive, we can safely reuse the per-interpreter cached
   /// wrappers that literals already use.
+  @override
   Value wrapRuntimeValue(Object? raw) {
-    if (raw is Value) {
-      raw.interpreter ??= this;
-      return raw;
-    }
-
-    if (raw is Map) {
-      final canonical = Value.lookupCanonicalTableWrapper(raw);
-      if (canonical != null) {
-        canonical.interpreter ??= this;
-        return canonical;
-      }
-    }
-
-    if (raw == null && !MetaTable().isDefaultMetatableActive('nil')) {
-      return constantPrimitiveValue(null);
-    }
-    if (raw is bool && !MetaTable().isDefaultMetatableActive('boolean')) {
-      return constantPrimitiveValue(raw);
-    }
-    if ((raw is num || raw is BigInt) &&
-        !MetaTable().isDefaultMetatableActive('number')) {
-      return constantPrimitiveValue(raw);
-    }
-
-    return Value(raw)..interpreter = this;
+    return valueFromLuaSlot(this, raw);
   }
 
   Future<void> fireDebugHook(String event, {int? line}) async {
@@ -337,7 +334,7 @@ class Interpreter extends AstVisitor<Object?>
     final hookKey = Value(
       {},
       interpreter: this,
-      metatable: <String, dynamic>{'__mode': Value('k')},
+      metatable: <String, dynamic>{'__mode': constantDartStringValue('k')},
     );
     return Value(<String, dynamic>{'_HOOKKEY': hookKey}, interpreter: this);
   }
@@ -783,7 +780,7 @@ class Interpreter extends AstVisitor<Object?>
     if (isInProtectedCall) {
       // Convert error to appropriate format for pcall
       final errorMessage = error is LuaError ? error.message : error.toString();
-      return Value.multi([false, errorMessage]);
+      return LuaResults([false, errorMessage]);
     }
     // Re-throw if not in protected context
     throw error;
@@ -1419,19 +1416,29 @@ class Interpreter extends AstVisitor<Object?>
       if (callResult == null) {
         return;
       }
-      if (callResult is Value) {
+      final resultValues = luaResultValues(callResult);
+      if (resultValues != null) {
+        if (resultValues.isEmpty) {
+          return;
+        }
+        if (resultValues.length == 1) {
+          evalStack.push(valueFromLuaSlot(this, resultValues.first));
+        } else {
+          evalStack.push(valueMultiFromLuaResults(resultValues, runtime: this));
+        }
+      } else if (callResult is Value) {
         evalStack.push(callResult);
       } else if (callResult is List) {
         if (callResult.isEmpty) {
-          evalStack.push(wrapRuntimeValue(null));
+          evalStack.push(valueFromLuaSlot(this, null));
         } else if (callResult.length == 1) {
           final v = callResult[0];
-          evalStack.push(v is Value ? v : wrapRuntimeValue(v));
+          evalStack.push(valueFromLuaSlot(this, v));
         } else {
-          evalStack.push(Value.multi(callResult));
+          evalStack.push(valueMultiFromLuaResults(callResult, runtime: this));
         }
       } else {
-        evalStack.push(wrapRuntimeValue(callResult));
+        evalStack.push(valueFromLuaSlot(this, callResult));
       }
     }
 
@@ -1443,12 +1450,10 @@ class Interpreter extends AstVisitor<Object?>
           category: 'Interpreter',
           contextBuilder: () => {'argsCount': executionResult.args.length},
         );
-        final callee = executionResult.functionValue is Value
-            ? executionResult.functionValue as Value
-            : wrapRuntimeValue(executionResult.functionValue);
+        final callee = valueFromLuaSlot(this, executionResult.functionValue);
         final normalizedArgs = <Value>[];
         for (final arg in executionResult.args) {
-          normalizedArgs.add(arg is Value ? arg : wrapRuntimeValue(arg));
+          normalizedArgs.add(valueFromLuaSlot(this, arg));
         }
         pushTopLevelResult(await callFunction(callee, normalizedArgs));
       }
@@ -1468,12 +1473,10 @@ class Interpreter extends AstVisitor<Object?>
         contextBuilder: () => {'argsCount': t.args.length},
       );
       // Handle top-level tail return: execute callee and use its result
-      final callee = t.functionValue is Value
-          ? t.functionValue as Value
-          : wrapRuntimeValue(t.functionValue);
+      final callee = valueFromLuaSlot(this, t.functionValue);
       final normalizedArgs = <Value>[];
       for (final arg in t.args) {
-        normalizedArgs.add(arg is Value ? arg : wrapRuntimeValue(arg));
+        normalizedArgs.add(valueFromLuaSlot(this, arg));
       }
       pushTopLevelResult(await callFunction(callee, normalizedArgs));
     } on GotoException catch (e) {

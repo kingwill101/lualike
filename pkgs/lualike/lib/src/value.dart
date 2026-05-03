@@ -7,6 +7,7 @@ import 'package:lualike/src/gc/gc_access.dart';
 import 'package:lualike/src/gc/memory_credits.dart';
 import 'dart:collection';
 
+import 'package:lualike/src/runtime/lua_results.dart';
 import 'package:lualike/src/stdlib/metatables.dart';
 import 'package:lualike/src/upvalue.dart';
 import 'package:lualike/src/utils/type.dart' show getLuaType;
@@ -25,6 +26,149 @@ String _comparisonTypeError(Object? left, Object? right) {
       : 'attempt to compare $leftType with $rightType';
 }
 
+List<Object?>? _multiResultValues(Object? result) {
+  if (result is LuaResults) {
+    return result.values;
+  }
+  if (result is Value) {
+    return result.multiResults;
+  }
+  return null;
+}
+
+Object? _publicCallResult(Object? result) {
+  if (result is LuaResults) {
+    return Value.multi(result.values);
+  }
+  return result;
+}
+
+/// Closure-only payload for Lua function values.
+class LuaClosurePayload {
+  LuaClosurePayload({
+    this.upvalues,
+    this.functionBody,
+    this.closureEnvironment,
+    this.functionName,
+    this.debugLineDefined,
+    bool strippedDebugInfo = false,
+  }) {
+    this.strippedDebugInfo = strippedDebugInfo;
+  }
+
+  static const int _strippedDebugInfoFlag = 1 << 0;
+  static const int _isLessComparatorFlag = 1 << 1;
+  static const int _isNilReturningClosureFlag = 1 << 2;
+  static const int _isLessComparatorReversedFlag = 1 << 3;
+  static const int _isCountedLessComparatorFlag = 1 << 4;
+  static const int _isCountedLessComparatorReversedFlag = 1 << 5;
+
+  List<Upvalue>? upvalues;
+  FunctionBody? functionBody;
+  Environment? closureEnvironment;
+  String? functionName;
+  int? debugLineDefined;
+  Box<dynamic>? comparatorCounterBox;
+  int _flags = 0;
+
+  bool _hasFlag(int flag) => (_flags & flag) != 0;
+
+  void _setFlag(int flag, bool value) {
+    if (value) {
+      _flags |= flag;
+    } else {
+      _flags &= ~flag;
+    }
+  }
+
+  bool get strippedDebugInfo => _hasFlag(_strippedDebugInfoFlag);
+  set strippedDebugInfo(bool value) => _setFlag(_strippedDebugInfoFlag, value);
+
+  bool get isLessComparator => _hasFlag(_isLessComparatorFlag);
+  set isLessComparator(bool value) => _setFlag(_isLessComparatorFlag, value);
+
+  bool get isNilReturningClosure => _hasFlag(_isNilReturningClosureFlag);
+  set isNilReturningClosure(bool value) =>
+      _setFlag(_isNilReturningClosureFlag, value);
+
+  bool get isLessComparatorReversed => _hasFlag(_isLessComparatorReversedFlag);
+  set isLessComparatorReversed(bool value) =>
+      _setFlag(_isLessComparatorReversedFlag, value);
+
+  bool get isCountedLessComparator => _hasFlag(_isCountedLessComparatorFlag);
+  set isCountedLessComparator(bool value) =>
+      _setFlag(_isCountedLessComparatorFlag, value);
+
+  bool get isCountedLessComparatorReversed =>
+      _hasFlag(_isCountedLessComparatorReversedFlag);
+  set isCountedLessComparatorReversed(bool value) =>
+      _setFlag(_isCountedLessComparatorReversedFlag, value);
+}
+
+/// Optional side metadata for Value features that most wrappers never need.
+class LuaValueMetadata {
+  static const int _isMultiFlag = 1 << 0;
+  static const int _isConstFlag = 1 << 1;
+  static const int _isToBeCloseFlag = 1 << 2;
+  static const int _isTempKeyFlag = 1 << 3;
+  static const int _skipAllocationDebtFlag = 1 << 4;
+  static const int _skipGcRegistrationFlag = 1 << 5;
+  static const int _finalizerEligibleFlag = 1 << 6;
+  static const int _isFreedFlag = 1 << 7;
+  static const int _isOldFlag = 1 << 8;
+  static const int _isSharedPrimitiveFlag = 1 << 9;
+
+  int tableVersion = 0;
+  Map<String, dynamic>? metatable;
+  String? cachedWeakMode;
+  Value? metatableRef;
+  Environment? globalProxyEnvironment;
+  LuaRuntime? interpreter;
+  int _flags = 0;
+
+  bool _hasFlag(int flag) => (_flags & flag) != 0;
+
+  void _setFlag(int flag, bool value) {
+    if (value) {
+      _flags |= flag;
+    } else {
+      _flags &= ~flag;
+    }
+  }
+
+  bool get finalizerEligible => _hasFlag(_finalizerEligibleFlag);
+  set finalizerEligible(bool value) => _setFlag(_finalizerEligibleFlag, value);
+
+  bool get isMulti => _hasFlag(_isMultiFlag);
+  set isMulti(bool value) => _setFlag(_isMultiFlag, value);
+
+  bool get isConst => _hasFlag(_isConstFlag);
+  set isConst(bool value) => _setFlag(_isConstFlag, value);
+
+  bool get isToBeClose => _hasFlag(_isToBeCloseFlag);
+  set isToBeClose(bool value) => _setFlag(_isToBeCloseFlag, value);
+
+  bool get isTempKey => _hasFlag(_isTempKeyFlag);
+  set isTempKey(bool value) => _setFlag(_isTempKeyFlag, value);
+
+  bool get skipAllocationDebt => _hasFlag(_skipAllocationDebtFlag);
+  set skipAllocationDebt(bool value) =>
+      _setFlag(_skipAllocationDebtFlag, value);
+
+  bool get skipGcRegistration => _hasFlag(_skipGcRegistrationFlag);
+  set skipGcRegistration(bool value) =>
+      _setFlag(_skipGcRegistrationFlag, value);
+
+  bool get isFreed => _hasFlag(_isFreedFlag);
+  set isFreed(bool value) => _setFlag(_isFreedFlag, value);
+
+  bool get isOld => _hasFlag(_isOldFlag);
+  set isOld(bool value) => _setFlag(_isOldFlag, value);
+
+  bool get isSharedPrimitive => _hasFlag(_isSharedPrimitiveFlag);
+  set isSharedPrimitive(bool value) => _setFlag(_isSharedPrimitiveFlag, value);
+}
+
 /// Represents a value in the LuaLike runtime system.
 ///
 /// Values can hold any Dart object and optionally have an associated metatable
@@ -34,71 +178,95 @@ class Value extends Object implements Map<String, dynamic>, GCObject {
   /// The underlying raw value being wrapped.
   dynamic _raw;
 
-  /// Monotonically increasing counter for table mutations so the interpreter
-  /// can invalidate cached lookups when a table changes.
-  int _tableVersion = 0;
+  /// Optional side metadata. Primitive wrappers without runtime flags,
+  /// metatables, interpreter attachment, or GC generation state avoid it.
+  LuaValueMetadata? _metadataPayload;
 
-  /// Optional metatable defining the value's behavior for various operations.
-  Map<String, dynamic>? metatable;
+  /// Closure-only metadata. Most [Value] instances are primitives or tables,
+  /// so keeping this grouped avoids carrying separate closure fields on every
+  /// runtime value while public accessors remain source-compatible.
+  LuaClosurePayload? _closurePayload;
 
-  /// Cached weak mode from the last setMetatable call for table values.
-  /// This preserves knowledge of '__mode' even if the metatable is freed
-  /// later in the GC cycle, which is important for honoring weak semantics
-  /// during finalization ordering.
-  String? _cachedWeakMode;
+  LuaClosurePayload _closurePayloadForWrite() =>
+      _closurePayload ??= LuaClosurePayload();
 
-  /// Reference to the original metatable Value when set via `setmetatable`.
-  /// This allows `getmetatable` to return the same table object that was
-  /// provided, preserving identity semantics required by Lua tests.
-  Value? metatableRef;
+  LuaValueMetadata _metadataPayloadForWrite() =>
+      _metadataPayload ??= LuaValueMetadata();
 
-  /// References to captured upvalues if this value represents a function/closure.
-  List<Upvalue>? upvalues;
+  /// Runtime instance associated with this value, when one is needed.
+  LuaRuntime? get interpreter => _metadataPayload?.interpreter;
+  set interpreter(LuaRuntime? value) {
+    if (value == null && _metadataPayload == null) return;
+    _metadataPayloadForWrite().interpreter = value;
+  }
 
-  /// The AST node representing the function body, if this value is a Lua function.
-  FunctionBody? functionBody;
+  void _setValueFlags({
+    bool isMulti = false,
+    bool isConst = false,
+    bool isToBeClose = false,
+    bool isTempKey = false,
+    bool skipAllocationDebt = false,
+    bool skipGcRegistration = false,
+    bool isSharedPrimitive = false,
+  }) {
+    if (!isMulti &&
+        !isConst &&
+        !isToBeClose &&
+        !isTempKey &&
+        !skipAllocationDebt &&
+        !skipGcRegistration &&
+        !isSharedPrimitive) {
+      return;
+    }
 
-  /// Captured environment for Lua functions to support coroutine cloning.
-  Environment? closureEnvironment;
-
-  /// Backing environment for the canonical `_G` proxy table.
-  ///
-  /// Raw writes to `_G` can bypass the proxy metatable when the key already
-  /// exists. Keeping this reference lets those writes mirror the environment
-  /// binding so subsequent `__index` fallback reads stay consistent.
-  Environment? globalProxyEnvironment;
-
-  /// The name of the function, if this value is a named function.
-  String? functionName;
-
-  /// Source line (0-based) where the function definition begins.
-  int? debugLineDefined;
-
-  /// Whether debug inspection should behave like a stripped Lua chunk.
-  ///
-  /// This preserves Lua 5.5 semantics for functions loaded from stripped
-  /// legacy chunks: no real local/upvalue names, no source lines, and empty
-  /// activelines.
-  bool strippedDebugInfo = false;
+    final metadata = _metadataPayloadForWrite();
+    metadata.isMulti = isMulti;
+    metadata.isConst = isConst;
+    metadata.isToBeClose = isToBeClose;
+    metadata.isTempKey = isTempKey;
+    metadata.skipAllocationDebt = skipAllocationDebt;
+    metadata.skipGcRegistration = skipGcRegistration;
+    metadata.isSharedPrimitive = isSharedPrimitive;
+  }
 
   /// Whether this value is a multi-result value.
-  bool isMulti = false;
+  bool get isMulti => _metadataPayload?.isMulti ?? false;
+  set isMulti(bool value) {
+    if (!value && _metadataPayload == null) return;
+    _metadataPayloadForWrite().isMulti = value;
+  }
 
   /// Whether this value is a constant (cannot be modified after initialization)
-  bool isConst = false;
+  bool get isConst => _metadataPayload?.isConst ?? false;
+  set isConst(bool value) {
+    if (!value && _metadataPayload == null) return;
+    _metadataPayloadForWrite().isConst = value;
+  }
 
   /// Whether this value is a to-be-closed variable
-  bool isToBeClose = false;
+  bool get isToBeClose => _metadataPayload?.isToBeClose ?? false;
+  set isToBeClose(bool value) {
+    if (!value && _metadataPayload == null) return;
+    _metadataPayloadForWrite().isToBeClose = value;
+  }
 
   /// Whether this value is a temporary key used for table lookups.
   /// Temporary keys are not counted for GC debt to avoid tracking overhead.
-  bool isTempKey = false;
+  bool get isTempKey => _metadataPayload?.isTempKey ?? false;
+  set isTempKey(bool value) {
+    if (!value && _metadataPayload == null) return;
+    _metadataPayloadForWrite().isTempKey = value;
+  }
 
   /// Whether this wrapper should be excluded from allocation-debt accounting.
   ///
   /// This keeps bookkeeping-neutral clones of shared runtime constants from
   /// perturbing Lua-visible `collectgarbage("count")` results.
-  bool skipAllocationDebt = false;
+  bool get skipAllocationDebt => _metadataPayload?.skipAllocationDebt ?? false;
+  set skipAllocationDebt(bool value) {
+    if (!value && _metadataPayload == null) return;
+    _metadataPayloadForWrite().skipAllocationDebt = value;
+  }
 
   /// Whether this wrapper should skip eager GC registration.
   ///
@@ -106,57 +274,207 @@ class Value extends Object implements Map<String, dynamic>, GCObject {
   /// per-instance GC references. They can stay off the generational tracking
   /// sets until they escape into a tracked container or a collection discovers
   /// them from roots, which avoids repeated registration churn in tight loops.
-  bool skipGcRegistration = false;
+  bool get skipGcRegistration => _metadataPayload?.skipGcRegistration ?? false;
+  set skipGcRegistration(bool value) {
+    if (!value && _metadataPayload == null) return;
+    _metadataPayloadForWrite().skipGcRegistration = value;
+  }
 
-  /// Hint for fast-calling simple Lua closures (e.g., comparator x < y)
-  /// Currently used to accelerate very common patterns in tight loops.
-  bool isLessComparator = false;
+  /// Whether this wrapper belongs to the runtime's shared primitive cache.
+  ///
+  /// Shared primitive wrappers are safe to reuse as temporary values, but must
+  /// not be mutated in-place when a binding later receives a different value.
+  bool get isSharedPrimitive => _metadataPayload?.isSharedPrimitive ?? false;
+  set isSharedPrimitive(bool value) {
+    if (!value && _metadataPayload == null) return;
+    _metadataPayloadForWrite().isSharedPrimitive = value;
+  }
 
-  /// Hint for trivial closures that always return nil (e.g.,
-  /// `function(x, y) return nil end`). This allows the interpreter to
-  /// bypass creating an execution environment and skip the closure call,
-  /// while still evaluating argument expressions for side effects.
-  bool isNilReturningClosure = false;
+  Map<String, dynamic>? get metatable => _metadataPayload?.metatable;
+  set metatable(Map<String, dynamic>? value) {
+    if (value == null && _metadataPayload == null) return;
+    _metadataPayloadForWrite().metatable = value;
+  }
 
-  /// Hint for simple reversed comparator closures of the form
-  /// `function(x, y) return y < x end`. Used to accelerate validation
-  /// checks in tight loops.
-  bool isLessComparatorReversed = false;
+  String? get _cachedWeakMode => _metadataPayload?.cachedWeakMode;
+  set _cachedWeakMode(String? value) {
+    if (value == null && _metadataPayload == null) return;
+    _metadataPayloadForWrite().cachedWeakMode = value;
+  }
 
-  /// Hint for a comparator of the form
-  /// `function(x, y) counter = counter + 1; return x < y end`.
-  /// This preserves the counter side effect while still allowing the sort
-  /// path to bypass a full Lua closure call for primitive comparisons.
-  bool isCountedLessComparator = false;
+  /// Reference to the original metatable Value when set via `setmetatable`.
+  ///
+  /// This allows `getmetatable` to return the same table object that was
+  /// provided, preserving identity semantics required by Lua tests.
+  Value? get metatableRef => _metadataPayload?.metatableRef;
+  set metatableRef(Value? value) {
+    if (value == null && _metadataPayload == null) return;
+    _metadataPayloadForWrite().metatableRef = value;
+  }
 
-  /// Hint for a comparator of the form
-  /// `function(x, y) counter = counter + 1; return y < x end`.
-  bool isCountedLessComparatorReversed = false;
-
-  /// Captured counter box for counted comparator fast paths.
-  Box<dynamic>? comparatorCounterBox;
-
-  /// Whether this value has been initialized (used for const variables)
-  bool _isInitialized = false;
-
-  /// Runtime instance (for functions)
-  LuaRuntime? interpreter;
-
-  /// Whether this value is marked for garbage collection
-  bool _marked = false;
-
-  /// Whether this value has been freed by the GC.
-  bool _isFreed = false;
-
-  /// Whether this value is old (used for garbage collection)
-  @override
-  bool isOld = false;
+  /// Backing environment for the canonical `_G` proxy table.
+  ///
+  /// Raw writes to `_G` can bypass the proxy metatable when the key already
+  /// exists. Keeping this reference lets those writes mirror the environment
+  /// binding so subsequent `__index` fallback reads stay consistent.
+  Environment? get globalProxyEnvironment =>
+      _metadataPayload?.globalProxyEnvironment;
+  set globalProxyEnvironment(Environment? value) {
+    if (value == null && _metadataPayload == null) return;
+    _metadataPayloadForWrite().globalProxyEnvironment = value;
+  }
 
   /// Whether this object is eligible for finalization. Per Lua semantics, an
   /// object is only finalized if its metatable had a `__gc` field when the
   /// metatable was set (KIN-23). Adding `__gc` later does not retroactively
   /// make the object finalizable.
-  bool finalizerEligible = false;
+  bool get finalizerEligible => _metadataPayload?.finalizerEligible ?? false;
+  set finalizerEligible(bool value) {
+    if (!value && _metadataPayload == null) return;
+    _metadataPayloadForWrite().finalizerEligible = value;
+  }
+
+  void _setClosurePayload({
+    List<Upvalue>? upvalues,
+    FunctionBody? functionBody,
+    Environment? closureEnvironment,
+    String? functionName,
+    int? debugLineDefined,
+    bool strippedDebugInfo = false,
+  }) {
+    if (upvalues == null &&
+        functionBody == null &&
+        closureEnvironment == null &&
+        functionName == null &&
+        debugLineDefined == null &&
+        !strippedDebugInfo) {
+      return;
+    }
+
+    _closurePayload = LuaClosurePayload(
+      upvalues: upvalues,
+      functionBody: functionBody,
+      closureEnvironment: closureEnvironment,
+      functionName: functionName,
+      debugLineDefined: debugLineDefined,
+      strippedDebugInfo: strippedDebugInfo,
+    );
+  }
+
+  /// References to captured upvalues if this value represents a function/closure.
+  List<Upvalue>? get upvalues => _closurePayload?.upvalues;
+  set upvalues(List<Upvalue>? value) {
+    if (value == null && _closurePayload == null) return;
+    _closurePayloadForWrite().upvalues = value;
+  }
+
+  /// The AST node representing the function body, if this value is a Lua function.
+  FunctionBody? get functionBody => _closurePayload?.functionBody;
+  set functionBody(FunctionBody? value) {
+    if (value == null && _closurePayload == null) return;
+    _closurePayloadForWrite().functionBody = value;
+  }
+
+  /// Captured environment for Lua functions to support coroutine cloning.
+  Environment? get closureEnvironment => _closurePayload?.closureEnvironment;
+  set closureEnvironment(Environment? value) {
+    if (value == null && _closurePayload == null) return;
+    _closurePayloadForWrite().closureEnvironment = value;
+  }
+
+  /// The name of the function, if this value is a named function.
+  String? get functionName => _closurePayload?.functionName;
+  set functionName(String? value) {
+    if (value == null && _closurePayload == null) return;
+    _closurePayloadForWrite().functionName = value;
+  }
+
+  /// Source line (0-based) where the function definition begins.
+  int? get debugLineDefined => _closurePayload?.debugLineDefined;
+  set debugLineDefined(int? value) {
+    if (value == null && _closurePayload == null) return;
+    _closurePayloadForWrite().debugLineDefined = value;
+  }
+
+  /// Whether debug inspection should behave like a stripped Lua chunk.
+  ///
+  /// This preserves Lua 5.5 semantics for functions loaded from stripped
+  /// legacy chunks: no real local/upvalue names, no source lines, and empty
+  /// activelines.
+  bool get strippedDebugInfo => _closurePayload?.strippedDebugInfo ?? false;
+  set strippedDebugInfo(bool value) {
+    if (!value && _closurePayload == null) return;
+    _closurePayloadForWrite().strippedDebugInfo = value;
+  }
+
+  /// Hint for fast-calling simple Lua closures (e.g., comparator x < y)
+  /// Currently used to accelerate very common patterns in tight loops.
+  bool get isLessComparator => _closurePayload?.isLessComparator ?? false;
+  set isLessComparator(bool value) {
+    if (!value && _closurePayload == null) return;
+    _closurePayloadForWrite().isLessComparator = value;
+  }
+
+  /// Hint for trivial closures that always return nil (e.g.,
+  /// `function(x, y) return nil end`). This allows the interpreter to
+  /// bypass creating an execution environment and skip the closure call,
+  /// while still evaluating argument expressions for side effects.
+  bool get isNilReturningClosure =>
+      _closurePayload?.isNilReturningClosure ?? false;
+  set isNilReturningClosure(bool value) {
+    if (!value && _closurePayload == null) return;
+    _closurePayloadForWrite().isNilReturningClosure = value;
+  }
+
+  /// Hint for simple reversed comparator closures of the form
+  /// `function(x, y) return y < x end`. Used to accelerate validation
+  /// checks in tight loops.
+  bool get isLessComparatorReversed =>
+      _closurePayload?.isLessComparatorReversed ?? false;
+  set isLessComparatorReversed(bool value) {
+    if (!value && _closurePayload == null) return;
+    _closurePayloadForWrite().isLessComparatorReversed = value;
+  }
+
+  /// Hint for a comparator of the form
+  /// `function(x, y) counter = counter + 1; return x < y end`.
+  /// This preserves the counter side effect while still allowing the sort
+  /// path to bypass a full Lua closure call for primitive comparisons.
+  bool get isCountedLessComparator =>
+      _closurePayload?.isCountedLessComparator ?? false;
+  set isCountedLessComparator(bool value) {
+    if (!value && _closurePayload == null) return;
+    _closurePayloadForWrite().isCountedLessComparator = value;
+  }
+
+  /// Hint for a comparator of the form
+  /// `function(x, y) counter = counter + 1; return y < x end`.
+  bool get isCountedLessComparatorReversed =>
+      _closurePayload?.isCountedLessComparatorReversed ?? false;
+  set isCountedLessComparatorReversed(bool value) {
+    if (!value && _closurePayload == null) return;
+    _closurePayloadForWrite().isCountedLessComparatorReversed = value;
+  }
+
+  /// Captured counter box for counted comparator fast paths.
+  Box<dynamic>? get comparatorCounterBox =>
+      _closurePayload?.comparatorCounterBox;
+  set comparatorCounterBox(Box<dynamic>? value) {
+    if (value == null && _closurePayload == null) return;
+    _closurePayloadForWrite().comparatorCounterBox = value;
+  }
+
+  /// Whether this value is marked for garbage collection
+  bool _marked = false;
+
+  /// Whether this value is old (used for garbage collection)
+  @override
+  bool get isOld => _metadataPayload?.isOld ?? false;
+  @override
+  set isOld(bool value) {
+    if (!value && _metadataPayload == null) return;
+    _metadataPayloadForWrite().isOld = value;
+  }
 
   @override
   int get estimatedSize {
@@ -212,11 +530,27 @@ class Value extends Object implements Map<String, dynamic>, GCObject {
   /// Get the raw value
   dynamic get raw => _raw;
 
+  /// Values carried by this public multi-result wrapper, if any.
+  ///
+  /// This is the compatibility bridge for internals that can consume either the
+  /// legacy `Value.multi(...)` facade or newer lightweight result carriers.
+  List<Object?>? get multiResults {
+    final current = _raw;
+    if (!isMulti || current is! List) {
+      return null;
+    }
+    return current;
+  }
+
   /// Whether this value represents a table
   bool get isTable => _raw is Map;
 
   /// Incrementing version that changes every time the underlying table mutates.
-  int get tableVersion => _tableVersion;
+  int get tableVersion => _metadataPayload?.tableVersion ?? 0;
+  set _tableVersion(int value) {
+    if (value == 0 && _metadataPayload == null) return;
+    _metadataPayloadForWrite().tableVersion = value;
+  }
 
   /// Gets the weak mode of this table from its metatable's __mode field.
   /// Returns null if this is not a table or has no __mode.
@@ -339,8 +673,11 @@ class Value extends Object implements Map<String, dynamic>, GCObject {
 
   /// Set the raw value with attribute enforcement
   set raw(dynamic value) {
-    if (isConst && _isInitialized) {
+    if (isConst) {
       throw UnsupportedError("attempt to assign to const variable");
+    }
+    if (isSharedPrimitive) {
+      throw UnsupportedError("attempt to mutate shared primitive value");
     }
     dynamic normalized = value;
     if (normalized is Map) {
@@ -352,7 +689,6 @@ class Value extends Object implements Map<String, dynamic>, GCObject {
       }
     }
     _raw = normalized;
-    _isInitialized = true;
     if (normalized is Map) {
       _incrementTableVersion();
     } else {
@@ -376,20 +712,39 @@ class Value extends Object implements Map<String, dynamic>, GCObject {
   Value(
     dynamic raw, {
     Map<String, dynamic>? metatable,
-    this.isMulti = false,
-    this.isConst = false,
-    this.isToBeClose = false,
-    this.isTempKey = false,
-    this.skipAllocationDebt = false,
-    this.skipGcRegistration = false,
-    this.upvalues,
-    this.interpreter,
-    this.functionBody,
-    this.closureEnvironment,
-    this.functionName,
-    this.debugLineDefined,
-    this.strippedDebugInfo = false,
+    bool isMulti = false,
+    bool isConst = false,
+    bool isToBeClose = false,
+    bool isTempKey = false,
+    bool skipAllocationDebt = false,
+    bool skipGcRegistration = false,
+    bool isSharedPrimitive = false,
+    List<Upvalue>? upvalues,
+    LuaRuntime? interpreter,
+    FunctionBody? functionBody,
+    Environment? closureEnvironment,
+    String? functionName,
+    int? debugLineDefined,
+    bool strippedDebugInfo = false,
   }) {
+    _setValueFlags(
+      isMulti: isMulti,
+      isConst: isConst,
+      isToBeClose: isToBeClose,
+      isTempKey: isTempKey,
+      skipAllocationDebt: skipAllocationDebt,
+      skipGcRegistration: skipGcRegistration,
+      isSharedPrimitive: isSharedPrimitive,
+    );
+    this.interpreter = interpreter;
+    _setClosurePayload(
+      upvalues: upvalues,
+      functionBody: functionBody,
+      closureEnvironment: closureEnvironment,
+      functionName: functionName,
+      debugLineDefined: debugLineDefined,
+      strippedDebugInfo: strippedDebugInfo,
+    );
     dynamic normalized = raw;
     if (normalized is Map) {
       if (normalized is TableStorage) {
@@ -400,9 +755,6 @@ class Value extends Object implements Map<String, dynamic>, GCObject {
       }
     }
     _raw = normalized;
-    _isInitialized = true;
-    _isFreed = false;
-
     // Register identity for table (Map) values so that future lookups
     // can return the canonical Value wrapper and preserve per-instance
     // metatables and identity-sensitive behavior like __lt.
@@ -436,23 +788,39 @@ class Value extends Object implements Map<String, dynamic>, GCObject {
 
   Value.primitive(
     Object? raw, {
-    this.isMulti = false,
-    this.isConst = false,
-    this.isToBeClose = false,
-    this.isTempKey = false,
-    this.skipAllocationDebt = false,
-    this.skipGcRegistration = false,
-    this.upvalues,
-    this.interpreter,
-    this.functionBody,
-    this.closureEnvironment,
-    this.functionName,
-    this.debugLineDefined,
-    this.strippedDebugInfo = false,
+    bool isMulti = false,
+    bool isConst = false,
+    bool isToBeClose = false,
+    bool isTempKey = false,
+    bool skipAllocationDebt = false,
+    bool skipGcRegistration = false,
+    bool isSharedPrimitive = false,
+    List<Upvalue>? upvalues,
+    LuaRuntime? interpreter,
+    FunctionBody? functionBody,
+    Environment? closureEnvironment,
+    String? functionName,
+    int? debugLineDefined,
+    bool strippedDebugInfo = false,
   }) : _raw = raw {
-    _isInitialized = true;
-    _isFreed = false;
-
+    _setValueFlags(
+      isMulti: isMulti,
+      isConst: isConst,
+      isToBeClose: isToBeClose,
+      isTempKey: isTempKey,
+      skipAllocationDebt: skipAllocationDebt,
+      skipGcRegistration: skipGcRegistration,
+      isSharedPrimitive: isSharedPrimitive,
+    );
+    this.interpreter = interpreter;
+    _setClosurePayload(
+      upvalues: upvalues,
+      functionBody: functionBody,
+      closureEnvironment: closureEnvironment,
+      functionName: functionName,
+      debugLineDefined: debugLineDefined,
+      strippedDebugInfo: strippedDebugInfo,
+    );
     final type = switch (raw) {
       null => 'nil',
       bool() => 'boolean',
@@ -682,6 +1050,32 @@ class Value extends Object implements Map<String, dynamic>, GCObject {
     return null;
   }
 
+  Value _nilValue() =>
+      _resolveInterpreter()?.constantPrimitiveValue(null) ??
+      Value.primitive(null);
+
+  Value _wrapRuntimeValue(Object? value) {
+    final runtime = _resolveInterpreter();
+    if (runtime != null) {
+      return runtime.wrapRuntimeValue(value);
+    }
+    if (value is Value) {
+      return value;
+    }
+    final existing = _lookupTableIdentity(value);
+    if (existing != null) {
+      return existing;
+    }
+    if (value == null || value is bool || value is num || value is BigInt) {
+      return Value.primitive(value);
+    }
+    final wrapped = Value(value);
+    if (wrapped.raw is Map) {
+      _tableIdentity[wrapped.raw as Map] = wrapped;
+    }
+    return wrapped;
+  }
+
   bool _isLuaClosureValue() {
     return functionBody != null ||
         closureEnvironment != null ||
@@ -731,7 +1125,7 @@ class Value extends Object implements Map<String, dynamic>, GCObject {
       try {
         final args = <Value>[this];
         if (error != null) {
-          args.add(error is Value ? error : Value(error));
+          args.add(error is Value ? error : _wrapRuntimeValue(error));
         }
         await callMetamethodAsync('__close', args);
       } catch (e) {
@@ -1001,6 +1395,9 @@ class Value extends Object implements Map<String, dynamic>, GCObject {
   /// Returns a new Value instance wrapping the input.
   static Value wrap(dynamic value) {
     if (value is Value) return value;
+    if (value == null || value is bool || value is num || value is BigInt) {
+      return Value.primitive(value);
+    }
     if (value is Map) {
       // Create new table with copied entries
       final newMap = <dynamic, dynamic>{};
@@ -1064,15 +1461,20 @@ class Value extends Object implements Map<String, dynamic>, GCObject {
   }
 
   @override
-  int get hashCode {
-    final numericKey = _canonicalNumericHashKey(raw);
+  int get hashCode => _luaHashCode(raw);
+
+  static int _luaHashCode(Object? value) {
+    if (value is Value) {
+      return value.hashCode;
+    }
+    final numericKey = _canonicalNumericHashKey(value);
     if (numericKey != null) {
       return numericKey.hashCode;
     }
-    if (raw is LuaString) {
-      return (raw as LuaString).toString().hashCode;
+    if (value is LuaString) {
+      return value.toString().hashCode;
     }
-    return raw.hashCode;
+    return value.hashCode;
   }
 
   static BigInt? _canonicalNumericHashKey(Object? value) {
@@ -1209,18 +1611,7 @@ class Value extends Object implements Map<String, dynamic>, GCObject {
       if (denseIndex != null) {
         final stored = (raw as TableStorage).denseValueAt(denseIndex);
         if (stored != null) {
-          if (stored is Value) {
-            return stored;
-          }
-          final existing = _lookupTableIdentity(stored);
-          if (existing != null) {
-            return existing;
-          }
-          final wrapped = Value(stored);
-          if (wrapped.raw is Map) {
-            _tableIdentity[wrapped.raw as Map] = wrapped;
-          }
-          return wrapped;
+          return _wrapRuntimeValue(stored);
         }
       }
     }
@@ -1246,46 +1637,31 @@ class Value extends Object implements Map<String, dynamic>, GCObject {
           }
           return result;
         }
-        // If the stored result is a raw Map, try to return the canonical
-        // Value wrapper to preserve metatables and identity.
-        final existing = _lookupTableIdentity(result);
-        if (existing != null) {
-          // Do not write back into the underlying Map when it is not already
-          // storing Value instances; some tables may use typed Maps (CastMap)
-          // for native data (e.g., functions). Writing a Value into those
-          // structures triggers type errors. Simply return the canonical
-          // wrapper to preserve identity semantics at the Value layer.
-          return existing;
-        }
-        final wrapped = Value(result);
-        if (wrapped.raw is Map) {
-          _tableIdentity[wrapped.raw as Map] = wrapped;
-        }
         // Avoid mutating the underlying Map with a Value wrapper when it may
         // be a typed CastMap (e.g., Map<Object?, SomeFunctionType>). Such
         // writes can cause type cast exceptions. We still register identity
         // for Map-backed values so subsequent reads canonicalize correctly.
-        return wrapped;
+        return _wrapRuntimeValue(result);
       }
 
       // Key doesn't exist, check for __index metamethod
       final indexMeta = getMetamethod('__index');
       if (indexMeta != null) {
         final result = _normalizeIndexMetamethodResult(
-          callMetamethod('__index', [this, key is Value ? key : Value(key)]),
+          callMetamethod('__index', [this, _wrapRuntimeValue(key)]),
         );
 
-        return result is Value ? result : Value(result);
+        return _wrapRuntimeValue(result);
       }
 
       // No metamethod and key not found, return nil
-      return Value(null);
+      return _nilValue();
     } else {
       // Not a table, but might have an __index metamethod
       final indexMeta = getMetamethod('__index');
       if (indexMeta != null) {
         final result = _normalizeIndexMetamethodResult(
-          callMetamethod('__index', [this, key is Value ? key : Value(key)]),
+          callMetamethod('__index', [this, _wrapRuntimeValue(key)]),
         );
         if (result is Value) return result;
         final existing = _lookupTableIdentity(result);
@@ -1307,18 +1683,7 @@ class Value extends Object implements Map<String, dynamic>, GCObject {
       if (denseIndex != null) {
         final stored = (raw as TableStorage).denseValueAt(denseIndex);
         if (stored != null) {
-          if (stored is Value) {
-            return stored;
-          }
-          final existing = _lookupTableIdentity(stored);
-          if (existing != null) {
-            return existing;
-          }
-          final wrapped = Value(stored);
-          if (wrapped.raw is Map) {
-            _tableIdentity[wrapped.raw as Map] = wrapped;
-          }
-          return wrapped;
+          return _wrapRuntimeValue(stored);
         }
       }
     }
@@ -1330,10 +1695,7 @@ class Value extends Object implements Map<String, dynamic>, GCObject {
         if (denseIndex != null) {
           final stored = (raw as TableStorage).arrayValueAt(denseIndex);
           if (stored != null) {
-            if (stored is Value) {
-              return stored;
-            }
-            return Value(stored);
+            return _wrapRuntimeValue(stored);
           }
         }
       }
@@ -1352,48 +1714,26 @@ class Value extends Object implements Map<String, dynamic>, GCObject {
           }
           return result;
         }
-        final existing = _lookupTableIdentity(result);
-        if (existing != null) {
-          // See synchronous variant: return canonical wrapper without writing
-          // back to avoid typed map cast issues.
-          return existing;
-        }
-        final wrapped = Value(result);
-        if (wrapped.raw is Map) {
-          _tableIdentity[wrapped.raw as Map] = wrapped;
-        }
         // See synchronous variant: avoid writing back wrapped Value into
         // possibly typed maps.
-        return wrapped;
+        return _wrapRuntimeValue(result);
       }
 
       final indexMeta = getMetamethod('__index');
       if (indexMeta != null) {
         var result = _normalizeIndexMetamethodResult(
-          await callMetamethodAsync('__index', [
-            this,
-            key is Value ? key : Value(key),
-          ]),
+          await callMetamethodAsync('__index', [this, _wrapRuntimeValue(key)]),
         );
         if (result is Value) return result;
-        final existing = _lookupTableIdentity(result);
-        if (existing != null) return existing;
-        final wrapped = Value(result);
-        if (wrapped.raw is Map) {
-          _tableIdentity[wrapped.raw as Map] = wrapped;
-        }
-        return wrapped;
+        return _wrapRuntimeValue(result);
       }
 
-      return Value(null);
+      return _nilValue();
     } else {
       final indexMeta = getMetamethod('__index');
       if (indexMeta != null) {
         var result = _normalizeIndexMetamethodResult(
-          await callMetamethodAsync('__index', [
-            this,
-            key is Value ? key : Value(key),
-          ]),
+          await callMetamethodAsync('__index', [this, _wrapRuntimeValue(key)]),
         );
         if (result is Value) return result;
         final existing = _lookupTableIdentity(result);
@@ -1406,22 +1746,33 @@ class Value extends Object implements Map<String, dynamic>, GCObject {
   }
 
   dynamic _normalizeIndexMetamethodResult(Object? result) {
-    if (result is Value && result.isMulti && result.raw is List) {
-      final values = result.raw as List;
-      if (values.isEmpty) {
-        return Value(null);
-      }
-      final first = values.first;
-      return first is Value ? first : Value(first);
+    final values = _multiResultValues(result);
+    if (values != null) {
+      return _wrapFirstIndexResultOrNil(values);
     }
     if (result is List) {
-      if (result.isEmpty) {
-        return Value(null);
-      }
-      final first = result.first;
-      return first is Value ? first : Value(first);
+      return _wrapFirstIndexResultOrNil(result);
     }
     return result;
+  }
+
+  dynamic _normalizeIndexCallResult(Object? result) {
+    final values = _multiResultValues(result);
+    if (values != null) {
+      return _wrapFirstIndexResultOrNil(values);
+    }
+    if (result is List && result.isNotEmpty) {
+      return _wrapFirstIndexResultOrNil(result);
+    }
+    return result;
+  }
+
+  Value _wrapFirstIndexResultOrNil(List<dynamic> values) {
+    if (values.isEmpty) {
+      return _nilValue();
+    }
+    final first = values.first;
+    return _wrapRuntimeValue(first);
   }
 
   @override
@@ -1446,8 +1797,8 @@ class Value extends Object implements Map<String, dynamic>, GCObject {
     if (newindexMeta != null) {
       callMetamethod('__newindex', [
         this,
-        key is Value ? key : Value(key),
-        value is Value ? value : Value(value),
+        _wrapRuntimeValue(key),
+        _wrapRuntimeValue(value),
       ]);
       return;
     }
@@ -1498,8 +1849,8 @@ class Value extends Object implements Map<String, dynamic>, GCObject {
 
         final result = callMetamethod('__newindex', [
           this,
-          key is Value ? key : Value(key),
-          value is Value ? value : Value(value),
+          _wrapRuntimeValue(key),
+          _wrapRuntimeValue(value),
         ]);
         if (result is Future) await result;
         return;
@@ -1516,7 +1867,7 @@ class Value extends Object implements Map<String, dynamic>, GCObject {
   }
 
   void _setRawTableEntry(Object key, dynamic value) {
-    final valueToSet = value is Value ? value : Value(value);
+    final valueToSet = _wrapRuntimeValue(value);
     final storageKey = _computeStorageKey(key);
     final storageValue = valueToSet;
     final map = raw as Map;
@@ -1705,7 +2056,7 @@ class Value extends Object implements Map<String, dynamic>, GCObject {
 
   void _incrementTableVersion() {
     if (raw is Map) {
-      _tableVersion++;
+      _metadataPayloadForWrite().tableVersion++;
     }
   }
 
@@ -1731,7 +2082,11 @@ class Value extends Object implements Map<String, dynamic>, GCObject {
     if (newindexMeta != null) {
       final keys = List.from((raw as Map).keys);
       for (final key in keys) {
-        callMetamethod('__newindex', [this, Value(key), Value(null)]);
+        callMetamethod('__newindex', [
+          this,
+          _wrapRuntimeValue(key),
+          _nilValue(),
+        ]);
       }
       return;
     }
@@ -1756,7 +2111,7 @@ class Value extends Object implements Map<String, dynamic>, GCObject {
     // Key doesn't exist, check if __index metamethod would return a non-nil value
     final indexMeta = getMetamethod('__index');
     if (indexMeta != null) {
-      final result = callMetamethod('__index', [this, Value(key)]);
+      final result = callMetamethod('__index', [this, _wrapRuntimeValue(key)]);
       return result != null && (result is Value ? result.raw != null : true);
     }
 
@@ -1849,8 +2204,8 @@ class Value extends Object implements Map<String, dynamic>, GCObject {
       other.forEach((key, value) {
         callMetamethod('__newindex', [
           this,
-          Value(key),
-          value is Value ? value : Value(value),
+          _wrapRuntimeValue(key),
+          _wrapRuntimeValue(value),
         ]);
       });
       return;
@@ -1867,14 +2222,18 @@ class Value extends Object implements Map<String, dynamic>, GCObject {
 
     final indexMeta = getMetamethod('__index');
     if (indexMeta != null) {
-      final current = callMetamethod('__index', [this, Value(key)]);
+      final current = callMetamethod('__index', [this, _wrapRuntimeValue(key)]);
       if (current != null && (current is Value ? current.raw != null : true)) {
         return current;
       }
 
       final value = ifAbsent();
-      final wrappedValue = value is Value ? value : Value(value);
-      callMetamethod('__newindex', [this, Value(key), wrappedValue]);
+      final wrappedValue = _wrapRuntimeValue(value);
+      callMetamethod('__newindex', [
+        this,
+        _wrapRuntimeValue(key),
+        wrappedValue,
+      ]);
       return wrappedValue;
     }
 
@@ -1882,7 +2241,7 @@ class Value extends Object implements Map<String, dynamic>, GCObject {
     final result = (raw as Map).putIfAbsent(key, () {
       inserted = true;
       final value = ifAbsent();
-      return value is Value ? value : Value(value);
+      return _wrapRuntimeValue(value);
     });
     if (inserted) {
       _incrementTableVersion();
@@ -1901,7 +2260,7 @@ class Value extends Object implements Map<String, dynamic>, GCObject {
     final newindexMeta = getMetamethod('__newindex');
     if (newindexMeta != null) {
       final oldValue = this[key];
-      callMetamethod('__newindex', [this, Value(key), Value(null)]);
+      callMetamethod('__newindex', [this, _wrapRuntimeValue(key), _nilValue()]);
       return oldValue;
     }
 
@@ -1913,11 +2272,7 @@ class Value extends Object implements Map<String, dynamic>, GCObject {
       MemoryCredits.instance.recalculate(this);
     }
 
-    return value is Value
-        ? value
-        : value != null
-        ? Value(value)
-        : null;
+    return value == null ? null : _wrapRuntimeValue(value);
   }
 
   @override
@@ -1941,11 +2296,12 @@ class Value extends Object implements Map<String, dynamic>, GCObject {
 
       final entries = <MapEntry<String, dynamic>>[];
       final iter = callMetamethod('__pairs', [this]);
+      final iterValues = _multiResultValues(iter);
 
-      if (iter is Value && iter.isMulti && iter.raw is List) {
-        final iterFn = iter.raw[0] as Value;
-        final state = iter.raw[1] as Value;
-        var key = Value(null); // Initial key is nil for first iteration
+      if (iterValues != null) {
+        final iterFn = iterValues[0] as Value;
+        final state = iterValues[1] as Value;
+        var key = _nilValue(); // Initial key is nil for first iteration
 
         while (true) {
           // Call iterator function with state and previous key
@@ -1966,7 +2322,7 @@ class Value extends Object implements Map<String, dynamic>, GCObject {
             break;
           }
 
-          final nextVal = result.length > 1 ? result[1] : Value(null);
+          final nextVal = result.length > 1 ? result[1] : _nilValue();
 
           // Convert key to string for MapEntry
           final keyStr = nextKey is Value
@@ -1974,12 +2330,12 @@ class Value extends Object implements Map<String, dynamic>, GCObject {
               : nextKey.toString();
 
           // Make sure value is a Value
-          final valueVal = nextVal is Value ? nextVal : Value(nextVal);
+          final valueVal = _wrapRuntimeValue(nextVal);
 
           entries.add(MapEntry(keyStr, valueVal));
 
           // Update key for next iteration
-          key = nextKey is Value ? nextKey : Value(nextKey);
+          key = _wrapRuntimeValue(nextKey);
         }
       }
 
@@ -1988,10 +2344,7 @@ class Value extends Object implements Map<String, dynamic>, GCObject {
 
     // Default implementation for normal maps
     return (raw as Map).entries.map(
-      (e) => MapEntry(
-        e.key.toString(),
-        e.value is Value ? e.value : Value(e.value),
-      ),
+      (e) => MapEntry(e.key.toString(), _wrapRuntimeValue(e.value)),
     );
   }
 
@@ -2005,10 +2358,11 @@ class Value extends Object implements Map<String, dynamic>, GCObject {
     if (pairsMeta != null) {
       final entries = <MapEntry<K, V>>[];
       final iter = callMetamethod('__pairs', [this]);
-      if (iter is Value && iter.isMulti) {
-        final iterFn = iter.raw[0] as Value;
-        final state = iter.raw[1] as Value;
-        var key = iter.raw[2] as Value;
+      final iterValues = _multiResultValues(iter);
+      if (iterValues != null) {
+        final iterFn = iterValues[0] as Value;
+        final state = iterValues[1] as Value;
+        var key = iterValues[2] as Value;
 
         while (true) {
           final result = (iterFn.raw as Function)([state, key]);
@@ -2027,10 +2381,7 @@ class Value extends Object implements Map<String, dynamic>, GCObject {
 
     return Map.fromEntries(
       (raw as Map).entries.map(
-        (e) => convert(
-          e.key.toString(),
-          e.value is Value ? e.value : Value(e.value),
-        ),
+        (e) => convert(e.key.toString(), _wrapRuntimeValue(e.value)),
       ),
     );
   }
@@ -2065,13 +2416,7 @@ class Value extends Object implements Map<String, dynamic>, GCObject {
         } else if (result is Future) {
           result = await result;
         }
-        if (result is Value && result.isMulti && result.raw is List) {
-          final values = result.raw as List;
-          return values.isNotEmpty ? values.first : Value(null);
-        } else if (result is List && result.isNotEmpty) {
-          return result.first is Value ? result.first : Value(result.first);
-        }
-        return result;
+        return _normalizeIndexCallResult(result);
       }
     } else if (s == '__newindex' && method is Value && method.raw is Map) {
       // __newindex is a table, so repeat the assignment on that table. This
@@ -2080,7 +2425,7 @@ class Value extends Object implements Map<String, dynamic>, GCObject {
         final key = list[1];
         final value = list[2];
         await method.setValueAsync(key, value, <Value>{this});
-        return Value(null);
+        return _nilValue();
       }
     }
 
@@ -2100,7 +2445,7 @@ class Value extends Object implements Map<String, dynamic>, GCObject {
 
       final callee = result.functionValue is Value
           ? result.functionValue as Value
-          : Value(result.functionValue);
+          : _wrapRuntimeValue(result.functionValue);
       return interpreter.callFunction(callee, result.args);
     }
 
@@ -2144,15 +2489,10 @@ class Value extends Object implements Map<String, dynamic>, GCObject {
       } on TailCallException catch (t) {
         final callee = t.functionValue is Value
             ? t.functionValue as Value
-            : Value(t.functionValue);
+            : _wrapRuntimeValue(t.functionValue);
         final result = await callee.call(t.args);
         if (s == '__index') {
-          if (result is Value && result.isMulti && result.raw is List) {
-            final values = result.raw as List;
-            return values.isNotEmpty ? values.first : Value(null);
-          } else if (result is List && result.isNotEmpty) {
-            return result.first is Value ? result.first : Value(result.first);
-          }
+          return _normalizeIndexCallResult(result);
         }
         return result;
       }
@@ -2176,15 +2516,10 @@ class Value extends Object implements Map<String, dynamic>, GCObject {
       } on TailCallException catch (t) {
         final callee = t.functionValue is Value
             ? t.functionValue as Value
-            : Value(t.functionValue);
+            : _wrapRuntimeValue(t.functionValue);
         final result = await callee.call(t.args);
         if (s == '__index') {
-          if (result is Value && result.isMulti && result.raw is List) {
-            final values = result.raw as List;
-            return values.isNotEmpty ? values.first : Value(null);
-          } else if (result is List && result.isNotEmpty) {
-            return result.first is Value ? result.first : Value(result.first);
-          }
+          return _normalizeIndexCallResult(result);
         }
         return result;
       }
@@ -2210,15 +2545,10 @@ class Value extends Object implements Map<String, dynamic>, GCObject {
         } on TailCallException catch (t) {
           final callee = t.functionValue is Value
               ? t.functionValue as Value
-              : Value(t.functionValue);
+              : _wrapRuntimeValue(t.functionValue);
           final result = await callee.call(t.args);
           if (s == '__index') {
-            if (result is Value && result.isMulti && result.raw is List) {
-              final values = result.raw as List;
-              return values.isNotEmpty ? values.first : Value(null);
-            } else if (result is List && result.isNotEmpty) {
-              return result.first is Value ? result.first : Value(result.first);
-            }
+            return _normalizeIndexCallResult(result);
           }
           return result;
         }
@@ -2240,15 +2570,10 @@ class Value extends Object implements Map<String, dynamic>, GCObject {
         } on TailCallException catch (t) {
           final callee = t.functionValue is Value
               ? t.functionValue as Value
-              : Value(t.functionValue);
+              : _wrapRuntimeValue(t.functionValue);
           final result = await callee.call(t.args);
           if (s == '__index') {
-            if (result is Value && result.isMulti && result.raw is List) {
-              final values = result.raw as List;
-              return values.isNotEmpty ? values.first : Value(null);
-            } else if (result is List && result.isNotEmpty) {
-              return result.first is Value ? result.first : Value(result.first);
-            }
+            return _normalizeIndexCallResult(result);
           }
           return result;
         }
@@ -2268,30 +2593,16 @@ class Value extends Object implements Map<String, dynamic>, GCObject {
             );
             // For __index metamethod, only return the first value if multiple values are returned
             if (s == '__index') {
-              if (result is Value && result.isMulti && result.raw is List) {
-                final values = result.raw as List;
-                return values.isNotEmpty ? values.first : Value(null);
-              } else if (result is List && result.isNotEmpty) {
-                return result.first is Value
-                    ? result.first
-                    : Value(result.first);
-              }
+              return _normalizeIndexCallResult(result);
             }
             return result;
           } on TailCallException catch (t) {
             final callee = t.functionValue is Value
                 ? t.functionValue as Value
-                : Value(t.functionValue);
+                : _wrapRuntimeValue(t.functionValue);
             final result = await callee.call(t.args);
             if (s == '__index') {
-              if (result is Value && result.isMulti && result.raw is List) {
-                final values = result.raw as List;
-                return values.isNotEmpty ? values.first : Value(null);
-              } else if (result is List && result.isNotEmpty) {
-                return result.first is Value
-                    ? result.first
-                    : Value(result.first);
-              }
+              return _normalizeIndexCallResult(result);
             }
             return result;
           }
@@ -2309,30 +2620,16 @@ class Value extends Object implements Map<String, dynamic>, GCObject {
               debugNameWhat: 'metamethod',
             );
             if (s == '__index') {
-              if (result is Value && result.isMulti && result.raw is List) {
-                final values = result.raw as List;
-                return values.isNotEmpty ? values.first : Value(null);
-              } else if (result is List && result.isNotEmpty) {
-                return result.first is Value
-                    ? result.first
-                    : Value(result.first);
-              }
+              return _normalizeIndexCallResult(result);
             }
             return result;
           } on TailCallException catch (t) {
             final callee = t.functionValue is Value
                 ? t.functionValue as Value
-                : Value(t.functionValue);
+                : _wrapRuntimeValue(t.functionValue);
             final result = await callee.call(t.args);
             if (s == '__index') {
-              if (result is Value && result.isMulti && result.raw is List) {
-                final values = result.raw as List;
-                return values.isNotEmpty ? values.first : Value(null);
-              } else if (result is List && result.isNotEmpty) {
-                return result.first is Value
-                    ? result.first
-                    : Value(result.first);
-              }
+              return _normalizeIndexCallResult(result);
             }
             return result;
           }
@@ -2345,7 +2642,7 @@ class Value extends Object implements Map<String, dynamic>, GCObject {
       if (interpreter != null) {
         try {
           final result = await interpreter.callFunction(
-            Value(method),
+            _wrapRuntimeValue(method),
             list,
             debugName: debugMetamethodName,
             debugNameWhat: 'metamethod',
@@ -2354,7 +2651,7 @@ class Value extends Object implements Map<String, dynamic>, GCObject {
         } on TailCallException catch (t) {
           final callee = t.functionValue is Value
               ? t.functionValue as Value
-              : Value(t.functionValue);
+              : _wrapRuntimeValue(t.functionValue);
           return await callee.call(t.args);
         }
       }
@@ -2393,7 +2690,7 @@ class Value extends Object implements Map<String, dynamic>, GCObject {
 
       final callee = result.functionValue is Value
           ? result.functionValue as Value
-          : Value(result.functionValue);
+          : _wrapRuntimeValue(result.functionValue);
       return interpreter.callFunction(callee, result.args);
     }
 
@@ -2479,7 +2776,7 @@ class Value extends Object implements Map<String, dynamic>, GCObject {
       final interpreter = _resolveInterpreter();
       if (interpreter != null) {
         return interpreter.callFunction(
-          Value(method),
+          _wrapRuntimeValue(method),
           list,
           debugName: debugMetamethodName,
           debugNameWhat: 'metamethod',
@@ -2502,17 +2799,15 @@ class Value extends Object implements Map<String, dynamic>, GCObject {
       for (final entry in newEntries) {
         callMetamethod('__newindex', [
           this,
-          Value(entry.key),
-          entry.value is Value ? entry.value : Value(entry.value),
+          _wrapRuntimeValue(entry.key),
+          _wrapRuntimeValue(entry.value),
         ]);
       }
       return;
     }
 
     (raw as Map).addEntries(
-      newEntries.map(
-        (e) => MapEntry(e.key, e.value is Value ? e.value : Value(e.value)),
-      ),
+      newEntries.map((e) => MapEntry(e.key, _wrapRuntimeValue(e.value))),
     );
     final gcLocal2 = GCAccess.fromValue(this);
     if (gcLocal2 != null) {
@@ -2527,11 +2822,12 @@ class Value extends Object implements Map<String, dynamic>, GCObject {
     final pairsMeta = getMetamethod('__pairs');
     if (pairsMeta != null) {
       final iter = callMetamethod('__pairs', [this]);
-      if (iter is! Value || !iter.isMulti) return;
+      final iterValues = _multiResultValues(iter);
+      if (iterValues == null) return;
 
-      final iterFn = iter.raw[0] as Value;
-      final state = iter.raw[1] as Value;
-      var key = iter.raw[2] as Value;
+      final iterFn = iterValues[0] as Value;
+      final state = iterValues[1] as Value;
+      var key = iterValues[2] as Value;
 
       while (true) {
         final result = (iterFn.raw as Function)([state, key]);
@@ -2541,7 +2837,7 @@ class Value extends Object implements Map<String, dynamic>, GCObject {
 
           final val = result[1] as Value;
           if (test(key.raw.toString(), val)) {
-            callMetamethod('__newindex', [this, key, Value(null)]);
+            callMetamethod('__newindex', [this, key, _nilValue()]);
           }
         } else {
           break;
@@ -2551,7 +2847,7 @@ class Value extends Object implements Map<String, dynamic>, GCObject {
     }
 
     (raw as Map).removeWhere(
-      (k, v) => test(k.toString(), v is Value ? v : Value(v)),
+      (k, v) => test(k.toString(), _wrapRuntimeValue(v)),
     );
     final gcLocal3 = GCAccess.fromValue(this);
     if (gcLocal3 != null) {
@@ -2566,11 +2862,12 @@ class Value extends Object implements Map<String, dynamic>, GCObject {
     final pairsMeta = getMetamethod('__pairs');
     if (pairsMeta != null) {
       final iter = callMetamethod('__pairs', [this]);
-      if (iter is! Value || !iter.isMulti) return;
+      final iterValues = _multiResultValues(iter);
+      if (iterValues == null) return;
 
-      final iterFn = iter.raw[0] as Value;
-      final state = iter.raw[1] as Value;
-      var key = iter.raw[2] as Value;
+      final iterFn = iterValues[0] as Value;
+      final state = iterValues[1] as Value;
+      var key = iterValues[2] as Value;
 
       while (true) {
         final result = (iterFn.raw as Function)([state, key]);
@@ -2589,8 +2886,8 @@ class Value extends Object implements Map<String, dynamic>, GCObject {
     }
 
     (raw as Map).updateAll((k, v) {
-      final result = update(k.toString(), v is Value ? v : Value(v));
-      return result is Value ? result : Value(result);
+      final result = update(k.toString(), _wrapRuntimeValue(v));
+      return _wrapRuntimeValue(result);
     });
     final gcLocal4 = GCAccess.fromValue(this);
     if (gcLocal4 != null) {
@@ -2608,17 +2905,25 @@ class Value extends Object implements Map<String, dynamic>, GCObject {
 
     final indexMeta = getMetamethod('__index');
     if (indexMeta != null) {
-      final current = callMetamethod('__index', [this, Value(key)]);
+      final current = callMetamethod('__index', [this, _wrapRuntimeValue(key)]);
       if (current != null && (current is Value ? current.raw != null : true)) {
-        final updatedValue = update(current);
-        callMetamethod('__newindex', [this, Value(key), updatedValue]);
+        final updatedValue = _wrapRuntimeValue(update(current));
+        callMetamethod('__newindex', [
+          this,
+          _wrapRuntimeValue(key),
+          updatedValue,
+        ]);
         return updatedValue;
       }
 
       if (ifAbsent != null) {
         final value = ifAbsent();
-        final wrappedValue = value is Value ? value : Value(value);
-        callMetamethod('__newindex', [this, Value(key), wrappedValue]);
+        final wrappedValue = _wrapRuntimeValue(value);
+        callMetamethod('__newindex', [
+          this,
+          _wrapRuntimeValue(key),
+          wrappedValue,
+        ]);
         return wrappedValue;
       }
       return null;
@@ -2627,13 +2932,13 @@ class Value extends Object implements Map<String, dynamic>, GCObject {
     final result = (raw as Map).update(
       key,
       (value) {
-        final updated = update(value is Value ? value : Value(value));
-        return updated is Value ? updated : Value(updated);
+        final updated = update(_wrapRuntimeValue(value));
+        return _wrapRuntimeValue(updated);
       },
       ifAbsent: ifAbsent != null
           ? () {
               final created = ifAbsent();
-              return created is Value ? created : Value(created);
+              return _wrapRuntimeValue(created);
             }
           : null,
     );
@@ -2650,14 +2955,14 @@ class Value extends Object implements Map<String, dynamic>, GCObject {
     if (raw is Function) {
       // Direct function call
       final result = raw(args);
-      return result is Future ? await result : result;
+      return _publicCallResult(result is Future ? await result : result);
     } else if (raw is BuiltinFunction) {
       final result = raw.call(args);
-      return result is Future ? await result : result;
+      return _publicCallResult(result is Future ? await result : result);
     } else if (raw is LuaCallableArtifact) {
       final interpreter = _resolveInterpreter();
       if (interpreter != null) {
-        return await interpreter.callFunction(this, args);
+        return _publicCallResult(await interpreter.callFunction(this, args));
       }
     } else if (hasMetamethod('__call')) {
       // Use __call metamethod
@@ -2666,7 +2971,7 @@ class Value extends Object implements Map<String, dynamic>, GCObject {
 
       if (callMethod is Function) {
         final result = callMethod(callArgs);
-        return result is Future ? await result : result;
+        return _publicCallResult(result is Future ? await result : result);
       } else if (callMethod is Value) {
         // If the metamethod is a Value, it may be:
         // - a direct Dart function (raw is Function)
@@ -2674,11 +2979,13 @@ class Value extends Object implements Map<String, dynamic>, GCObject {
         // - a table with its own __call chain
         if (callMethod.raw is Function) {
           final result = callMethod.raw(callArgs);
-          return result is Future ? await result : result;
+          return _publicCallResult(result is Future ? await result : result);
         }
         final interpreter = _resolveInterpreter();
         if (interpreter != null) {
-          return await interpreter.callFunction(callMethod, callArgs);
+          return _publicCallResult(
+            await interpreter.callFunction(callMethod, callArgs),
+          );
         }
       }
     } else if (raw is FunctionDef ||
@@ -2687,7 +2994,7 @@ class Value extends Object implements Map<String, dynamic>, GCObject {
       // Get interpreter to evaluate the function
       final interpreter = _resolveInterpreter();
       if (interpreter != null) {
-        return await interpreter.callFunction(this, args);
+        return _publicCallResult(await interpreter.callFunction(this, args));
       }
     }
 
@@ -2890,16 +3197,18 @@ class Value extends Object implements Map<String, dynamic>, GCObject {
     Logger.debugLazy(() => 'Value.free() called for $hashCode', category: 'GC');
     _marked = false;
     isOld = false;
-    _isFreed = true;
+    _metadataPayloadForWrite().isFreed = true;
   }
 
   /// Whether this value has been freed by the GC.
-  bool get isFreed => _isFreed;
+  bool get isFreed => _metadataPayload?.isFreed ?? false;
 
   /// Clear a stale freed marker when this value is rediscovered from a live
   /// root in a later collection cycle.
   void revive() {
-    _isFreed = false;
+    if (_metadataPayload != null) {
+      _metadataPayload!.isFreed = false;
+    }
   }
 
   @override
@@ -2944,7 +3253,7 @@ extension OperatorExtension on Value {
     // Empty multi-results represent "no values". Statement conditions must see
     // that as nil/falsey, or constructs like `while coroutine.wrap(... )() do`
     // perform one extra iteration and try to resume a dead coroutine.
-    if (isMulti && raw is List && (raw as List).isEmpty) {
+    if (multiResults case final results? when results.isEmpty) {
       return false;
     }
     // In Lua, only nil and false are falsy - everything else is truthy
@@ -2952,7 +3261,7 @@ extension OperatorExtension on Value {
   }
 
   bool isFalsy() {
-    if (isMulti && raw is List && (raw as List).isEmpty) {
+    if (multiResults case final results? when results.isEmpty) {
       return true;
     }
     // In Lua, only nil and false are falsy
@@ -3020,7 +3329,9 @@ extension OperatorExtension on Value {
   @pragma('vm:prefer-inline')
   Value _arith(String op, Value other) {
     final result = NumberUtils.performArithmetic(op, raw, other.raw);
-    return Value(result);
+    return (_resolveInterpreter() ?? other._resolveInterpreter())
+            ?.constantPrimitiveValue(result) ??
+        Value.primitive(result);
   }
 
   /// Overload the addition operator
@@ -3042,7 +3353,8 @@ extension OperatorExtension on Value {
   // Overload the bitwise NOT operator
   Value operator ~() {
     final result = NumberUtils.bitwiseNot(raw);
-    return Value(result);
+    return _resolveInterpreter()?.constantPrimitiveValue(result) ??
+        Value.primitive(result);
   }
 
   // Overload the left shift operator
@@ -3068,7 +3380,8 @@ extension OperatorExtension on Value {
   // Overload the negation operator
   Value operator -() {
     final result = NumberUtils.negate(raw);
-    return Value(result);
+    return _resolveInterpreter()?.constantPrimitiveValue(result) ??
+        Value.primitive(result);
   }
 
   // Overload the concatenation operator

@@ -5,7 +5,7 @@ extension FutureValueExtension on Future<dynamic> {
   /// Wait for a Future and ensure the result is wrapped in a Value
   Future<Value> toValue() async {
     final result = await this;
-    return result is Value ? result : Value(result);
+    return result is Value ? result : Value.wrap(result);
   }
 
   /// Unwrap a Future`<Value>` to Future`<dynamic>`

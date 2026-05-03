@@ -86,9 +86,16 @@ class Upvalue extends GCObject {
     }
 
     if (_isOpen) {
-      // TODO: Consider const checking here eventually, based on valueBox.isConst
+      if (valueBox.preventsAssignment) {
+        final label = name ?? valueBox.debugName ?? 'upvalue';
+        throw LuaError("attempt to assign to const variable '$label'");
+      }
       valueBox.value = newValue;
     } else {
+      if (valueBox.preventsAssignment) {
+        final label = name ?? valueBox.debugName ?? 'upvalue';
+        throw LuaError("attempt to assign to const variable '$label'");
+      }
       _closedValue = newValue;
       valueBox.value = newValue;
     }

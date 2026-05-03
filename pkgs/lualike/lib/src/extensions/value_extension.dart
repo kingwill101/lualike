@@ -169,7 +169,7 @@ extension ValueExtension<T> on T {
             "Metamethod __concat exists but is not callable: $metamethod",
           );
         }
-        return result is Value ? result : Value(result);
+        return result is Value ? result : Value.wrap(result);
       } catch (e) {
         Logger.error('Error invoking __concat metamethod: $e', error: e);
         rethrow;
