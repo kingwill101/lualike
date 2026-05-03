@@ -148,15 +148,7 @@ class LuaGrammarDefinition extends GrammarDefinition {
     );
   }
 
-  Parser _span(Parser inner) {
-    return (position() & inner & position()).map((vals) {
-      final start = vals[0] as int;
-      final node = vals[1] as AstNode;
-      final end = vals[2] as int;
-      node.setSpan(_sourceFile.span(start, end));
-      return node;
-    });
-  }
+  Parser _span(Parser inner) => _SpanParser(this, inner);
 
   Parser _identifier() => _IdentifierParser(this);
 
@@ -1072,6 +1064,40 @@ class LuaGrammarDefinition extends GrammarDefinition {
   T _annotate<T extends AstNode>(T node, int start, int end) {
     node.setSpan(_sourceFile.span(start, end));
     return node;
+  }
+}
+
+class _SpanParser extends Parser<AstNode> {
+  _SpanParser(this.definition, this.inner);
+
+  final LuaGrammarDefinition definition;
+  Parser inner;
+
+  @override
+  Result<AstNode> parseOn(Context context) {
+    final start = context.position;
+    final result = inner.parseOn(context);
+    if (result is Failure) {
+      return result;
+    }
+
+    final node = result.value as AstNode;
+    node.setSpan(definition._sourceFile.span(start, result.position));
+    return context.success(node, result.position);
+  }
+
+  @override
+  _SpanParser copy() => _SpanParser(definition, inner);
+
+  @override
+  List<Parser> get children => [inner];
+
+  @override
+  void replace(Parser source, Parser target) {
+    super.replace(source, target);
+    if (inner == source) {
+      inner = target;
+    }
   }
 }
 
