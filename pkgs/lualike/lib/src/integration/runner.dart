@@ -512,7 +512,7 @@ class TestRunner {
         return 0;
       },
     });
-    env.define('T', TestLib.functions);
+    env.define('T', TestLib.functionsFor(env.interpreter));
   }
 
   List<List<T>> _chunkList<T>(List<T> list, int chunkSize) {

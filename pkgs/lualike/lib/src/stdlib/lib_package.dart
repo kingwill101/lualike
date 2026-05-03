@@ -1,38 +1,44 @@
 import 'package:lualike/lualike.dart';
 
+import 'package:lualike/src/runtime/lua_results.dart';
 import 'package:lualike/src/utils/file_system_utils.dart';
 import 'package:lualike/src/utils/platform_utils.dart' as platform;
 import 'package:path/path.dart' as path_lib;
 import 'library.dart';
 
 class PackageLib {
+  static const _defaultPath = "?.lua;?/?;?/init";
+  static const _defaultCPath = "?.so";
+
   final LuaRuntime vm;
   final FileManager fileManager;
 
-  PackageLib(this.vm) : fileManager = vm.fileManager;
-
-  final ValueClass packageClass = ValueClass.create({
-    "__index": (List<Object?> args) {
-      final table = args[0] as Value;
-      final key = args[1] as Value;
-      if (key.raw == "path") {
-        // Default package path
-        return Value("?.lua;?/?;?/init");
-      }
-      if (key.raw == "cpath") {
-        // Default C module path
-        return Value("?.so");
-      }
-
-      if (table.raw is Map) {
-        final map = table.raw as Map;
-        if (map.containsKey(key.raw)) {
-          return map[key.raw];
+  PackageLib(this.vm) : fileManager = vm.fileManager {
+    packageClass = ValueClass.create({
+      "__index": (List<Object?> args) {
+        final table = args[0] as Value;
+        final key = args[1] as Value;
+        if (key.raw == "path") {
+          // Default package path
+          return vm.constantDartStringValue(_defaultPath);
         }
-      }
-      return Value(null);
-    },
-  });
+        if (key.raw == "cpath") {
+          // Default C module path
+          return vm.constantDartStringValue(_defaultCPath);
+        }
+
+        if (table.raw is Map) {
+          final map = table.raw as Map;
+          if (map.containsKey(key.raw)) {
+            return map[key.raw];
+          }
+        }
+        return vm.constantPrimitiveValue(null);
+      },
+    });
+  }
+
+  late final ValueClass packageClass;
 
   Map<String, dynamic> createFunctions() {
     return {
@@ -40,11 +46,12 @@ class PackageLib {
       'searchpath': _SearchPath(fileManager, vm),
       'preload': ValueClass.table({}), // Table for preloaded modules
       'loaded': ValueClass.table({}), // Table for loaded modules
-      'path': Value("?.lua;?/?;?/init"),
-      'cpath': Value("?.so"),
-      'config': Value(_getConfig()),
+      'path': vm.constantDartStringValue(_defaultPath),
+      'cpath': vm.constantDartStringValue(_defaultCPath),
+      'config': vm.constantDartStringValue(_getConfig()),
       'searchers': Value(
         _createDefaultSearchers(),
+        interpreter: vm,
       ), // Populate with default searchers
     };
   }
@@ -71,25 +78,29 @@ class PackageLib {
             () => "Preload searcher found module: $name",
             category: 'Package',
           );
-          return [preload[name], Value("preload:$name")];
+          return [preload[name], vm.constantDartStringValue("preload:$name")];
         }
-        return Value("no field package.preload['$name']");
-      }),
+        return vm.constantDartStringValue("no field package.preload['$name']");
+      }, interpreter: vm),
 
       // 2. Lua module loader
-      Value(_LuaLoader(fileManager, vm)),
+      Value(_LuaLoader(fileManager, vm), interpreter: vm),
 
       // 3. C module loader (simulated for Dart)
       Value((List<Object?> args) {
         final name = (args[0] as Value).raw.toString();
-        return Value("no C module loader implemented for '$name'");
-      }),
+        return vm.constantDartStringValue(
+          "no C module loader implemented for '$name'",
+        );
+      }, interpreter: vm),
 
       // 4. All-in-one loader
       Value((List<Object?> args) {
         final name = (args[0] as Value).raw.toString();
-        return Value("no all-in-one loader implemented for '$name'");
-      }),
+        return vm.constantDartStringValue(
+          "no all-in-one loader implemented for '$name'",
+        );
+      }, interpreter: vm),
     ];
   }
 }
@@ -112,22 +123,30 @@ class _LoadLib extends BuiltinFunction {
       if (!await fileExists(libpath)) {
         // In Lua, a missing library returns nil plus an error message and the
         // string 'absent'.
-        return [Value(null), Value('cannot load $libpath'), Value('absent')];
+        return [
+          primitiveValue(null),
+          dartStringValue('cannot load $libpath'),
+          dartStringValue('absent'),
+        ];
       }
       // Library found; return a true value like Lua does
-      return Value(true);
+      return primitiveValue(true);
     }
 
     // For specific symbols, check if the library exists first
     if (!await fileExists(libpath)) {
-      return [Value(null), Value('cannot load $libpath'), Value('absent')];
+      return [
+        primitiveValue(null),
+        dartStringValue('cannot load $libpath'),
+        dartStringValue('absent'),
+      ];
     }
 
     // Library exists but symbol loading is not supported
     return [
-      Value(null),
-      Value('dynamic libraries not supported'),
-      Value('init'),
+      primitiveValue(null),
+      dartStringValue('dynamic libraries not supported'),
+      dartStringValue('init'),
     ];
   }
 }
@@ -160,12 +179,12 @@ class _SearchPath extends BuiltinFunction {
       final filename = template.replaceAll('?', replacedName);
       tried.add(filename);
       if (await fileExists(filename)) {
-        return Value(filename);
+        return dartStringValue(filename);
       }
     }
 
     final err = tried.map((f) => "\n\tno file '$f'").join();
-    return [Value(null), Value(err)];
+    return [primitiveValue(null), dartStringValue(err)];
   }
 }
 
@@ -220,7 +239,7 @@ class _LuaLoader extends BuiltinFunction {
     );
 
     if (modulePath == null || modulePath.isEmpty) {
-      return Value(_moduleNotFoundDiagnostic(interpreter!, name));
+      return dartStringValue(_moduleNotFoundDiagnostic(interpreter!, name));
     }
 
     // Return a loader function that will load and execute the module
@@ -276,7 +295,10 @@ class _LuaLoader extends BuiltinFunction {
             // Pass arguments like Lua's loader function (...)
             moduleEnv.declare(
               '...',
-              Value.multi([Value(name), Value(modulePath)]),
+              LuaResults([
+                interpreter!.constantDartStringValue(name),
+                interpreter!.constantDartStringValue(modulePath),
+              ]),
             );
 
             // Get the absolute path of the module
@@ -310,11 +332,20 @@ class _LuaLoader extends BuiltinFunction {
             final normalizedModuleDir = path_lib.url.joinAll(
               path_lib.split(path_lib.normalize(moduleDir)),
             );
-            moduleEnv.declare('_SCRIPT_PATH', Value(normalizedModulePath));
-            moduleEnv.declare('_SCRIPT_DIR', Value(normalizedModuleDir));
+            moduleEnv.declare(
+              '_SCRIPT_PATH',
+              interpreter!.constantDartStringValue(normalizedModulePath),
+            );
+            moduleEnv.declare(
+              '_SCRIPT_DIR',
+              interpreter!.constantDartStringValue(normalizedModuleDir),
+            );
 
             // Also set _MODULE_NAME global
-            moduleEnv.declare('_MODULE_NAME', Value(name));
+            moduleEnv.declare(
+              '_MODULE_NAME',
+              interpreter!.constantDartStringValue(name),
+            );
 
             Logger.debugLazy(
               () =>
@@ -330,13 +361,16 @@ class _LuaLoader extends BuiltinFunction {
             // Set the globals in the module environment
             interpreter!.globals.define(
               '_SCRIPT_PATH',
-              Value(normalizedModulePath),
+              interpreter!.constantDartStringValue(normalizedModulePath),
             );
             interpreter!.globals.define(
               '_SCRIPT_DIR',
-              Value(normalizedModuleDir),
+              interpreter!.constantDartStringValue(normalizedModuleDir),
             );
-            interpreter!.globals.define('_MODULE_NAME', Value(name));
+            interpreter!.globals.define(
+              '_MODULE_NAME',
+              interpreter!.constantDartStringValue(name),
+            );
 
             Logger.debugLazy(
               () =>
@@ -362,7 +396,7 @@ class _LuaLoader extends BuiltinFunction {
                 category: 'Package',
               );
               // If no explicit return, the result is nil.
-              result ??= Value(null);
+              result ??= runtime.constantPrimitiveValue(null);
             } on ReturnException catch (e) {
               // Handle explicit return from module
               Logger.debugLazy(
@@ -381,7 +415,7 @@ class _LuaLoader extends BuiltinFunction {
                 () => "Module returned nil, defaulting to empty table",
                 category: 'Package',
               );
-              result = Value({});
+              result = Value({}, interpreter: interpreter);
             } else {
               Logger.debugLazy(
                 () => "Module returned: ${result.runtimeType}",
@@ -429,8 +463,8 @@ class _LuaLoader extends BuiltinFunction {
           Logger.error("Error loading module source: $e", category: 'Package');
           throw LuaError("error loading module '$name': $e");
         }
-      }),
-      Value(path_lib.normalize(modulePath)),
+      }, interpreter: interpreter),
+      dartStringValue(path_lib.normalize(modulePath)),
     ];
   }
 }
@@ -479,7 +513,11 @@ class PackageLibrary extends Library {
     // Define package table globally
     context.define(
       'package',
-      Value(packageTable, metatable: packageLib.packageClass.metamethods),
+      Value(
+        packageTable,
+        metatable: packageLib.packageClass.metamethods,
+        interpreter: context.interpreter,
+      ),
     );
   }
 }
@@ -500,10 +538,16 @@ void definePackageLibrary({required Environment env, LuaRuntime? vm}) {
       final name = (args[0] as Value).raw.toString();
       final preload = packageTable['preload'];
       if (preload.containsKey(name)) {
-        return [preload[name], Value("preload")];
+        return [
+          preload[name],
+          packageLib.vm.constantDartStringValue("preload"),
+        ];
       }
-      return [Value(null), Value("not found in preload")];
-    }),
+      return [
+        packageLib.vm.constantPrimitiveValue(null),
+        packageLib.vm.constantDartStringValue("not found in preload"),
+      ];
+    }, interpreter: packageLib.vm),
 
     // 2. Lua/Dart module loader
     Value((List<Object?> args) {
@@ -512,7 +556,10 @@ void definePackageLibrary({required Environment env, LuaRuntime? vm}) {
 
       try {
         final searcher = _SearchPath(packageLib.fileManager, packageLib.vm);
-        final filename = searcher.call([Value(name), path]);
+        final filename = searcher.call([
+          packageLib.vm.constantDartStringValue(name),
+          path,
+        ]);
 
         if (filename is Value && filename.raw != null) {
           final source = packageLib.fileManager.loadSource(
@@ -522,16 +569,24 @@ void definePackageLibrary({required Environment env, LuaRuntime? vm}) {
           return [
             Value((loaderArgs) {
               // Module loading will be handled by require
-              return Value(source);
-            }),
-            Value(path_lib.normalize(filename.raw.toString())),
+              return Value(source, interpreter: packageLib.vm);
+            }, interpreter: packageLib.vm),
+            packageLib.vm.constantDartStringValue(
+              path_lib.normalize(filename.raw.toString()),
+            ),
           ];
         }
       } catch (e) {
-        return [Value(null), Value(e.toString())];
+        return [
+          packageLib.vm.constantPrimitiveValue(null),
+          packageLib.vm.constantDartStringValue(e.toString()),
+        ];
       }
-      return [Value(null), Value("module '$name' not found")];
-    }),
+      return [
+        packageLib.vm.constantPrimitiveValue(null),
+        packageLib.vm.constantDartStringValue("module '$name' not found"),
+      ];
+    }, interpreter: packageLib.vm),
 
     // // 3. Dart native module loader
     // Value((List<Object?> args) {
@@ -544,20 +599,29 @@ void definePackageLibrary({required Environment env, LuaRuntime? vm}) {
     //       return [Value(dartModule), Value("dart:$name")];
     //     }
     //   } catch (e) {
-    //     return [Value(null), Value(e.toString())];
+    //     return [nil, Value(e.toString())];
     //   }
-    //   return [Value(null), Value("Dart module '$name' not found")];
+    //   return [nil, Value("Dart module '$name' not found")];
     // }),
 
     // 4. All-in-one loader
     Value((List<Object?> args) {
-      return [Value(null), Value("all-in-one loading not supported")];
-    }),
+      return [
+        packageLib.vm.constantPrimitiveValue(null),
+        packageLib.vm.constantDartStringValue(
+          "all-in-one loading not supported",
+        ),
+      ];
+    }, interpreter: packageLib.vm),
   ];
-  packageTable['searchers'] = Value(searchers);
+  packageTable['searchers'] = Value(searchers, interpreter: packageLib.vm);
 
   env.define(
     "package",
-    Value(packageTable, metatable: packageLib.packageClass.metamethods),
+    Value(
+      packageTable,
+      metatable: packageLib.packageClass.metamethods,
+      interpreter: packageLib.vm,
+    ),
   );
 }

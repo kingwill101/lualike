@@ -11,6 +11,8 @@ import 'package:lualike/src/coroutine.dart';
 import 'package:lualike/src/intern.dart';
 import 'package:lualike/src/number_limits.dart';
 import 'package:lualike/src/parsers/pattern.dart' as lpc;
+import 'package:lualike/src/runtime/lua_results.dart';
+import 'package:lualike/src/runtime/lua_slot.dart';
 import 'package:lualike/src/stdlib/lib_utf8.dart' show UTF8Lib;
 import 'package:lualike/src/upvalue.dart';
 import 'package:lualike/src/utils/type.dart' show getLuaType;
@@ -103,15 +105,15 @@ String _stringifyPatternReplacement(dynamic value, {required bool byteLevel}) {
 }
 
 dynamic _collapsePatternReplacementResult(dynamic value) {
-  if (value is Value && value.isMulti) {
-    final raw = value.raw;
-    if (raw is List && raw.isNotEmpty) {
-      return raw.first;
+  final resultValues = luaResultValues(value);
+  if (resultValues != null) {
+    if (resultValues.isNotEmpty) {
+      return resultValues.first;
     }
-    return Value(null);
+    return null;
   }
   if (value is List) {
-    return value.isNotEmpty ? value.first : Value(null);
+    return value.isNotEmpty ? value.first : null;
   }
   return value;
 }
@@ -177,11 +179,38 @@ String _applyGsubReplacementTemplate(String template, lpc.LuaMatch match) {
   return buffer.toString();
 }
 
-Value _valueFromPatternSlice(String value, {required bool byteLevel}) {
+Value _valueFromPatternSlice(
+  String value, {
+  required bool byteLevel,
+  LuaRuntime? runtime,
+}) {
   if (!byteLevel) {
-    return Value(value);
+    return runtime?.constantDartStringValue(value) ?? Value(value);
   }
-  return Value(LuaString.fromBytes(Uint8List.fromList(value.codeUnits)));
+  return valueFromOptionalLuaSlot(
+    runtime,
+    LuaString.fromBytes(Uint8List.fromList(value.codeUnits)),
+  );
+}
+
+Value _runtimeOwnedFreshValue(LuaRuntime? runtime, Object? raw) {
+  final value = Value(raw);
+  value.interpreter = runtime;
+  return value;
+}
+
+Value _dartStringResultValue(LuaRuntime? runtime, String value) {
+  if (value.length <= StringInterning.shortStringThreshold) {
+    return runtime?.constantDartStringValue(value) ?? Value(value);
+  }
+  return _runtimeOwnedFreshValue(runtime, value);
+}
+
+Value _luaStringResultValue(LuaRuntime? runtime, LuaString value) {
+  if (value.bytes.length <= StringInterning.shortStringThreshold) {
+    return runtime?.constantStringValue(value.bytes) ?? Value(value);
+  }
+  return _runtimeOwnedFreshValue(runtime, value);
 }
 
 class _RegexBackreferencePattern {
@@ -438,13 +467,15 @@ List<Value> _capturesFromRegexMatch(
   Match match,
   _RegexBackreferencePattern translation, {
   required bool byteLevel,
+  LuaRuntime? runtime,
+  required Value nilValue,
 }) {
   final captures = <Value>[];
   for (var groupIndex = 1; groupIndex <= match.groupCount; groupIndex++) {
     final positionKind = translation.positionCaptureKinds[groupIndex];
     if (positionKind != null) {
       captures.add(
-        Value(switch (positionKind) {
+        cachedPrimitiveOrValue(runtime, switch (positionKind) {
           _PositionCaptureKind.start => match.start + 1,
           _PositionCaptureKind.end => match.end + 1,
         }),
@@ -454,8 +485,12 @@ List<Value> _capturesFromRegexMatch(
     final capture = match.group(groupIndex);
     captures.add(
       capture == null
-          ? Value(null)
-          : _valueFromPatternSlice(capture, byteLevel: byteLevel),
+          ? nilValue
+          : _valueFromPatternSlice(
+              capture,
+              byteLevel: byteLevel,
+              runtime: runtime,
+            ),
     );
   }
   return captures;
@@ -605,12 +640,15 @@ class StringLib {
   static final ValueClass stringClass = ValueClass.create({
     "__len": (List<Object?> args) {
       final str = args[0] as Value;
-      return Value(str.raw.toString().length);
+      return cachedPrimitiveOrValue(str.interpreter, str.raw.toString().length);
     },
     "__concat": (List<Object?> args) {
       final a = args[0] as Value;
       final b = args[1] as Value;
-      return Value(a.raw.toString() + b.raw.toString());
+      return _dartStringResultValue(
+        a.interpreter ?? b.interpreter,
+        a.raw.toString() + b.raw.toString(),
+      );
     },
   });
 }
@@ -641,7 +679,7 @@ class _StringByte extends BuiltinFunction {
     if (end > bytes.length) end = bytes.length;
 
     if (start > end || start > bytes.length || end < 1) {
-      return Value(null);
+      return primitiveValue(null);
     }
 
     final count = end - start + 1;
@@ -655,9 +693,9 @@ class _StringByte extends BuiltinFunction {
     );
 
     if (result.isEmpty) {
-      return Value(null);
+      return primitiveValue(null);
     } else {
-      return Value.multi(result);
+      return LuaResults(result);
     }
   }
 }
@@ -686,7 +724,7 @@ class _StringChar extends BuiltinFunction {
     // Instead of creating a Dart String and potentially losing byte integrity,
     // create a LuaString directly from the bytes.
     final luaString = LuaString.fromBytes(Uint8List.fromList(bytes));
-    return Value(luaString);
+    return valueFromOptionalLuaSlot(interpreter, luaString);
   }
 }
 
@@ -708,7 +746,10 @@ class _StringDump extends BuiltinFunction {
       throw LuaError("No interpreter context available");
     }
     final stripDebugInfo = args.length > 1 && (args[1] as Value).isTruthy();
-    return Value(runtime.dumpFunction(func, stripDebugInfo: stripDebugInfo));
+    return valueFromLuaSlot(
+      runtime,
+      runtime.dumpFunction(func, stripDebugInfo: stripDebugInfo),
+    );
   }
 }
 
@@ -752,14 +793,17 @@ class _StringFind extends BuiltinFunction {
     }
 
     // Handle bounds
-    if (start > str.length) return Value(null);
+    if (start > str.length) return primitiveValue(null);
 
     if (pattern.isEmpty) {
-      return Value.multi([Value(start + 1), Value(start)]);
+      return LuaResults([primitiveValue(start + 1), primitiveValue(start)]);
     }
 
     if (_isAnchoredLazyWholeStringPattern(pattern)) {
-      return Value.multi([Value(start + 1), Value(str.length)]);
+      return LuaResults([
+        primitiveValue(start + 1),
+        primitiveValue(str.length),
+      ]);
     }
 
     final fastFind = _tryFastAnchoredLiteralTailFind(
@@ -769,30 +813,37 @@ class _StringFind extends BuiltinFunction {
     );
     if (fastFind case final match?) {
       if (match.start == null || match.end == null) {
-        return Value(null);
+        return primitiveValue(null);
       }
-      return Value.multi([Value(match.start!), Value(match.end!)]);
+      return LuaResults([
+        primitiveValue(match.start!),
+        primitiveValue(match.end!),
+      ]);
     }
 
     if (_isAnchoredWhitespaceTrimCapturePattern(pattern) && start == 0) {
       final trimMatch = _matchAnchoredWhitespaceTrimCapture(str);
       if (trimMatch == null) {
-        return Value(null);
+        return primitiveValue(null);
       }
-      return Value.multi([
-        Value(1),
-        Value(str.length),
+      return LuaResults([
+        primitiveValue(1),
+        primitiveValue(str.length),
         _valueFromPatternSlice(
           trimMatch.group(1) ?? '',
           byteLevel: useByteLevel,
+          runtime: interpreter,
         ),
       ]);
     }
 
     if (plain) {
       final index = str.indexOf(pattern, start);
-      if (index == -1) return Value(null);
-      return Value.multi([Value(index + 1), Value(index + pattern.length)]);
+      if (index == -1) return primitiveValue(null);
+      return LuaResults([
+        primitiveValue(index + 1),
+        primitiveValue(index + pattern.length),
+      ]);
     }
 
     try {
@@ -812,26 +863,31 @@ class _StringFind extends BuiltinFunction {
             preferredRegex.regex.matchAsPrefix(str, start) ??
             preferredRegex.regex.firstMatch(str.substring(start));
         if (regexMatch == null) {
-          return Value(null);
+          return primitiveValue(null);
         }
         final absoluteStart =
             regexMatch.start + (regexMatch.input == str ? 0 : start);
         final absoluteEnd =
             regexMatch.end + (regexMatch.input == str ? 0 : start);
         if (anchoredStart && absoluteStart != start) {
-          return Value(null);
+          return primitiveValue(null);
         }
         if (regexMatch.groupCount == 0) {
-          return Value.multi([Value(absoluteStart + 1), Value(absoluteEnd)]);
+          return LuaResults([
+            primitiveValue(absoluteStart + 1),
+            primitiveValue(absoluteEnd),
+          ]);
         }
         final captures = _capturesFromRegexMatch(
           regexMatch,
           preferredRegex,
           byteLevel: useByteLevel,
+          runtime: interpreter,
+          nilValue: primitiveValue(null),
         );
-        return Value.multi([
-          Value(absoluteStart + 1),
-          Value(absoluteEnd),
+        return LuaResults([
+          primitiveValue(absoluteStart + 1),
+          primitiveValue(absoluteEnd),
           ...captures,
         ]);
       }
@@ -840,53 +896,62 @@ class _StringFind extends BuiltinFunction {
       if (match == null) {
         final regexBackref = _translateLuaBackreferencePattern(pattern);
         if (regexBackref == null) {
-          return Value(null);
+          return primitiveValue(null);
         }
         final regexMatch =
             regexBackref.regex.matchAsPrefix(str, start) ??
             regexBackref.regex.firstMatch(str.substring(start));
         if (regexMatch == null) {
-          return Value(null);
+          return primitiveValue(null);
         }
         final absoluteStart =
             regexMatch.start + (regexMatch.input == str ? 0 : start);
         final absoluteEnd =
             regexMatch.end + (regexMatch.input == str ? 0 : start);
         if (regexMatch.groupCount == 0) {
-          return Value.multi([Value(absoluteStart + 1), Value(absoluteEnd)]);
+          return LuaResults([
+            primitiveValue(absoluteStart + 1),
+            primitiveValue(absoluteEnd),
+          ]);
         }
         final captures = _capturesFromRegexMatch(
           regexMatch,
           regexBackref,
           byteLevel: useByteLevel,
+          runtime: interpreter,
+          nilValue: primitiveValue(null),
         );
-        return Value.multi([
-          Value(absoluteStart + 1),
-          Value(absoluteEnd),
+        return LuaResults([
+          primitiveValue(absoluteStart + 1),
+          primitiveValue(absoluteEnd),
           ...captures,
         ]);
       }
       if (anchoredStart && match.start != start) {
-        return Value(null);
+        return primitiveValue(null);
       }
 
       final startPos = match.start + 1;
       final endPos = match.end;
-      final results = [Value(startPos), Value(endPos)];
+      final results = [primitiveValue(startPos), primitiveValue(endPos)];
       for (var index = 0; index < match.captures.length; index++) {
         final cap = match.captures[index];
         results.add(
           cap == null
-              ? Value(null)
+              ? primitiveValue(null)
               : match.positionCaptureIndexes.contains(index)
-              ? Value(int.parse(cap))
-              : _valueFromPatternSlice(cap, byteLevel: useByteLevel),
+              ? primitiveValue(int.parse(cap))
+              : _valueFromPatternSlice(
+                  cap,
+                  byteLevel: useByteLevel,
+                  runtime: interpreter,
+                ),
         );
       }
       if (match.captures.isNotEmpty) {
-        return Value.multi(results);
+        return LuaResults(results);
       }
-      return Value.multi(results);
+      return LuaResults(results);
     } catch (e) {
       throw LuaError('malformed pattern: $e');
     }
@@ -1607,7 +1672,7 @@ class _StringFormat extends BuiltinFunction {
 
         final currentArg = args[argIndex];
         final ctx = _FormatContext(
-          value: currentArg is Value ? currentArg : Value(currentArg),
+          value: cachedPrimitiveOrValue(interpreter, currentArg),
           valueIndex: argIndex + 1,
           flags: part.flags.split('').toSet(),
           width: part.width ?? '',
@@ -1688,7 +1753,10 @@ class _StringFormat extends BuiltinFunction {
         bytesBuilder.add(utf8.encode(item.toString()));
       }
     }
-    return Value(LuaString(bytesBuilder.takeBytes()));
+    return valueFromOptionalLuaSlot(
+      interpreter,
+      LuaString(bytesBuilder.takeBytes()),
+    );
   }
 
   void _validateFormatSpecifier(SpecifierPart part) {
@@ -1828,7 +1896,7 @@ class _StringGmatch extends BuiltinFunction {
       if (pos < 0) pos = 0;
 
       final iterator = Value((List<Object?> _) {
-        if (pos >= bytes.length) return Value(null);
+        if (pos >= bytes.length) return primitiveValue(null);
 
         // Decode next UTF-8 character (lax allows 5/6-byte sequences etc.)
         final res = LuaStringParser.decodeUtf8Character(bytes, pos, lax: true);
@@ -1843,8 +1911,8 @@ class _StringGmatch extends BuiltinFunction {
           slice = Uint8List.sublistView(bytes, pos, pos + seqLen);
         }
         pos += seqLen;
-        return Value(LuaString(slice));
-      });
+        return valueFromOptionalLuaSlot(interpreter, LuaString(slice));
+      }, interpreter: interpreter);
       iterator.upvalues = [
         Upvalue(
           valueBox: Box<dynamic>(bytes, isTransient: true),
@@ -1887,7 +1955,7 @@ class _StringGmatch extends BuiltinFunction {
       // Return iterator function that follows Lua's behavior
       final iterator = Value((List<Object?> iterArgs) {
         if (currentPosition > str.length) {
-          return Value(null);
+          return primitiveValue(null);
         }
         while (true) {
           final match = lp.firstMatch(str, currentPosition);
@@ -1896,15 +1964,11 @@ class _StringGmatch extends BuiltinFunction {
               match.end != lastMatchEnd) {
             currentPosition = lastMatchEnd = match.end;
             if (match.captures.isEmpty) {
-              if (useByteLevel && match.match.isNotEmpty) {
-                final matchBytes = match.match.codeUnits
-                    .map((c) => c & 0xFF)
-                    .toList();
-                return Value(
-                  LuaString.fromBytes(Uint8List.fromList(matchBytes)),
-                );
-              }
-              return Value(match.match);
+              return _valueFromPatternSlice(
+                match.match,
+                byteLevel: useByteLevel && match.match.isNotEmpty,
+                runtime: interpreter,
+              );
             }
 
             final captures = <Value>[];
@@ -1912,43 +1976,40 @@ class _StringGmatch extends BuiltinFunction {
               final cap = match.captures[idx];
 
               if (cap == null) {
-                captures.add(Value(null));
+                captures.add(primitiveValue(null));
                 continue;
               }
 
               if (match.positionCaptureIndexes.contains(idx)) {
-                captures.add(Value(int.parse(cap)));
+                captures.add(primitiveValue(int.parse(cap)));
                 continue;
               }
 
-              if (useByteLevel && cap.isNotEmpty) {
-                final captureBytes = cap.codeUnits
-                    .map((code) => code & 0xFF)
-                    .toList();
-                captures.add(
-                  Value(LuaString.fromBytes(Uint8List.fromList(captureBytes))),
-                );
-              } else {
-                captures.add(Value(cap));
-              }
+              captures.add(
+                _valueFromPatternSlice(
+                  cap,
+                  byteLevel: useByteLevel && cap.isNotEmpty,
+                  runtime: interpreter,
+                ),
+              );
             }
 
             if (captures.length == 1) {
               return captures[0];
             }
-            return Value.multi(captures);
+            return LuaResults(captures);
           }
 
           if (currentPosition >= str.length) {
-            return Value(null);
+            return primitiveValue(null);
           }
 
           currentPosition++;
           if (anchoredStart) {
-            return Value(null);
+            return primitiveValue(null);
           }
         }
-      });
+      }, interpreter: interpreter);
       iterator.upvalues = [
         Upvalue(
           valueBox: Box<dynamic>(str, isTransient: true),
@@ -1993,9 +2054,13 @@ class _StringGsub extends BuiltinFunction {
           (repl.raw is String || repl.raw is LuaString)) {
         final trimMatch = _matchAnchoredWhitespaceTrimCapture(str);
         if (trimMatch == null || n == 0) {
-          return Value.multi([
-            _valueFromPatternSlice(str, byteLevel: useByteLevel),
-            Value(0),
+          return LuaResults([
+            _valueFromPatternSlice(
+              str,
+              byteLevel: useByteLevel,
+              runtime: interpreter,
+            ),
+            primitiveValue(0),
           ]);
         }
         var replacement = _stringifyPatternReplacement(
@@ -2006,9 +2071,13 @@ class _StringGsub extends BuiltinFunction {
         if (replacement.contains('%%')) {
           replacement = replacement.replaceAll('%%', '%');
         }
-        return Value.multi([
-          _valueFromPatternSlice(replacement, byteLevel: useByteLevel),
-          Value(1),
+        return LuaResults([
+          _valueFromPatternSlice(
+            replacement,
+            byteLevel: useByteLevel,
+            runtime: interpreter,
+          ),
+          primitiveValue(1),
         ]);
       }
       final lp = _compileLuaPatternCached(pattern);
@@ -2032,11 +2101,9 @@ class _StringGsub extends BuiltinFunction {
         if (runtime == null || value is! TailCallSignal) {
           return value;
         }
-        final callee = value.functionValue is Value
-            ? value.functionValue as Value
-            : Value(value.functionValue);
+        final callee = valueFromLuaSlot(runtime, value.functionValue);
         final normalizedArgs = value.args
-            .map((arg) => arg is Value ? arg : Value(arg))
+            .map((arg) => valueFromLuaSlot(runtime, arg))
             .toList();
         return runtime.callFunction(callee, normalizedArgs);
       }
@@ -2063,11 +2130,9 @@ class _StringGsub extends BuiltinFunction {
           return await runtime.callFunction(callable, captures);
         } on TailCallException catch (t) {
           if (runtime == null) rethrow;
-          final callee = t.functionValue is Value
-              ? t.functionValue as Value
-              : Value(t.functionValue);
+          final callee = valueFromLuaSlot(runtime, t.functionValue);
           final normalizedArgs = t.args
-              .map((a) => a is Value ? a : Value(a))
+              .map((a) => valueFromLuaSlot(runtime, a))
               .toList();
           runtime.isYieldable = false;
           return await runtime.callFunction(callee, normalizedArgs);
@@ -2092,17 +2157,25 @@ class _StringGsub extends BuiltinFunction {
             final captures = <Value>[];
             if (match.captures.isEmpty) {
               captures.add(
-                _valueFromPatternSlice(match.match, byteLevel: useByteLevel),
+                _valueFromPatternSlice(
+                  match.match,
+                  byteLevel: useByteLevel,
+                  runtime: interpreter,
+                ),
               );
             } else {
               for (var index = 0; index < match.captures.length; index++) {
                 final cap = match.captures[index];
                 captures.add(
                   cap == null
-                      ? Value(null)
+                      ? primitiveValue(null)
                       : match.positionCaptureIndexes.contains(index)
-                      ? Value(int.parse(cap))
-                      : _valueFromPatternSlice(cap, byteLevel: useByteLevel),
+                      ? primitiveValue(int.parse(cap))
+                      : _valueFromPatternSlice(
+                          cap,
+                          byteLevel: useByteLevel,
+                          runtime: interpreter,
+                        ),
                 );
               }
             }
@@ -2154,12 +2227,17 @@ class _StringGsub extends BuiltinFunction {
             count++;
 
             final key = match.captures.isEmpty
-                ? _valueFromPatternSlice(match.match, byteLevel: useByteLevel)
+                ? _valueFromPatternSlice(
+                    match.match,
+                    byteLevel: useByteLevel,
+                    runtime: interpreter,
+                  )
                 : (match.positionCaptureIndexes.contains(0)
-                      ? Value(int.parse(match.captures.first!))
+                      ? primitiveValue(int.parse(match.captures.first!))
                       : _valueFromPatternSlice(
                           match.captures.first!,
                           byteLevel: useByteLevel,
+                          runtime: interpreter,
                         ));
             var replacement = await repl.getValueAsync(key);
 
@@ -2240,13 +2318,16 @@ class _StringGsub extends BuiltinFunction {
       final resultValue = !didSubstitute
           ? (args[0] as Value)
           : (strValue is LuaString || useByteLevel
-                ? Value(
+                ? valueFromOptionalLuaSlot(
+                    interpreter,
                     LuaString.fromBytes(
-                      result.codeUnits.map((c) => c & 0xFF).toList(),
+                      Uint8List.fromList(
+                        result.codeUnits.map((c) => c & 0xFF).toList(),
+                      ),
                     ),
                   )
-                : Value(result));
-      return Value.multi([resultValue, Value(count)]);
+                : _dartStringResultValue(interpreter, result));
+      return LuaResults([resultValue, primitiveValue(count)]);
     } on CoroutineCloseSignal {
       rethrow;
     } on LuaError {
@@ -2272,7 +2353,7 @@ class _StringLen extends BuiltinFunction {
     } else {
       len = utf8.encode(value.raw.toString()).length;
     }
-    return Value(len);
+    return primitiveValue(len);
   }
 }
 
@@ -2307,14 +2388,17 @@ class _StringLower extends BuiltinFunction {
       final isAsciiOnly = resultBytes.every((b) => b <= 127);
       if (isAsciiOnly) {
         final resultString = String.fromCharCodes(resultBytes);
-        return Value(resultString);
+        return dartStringValue(resultString);
       } else {
-        return Value(LuaString.fromBytes(Uint8List.fromList(resultBytes)));
+        return valueFromOptionalLuaSlot(
+          interpreter,
+          LuaString.fromBytes(Uint8List.fromList(resultBytes)),
+        );
       }
     } else {
       // For normal string operations, use Dart's string methods for better interop
       final str = value.raw.toString();
-      return Value(str.toLowerCase());
+      return dartStringValue(str.toLowerCase());
     }
   }
 }
@@ -2345,32 +2429,34 @@ class _StringMatch extends BuiltinFunction {
     init = init > 0 ? init - 1 : str.length + init;
     if (init < 0) init = 0;
     if (init > str.length) {
-      return Value(null);
+      return primitiveValue(null);
     }
 
     if (_isAnchoredLazyWholeStringPattern(pattern)) {
-      return Value(str.substring(init));
+      return dartStringValue(str.substring(init));
     }
 
     final fastFind = _tryFastAnchoredLiteralTailFind(str, pattern, start: init);
     if (fastFind case final match?) {
       if (match.start == null || match.end == null) {
-        return Value(null);
+        return primitiveValue(null);
       }
       return _valueFromPatternSlice(
         str.substring(match.start! - 1, match.end!),
         byteLevel: useByteLevel,
+        runtime: interpreter,
       );
     }
 
     if (_isAnchoredWhitespaceTrimCapturePattern(pattern) && init == 0) {
       final trimMatch = _matchAnchoredWhitespaceTrimCapture(str);
       if (trimMatch == null) {
-        return Value(null);
+        return primitiveValue(null);
       }
       return _valueFromPatternSlice(
         trimMatch.group(1) ?? '',
         byteLevel: useByteLevel,
+        runtime: interpreter,
       );
     }
 
@@ -2391,76 +2477,96 @@ class _StringMatch extends BuiltinFunction {
             preferredRegex.regex.matchAsPrefix(str, init) ??
             preferredRegex.regex.firstMatch(str.substring(init));
         if (regexMatch == null) {
-          return Value(null);
+          return primitiveValue(null);
         }
         final absoluteStart =
             regexMatch.start + (regexMatch.input == str ? 0 : init);
         if (anchoredStart && absoluteStart != init) {
-          return Value(null);
+          return primitiveValue(null);
         }
         final captures = _capturesFromRegexMatch(
           regexMatch,
           preferredRegex,
           byteLevel: useByteLevel,
+          runtime: interpreter,
+          nilValue: primitiveValue(null),
         );
         if (captures.isEmpty) {
           final matched = regexMatch.group(0) ?? '';
-          return _valueFromPatternSlice(matched, byteLevel: useByteLevel);
+          return _valueFromPatternSlice(
+            matched,
+            byteLevel: useByteLevel,
+            runtime: interpreter,
+          );
         }
         if (captures.length == 1) {
           return captures.first;
         }
-        return Value.multi(captures);
+        return LuaResults(captures);
       }
       final lp = _compileLuaPatternCached(pattern);
       final resultMatch = lp.firstMatch(str, init);
       if (resultMatch == null) {
         final regexBackref = _translateLuaBackreferencePattern(pattern);
         if (regexBackref == null) {
-          return Value(null);
+          return primitiveValue(null);
         }
         final regexMatch =
             regexBackref.regex.matchAsPrefix(str, init) ??
             regexBackref.regex.firstMatch(str.substring(init));
         if (regexMatch == null) {
-          return Value(null);
+          return primitiveValue(null);
         }
         final captures = _capturesFromRegexMatch(
           regexMatch,
           regexBackref,
           byteLevel: useByteLevel,
+          runtime: interpreter,
+          nilValue: primitiveValue(null),
         );
         if (captures.isEmpty) {
           final matched = regexMatch.group(0) ?? '';
-          return _valueFromPatternSlice(matched, byteLevel: useByteLevel);
+          return _valueFromPatternSlice(
+            matched,
+            byteLevel: useByteLevel,
+            runtime: interpreter,
+          );
         }
         if (captures.length == 1) {
           return captures.first;
         }
-        return Value.multi(captures);
+        return LuaResults(captures);
       }
       if (anchoredStart && resultMatch.start != init) {
-        return Value(null);
+        return primitiveValue(null);
       }
 
       if (resultMatch.captures.isNotEmpty) {
         final captures = resultMatch.captures.indexed.map((entry) {
           final (index, capture) = entry;
           if (capture == null) {
-            return Value(null);
+            return primitiveValue(null);
           }
           if (resultMatch.positionCaptureIndexes.contains(index)) {
-            return Value(int.parse(capture));
+            return primitiveValue(int.parse(capture));
           }
-          return _valueFromPatternSlice(capture, byteLevel: useByteLevel);
+          return _valueFromPatternSlice(
+            capture,
+            byteLevel: useByteLevel,
+            runtime: interpreter,
+          );
         }).toList();
         if (captures.length == 1) {
           return captures[0];
         }
-        return Value.multi(captures);
+        return LuaResults(captures);
       }
 
-      return _valueFromPatternSlice(resultMatch.match, byteLevel: useByteLevel);
+      return _valueFromPatternSlice(
+        resultMatch.match,
+        byteLevel: useByteLevel,
+        runtime: interpreter,
+      );
     } catch (e) {
       throw LuaError.typeError("malformed pattern: $e");
     }
@@ -2471,21 +2577,11 @@ class _StringRep extends BuiltinFunction {
   _StringRep([super.interpreter]);
 
   Value _wrapRepeatedStringBytes(List<int> bytes) {
-    final runtime = interpreter;
-    if (runtime != null &&
-        bytes.length <= StringInterning.shortStringThreshold) {
-      return runtime.constantStringValue(bytes);
-    }
-    return Value(LuaString.fromBytes(bytes));
+    return _luaStringResultValue(interpreter, LuaString.fromBytes(bytes));
   }
 
   Value _wrapRepeatedString(String value) {
-    final runtime = interpreter;
-    if (runtime != null &&
-        value.length <= StringInterning.shortStringThreshold) {
-      return runtime.constantStringValue(convert.utf8.encode(value));
-    }
-    return StringInterning.createStringValue(value);
+    return _luaStringResultValue(interpreter, StringInterning.intern(value));
   }
 
   @override
@@ -2607,11 +2703,11 @@ class _StringReverse extends BuiltinFunction {
 
     if (value.raw is LuaString) {
       final bytes = List<int>.from((value.raw as LuaString).bytes.reversed);
-      return Value(LuaString.fromBytes(bytes));
+      return valueFromOptionalLuaSlot(interpreter, LuaString.fromBytes(bytes));
     }
 
     final str = value.raw.toString();
-    return Value(str.split('').reversed.join(''));
+    return dartStringValue(str.split('').reversed.join(''));
   }
 }
 
@@ -2654,20 +2750,23 @@ class _StringSub extends BuiltinFunction {
 
     // Handle empty substring
     if (start > end || start > length) {
-      return Value("");
+      return dartStringValue("");
     }
 
     if (strValue is LuaString) {
       final resultBytes = strValue.bytes.sublist(start - 1, end);
       final isAscii = resultBytes.every((byte) => byte <= 0x7F);
       if (isAscii) {
-        return Value(latin1.decode(resultBytes));
+        return dartStringValue(latin1.decode(resultBytes));
       }
-      return Value(LuaString.fromBytes(resultBytes));
+      return valueFromOptionalLuaSlot(
+        interpreter,
+        LuaString.fromBytes(resultBytes),
+      );
     }
 
     // Extract substring (1-based to 0-based conversion)
-    return Value(str!.substring(start - 1, end));
+    return dartStringValue(str!.substring(start - 1, end));
   }
 }
 
@@ -2704,7 +2803,7 @@ class _StringPack extends BuiltinFunction {
     for (final opt in options) {
       Value getArg([String kind = 'number']) {
         if (i < values.length) return values[i] as Value;
-        return kind == 'string' ? Value('') : Value(0);
+        return kind == 'string' ? dartStringValue('') : primitiveValue(0);
       }
 
       switch (opt.type) {
@@ -2997,7 +3096,7 @@ class _StringPack extends BuiltinFunction {
     }
 
     final result = LuaString.fromBytes(bytes);
-    return Value(result);
+    return valueFromOptionalLuaSlot(interpreter, result);
   }
 }
 
@@ -3184,7 +3283,7 @@ class _StringPackSize extends BuiltinFunction {
             throw LuaError.typeError("Invalid format option '${opt.type}'");
         }
       }
-      return Value(offset.toInt());
+      return primitiveValue(offset.toInt());
     } catch (e) {
       if (e is LuaError) rethrow;
       throw LuaError('invalid format');
@@ -3587,14 +3686,17 @@ class _StringUpper extends BuiltinFunction {
       final isAsciiOnly = resultBytes.every((b) => b <= 127);
       if (isAsciiOnly) {
         final resultString = String.fromCharCodes(resultBytes);
-        return Value(resultString);
+        return dartStringValue(resultString);
       } else {
-        return Value(LuaString.fromBytes(Uint8List.fromList(resultBytes)));
+        return valueFromOptionalLuaSlot(
+          interpreter,
+          LuaString.fromBytes(Uint8List.fromList(resultBytes)),
+        );
       }
     } else {
       // For normal string operations, use Dart's string methods for better interop
       final str = value.raw.toString();
-      return Value(str.toUpperCase());
+      return dartStringValue(str.toUpperCase());
     }
   }
 }

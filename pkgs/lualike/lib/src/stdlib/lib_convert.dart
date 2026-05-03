@@ -10,6 +10,7 @@ import 'package:lualike/src/interpreter/interpreter.dart';
 
 import 'package:lualike/src/lua_error.dart';
 import 'package:lualike/src/lua_string.dart';
+import 'package:lualike/src/runtime/lua_slot.dart';
 import 'package:lualike/src/value.dart';
 import 'library.dart';
 
@@ -57,7 +58,7 @@ void defineConvertLibrary({required Environment env, LuaRuntime? vm}) {
     'latin1Encode': Latin1Encode(runtime),
     'latin1Decode': Latin1Decode(runtime),
   };
-  env.define('convert', Value(convertTable));
+  env.define('convert', Value(convertTable, interpreter: runtime));
 }
 
 class JsonEncode extends BuiltinFunction {
@@ -73,7 +74,7 @@ class JsonEncode extends BuiltinFunction {
     }
     try {
       final encodable = fromLuaValue(object);
-      return Value(json.encode(encodable));
+      return dartStringValue(json.encode(encodable));
     } catch (e) {
       throw LuaError('Failed to encode to JSON: $e');
     }
@@ -114,7 +115,7 @@ class Base64Encode extends BuiltinFunction {
       throw LuaError('dart.convert.base64Encode requires a Value argument');
     }
     final bytes = _toListInt(arg);
-    return Value(base64.encode(bytes));
+    return dartStringValue(base64.encode(bytes));
   }
 }
 
@@ -132,7 +133,7 @@ class Base64Decode extends BuiltinFunction {
     }
     final str = arg.raw.toString();
     try {
-      return Value(base64.decode(str));
+      return valueFromOptionalLuaSlot(interpreter, base64.decode(str));
     } catch (e) {
       throw LuaError('Failed to decode from Base64: $e');
     }
@@ -152,7 +153,7 @@ class Base64UrlEncode extends BuiltinFunction {
       throw LuaError('dart.convert.base64UrlEncode requires a Value argument');
     }
     final bytes = _toListInt(arg);
-    return Value(base64Url.encode(bytes));
+    return dartStringValue(base64Url.encode(bytes));
   }
 }
 
@@ -170,7 +171,7 @@ class AsciiEncode extends BuiltinFunction {
     }
     final str = arg.raw.toString();
     try {
-      return Value(ascii.encode(str));
+      return valueFromOptionalLuaSlot(interpreter, ascii.encode(str));
     } catch (e) {
       throw LuaError('Failed to encode to ASCII: $e');
     }
@@ -190,7 +191,7 @@ class AsciiDecode extends BuiltinFunction {
       throw LuaError('dart.convert.asciiDecode requires a Value argument');
     }
     final bytes = _toListInt(arg);
-    return Value(ascii.decode(bytes));
+    return dartStringValue(ascii.decode(bytes));
   }
 }
 
@@ -219,11 +220,14 @@ class Latin1Encode extends BuiltinFunction {
             );
           }
         }
-        return Value(Uint8List.fromList(luaString.bytes));
+        return valueFromOptionalLuaSlot(
+          interpreter,
+          Uint8List.fromList(luaString.bytes),
+        );
       } else {
         // For other types, convert to string first
         final str = value.raw.toString();
-        return Value(latin1.encode(str));
+        return valueFromOptionalLuaSlot(interpreter, latin1.encode(str));
       }
     } catch (e) {
       throw LuaError('Failed to encode to Latin-1: $e');
@@ -246,6 +250,9 @@ class Latin1Decode extends BuiltinFunction {
     final bytes = _toListInt(arg);
     // For Lua compatibility, return a LuaString with the raw bytes
     // instead of converting to UTF-8 string
-    return Value(LuaString(Uint8List.fromList(bytes)));
+    return valueFromOptionalLuaSlot(
+      interpreter,
+      LuaString(Uint8List.fromList(bytes)),
+    );
   }
 }

@@ -1,5 +1,7 @@
 // import 'package:lualike/src/coroutine.dart';
 import 'package:lualike/src/coroutine.dart';
+import 'package:lualike/src/runtime/lua_results.dart';
+import 'package:lualike/src/runtime/lua_slot.dart';
 import 'package:lualike/src/utils/type.dart';
 
 import '../../lualike.dart';
@@ -72,9 +74,9 @@ class MetaTable {
           category: 'Metatables',
         );
         if (str.raw is LuaString) {
-          return Value((str.raw as LuaString).length);
+          return _primitiveValue((str.raw as LuaString).length);
         }
-        return Value(str.raw.toString().length);
+        return _primitiveValue(str.raw.toString().length);
       },
       '__index': (List<Object?> args) {
         final str = args[0] as Value;
@@ -118,41 +120,48 @@ class MetaTable {
             );
 
             // Create method wrapper and cache it on this string instance
-            final wrapper = Value((callArgs) {
-              Logger.debugLazy(
-                () =>
-                    'String method ${key.raw} called with ${callArgs.length} arguments',
-                category: 'Metatables',
-              );
+            final wrapper = Value(
+              (callArgs) {
+                Logger.debugLazy(
+                  () =>
+                      'String method ${key.raw} called with ${callArgs.length} arguments',
+                  category: 'Metatables',
+                );
 
-              // was the method invoked with the string already as first arg?
-              final hasSelf = callArgs.isNotEmpty && callArgs.first == str;
+                // was the method invoked with the string already as first arg?
+                final hasSelf = callArgs.isNotEmpty && callArgs.first == str;
 
-              if (hasSelf) {
-                if (method is BuiltinFunction) {
-                  return method.call(callArgs);
-                } else if (method is Value && method.raw is BuiltinFunction) {
-                  return (method.raw as BuiltinFunction).call(callArgs);
-                } else if (method is Value && method.raw is Function) {
-                  return (method.raw as Function)(callArgs);
-                } else if (method is Function) {
-                  return method(callArgs);
+                if (hasSelf) {
+                  if (method is BuiltinFunction) {
+                    return method.call(callArgs);
+                  } else if (method is Value && method.raw is BuiltinFunction) {
+                    return (method.raw as BuiltinFunction).call(callArgs);
+                  } else if (method is Value && method.raw is Function) {
+                    return (method.raw as Function)(callArgs);
+                  } else if (method is Function) {
+                    return method(callArgs);
+                  }
+                  return method; // not callable
                 }
-                return method; // not callable
-              }
 
-              // prepend the string itself (obj:func() syntax)
-              if (method is BuiltinFunction) {
-                return method.call([str, ...callArgs]);
-              } else if (method is Value && method.raw is BuiltinFunction) {
-                return (method.raw as BuiltinFunction).call([str, ...callArgs]);
-              } else if (method is Function) {
-                return method([str, ...callArgs]);
-              } else if (method is Value && method.raw is Function) {
-                return (method.raw as Function)([str, ...callArgs]);
-              }
-              return method;
-            }, isTempKey: true); // Don't count this wrapper in GC debt
+                // prepend the string itself (obj:func() syntax)
+                if (method is BuiltinFunction) {
+                  return method.call([str, ...callArgs]);
+                } else if (method is Value && method.raw is BuiltinFunction) {
+                  return (method.raw as BuiltinFunction).call([
+                    str,
+                    ...callArgs,
+                  ]);
+                } else if (method is Function) {
+                  return method([str, ...callArgs]);
+                } else if (method is Value && method.raw is Function) {
+                  return (method.raw as Function)([str, ...callArgs]);
+                }
+                return method;
+              },
+              isTempKey: true,
+              interpreter: _interpreter,
+            ); // Don't count this wrapper in GC debt
 
             // Cache the wrapper on this string instance
             if (methodCache == null) {
@@ -169,7 +178,7 @@ class MetaTable {
           () => 'String method not found: ${key.raw}',
           category: 'Metatables',
         );
-        return Value(null);
+        return _primitiveValue(null);
       },
       '__eq': (List<Object?> args) {
         final a = args[0] as Value;
@@ -178,7 +187,7 @@ class MetaTable {
           () => 'String __eq metamethod called: "${a.raw}" == "${b.raw}"',
           category: 'Metatables',
         );
-        return Value(a == b);
+        return _primitiveValue(a == b);
       },
     });
     Logger.debugLazy(
@@ -215,11 +224,11 @@ class MetaTable {
       '__shr': (List<Object?> args) =>
           Value.wrap(args[0]) >> Value.wrap(args[1]),
       '__eq': (List<Object?> args) =>
-          Value(Value.wrap(args[0]) == Value.wrap(args[1])),
+          _primitiveValue(Value.wrap(args[0]) == Value.wrap(args[1])),
       '__lt': (List<Object?> args) =>
-          Value(Value.wrap(args[0]) < Value.wrap(args[1])),
+          _primitiveValue(Value.wrap(args[0]) < Value.wrap(args[1])),
       '__le': (List<Object?> args) =>
-          Value(Value.wrap(args[0]) <= Value.wrap(args[1])),
+          _primitiveValue(Value.wrap(args[0]) <= Value.wrap(args[1])),
     });
     Logger.debugLazy(
       () => 'Number metatable initialized',
@@ -284,7 +293,7 @@ class MetaTable {
           () => 'Returning iterator function and state',
           category: 'Metatables',
         );
-        return Value.multi([
+        return LuaResults([
           Value((List<Object?> args) {
             final state = args[0] as Value;
             final k = args[1] as Value;
@@ -335,8 +344,8 @@ class MetaTable {
                 category: 'Metatables',
               );
               return [
-                Value(entry.key),
-                entry.value is Value ? entry.value : Value(entry.value),
+                cachedPrimitiveOrValue(_interpreter, entry.key),
+                cachedPrimitiveOrValue(_interpreter, entry.value),
               ];
             }
 
@@ -344,10 +353,10 @@ class MetaTable {
               () => 'Table pairs iterator finished, no more entries',
               category: 'Metatables',
             );
-            return [Value(null)];
-          }),
+            return [_primitiveValue(null)];
+          }, interpreter: _interpreter),
           table,
-          Value(null),
+          _primitiveValue(null),
         ]);
       },
     });
@@ -400,7 +409,10 @@ class MetaTable {
               'Thread __tostring metamethod called for coroutine:${thread.hashCode}',
           category: 'Metatables',
         );
-        return Value('thread: ${thread.hashCode} [${coroutine.status}]');
+        return valueFromOptionalLuaSlot(
+          _interpreter,
+          'thread: ${thread.hashCode} [${coroutine.status}]',
+        );
       },
     });
     Logger.debugLazy(
@@ -419,7 +431,10 @@ class MetaTable {
               'Userdata __tostring metamethod called for userdata:${userdata.hashCode}',
           category: 'Metatables',
         );
-        return Value('userdata: ${userdata.hashCode}');
+        return valueFromOptionalLuaSlot(
+          _interpreter,
+          'userdata: ${userdata.hashCode}',
+        );
       },
       '__len': (List<Object?> args) {
         final table = args[0] as Value;
@@ -446,7 +461,7 @@ class MetaTable {
               'Userdata __gc metamethod called for userdata:${userdata.hashCode}',
           category: 'Metatables',
         );
-        return Value(null);
+        return _primitiveValue(null);
       },
     });
     Logger.debugLazy(
@@ -496,6 +511,10 @@ class MetaTable {
   }
 
   bool get numberMetatableEnabled => _numberMetatableEnabled;
+
+  Value _primitiveValue(Object? raw) {
+    return cachedPrimitiveOrValue(_interpreter, raw);
+  }
 
   bool isDefaultMetatableActive(String type) => switch (type) {
     'table' => false,

@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'package:lualike/src/builtin_function.dart';
 import 'package:lualike/src/lua_error.dart';
+import 'package:lualike/src/runtime/lua_slot.dart';
 import 'package:lualike/src/value.dart';
 
 import 'lib_dart_bytes.dart';
@@ -14,41 +15,46 @@ class DartStringLibrary extends Library {
 
   @override
   void registerFunctions(LibraryRegistrationContext context) {
+    final runtime = context.vm;
+
     // Create string functions for the dart.string namespace
     final stringFunctions = <String, dynamic>{};
 
-    stringFunctions['split'] = DartStringSplit();
-    stringFunctions['trim'] = DartStringTrim();
-    stringFunctions['toUpperCase'] = DartStringToUpper();
-    stringFunctions['toLowerCase'] = DartStringToLower();
-    stringFunctions['contains'] = DartStringContains();
-    stringFunctions['replaceAll'] = DartStringReplaceAll();
-    stringFunctions['substring'] = DartStringSubstring();
-    stringFunctions['trimLeft'] = DartStringTrimLeft();
-    stringFunctions['trimRight'] = DartStringTrimRight();
-    stringFunctions['padLeft'] = DartStringPadLeft();
-    stringFunctions['padRight'] = DartStringPadRight();
-    stringFunctions['startsWith'] = DartStringStartsWith();
-    stringFunctions['endsWith'] = DartStringEndsWith();
-    stringFunctions['indexOf'] = DartStringIndexOf();
-    stringFunctions['lastIndexOf'] = DartStringLastIndexOf();
-    stringFunctions['replaceFirst'] = DartStringReplaceFirst();
-    stringFunctions['isEmpty'] = DartStringIsEmpty();
-    stringFunctions['fromCharCodes'] = DartStringFromCharCodes();
+    stringFunctions['split'] = DartStringSplit(runtime);
+    stringFunctions['trim'] = DartStringTrim(runtime);
+    stringFunctions['toUpperCase'] = DartStringToUpper(runtime);
+    stringFunctions['toLowerCase'] = DartStringToLower(runtime);
+    stringFunctions['contains'] = DartStringContains(runtime);
+    stringFunctions['replaceAll'] = DartStringReplaceAll(runtime);
+    stringFunctions['substring'] = DartStringSubstring(runtime);
+    stringFunctions['trimLeft'] = DartStringTrimLeft(runtime);
+    stringFunctions['trimRight'] = DartStringTrimRight(runtime);
+    stringFunctions['padLeft'] = DartStringPadLeft(runtime);
+    stringFunctions['padRight'] = DartStringPadRight(runtime);
+    stringFunctions['startsWith'] = DartStringStartsWith(runtime);
+    stringFunctions['endsWith'] = DartStringEndsWith(runtime);
+    stringFunctions['indexOf'] = DartStringIndexOf(runtime);
+    stringFunctions['lastIndexOf'] = DartStringLastIndexOf(runtime);
+    stringFunctions['replaceFirst'] = DartStringReplaceFirst(runtime);
+    stringFunctions['isEmpty'] = DartStringIsEmpty(runtime);
+    stringFunctions['fromCharCodes'] = DartStringFromCharCodes(runtime);
 
     // Add bytes sub-library
-    stringFunctions['bytes'] = Value({
-      'toBytes': DartToBytes(),
-      'fromBytes': DartFromBytes(),
+    stringFunctions['bytes'] = valueFromOptionalLuaSlot(runtime, {
+      'toBytes': DartToBytes(runtime),
+      'fromBytes': DartFromBytes(runtime),
     });
 
     // Register the string subtable
-    context.define('string', Value(stringFunctions));
+    context.define(
+      'string',
+      valueFromOptionalLuaSlot(runtime, stringFunctions),
+    );
   }
 }
 
 class DartStringSplit extends BuiltinFunction {
-  DartStringSplit() : super();
+  DartStringSplit([super.interpreter]);
   @override
   Future<Object?> call(List<Object?> args) async {
     if (args.length < 2) {
@@ -62,12 +68,12 @@ class DartStringSplit extends BuiltinFunction {
         ? patternValue
         : patternValue.toString();
     final parts = str.split(pattern);
-    return Value(parts);
+    return valueFromOptionalLuaSlot(interpreter, parts);
   }
 }
 
 class DartStringTrim extends BuiltinFunction {
-  DartStringTrim() : super();
+  DartStringTrim([super.interpreter]);
   @override
   Future<Object?> call(List<Object?> args) async {
     if (args.isEmpty) {
@@ -79,12 +85,12 @@ class DartStringTrim extends BuiltinFunction {
     if (identical(trimmed, str)) {
       return val;
     }
-    return Value(trimmed);
+    return dartStringValue(trimmed);
   }
 }
 
 class DartStringToUpper extends BuiltinFunction {
-  DartStringToUpper() : super();
+  DartStringToUpper([super.interpreter]);
   @override
   Future<Object?> call(List<Object?> args) async {
     if (args.isEmpty) {
@@ -96,12 +102,12 @@ class DartStringToUpper extends BuiltinFunction {
     if (identical(upper, str)) {
       return val;
     }
-    return Value(upper);
+    return dartStringValue(upper);
   }
 }
 
 class DartStringToLower extends BuiltinFunction {
-  DartStringToLower() : super();
+  DartStringToLower([super.interpreter]);
   @override
   Future<Object?> call(List<Object?> args) async {
     if (args.isEmpty) {
@@ -113,12 +119,12 @@ class DartStringToLower extends BuiltinFunction {
     if (identical(lower, str)) {
       return val;
     }
-    return Value(lower);
+    return dartStringValue(lower);
   }
 }
 
 class DartStringContains extends BuiltinFunction {
-  DartStringContains() : super();
+  DartStringContains([super.interpreter]);
   @override
   Future<Object?> call(List<Object?> args) async {
     if (args.length < 2) {
@@ -131,14 +137,14 @@ class DartStringContains extends BuiltinFunction {
     final other = otherValue is String ? otherValue : otherValue.toString();
     if (args.length > 2 && args[2] is Value && (args[2] as Value).raw is num) {
       final startIndex = ((args[2] as Value).raw as num).toInt();
-      return Value(str.contains(other, startIndex));
+      return primitiveValue(str.contains(other, startIndex));
     }
-    return Value(str.contains(other));
+    return primitiveValue(str.contains(other));
   }
 }
 
 class DartStringReplaceAll extends BuiltinFunction {
-  DartStringReplaceAll() : super();
+  DartStringReplaceAll([super.interpreter]);
   @override
   Future<Object?> call(List<Object?> args) async {
     if (args.length < 3) {
@@ -151,12 +157,12 @@ class DartStringReplaceAll extends BuiltinFunction {
     final from = fromValue is String ? fromValue : fromValue.toString();
     final toValue = (args[2] as Value).raw;
     final to = toValue is String ? toValue : toValue.toString();
-    return Value(str.replaceAll(from, to));
+    return dartStringValue(str.replaceAll(from, to));
   }
 }
 
 class DartStringSubstring extends BuiltinFunction {
-  DartStringSubstring() : super();
+  DartStringSubstring([super.interpreter]);
   @override
   Future<Object?> call(List<Object?> args) async {
     if (args.length < 2) {
@@ -170,12 +176,12 @@ class DartStringSubstring extends BuiltinFunction {
     if (args.length > 2 && args[2] is Value && (args[2] as Value).raw is num) {
       endIndex = ((args[2] as Value).raw as num).toInt();
     }
-    return Value(str.substring(startIndex, endIndex));
+    return dartStringValue(str.substring(startIndex, endIndex));
   }
 }
 
 class DartStringTrimLeft extends BuiltinFunction {
-  DartStringTrimLeft() : super();
+  DartStringTrimLeft([super.interpreter]);
   @override
   Future<Object?> call(List<Object?> args) async {
     if (args.isEmpty) {
@@ -187,12 +193,12 @@ class DartStringTrimLeft extends BuiltinFunction {
     if (identical(trimmed, str)) {
       return val;
     }
-    return Value(trimmed);
+    return dartStringValue(trimmed);
   }
 }
 
 class DartStringTrimRight extends BuiltinFunction {
-  DartStringTrimRight() : super();
+  DartStringTrimRight([super.interpreter]);
   @override
   Future<Object?> call(List<Object?> args) async {
     if (args.isEmpty) {
@@ -204,12 +210,12 @@ class DartStringTrimRight extends BuiltinFunction {
     if (identical(trimmed, str)) {
       return val;
     }
-    return Value(trimmed);
+    return dartStringValue(trimmed);
   }
 }
 
 class DartStringPadLeft extends BuiltinFunction {
-  DartStringPadLeft() : super();
+  DartStringPadLeft([super.interpreter]);
   @override
   Future<Object?> call(List<Object?> args) async {
     if (args.length < 2) {
@@ -228,12 +234,12 @@ class DartStringPadLeft extends BuiltinFunction {
       final paddingValue = (args[2] as Value).raw;
       padding = paddingValue is String ? paddingValue : paddingValue.toString();
     }
-    return Value(str.padLeft(width, padding ?? ' '));
+    return dartStringValue(str.padLeft(width, padding ?? ' '));
   }
 }
 
 class DartStringPadRight extends BuiltinFunction {
-  DartStringPadRight() : super();
+  DartStringPadRight([super.interpreter]);
   @override
   Future<Object?> call(List<Object?> args) async {
     if (args.length < 2) {
@@ -252,12 +258,12 @@ class DartStringPadRight extends BuiltinFunction {
       final paddingValue = (args[2] as Value).raw;
       padding = paddingValue is String ? paddingValue : paddingValue.toString();
     }
-    return Value(str.padRight(width, padding ?? ' '));
+    return dartStringValue(str.padRight(width, padding ?? ' '));
   }
 }
 
 class DartStringStartsWith extends BuiltinFunction {
-  DartStringStartsWith() : super();
+  DartStringStartsWith([super.interpreter]);
   @override
   Future<Object?> call(List<Object?> args) async {
     if (args.length < 2) {
@@ -274,12 +280,12 @@ class DartStringStartsWith extends BuiltinFunction {
     if (args.length > 2 && args[2] is Value && (args[2] as Value).raw is num) {
       index = ((args[2] as Value).raw as num).toInt();
     }
-    return Value(str.startsWith(pattern, index ?? 0));
+    return primitiveValue(str.startsWith(pattern, index ?? 0));
   }
 }
 
 class DartStringEndsWith extends BuiltinFunction {
-  DartStringEndsWith() : super();
+  DartStringEndsWith([super.interpreter]);
   @override
   Future<Object?> call(List<Object?> args) async {
     if (args.length < 2) {
@@ -290,12 +296,12 @@ class DartStringEndsWith extends BuiltinFunction {
     final str = (args[0] as Value).raw.toString();
     final otherValue = (args[1] as Value).raw;
     final other = otherValue is String ? otherValue : otherValue.toString();
-    return Value(str.endsWith(other));
+    return primitiveValue(str.endsWith(other));
   }
 }
 
 class DartStringIndexOf extends BuiltinFunction {
-  DartStringIndexOf() : super();
+  DartStringIndexOf([super.interpreter]);
   @override
   Future<Object?> call(List<Object?> args) async {
     if (args.length < 2) {
@@ -312,12 +318,12 @@ class DartStringIndexOf extends BuiltinFunction {
     if (args.length > 2 && args[2] is Value && (args[2] as Value).raw is num) {
       start = ((args[2] as Value).raw as num).toInt();
     }
-    return Value(str.indexOf(pattern, start ?? 0));
+    return primitiveValue(str.indexOf(pattern, start ?? 0));
   }
 }
 
 class DartStringLastIndexOf extends BuiltinFunction {
-  DartStringLastIndexOf() : super();
+  DartStringLastIndexOf([super.interpreter]);
   @override
   Future<Object?> call(List<Object?> args) async {
     if (args.length < 2) {
@@ -334,12 +340,12 @@ class DartStringLastIndexOf extends BuiltinFunction {
     if (args.length > 2 && args[2] is Value && (args[2] as Value).raw is num) {
       start = ((args[2] as Value).raw as num).toInt();
     }
-    return Value(str.lastIndexOf(pattern, start));
+    return primitiveValue(str.lastIndexOf(pattern, start));
   }
 }
 
 class DartStringReplaceFirst extends BuiltinFunction {
-  DartStringReplaceFirst() : super();
+  DartStringReplaceFirst([super.interpreter]);
   @override
   Future<Object?> call(List<Object?> args) async {
     if (args.length < 3) {
@@ -356,24 +362,24 @@ class DartStringReplaceFirst extends BuiltinFunction {
     if (args.length > 3 && args[3] is Value && (args[3] as Value).raw is num) {
       startIndex = ((args[3] as Value).raw as num).toInt();
     }
-    return Value(str.replaceFirst(from, to, startIndex ?? 0));
+    return dartStringValue(str.replaceFirst(from, to, startIndex ?? 0));
   }
 }
 
 class DartStringIsEmpty extends BuiltinFunction {
-  DartStringIsEmpty() : super();
+  DartStringIsEmpty([super.interpreter]);
   @override
   Future<Object?> call(List<Object?> args) async {
     if (args.isEmpty) {
       throw LuaError('dart.string.isEmpty requires 1 argument: string');
     }
     final str = (args[0] as Value).raw.toString();
-    return Value(str.isEmpty);
+    return primitiveValue(str.isEmpty);
   }
 }
 
 class DartStringFromCharCodes extends BuiltinFunction {
-  DartStringFromCharCodes() : super();
+  DartStringFromCharCodes([super.interpreter]);
   @override
   Future<Object?> call(List<Object?> args) async {
     if (args.isEmpty) {
@@ -384,11 +390,11 @@ class DartStringFromCharCodes extends BuiltinFunction {
     final table = (args[0] as Value).raw as Map;
     final charCodes = <int>[];
     for (var i = 1; i <= table.length; i++) {
-      final val = table[Value(i)];
+      final val = table[primitiveValue(i)];
       if (val is Value) {
         charCodes.add((val.raw as num).toInt());
       }
     }
-    return Value(String.fromCharCodes(charCodes));
+    return dartStringValue(String.fromCharCodes(charCodes));
   }
 }

@@ -5,10 +5,11 @@ import 'dart:typed_data';
 import 'package:lualike/src/builtin_function.dart';
 import 'package:lualike/src/lua_error.dart';
 import 'package:lualike/src/lua_string.dart';
+import 'package:lualike/src/runtime/lua_slot.dart';
 import 'package:lualike/src/value.dart';
 
 class DartToBytes extends BuiltinFunction {
-  DartToBytes() : super();
+  DartToBytes([super.interpreter]);
 
   @override
   Future<Object?> call(List<Object?> args) async {
@@ -22,18 +23,21 @@ class DartToBytes extends BuiltinFunction {
     // For LuaString, use the raw bytes directly (they're already UTF-8)
     if (value.raw is LuaString) {
       final luaString = value.raw as LuaString;
-      return Value(Uint8List.fromList(luaString.bytes));
+      return valueFromOptionalLuaSlot(
+        interpreter,
+        Uint8List.fromList(luaString.bytes),
+      );
     } else {
       // For other types, convert to string first then encode as UTF-8
       final str = value.raw.toString();
       final bytes = utf8.encode(str);
-      return Value(Uint8List.fromList(bytes));
+      return valueFromOptionalLuaSlot(interpreter, Uint8List.fromList(bytes));
     }
   }
 }
 
 class DartFromBytes extends BuiltinFunction {
-  DartFromBytes() : super();
+  DartFromBytes([super.interpreter]);
 
   @override
   Future<Object?> call(List<Object?> args) async {
@@ -61,7 +65,7 @@ class DartFromBytes extends BuiltinFunction {
       var index = 1;
       while (true) {
         dynamic entry = table[index];
-        entry ??= table[Value(index)];
+        entry ??= table[primitiveValue(index)];
         if (entry == null) {
           break;
         }
@@ -84,6 +88,6 @@ class DartFromBytes extends BuiltinFunction {
       );
     }
 
-    return Value(utf8.decode(bytes));
+    return dartStringValue(utf8.decode(bytes));
   }
 }

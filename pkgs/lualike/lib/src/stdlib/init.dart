@@ -1,6 +1,7 @@
 // Standard library initialization
 // All libraries have been migrated to the Library system
 import 'package:lualike/src/runtime/lua_runtime.dart';
+import 'package:lualike/src/runtime/lua_slot.dart';
 
 import '../value.dart' show Value;
 import 'package:lualike/src/environment.dart' show Environment;
@@ -83,7 +84,7 @@ void _populatePackageLoaded(Environment env, LibraryRegistry registry) {
     final packageMap = packageTable.raw as Map;
 
     if (!packageMap.containsKey("loaded")) {
-      packageMap["loaded"] = Value({});
+      packageMap["loaded"] = Value({}, interpreter: env.interpreter);
     }
 
     final loadedTable = packageMap["loaded"];
@@ -95,8 +96,10 @@ void _populatePackageLoaded(Environment env, LibraryRegistry registry) {
       )) {
         final tableValue = env.get(library.name);
         if (tableValue != null) {
-          final value = tableValue is Value ? tableValue : Value(tableValue);
-          loadedMap[library.name] = value;
+          loadedMap[library.name] = cachedPrimitiveOrValue(
+            env.interpreter,
+            tableValue,
+          );
         }
       }
 
@@ -121,7 +124,9 @@ void _ensureGlobalTable(Environment env) {
     '__index': (List<Object?> args) {
       final key = args[1] as Value;
       final keyStr = key.raw.toString();
-      return env.get(keyStr) ?? Value(null);
+      return env.get(keyStr) ??
+          env.interpreter?.constantPrimitiveValue(null) ??
+          Value.primitive(null);
     },
     '__newindex': (List<Object?> args) {
       final self = args[0] as Value;
@@ -141,11 +146,12 @@ void _ensureGlobalTable(Environment env) {
         }
         self.markTableModified();
       }
-      return Value(null);
+      return env.interpreter?.constantPrimitiveValue(null) ??
+          Value.primitive(null);
     },
   };
 
-  final gValue = Value(gBacking)
+  final gValue = Value(gBacking, interpreter: env.interpreter)
     ..setMetatable(proxyMetatable)
     ..globalProxyEnvironment = env;
 
@@ -166,7 +172,7 @@ void _ensureGlobalTable(Environment env) {
       gBacking.remove(name);
       continue;
     }
-    gBacking[name] = boxedValue is Value ? boxedValue : Value(boxedValue);
+    gBacking[name] = cachedPrimitiveOrValue(env.interpreter, boxedValue);
   }
   gValue.markTableModified();
 }
@@ -193,5 +199,5 @@ void _installLazyLibraryStub({
     return;
   }
 
-  env.define(libraryName, Value(lazyMap));
+  env.define(libraryName, Value(lazyMap, interpreter: env.interpreter));
 }
