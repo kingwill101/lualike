@@ -27,7 +27,8 @@ void main() {
         await executeCode(
           'return x == "foo"',
           mode: EngineMode.ir,
-          onRuntimeSetup: (runtime) => runtime.globals.define('x', env.get('x')!),
+          onRuntimeSetup: (runtime) =>
+              runtime.globals.define('x', env.get('x')!),
         ),
         isTrue,
       );
@@ -39,7 +40,8 @@ void main() {
         await executeCode(
           'return x == 5',
           mode: EngineMode.ir,
-          onRuntimeSetup: (runtime) => runtime.globals.define('x', env.get('x')!),
+          onRuntimeSetup: (runtime) =>
+              runtime.globals.define('x', env.get('x')!),
         ),
         isTrue,
       );
@@ -47,7 +49,8 @@ void main() {
         await executeCode(
           'return x < 10',
           mode: EngineMode.ir,
-          onRuntimeSetup: (runtime) => runtime.globals.define('x', env.get('x')!),
+          onRuntimeSetup: (runtime) =>
+              runtime.globals.define('x', env.get('x')!),
         ),
         isTrue,
       );
@@ -55,7 +58,8 @@ void main() {
         await executeCode(
           'return x >= 3',
           mode: EngineMode.ir,
-          onRuntimeSetup: (runtime) => runtime.globals.define('x', env.get('x')!),
+          onRuntimeSetup: (runtime) =>
+              runtime.globals.define('x', env.get('x')!),
         ),
         isTrue,
       );

@@ -39,7 +39,8 @@ void main() {
 
     test('invokes __concat when operands provide metamethod', () async {
       final bridge = LuaLike(runtime: LualikeIrRuntime());
-      final result = _unwrapResult(await bridge.execute('''
+      final result = _unwrapResult(
+        await bridge.execute('''
         local mt = {
           __concat = function(left, right)
             return 'meta:' .. left.value .. '+' .. right.value
@@ -48,7 +49,8 @@ void main() {
         local left = setmetatable({value = 'A'}, mt)
         local right = setmetatable({value = 'B'}, mt)
         return left .. right
-      '''));
+      '''),
+      );
       expect(result, equals('meta:A+B'));
     });
   });

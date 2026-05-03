@@ -370,7 +370,8 @@ class _PrototypeContext {
     for (var i = targetScopeIndex; i < _localDebugScopes.length; i++) {
       for (final local in _localDebugScopes[i]) {
         final leavesScope = i > targetScopeIndex;
-        final declaredAfterLabel = i == targetScopeIndex && local.startPc > targetPc;
+        final declaredAfterLabel =
+            i == targetScopeIndex && local.startPc > targetPc;
         if (leavesScope || declaredAfterLabel) {
           if (minReg == null || local.register < minReg) {
             minReg = local.register;
@@ -3226,7 +3227,11 @@ class _PrototypeContext {
     required int register,
     required int endPc,
   }) {
-    for (var index = builder.localDebugEntries.length - 1; index >= 0; index--) {
+    for (
+      var index = builder.localDebugEntries.length - 1;
+      index >= 0;
+      index--
+    ) {
       final entry = builder.localDebugEntries[index];
       if (entry.name != name || entry.register != register) {
         continue;
@@ -3284,7 +3289,12 @@ class _PrototypeContext {
         targetScopeIndex,
       );
       if (closeFrom != null) {
-        emitter.emitABC(opcode: LualikeIrOpcode.close, a: closeFrom, b: 0, c: 0);
+        emitter.emitABC(
+          opcode: LualikeIrOpcode.close,
+          a: closeFrom,
+          b: 0,
+          c: 0,
+        );
       } else {
         _emitCloseForActiveImplicitToBeClosed();
       }

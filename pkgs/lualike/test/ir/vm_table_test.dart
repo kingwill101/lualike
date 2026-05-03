@@ -55,8 +55,8 @@ void main() {
     });
 
     test('constructs table literal with sequential elements', () async {
-      final result = await executeCode('return {1, 2, 3}', mode: EngineMode.ir)
-          as Value;
+      final result =
+          await executeCode('return {1, 2, 3}', mode: EngineMode.ir) as Value;
 
       expect(result[Value(1)]?.raw, equals(1));
       expect(result[Value(2)]?.raw, equals(2));
@@ -64,10 +64,9 @@ void main() {
     });
 
     test('constructs table literal with keyed and indexed fields', () async {
-      final result = await executeCode(
-        'return {foo = 5, [3] = 7, 9}',
-        mode: EngineMode.ir,
-      ) as Value;
+      final result =
+          await executeCode('return {foo = 5, [3] = 7, 9}', mode: EngineMode.ir)
+              as Value;
 
       expect(result[Value('foo')]?.raw, equals(5));
       expect(result[Value(3)]?.raw, equals(7));
@@ -115,10 +114,8 @@ return build(3, 4, 5)
         60,
         (index) => '${index + 1}',
       ).join(', ');
-      final result = await executeCode(
-        'return {$literals}',
-        mode: EngineMode.ir,
-      ) as Value;
+      final result =
+          await executeCode('return {$literals}', mode: EngineMode.ir) as Value;
 
       for (var i = 1; i <= 60; i++) {
         expect(result[Value(i)]?.raw, equals(i));

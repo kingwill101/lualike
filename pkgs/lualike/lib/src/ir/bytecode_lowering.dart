@@ -50,7 +50,9 @@ LuaBytecodePrototype lowerIrPrototypeToLuaBytecodePrototype(
     prototype.upvalueDescriptors.length,
     (index) => _lowerUpvalueDescriptor(
       prototype.upvalueDescriptors[index],
-      name: index < loweredUpvalueNames.length ? loweredUpvalueNames[index] : null,
+      name: index < loweredUpvalueNames.length
+          ? loweredUpvalueNames[index]
+          : null,
     ),
     growable: true,
   );
@@ -141,9 +143,9 @@ LuaBytecodeConstant _lowerConstant(LualikeIrConstant constant) {
 }
 
 LuaBytecodeUpvalueDescriptor _lowerUpvalueDescriptor(
-  LualikeIrUpvalueDescriptor descriptor,
-  {String? name}
-) {
+  LualikeIrUpvalueDescriptor descriptor, {
+  String? name,
+}) {
   return LuaBytecodeUpvalueDescriptor(
     inStack: descriptor.inStack != 0,
     index: descriptor.index,
@@ -230,17 +232,18 @@ bool _usesSignedBImmediate(LualikeIrOpcode opcode) {
 
 bool _usesSignedCImmediate(LualikeIrOpcode opcode) {
   return switch (opcode) {
-    LualikeIrOpcode.addI || LualikeIrOpcode.shlI || LualikeIrOpcode.shrI =>
-      true,
+    LualikeIrOpcode.addI ||
+    LualikeIrOpcode.shlI ||
+    LualikeIrOpcode.shrI => true,
     _ => false,
   };
 }
 
 ({List<LuaBytecodeInstructionWord> instructions, List<int> pcMap})
 _lowerInstructions(
-  List<LualikeIrInstruction> instructions,
-  {required int tempBase}
-) {
+  List<LualikeIrInstruction> instructions, {
+  required int tempBase,
+}) {
   final lowered = <LuaBytecodeInstructionWord>[];
   final pcMap = List<int>.filled(instructions.length + 1, 0, growable: false);
 
@@ -316,13 +319,15 @@ _lowerInstructions(
 List<LuaBytecodeInstructionWord> _lowerInstructionSequence(
   LualikeIrInstruction instruction, {
   required int tempBase,
-}
-) {
+}) {
   final arithmetic = _lowerArithmeticMetamethodSequence(instruction);
   if (arithmetic != null) {
     return arithmetic;
   }
-  final highConstant = _lowerHighConstantSequence(instruction, tempBase: tempBase);
+  final highConstant = _lowerHighConstantSequence(
+    instruction,
+    tempBase: tempBase,
+  );
   if (highConstant != null) {
     return highConstant;
   }
@@ -420,73 +425,78 @@ List<LuaBytecodeInstructionWord>? _lowerHighConstantSequence(
 
   return switch (instruction.opcode) {
     LualikeIrOpcode.getField
-        when instruction.c > LuaBytecodeInstructionLayout.maxArgC => <LuaBytecodeInstructionWord>[
-          ...loadKey(tempBase, instruction.c),
-          LuaBytecodeInstructionWord.abc(
-            opcode: LuaBytecodeOpcodes.byName('GETTABLE').code,
-            a: instruction.a,
-            b: instruction.b,
-            c: tempBase,
-          ),
-        ],
+        when instruction.c > LuaBytecodeInstructionLayout.maxArgC =>
+      <LuaBytecodeInstructionWord>[
+        ...loadKey(tempBase, instruction.c),
+        LuaBytecodeInstructionWord.abc(
+          opcode: LuaBytecodeOpcodes.byName('GETTABLE').code,
+          a: instruction.a,
+          b: instruction.b,
+          c: tempBase,
+        ),
+      ],
     LualikeIrOpcode.setField
-        when instruction.b > LuaBytecodeInstructionLayout.maxArgB => <LuaBytecodeInstructionWord>[
-          ...loadKey(tempBase, instruction.b),
-          LuaBytecodeInstructionWord.abc(
-            opcode: LuaBytecodeOpcodes.byName('SETTABLE').code,
-            a: instruction.a,
-            b: tempBase,
-            c: instruction.c,
-          ),
-        ],
+        when instruction.b > LuaBytecodeInstructionLayout.maxArgB =>
+      <LuaBytecodeInstructionWord>[
+        ...loadKey(tempBase, instruction.b),
+        LuaBytecodeInstructionWord.abc(
+          opcode: LuaBytecodeOpcodes.byName('SETTABLE').code,
+          a: instruction.a,
+          b: tempBase,
+          c: instruction.c,
+        ),
+      ],
     LualikeIrOpcode.getTabUp
-        when instruction.c > LuaBytecodeInstructionLayout.maxArgC => <LuaBytecodeInstructionWord>[
-          LuaBytecodeInstructionWord.abc(
-            opcode: LuaBytecodeOpcodes.byName('GETUPVAL').code,
-            a: instruction.a,
-            b: instruction.b,
-            c: 0,
-          ),
-          ...loadKey(tempBase, instruction.c),
-          LuaBytecodeInstructionWord.abc(
-            opcode: LuaBytecodeOpcodes.byName('GETTABLE').code,
-            a: instruction.a,
-            b: instruction.a,
-            c: tempBase,
-          ),
-        ],
+        when instruction.c > LuaBytecodeInstructionLayout.maxArgC =>
+      <LuaBytecodeInstructionWord>[
+        LuaBytecodeInstructionWord.abc(
+          opcode: LuaBytecodeOpcodes.byName('GETUPVAL').code,
+          a: instruction.a,
+          b: instruction.b,
+          c: 0,
+        ),
+        ...loadKey(tempBase, instruction.c),
+        LuaBytecodeInstructionWord.abc(
+          opcode: LuaBytecodeOpcodes.byName('GETTABLE').code,
+          a: instruction.a,
+          b: instruction.a,
+          c: tempBase,
+        ),
+      ],
     LualikeIrOpcode.setTabUp
-        when instruction.b > LuaBytecodeInstructionLayout.maxArgB => <LuaBytecodeInstructionWord>[
-          LuaBytecodeInstructionWord.abc(
-            opcode: LuaBytecodeOpcodes.byName('GETUPVAL').code,
-            a: tempBase,
-            b: instruction.a,
-            c: 0,
-          ),
-          ...loadKey(tempBase + 1, instruction.b),
-          LuaBytecodeInstructionWord.abc(
-            opcode: LuaBytecodeOpcodes.byName('SETTABLE').code,
-            a: tempBase,
-            b: tempBase + 1,
-            c: instruction.c,
-          ),
-        ],
+        when instruction.b > LuaBytecodeInstructionLayout.maxArgB =>
+      <LuaBytecodeInstructionWord>[
+        LuaBytecodeInstructionWord.abc(
+          opcode: LuaBytecodeOpcodes.byName('GETUPVAL').code,
+          a: tempBase,
+          b: instruction.a,
+          c: 0,
+        ),
+        ...loadKey(tempBase + 1, instruction.b),
+        LuaBytecodeInstructionWord.abc(
+          opcode: LuaBytecodeOpcodes.byName('SETTABLE').code,
+          a: tempBase,
+          b: tempBase + 1,
+          c: instruction.c,
+        ),
+      ],
     LualikeIrOpcode.selfOp
-        when instruction.c > LuaBytecodeInstructionLayout.maxArgC => <LuaBytecodeInstructionWord>[
-          LuaBytecodeInstructionWord.abc(
-            opcode: LuaBytecodeOpcodes.byName('MOVE').code,
-            a: instruction.a + 1,
-            b: instruction.b,
-            c: 0,
-          ),
-          ...loadKey(tempBase, instruction.c),
-          LuaBytecodeInstructionWord.abc(
-            opcode: LuaBytecodeOpcodes.byName('GETTABLE').code,
-            a: instruction.a,
-            b: instruction.b,
-            c: tempBase,
-          ),
-        ],
+        when instruction.c > LuaBytecodeInstructionLayout.maxArgC =>
+      <LuaBytecodeInstructionWord>[
+        LuaBytecodeInstructionWord.abc(
+          opcode: LuaBytecodeOpcodes.byName('MOVE').code,
+          a: instruction.a + 1,
+          b: instruction.b,
+          c: 0,
+        ),
+        ...loadKey(tempBase, instruction.c),
+        LuaBytecodeInstructionWord.abc(
+          opcode: LuaBytecodeOpcodes.byName('GETTABLE').code,
+          a: instruction.a,
+          b: instruction.b,
+          c: tempBase,
+        ),
+      ],
     _ => null,
   };
 }
@@ -518,9 +528,9 @@ List<LuaBytecodeInstructionWord> _loadConstantToRegisterSequence(
 }
 
 List<LuaBytecodeInstructionWord>? _lowerCompareSequence(
-  ABCInstruction instruction,
-  {required int tempBase}
-) {
+  ABCInstruction instruction, {
+  required int tempBase,
+}) {
   LuaBytecodeInstructionWord compareWord(
     String opcodeName, {
     required int a,
@@ -588,8 +598,7 @@ List<LuaBytecodeInstructionWord>? _lowerCompareSequence(
           registerCompare('EQ', left: instruction.b, right: tempBase),
         ),
       ];
-    case LualikeIrOpcode.eqI
-        when !signedImmediateFits(instruction.c):
+    case LualikeIrOpcode.eqI when !signedImmediateFits(instruction.c):
       return <LuaBytecodeInstructionWord>[
         LuaBytecodeInstructionWord.asBx(
           opcode: LuaBytecodeOpcodes.byName('LOADI').code,
@@ -600,8 +609,7 @@ List<LuaBytecodeInstructionWord>? _lowerCompareSequence(
           registerCompare('EQ', left: instruction.b, right: tempBase),
         ),
       ];
-    case LualikeIrOpcode.ltI
-        when !signedImmediateFits(instruction.c):
+    case LualikeIrOpcode.ltI when !signedImmediateFits(instruction.c):
       return <LuaBytecodeInstructionWord>[
         LuaBytecodeInstructionWord.asBx(
           opcode: LuaBytecodeOpcodes.byName('LOADI').code,
@@ -612,8 +620,7 @@ List<LuaBytecodeInstructionWord>? _lowerCompareSequence(
           registerCompare('LT', left: instruction.b, right: tempBase),
         ),
       ];
-    case LualikeIrOpcode.leI
-        when !signedImmediateFits(instruction.c):
+    case LualikeIrOpcode.leI when !signedImmediateFits(instruction.c):
       return <LuaBytecodeInstructionWord>[
         LuaBytecodeInstructionWord.asBx(
           opcode: LuaBytecodeOpcodes.byName('LOADI').code,
@@ -624,8 +631,7 @@ List<LuaBytecodeInstructionWord>? _lowerCompareSequence(
           registerCompare('LE', left: instruction.b, right: tempBase),
         ),
       ];
-    case LualikeIrOpcode.gtI
-        when !signedImmediateFits(instruction.c):
+    case LualikeIrOpcode.gtI when !signedImmediateFits(instruction.c):
       return <LuaBytecodeInstructionWord>[
         LuaBytecodeInstructionWord.asBx(
           opcode: LuaBytecodeOpcodes.byName('LOADI').code,
@@ -636,8 +642,7 @@ List<LuaBytecodeInstructionWord>? _lowerCompareSequence(
           registerCompare('LT', left: tempBase, right: instruction.b),
         ),
       ];
-    case LualikeIrOpcode.geI
-        when !signedImmediateFits(instruction.c):
+    case LualikeIrOpcode.geI when !signedImmediateFits(instruction.c):
       return <LuaBytecodeInstructionWord>[
         LuaBytecodeInstructionWord.asBx(
           opcode: LuaBytecodeOpcodes.byName('LOADI').code,
@@ -707,13 +712,15 @@ List<LuaBytecodeInstructionWord>? _lowerTableInstructionSequence(
       a: final a,
       b: final b,
       c: final c,
-    ) => _lowerSetListSequence(a: a, count: b, startIndex: c),
+    ) =>
+      _lowerSetListSequence(a: a, count: b, startIndex: c),
     ABCInstruction(
       opcode: LualikeIrOpcode.concat,
       a: final a,
       b: final b,
       c: final c,
-    ) => _lowerConcatSequence(a: a, startRegister: b, endRegister: c),
+    ) =>
+      _lowerConcatSequence(a: a, startRegister: b, endRegister: c),
     _ => null,
   };
 }
