@@ -55,6 +55,11 @@ flutter:
   uses-material-design: true
   assets:
     - assets/images/test_sheet.png
+    - assets/modern_pong/main.lua
+    - assets/modern_pong/libs/
+    - assets/modern_pong/sounds/
+    - assets/modern_pong/sprites/
+    - assets/modern_pong/states/
     - assets/scripts/conf.lua
     - assets/relic_breach/conf.lua
     - assets/relic_breach/main.lua

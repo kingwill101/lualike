@@ -34,5 +34,4 @@ build
 # Keep vendored love2d dependencies and nested example repos out of commits.
 /pkgs/love2d/third_party/
 /pkgs/love2d/example/assets/love_example_browser/
-/pkgs/love2d/example/assets/modern_pong/
 /pkgs/love2d/example/assets/pocket_bomber/
