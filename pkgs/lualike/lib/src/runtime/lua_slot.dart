@@ -1,7 +1,10 @@
 import 'package:lualike/src/runtime/lua_results.dart';
 import 'package:lualike/src/runtime/lua_runtime.dart';
+import 'package:lualike/src/runtime/lua_primitive.dart';
 import 'package:lualike/src/lua_string.dart';
 import 'package:lualike/src/value.dart';
+
+export 'package:lualike/src/runtime/lua_primitive.dart' show isLuaPrimitiveSlot;
 
 /// Lightweight internal runtime slot.
 ///
@@ -9,15 +12,6 @@ import 'package:lualike/src/value.dart';
 /// a closure payload, or a [LuaResults] carrier while the internals migrate
 /// away from using [Value] for every temporary runtime value.
 typedef LuaSlot = Object?;
-
-/// Returns whether [slot] is one of Lua's immediate primitive payloads.
-bool isLuaPrimitiveSlot(Object? slot) =>
-    slot == null ||
-    slot is bool ||
-    slot is num ||
-    slot is BigInt ||
-    slot is String ||
-    slot is LuaString;
 
 /// Returns whether [value] is a multi-result carrier in either the new internal
 /// shape or the existing public [Value.multi] shape.
