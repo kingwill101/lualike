@@ -1,0 +1,68 @@
+{
+  "schemaVersion": 1,
+  "generatedBy": "tool/parser_profile_compare.dart",
+  "title": "Small Parser Corpus",
+  "generatedAt": "2026-05-03T11:01:12.710519",
+  "baseline": {
+    "label": "origin/ir small-parser-corpus",
+    "capturedAt": "2026-05-03T11:01:07.487256",
+    "revision": "3f9069998692cf93cbc5461fe1d3e4150425a7ff",
+    "branch": null
+  },
+  "latest": {
+    "label": "current small-parser-corpus",
+    "capturedAt": "2026-05-03T11:01:11.924994",
+    "revision": "a6d79f1e2b1318309ea8b1890c67f81afe2acb8d",
+    "branch": "profiling/parser-performance"
+  },
+  "rows": [
+    {
+      "case": "attributes_and_labels",
+      "baselineMeanMicros": 2413.3,
+      "latestMeanMicros": 772.5,
+      "timeReductionPercent": 67.98988936311275,
+      "speedup": 3.124012944983819
+    },
+    {
+      "case": "branches_and_loops",
+      "baselineMeanMicros": 1788.4,
+      "latestMeanMicros": 1218.9,
+      "timeReductionPercent": 31.844106463878326,
+      "speedup": 1.4672245467224547
+    },
+    {
+      "case": "functions_and_calls",
+      "baselineMeanMicros": 1820.3,
+      "latestMeanMicros": 692.4,
+      "timeReductionPercent": 61.962313904301496,
+      "speedup": 2.6289716926632005
+    },
+    {
+      "case": "literals_and_expressions",
+      "baselineMeanMicros": 921.0,
+      "latestMeanMicros": 516.6,
+      "timeReductionPercent": 43.90879478827362,
+      "speedup": 1.7828106852497096
+    },
+    {
+      "case": "strings_and_comments",
+      "baselineMeanMicros": 2847.3,
+      "latestMeanMicros": 386.0,
+      "timeReductionPercent": 86.44329715871177,
+      "speedup": 7.376424870466321
+    },
+    {
+      "case": "table_shapes",
+      "baselineMeanMicros": 3333.7,
+      "latestMeanMicros": 574.4,
+      "timeReductionPercent": 82.76989531151574,
+      "speedup": 5.803795264623956
+    }
+  ],
+  "total": {
+    "baselineMeanMicros": 13124.0,
+    "latestMeanMicros": 4160.8,
+    "timeReductionPercent": 68.29625114294423,
+    "speedup": 3.1542011151701597
+  }
+}
