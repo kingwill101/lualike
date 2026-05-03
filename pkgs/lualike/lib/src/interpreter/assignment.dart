@@ -4,6 +4,9 @@ bool _isInlineableMutableLocalPrimitive(Object? value) {
   if (value is Value) {
     final raw = value.raw;
     if (value.isMulti ||
+        value.isConst ||
+        value.isToBeClose ||
+        value.isTempKey ||
         value.metatable != null ||
         value.metatableRef != null ||
         value.upvalues != null ||
@@ -29,18 +32,7 @@ Object? _mutableLocalStorageValue(Object? value) {
 }
 
 Value _wrapMutableLocalReadValue(Interpreter interpreter, Object? value) {
-  if (value is Value) {
-    value.interpreter ??= interpreter;
-    return value;
-  }
-
-  return switch (value) {
-    null => interpreter.constantPrimitiveValue(null),
-    final bool raw => interpreter.constantPrimitiveValue(raw),
-    final num raw => Value(raw)..interpreter = interpreter,
-    final BigInt raw => Value(raw)..interpreter = interpreter,
-    _ => interpreter.wrapRuntimeValue(value),
-  };
+  return cachedPrimitiveOrValue(interpreter, value);
 }
 
 mixin InterpreterAssignmentMixin on AstVisitor<Object?> {
@@ -129,6 +121,9 @@ mixin InterpreterAssignmentMixin on AstVisitor<Object?> {
 
   Object? _snapshotAssignmentResult(Object? value) {
     if (value is Value) {
+      if (value.isSharedPrimitive) {
+        return value;
+      }
       return _detachPrimitiveValue(value);
     }
     return value;
@@ -196,7 +191,7 @@ mixin InterpreterAssignmentMixin on AstVisitor<Object?> {
   ) {
     final currentFunction = interpreter.getCurrentFunction();
     if (currentFunction == null) {
-      return globals.updateLocal(name, value);
+      return globals.updateLocal(name, _mutableLocalStorageValue(value));
     }
 
     final closureBoundary = currentFunction.closureEnvironment;
@@ -204,12 +199,10 @@ mixin InterpreterAssignmentMixin on AstVisitor<Object?> {
     while (current != null && !identical(current, closureBoundary)) {
       final box = current.values[name];
       if (box != null && box.isLocal) {
-        final currentValue = box.value;
-        if (currentValue is Value &&
-            (currentValue.isConst || currentValue.isToBeClose)) {
+        if (box.preventsAssignment) {
           throw LuaError("attempt to assign to const variable '$name'");
         }
-        box.value = value;
+        box.value = _mutableLocalStorageValue(value);
         return true;
       }
       current = current.parent;
@@ -217,12 +210,10 @@ mixin InterpreterAssignmentMixin on AstVisitor<Object?> {
 
     final closureBox = closureBoundary?.values[name];
     if (closureBox != null && closureBox.isLocal) {
-      final currentValue = closureBox.value;
-      if (currentValue is Value &&
-          (currentValue.isConst || currentValue.isToBeClose)) {
+      if (closureBox.preventsAssignment) {
         throw LuaError("attempt to assign to const variable '$name'");
       }
-      closureBox.value = value;
+      closureBox.value = _mutableLocalStorageValue(value);
       return true;
     }
 
@@ -284,7 +275,7 @@ mixin InterpreterAssignmentMixin on AstVisitor<Object?> {
           contextBuilder: () => {'exprIndex': i},
         );
       } else if (value is Value && value.raw is Future) {
-        value = Value(await value.raw);
+        value = valueFromLuaSlot(interpreter, await value.raw);
         Logger.debugLazy(
           () => 'visitAssignment: Awaited future value from Value.raw: $value',
           category: 'Assignment',
@@ -299,23 +290,19 @@ mixin InterpreterAssignmentMixin on AstVisitor<Object?> {
           category: 'Interpreter',
           contextBuilder: () => {
             'exprIndex': i,
-            'isMulti': value is Value && value.isMulti,
+            'isMulti': luaResultValues(value) != null,
           },
         );
 
         // In Lua, when a function call is wrapped in parentheses (e.g., (f())),
         // only the first return value is used, and the rest are discarded
-        if (value is Value && value.isMulti) {
-          // Extract only the first value from multi-value
-          var multiValues = value.raw as List;
-          if (multiValues.isNotEmpty) {
-            expressions.add(_snapshotAssignmentResult(multiValues.first));
-          } else {
-            expressions.add(Value(null));
-          }
-        } else if (value is List && value.isNotEmpty) {
+        if (luaResultValues(value) != null || value is List) {
           // Take only the first value
-          expressions.add(_snapshotAssignmentResult(value.first));
+          expressions.add(
+            _snapshotAssignmentResult(
+              _firstLuaResultOrNil(value, interpreter: this as Interpreter),
+            ),
+          );
         } else {
           // Regular value, add directly
           expressions.add(_snapshotAssignmentResult(value));
@@ -334,7 +321,7 @@ mixin InterpreterAssignmentMixin on AstVisitor<Object?> {
         } else {
           expressions.addAll(value.map(_snapshotAssignmentResult));
         }
-      } else if (value is Value && value.isMulti) {
+      } else if (luaResultValues(value) case final resultValues?) {
         // For multi-value expressions (like varargs or function calls):
         // - If it's the last expression, expand all values
         // - If it's not the last expression, only use the first value
@@ -343,20 +330,19 @@ mixin InterpreterAssignmentMixin on AstVisitor<Object?> {
           Logger.debugLazy(
             () =>
                 'Assignment: Last expression is multi-value, '
-                'expanding all: ${value.raw}',
+                'expanding all: $resultValues',
             category: 'Assignment',
             contextBuilder: () => {
               'exprIndex': i,
-              'valueCount': (value.raw as List).length,
+              'valueCount': resultValues.length,
             },
           );
-          expressions.addAll(value.raw);
+          expressions.addAll(resultValues);
         } else {
           // Not last expression: only use first value
-          final multiValues = value.raw as List;
-          final firstValue = multiValues.isNotEmpty
-              ? multiValues.first
-              : Value(null);
+          final firstValue = resultValues.isNotEmpty
+              ? resultValues.first
+              : interpreter.constantPrimitiveValue(null);
           Logger.debugLazy(
             () =>
                 'Assignment: Non-last expression is multi-value, '
@@ -364,7 +350,7 @@ mixin InterpreterAssignmentMixin on AstVisitor<Object?> {
             category: 'Assignment',
             contextBuilder: () => {
               'exprIndex': i,
-              'totalValues': multiValues.length,
+              'totalValues': resultValues.length,
             },
           );
           expressions.add(_snapshotAssignmentResult(firstValue));
@@ -418,24 +404,21 @@ mixin InterpreterAssignmentMixin on AstVisitor<Object?> {
     for (final t in node.targets) {
       if (t is TableFieldAccess) {
         var tableVal = await t.table.accept(this);
-        if (tableVal is Value && tableVal.isMulti && tableVal.raw is List) {
-          final vals = tableVal.raw as List;
-          tableVal = vals.isNotEmpty ? vals[0] : Value(null);
+        if (luaResultValues(tableVal) != null) {
+          tableVal = _firstLuaResultOrNil(tableVal, interpreter: interpreter);
         }
-        preTables.add(tableVal as Value?);
+        preTables.add(valueFromLuaSlot(interpreter, tableVal));
         preIndices.add(t.fieldName.name);
       } else if (t is TableIndexAccess) {
         var tableVal = await t.table.accept(this);
-        if (tableVal is Value && tableVal.isMulti && tableVal.raw is List) {
-          final vals = tableVal.raw as List;
-          tableVal = vals.isNotEmpty ? vals[0] : Value(null);
+        if (luaResultValues(tableVal) != null) {
+          tableVal = _firstLuaResultOrNil(tableVal, interpreter: interpreter);
         }
         var indexVal = await t.index.accept(this);
-        if (indexVal is Value && indexVal.isMulti && indexVal.raw is List) {
-          final vals = indexVal.raw as List;
-          indexVal = vals.isNotEmpty ? vals[0] : Value(null);
+        if (luaResultValues(indexVal) != null) {
+          indexVal = _firstLuaResultOrNil(indexVal, interpreter: interpreter);
         }
-        preTables.add(tableVal as Value?);
+        preTables.add(valueFromLuaSlot(interpreter, tableVal));
         preIndices.add(_snapshotAssignmentResult(indexVal));
       } else {
         preTables.add(null);
@@ -446,7 +429,9 @@ mixin InterpreterAssignmentMixin on AstVisitor<Object?> {
     // Assign each value to corresponding target
     for (var i = 0; i < node.targets.length; i++) {
       final target = node.targets[i];
-      final targetValue = i < values.length ? values[i] : Value(null);
+      final targetValue = i < values.length
+          ? values[i]
+          : interpreter.constantPrimitiveValue(null);
 
       Logger.debugLazy(
         () => '[visitAssignment] Assigning $targetValue to $target',
@@ -456,9 +441,7 @@ mixin InterpreterAssignmentMixin on AstVisitor<Object?> {
           'targetType': target.runtimeType.toString(),
         },
       );
-      final Value wrappedValue = targetValue is Value
-          ? targetValue
-          : Value(targetValue);
+      final Value wrappedValue = valueFromLuaSlot(interpreter, targetValue);
 
       if (target is TableAccessExpr) {
         await _handleTableAccessAssignment(target, wrappedValue);
@@ -484,7 +467,9 @@ mixin InterpreterAssignmentMixin on AstVisitor<Object?> {
       }
     }
 
-    return values.isNotEmpty ? values[0] : Value(null);
+    return values.isNotEmpty
+        ? values[0]
+        : interpreter.constantPrimitiveValue(null);
   }
 
   /// Handles assignment to a table field.
@@ -499,16 +484,16 @@ mixin InterpreterAssignmentMixin on AstVisitor<Object?> {
     TableAccessExpr target,
     Value wrappedValue,
   ) async {
-    (this is Interpreter) ? (this as Interpreter).recordTrace(target) : null;
+    final interpreter = this as Interpreter;
+    interpreter.recordTrace(target);
     Logger.debugLazy(
       () => '_handleTableAccessAssignment: Assigning $wrappedValue to $target',
       category: 'Interpreter',
       contextBuilder: () => {'targetType': target.runtimeType.toString()},
     );
     var tableValue = await target.table.accept(this);
-    if (tableValue is Value && tableValue.isMulti && tableValue.raw is List) {
-      final values = tableValue.raw as List;
-      tableValue = values.isNotEmpty ? values[0] : Value(null);
+    if (luaResultValues(tableValue) != null) {
+      tableValue = _firstLuaResultOrNil(tableValue, interpreter: interpreter);
     }
     Logger.debugLazy(
       () => '_handleTableAccessAssignment: tableValue: $tableValue',
@@ -519,17 +504,16 @@ mixin InterpreterAssignmentMixin on AstVisitor<Object?> {
     );
 
     if (tableValue is Value) {
-      final storedValue = _detachPrimitiveValue(wrappedValue);
+      final storedValue = wrappedValue;
       if (tableValue.raw is Map) {
         if (target.index is! Identifier) {
           final table = await target.table.accept(this).toValue();
           if (!table.isNil) {
             dynamic index = await target.index.accept(this);
-            if (index is Value && index.isMulti && index.raw is List) {
-              final values = index.raw as List;
-              index = values.isNotEmpty ? values[0] : Value(null);
+            if (luaResultValues(index) != null) {
+              index = _firstLuaResultOrNil(index, interpreter: interpreter);
             }
-            index = index is Value ? index : Value(index);
+            index = valueFromLuaSlot(interpreter, index);
             table[index] = storedValue;
             return table;
           }
@@ -548,7 +532,7 @@ mixin InterpreterAssignmentMixin on AstVisitor<Object?> {
             );
             final result = await tableValue.callMetamethodAsync('__newindex', [
               tableValue,
-              Value((target.index as Identifier).name),
+              valueFromLuaSlot(interpreter, (target.index as Identifier).name),
               storedValue,
             ]);
             return result;
@@ -583,11 +567,11 @@ mixin InterpreterAssignmentMixin on AstVisitor<Object?> {
         } else {
           // For table[expr] assignments, evaluate the expression to get the key
           identifier = await target.index.accept(this);
-          if (identifier is Value &&
-              identifier.isMulti &&
-              identifier.raw is List) {
-            final values = identifier.raw as List;
-            identifier = values.isNotEmpty ? values[0] : Value(null);
+          if (luaResultValues(identifier) != null) {
+            identifier = _firstLuaResultOrNil(
+              identifier,
+              interpreter: interpreter,
+            );
           }
         }
 
@@ -627,7 +611,7 @@ mixin InterpreterAssignmentMixin on AstVisitor<Object?> {
       category: 'Interpreter',
       contextBuilder: () => {'name': name},
     );
-    final storedValue = _detachPrimitiveValue(wrappedValue);
+    final storedValue = wrappedValue;
 
     // Special handling for `_ENV`: if the current environment doesn't already
     // have a local `_ENV` binding, create one instead of modifying a parent
@@ -835,7 +819,7 @@ mixin InterpreterAssignmentMixin on AstVisitor<Object?> {
     String name,
     Value wrappedValue,
   ) async {
-    final storedValue = _detachPrimitiveValue(wrappedValue);
+    final storedValue = wrappedValue;
     final interpreter = this as Interpreter;
     final envValue = _resolveActiveEnvValue(interpreter);
     final rootGlobalValue = _resolveActiveGlobalValue(interpreter);
@@ -883,7 +867,10 @@ mixin InterpreterAssignmentMixin on AstVisitor<Object?> {
     }
 
     if (envValue is Value) {
-      await envValue.setValueAsync(name, Value(null));
+      await envValue.setValueAsync(
+        name,
+        interpreter.constantPrimitiveValue(null),
+      );
       return;
     }
 
@@ -940,7 +927,8 @@ mixin InterpreterAssignmentMixin on AstVisitor<Object?> {
     Value wrappedValue, {
     Value? preTable,
   }) async {
-    (this is Interpreter) ? (this as Interpreter).recordTrace(target) : null;
+    final interpreter = this as Interpreter;
+    interpreter.recordTrace(target);
     Logger.debugLazy(
       () =>
           '_handleTableFieldAssignment: Assigning $wrappedValue to '
@@ -949,14 +937,13 @@ mixin InterpreterAssignmentMixin on AstVisitor<Object?> {
       contextBuilder: () => {'fieldName': target.fieldName.name},
     );
     var tableValue = preTable ?? await target.table.accept<Object?>(this);
-    if (tableValue is Value && tableValue.isMulti && tableValue.raw is List) {
-      final values = tableValue.raw as List;
-      tableValue = values.isNotEmpty ? values[0] : Value(null);
+    if (luaResultValues(tableValue) != null) {
+      tableValue = _firstLuaResultOrNil(tableValue, interpreter: interpreter);
     }
 
     if (tableValue is Value) {
       if (tableValue.raw is Map) {
-        final storedValue = _detachPrimitiveValue(wrappedValue);
+        final storedValue = wrappedValue;
         // For field access, always use the field name as literal string key
         final fieldKey = target.fieldName.name;
 
@@ -971,7 +958,7 @@ mixin InterpreterAssignmentMixin on AstVisitor<Object?> {
             );
             final result = await tableValue.callMetamethodAsync('__newindex', [
               tableValue,
-              Value(fieldKey),
+              valueFromLuaSlot(interpreter, fieldKey),
               storedValue,
             ]);
             return result;
@@ -1020,7 +1007,8 @@ mixin InterpreterAssignmentMixin on AstVisitor<Object?> {
     Value? preTable,
     Object? preIndex,
   }) async {
-    (this is Interpreter) ? (this as Interpreter).recordTrace(target) : null;
+    final interpreter = this as Interpreter;
+    interpreter.recordTrace(target);
     Logger.debugLazy(
       () =>
           '_handleTableIndexAssignment: Assigning $wrappedValue to '
@@ -1029,26 +1017,23 @@ mixin InterpreterAssignmentMixin on AstVisitor<Object?> {
       contextBuilder: () => {'targetType': target.runtimeType.toString()},
     );
     var tableValue = preTable ?? await target.table.accept<Object?>(this);
-    if (tableValue is Value && tableValue.isMulti && tableValue.raw is List) {
-      final values = tableValue.raw as List;
-      tableValue = values.isNotEmpty ? values[0] : Value(null);
+    if (luaResultValues(tableValue) != null) {
+      tableValue = _firstLuaResultOrNil(tableValue, interpreter: interpreter);
     }
 
     if (tableValue is Value) {
       if (tableValue.raw is Map) {
-        final storedValue = _detachPrimitiveValue(wrappedValue);
+        final storedValue = wrappedValue;
         // For index access, always evaluate the index expression
         var indexResult = preIndex ?? await target.index.accept<Object?>(this);
-        if (indexResult is Value &&
-            indexResult.isMulti &&
-            indexResult.raw is List) {
-          final values = indexResult.raw as List;
-          indexResult = values.isNotEmpty ? values[0] : Value(null);
+        if (luaResultValues(indexResult) != null) {
+          indexResult = _firstLuaResultOrNil(
+            indexResult,
+            interpreter: interpreter,
+          );
         }
 
-        final keyValue = indexResult is Value
-            ? indexResult
-            : Value(indexResult);
+        final keyValue = valueFromLuaSlot(interpreter, indexResult);
         final keyExists = tableValue.rawContainsKey(keyValue);
         final hasNewIndexMeta = tableValue.hasMetamethod('__newindex');
 
@@ -1092,11 +1077,8 @@ mixin InterpreterAssignmentMixin on AstVisitor<Object?> {
           final denseIndex = positiveInteger(keyValue);
           if (denseIndex != null) {
             tableValue.setNumericIndex(denseIndex, storedValue);
-            if (this is Interpreter) {
-              final interpreter = this as Interpreter;
-              storedValue.interpreter ??= interpreter;
-              interpreter.gc.ensureTracked(storedValue);
-            }
+            storedValue.interpreter ??= interpreter;
+            interpreter.gc.ensureTracked(storedValue);
             Logger.debugLazy(
               () =>
                   '_handleTableIndexAssignment: Assigned '
@@ -1112,11 +1094,8 @@ mixin InterpreterAssignmentMixin on AstVisitor<Object?> {
 
         // No metamethod or key already exists - do regular assignment
         tableValue[keyValue] = storedValue;
-        if (this is Interpreter) {
-          final interpreter = this as Interpreter;
-          storedValue.interpreter ??= interpreter;
-          interpreter.gc.ensureTracked(storedValue);
-        }
+        storedValue.interpreter ??= interpreter;
+        interpreter.gc.ensureTracked(storedValue);
 
         Logger.debugLazy(
           () =>
@@ -1179,7 +1158,7 @@ mixin InterpreterAssignmentMixin on AstVisitor<Object?> {
         if (value is Future) {
           value = await value;
         } else if (value is Value && value.raw is Future) {
-          value = Value(await value.raw);
+          value = valueFromLuaSlot(interpreter, await value.raw);
         }
 
         Logger.debugLazy(
@@ -1189,22 +1168,12 @@ mixin InterpreterAssignmentMixin on AstVisitor<Object?> {
           category: 'Interpreter',
         );
 
-        if (value is Value && value.isMulti) {
+        if (luaResultValues(value) != null || value is List) {
           // Extract only the first value from multi-value
-          var multiValues = value.raw as List;
-          if (multiValues.isNotEmpty) {
-            values.add(multiValues.first);
-          } else {
-            values.add(interpreter.wrapRuntimeValue(null));
-          }
-        } else if (value is List && value.isNotEmpty) {
-          // Take only the first value from list
-          values.add(value[0]);
+          values.add(_firstLuaResultOrNil(value, interpreter: interpreter));
         } else {
           // Single value or empty result
-          values.add(
-            value is Value ? value : interpreter.wrapRuntimeValue(value),
-          );
+          values.add(valueFromLuaSlot(interpreter, value));
         }
       } else if (expr is FunctionCall || expr is MethodCall) {
         // Function and method calls are already evaluated when visited
@@ -1214,13 +1183,14 @@ mixin InterpreterAssignmentMixin on AstVisitor<Object?> {
         if (value is Future) {
           value = await value;
         } else if (value is Value && value.raw is Future) {
-          value = interpreter.wrapRuntimeValue(await value.raw);
+          value = valueFromLuaSlot(interpreter, await value.raw);
         }
 
-        if (value is List) {
+        final resultValues = luaResultValues(value);
+        if (resultValues != null) {
+          values.addAll(resultValues);
+        } else if (value is List) {
           values.addAll(value);
-        } else if (value is Value && value.isMulti) {
-          values.addAll(value.raw);
         } else {
           values.add(value);
         }
@@ -1231,22 +1201,20 @@ mixin InterpreterAssignmentMixin on AstVisitor<Object?> {
         if (value is Future) {
           value = await value;
         } else if (value is Value && value.raw is Future) {
-          value = interpreter.wrapRuntimeValue(await value.raw);
+          value = valueFromLuaSlot(interpreter, await value.raw);
         }
 
         // Wrap non-Value results
-        if (value is List) {
+        final resultValues = luaResultValues(value);
+        if (resultValues != null) {
+          values.addAll(resultValues);
+        } else if (value is List) {
           values.addAll(value);
         } else {
           if (value is! Value) {
-            value = interpreter.wrapRuntimeValue(value);
+            value = valueFromLuaSlot(interpreter, value);
           }
-          final val = value;
-          if (val.isMulti) {
-            values.addAll(val.raw);
-          } else {
-            values.add(val);
-          }
+          values.add(value);
         }
       }
     }
@@ -1273,10 +1241,9 @@ mixin InterpreterAssignmentMixin on AstVisitor<Object?> {
       final name = node.names.first.name;
       final attribute = node.attributes.firstOrNull;
       final Value rawValue = values.isNotEmpty
-          ? (values.first is Value
-                ? values.first as Value
-                : interpreter.wrapRuntimeValue(values.first))
-          : interpreter.wrapRuntimeValue(
+          ? valueFromLuaSlot(interpreter, values.first)
+          : valueFromLuaSlot(
+              interpreter,
               null,
             ); // Default to nil if no values provided
 
@@ -1305,7 +1272,7 @@ mixin InterpreterAssignmentMixin on AstVisitor<Object?> {
 
       globals.declare(
         name,
-        valueWithAttributes,
+        _mutableLocalStorageValue(valueWithAttributes),
         trackToBeClosed: attribute == 'close',
       );
       updateFastLocalBinding(name);
@@ -1318,7 +1285,7 @@ mixin InterpreterAssignmentMixin on AstVisitor<Object?> {
             : null;
         final rawValue = i < values.length
             ? values[i]
-            : interpreter.wrapRuntimeValue(null);
+            : valueFromLuaSlot(interpreter, null);
 
         // Apply attributes
         Value valueWithAttributes;
@@ -1368,7 +1335,7 @@ mixin InterpreterAssignmentMixin on AstVisitor<Object?> {
           if (rawValue is Value) {
             valueWithAttributes = _cloneValueForLocalBinding(rawValue);
           } else {
-            valueWithAttributes = interpreter.wrapRuntimeValue(rawValue);
+            valueWithAttributes = valueFromLuaSlot(interpreter, rawValue);
           }
         }
 
@@ -1386,7 +1353,7 @@ mixin InterpreterAssignmentMixin on AstVisitor<Object?> {
         // shadows any existing variables with the same name
         globals.declare(
           name,
-          valueWithAttributes,
+          _mutableLocalStorageValue(valueWithAttributes),
           trackToBeClosed: attribute == 'close',
         );
         updateFastLocalBinding(name);
@@ -1422,35 +1389,27 @@ mixin InterpreterAssignmentMixin on AstVisitor<Object?> {
         if (value is Future) {
           value = await value;
         } else if (value is Value && value.raw is Future) {
-          value = interpreter.wrapRuntimeValue(await value.raw);
+          value = valueFromLuaSlot(interpreter, await value.raw);
         }
 
-        if (value is Value && value.isMulti) {
-          final multiValues = value.raw as List;
-          values.add(
-            multiValues.isNotEmpty
-                ? multiValues.first
-                : interpreter.wrapRuntimeValue(null),
-          );
-        } else if (value is List && value.isNotEmpty) {
-          values.add(value.first);
+        if (luaResultValues(value) != null || value is List) {
+          values.add(_firstLuaResultOrNil(value, interpreter: interpreter));
         } else {
-          values.add(
-            value is Value ? value : interpreter.wrapRuntimeValue(value),
-          );
+          values.add(valueFromLuaSlot(interpreter, value));
         }
       } else if (expr is FunctionCall || expr is MethodCall) {
         value = await expr.accept(this);
         if (value is Future) {
           value = await value;
         } else if (value is Value && value.raw is Future) {
-          value = interpreter.wrapRuntimeValue(await value.raw);
+          value = valueFromLuaSlot(interpreter, await value.raw);
         }
 
-        if (value is List) {
+        final resultValues = luaResultValues(value);
+        if (resultValues != null) {
+          values.addAll(resultValues);
+        } else if (value is List) {
           values.addAll(value);
-        } else if (value is Value && value.isMulti) {
-          values.addAll(value.raw);
         } else {
           values.add(value);
         }
@@ -1459,21 +1418,19 @@ mixin InterpreterAssignmentMixin on AstVisitor<Object?> {
         if (value is Future) {
           value = await value;
         } else if (value is Value && value.raw is Future) {
-          value = interpreter.wrapRuntimeValue(await value.raw);
+          value = valueFromLuaSlot(interpreter, await value.raw);
         }
 
-        if (value is List) {
+        final resultValues = luaResultValues(value);
+        if (resultValues != null) {
+          values.addAll(resultValues);
+        } else if (value is List) {
           values.addAll(value);
         } else {
           if (value is! Value) {
-            value = interpreter.wrapRuntimeValue(value);
+            value = valueFromLuaSlot(interpreter, value);
           }
-          final val = value;
-          if (val.isMulti) {
-            values.addAll(val.raw);
-          } else {
-            values.add(val);
-          }
+          values.add(value);
         }
       }
     }
@@ -1506,7 +1463,7 @@ mixin InterpreterAssignmentMixin on AstVisitor<Object?> {
           ? node.attributes[index]
           : node.defaultAttribute;
 
-      final baseValue = rawValue is Value ? rawValue : Value(rawValue);
+      final baseValue = valueFromLuaSlot(this as Interpreter, rawValue);
       final valueWithAttributes = switch (attribute) {
         'const' => Value(
           baseValue.raw,
@@ -1565,7 +1522,7 @@ mixin InterpreterAssignmentMixin on AstVisitor<Object?> {
       if (result is Future) {
         result = await result;
       } else if (result is Value && result.raw is Future) {
-        result = interpreter.wrapRuntimeValue(await result.raw);
+        result = valueFromLuaSlot(interpreter, await result.raw);
       }
 
       Logger.debugLazy(
@@ -1573,17 +1530,12 @@ mixin InterpreterAssignmentMixin on AstVisitor<Object?> {
             'AssignmentIndexAccessExpr: handling GroupedExpression with '
             'inner result: $result',
         category: 'Interpreter',
-        contextBuilder: () => {'isMulti': result is Value && result.isMulti},
+        contextBuilder: () => {'isMulti': luaResultValues(result) != null},
       );
 
       // In Lua, when a function call is wrapped in parentheses, only the first return value is used
-      if (result is Value && result.isMulti) {
-        var multiValues = result.raw as List;
-        valueToAssign = multiValues.isNotEmpty
-            ? multiValues.first
-            : interpreter.wrapRuntimeValue(null);
-      } else if (result is List && result.isNotEmpty) {
-        valueToAssign = result[0];
+      if (luaResultValues(result) != null || result is List) {
+        valueToAssign = _firstLuaResultOrNil(result, interpreter: interpreter);
       } else {
         valueToAssign = result;
       }
@@ -1594,21 +1546,15 @@ mixin InterpreterAssignmentMixin on AstVisitor<Object?> {
       if (valueToAssign is Future) {
         valueToAssign = await valueToAssign;
       } else if (valueToAssign is Value && valueToAssign.raw is Future) {
-        valueToAssign = interpreter.wrapRuntimeValue(await valueToAssign.raw);
+        valueToAssign = valueFromLuaSlot(interpreter, await valueToAssign.raw);
       }
     }
 
     // Wrap the value if needed
-    final wrappedValue = valueToAssign is Value
-        ? valueToAssign
-        : interpreter.wrapRuntimeValue(valueToAssign);
+    final wrappedValue = valueFromLuaSlot(interpreter, valueToAssign);
 
-    final targetVal = targetValue is Value
-        ? targetValue
-        : interpreter.wrapRuntimeValue(targetValue);
-    final indexVal = indexValue is Value
-        ? indexValue
-        : interpreter.wrapRuntimeValue(indexValue);
+    final targetVal = valueFromLuaSlot(interpreter, targetValue);
+    final indexVal = valueFromLuaSlot(interpreter, indexValue);
 
     if (targetVal.raw is! Map) {
       throw Exception('Cannot assign to index of non-table value');
@@ -1643,7 +1589,7 @@ mixin InterpreterAssignmentMixin on AstVisitor<Object?> {
       return null;
     }
 
-    final storedValue = _detachPrimitiveValue(wrappedValue);
+    final storedValue = wrappedValue;
 
     if (map is TableStorage && (!hasNewindex || keyExists) && !hasIndexMeta) {
       final denseIndex = positiveInteger(indexVal);
