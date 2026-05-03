@@ -1742,7 +1742,7 @@ _SimpleTopLevelLiteralFunctionFactory? _matchSimpleTopLevelLiteralFunction(
 
 LuaString _sharedLiteralLuaString(LuaRuntime runtime, List<int> bytes) {
   if (runtime is Interpreter) {
-    final key = bytes.join(',');
+    final key = luaStringCacheKey(bytes);
     return runtime.literalStringInternPool.putIfAbsent(
       key,
       () => LuaString.fromBytes(bytes),

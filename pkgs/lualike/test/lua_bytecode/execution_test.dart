@@ -198,6 +198,54 @@ return sample(7, 3, 2)
       );
     }, skip: skipReason);
 
+    test('executes float modulo edge cases like upstream Lua', () async {
+      final results = await _executeFixture(luacBinary!, '''
+return 0.0 % 0,
+       1.3 % 0,
+       1 % math.huge,
+       1e30 % math.huge,
+       1e30 % -math.huge,
+       -1 % math.huge,
+       -1 % -math.huge
+''');
+
+      expect(results[0] is double && (results[0] as double).isNaN, isTrue);
+      expect(results[1] is double && (results[1] as double).isNaN, isTrue);
+      expect(
+        results.sublist(2),
+        equals(<Object?>[
+          1,
+          1e30,
+          double.negativeInfinity,
+          double.infinity,
+          -1,
+        ]),
+      );
+    }, skip: skipReason);
+
+    test('skips dead placeholder CLOSE emitted after goto', () async {
+      final results = await _executeFixture(luacBinary!, '''
+local events = {}
+local mt = {
+  __close = function(x)
+    events[#events + 1] = x.name
+  end
+}
+
+do
+  local x <close> = setmetatable({name = 'x'}, mt)
+  goto skip
+  events[#events + 1] = 'body'
+  ::skip::
+  events[#events + 1] = 'after'
+end
+
+return table.concat(events, ',')
+''');
+
+      expect(results, equals(<Object?>['after,x']));
+    }, skip: skipReason);
+
     test('rejects invalid ordering comparisons', () async {
       await expectLater(
         _executeFixture(luacBinary!, '''
@@ -450,6 +498,20 @@ return f()
         ),
       );
     }, skip: skipReason);
+
+    test(
+      'does not count cloned shared string constants in collectgarbage count deltas',
+      () async {
+        final results = await _executeFixture(luacBinary!, '''
+local m = collectgarbage('count')
+local n = collectgarbage('count')
+return n - m
+''');
+
+        expect(results, equals(<Object?>[0.0]));
+      },
+      skip: skipReason,
+    );
   });
 }
 

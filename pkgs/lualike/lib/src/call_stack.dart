@@ -35,6 +35,9 @@ class CallFrame {
   /// Debug locals for this frame, in enumeration order (1-based for Lua)
   /// Each entry stores the visible name and the underlying Value
   final List<MapEntry<String, Value>> debugLocals;
+  Object? debugLocalsOwner;
+  int debugLocalsPc;
+  int debugLocalsVersion;
 
   /// Transfer metadata used by Lua 5.5 call/return hooks.
   int ftransfer;
@@ -69,6 +72,9 @@ class CallFrame {
     this.callable,
     this.lastDebugHookLine = -1,
     List<MapEntry<String, Value>>? debugLocals,
+    this.debugLocalsOwner,
+    this.debugLocalsPc = -1,
+    this.debugLocalsVersion = -1,
     this.ftransfer = 0,
     this.ntransfer = 0,
     List<Value>? transferValues,
@@ -89,15 +95,25 @@ class CallFrame {
       );
     }
     if (scriptPath != null && currentLine > 0) {
-      final uri = Uri.file(scriptPath!);
-      final location = SourceLocation(
-        0,
-        sourceUrl: uri,
-        line: currentLine - 1,
-        column: 0,
-      );
-      final span = SourceSpan(location, location, '');
-      return LuaStackFrame(functionName, span: span, scriptPath: scriptPath);
+      // Guard against Lua chunk source names (e.g. '[string "..."]' or
+      // '=(label)') that are not real file paths.  On Windows, Uri.file()
+      // throws "Illegal character in path" for those strings.
+      Uri? uri;
+      try {
+        uri = Uri.file(scriptPath!);
+      } catch (_) {
+        uri = null;
+      }
+      if (uri != null) {
+        final location = SourceLocation(
+          0,
+          sourceUrl: uri,
+          line: currentLine - 1,
+          column: 0,
+        );
+        final span = SourceSpan(location, location, '');
+        return LuaStackFrame(functionName, span: span, scriptPath: scriptPath);
+      }
     }
     return LuaStackFrame(functionName, scriptPath: scriptPath);
   }

@@ -1,0 +1,6 @@
+require "memory_profiles.short_lived_tables"
+require "memory_profiles.nested_table_churn"
+require "memory_profiles.closure_churn"
+require "memory_profiles.coroutine_churn"
+require "memory_profiles.weak_table_cleanup"
+require "memory_profiles.register_write_churn"

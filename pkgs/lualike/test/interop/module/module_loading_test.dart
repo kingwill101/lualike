@@ -139,6 +139,51 @@ void main() {
       expect((bridge.getGlobal('after') as Value).unwrap(), isTrue);
     });
 
+    test('package.searchers can disable filesystem module loading', () async {
+      final bridge = LuaLike();
+      bridge.vm.fileManager.registerVirtualFile('blocked.lua', 'return 42');
+      final package = bridge.vm.globals.get('package') as Value;
+      final packageTable = package.raw as Map;
+      packageTable['searchers'] = Value(<Value>[
+        Value((List<Object?> args) {
+          final name = (args[0] as Value).raw;
+          return Value("custom searcher rejected '$name'");
+        }),
+      ]);
+
+      await expectLater(
+        bridge.execute('return require("blocked")'),
+        throwsA(isA<LuaError>()),
+      );
+    });
+
+    test('require accepts multi-return values from Lua searchers', () async {
+      final bridge = LuaLike();
+      await bridge.execute(r'''
+        function custom_searcher(name)
+          return function(loaderName, loaderData)
+            return loaderName .. ':' .. loaderData
+          end, 'from-lua-searcher'
+        end
+      ''');
+      final package = bridge.vm.globals.get('package') as Value;
+      final packageTable = package.raw as Map;
+      packageTable['searchers'] = Value(<Value>[
+        bridge.getGlobal('custom_searcher') as Value,
+      ]);
+
+      await bridge.execute('loaded, loaderData = require("custom")');
+
+      expect(
+        (bridge.getGlobal('loaded') as Value).unwrap(),
+        equals('custom:from-lua-searcher'),
+      );
+      expect(
+        (bridge.getGlobal('loaderData') as Value).unwrap(),
+        equals('from-lua-searcher'),
+      );
+    });
+
     // SKIP: Our implementation doesn't support method chaining
     test('module with method chaining (workaround)', () async {
       final bridge = LuaLike();

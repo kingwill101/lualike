@@ -1,3 +1,4 @@
+import 'package:lualike/src/ir/runtime.dart';
 import 'package:lualike_test/test.dart';
 
 void main() {
@@ -10,6 +11,19 @@ void main() {
 
     tearDown(() {
       LuaLikeConfig().defaultEngineMode = originalMode;
+    });
+
+    test('rejects mismatched runtime and engine mode', () {
+      expect(
+        () => LuaLike(runtime: LualikeIrRuntime(), engineMode: EngineMode.ast),
+        throwsA(
+          isA<ArgumentError>().having(
+            (error) => error.message,
+            'message',
+            contains('does not match engineMode'),
+          ),
+        ),
+      );
     });
 
     test('can call Dart function from LuaLike', () async {

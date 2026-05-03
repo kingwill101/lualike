@@ -253,6 +253,9 @@ final class LuaBytecodePrototype {
       (flags & LuaBytecodePrototypeFlags.fixedMemory) != 0;
   bool get hasDebugInfo => lineInfo.isNotEmpty;
 
+  /// Returns the cached source-line map for each bytecode PC.
+  List<int?> get linesByPc => _linesByPcFor(this);
+
   /// Returns the cached source line for [pc].
   ///
   /// The VM consults this in the main dispatch loop, so precomputing the
@@ -296,7 +299,7 @@ List<int?> _linesByPcFor(LuaBytecodePrototype prototype) {
   if (cached != null) {
     return cached;
   }
-  final built = prototype._buildLinesByPc();
+  final built = List<int?>.unmodifiable(prototype._buildLinesByPc());
   _prototypeLinesByPc[prototype] = built;
   return built;
 }

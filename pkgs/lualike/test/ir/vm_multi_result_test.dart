@@ -1,17 +1,31 @@
 @Tags(['ir'])
 library;
 
-import 'package:lualike/src/ir/compiler.dart';
-import 'package:lualike/src/ir/vm.dart';
-import 'package:lualike/src/parse.dart';
+import 'package:lualike/src/interop.dart';
+import 'package:lualike/src/ir/runtime.dart';
+import 'package:lualike/src/lua_string.dart';
+import 'package:lualike/src/value.dart';
 import 'package:test/test.dart';
 
+Object? _unwrapResult(Object? value) {
+  if (value is Value) {
+    return _unwrapResult(value.raw);
+  }
+  if (value is LuaString) {
+    return value.toString();
+  }
+  if (value is List) {
+    return value.map(_unwrapResult).toList();
+  }
+  return value;
+}
+
 void main() {
-  group('LualikeIrVm multi-result execution', () {
+  group('IR multi-result execution', () {
     test('returns multiple explicit values', () async {
       const source = 'local function pair() return 2, 3 end\nreturn pair()';
-      final chunk = LualikeIrCompiler().compile(parse(source));
-      final result = await LualikeIrVm().execute(chunk);
+      final bridge = LuaLike(runtime: LualikeIrRuntime());
+      final result = _unwrapResult(await bridge.execute(source));
       expect(result, equals(<dynamic>[2, 3]));
     });
 
@@ -26,8 +40,8 @@ end
 local prefix = 1
 return prefix, helper()
 ''';
-        final chunk = LualikeIrCompiler().compile(parse(source));
-        final result = await LualikeIrVm().execute(chunk);
+        final bridge = LuaLike(runtime: LualikeIrRuntime());
+        final result = _unwrapResult(await bridge.execute(source));
         expect(result, equals(<dynamic>[1, 4, 5, 6]));
       },
     );
@@ -42,8 +56,8 @@ local a, b
 a, b = pair()
 return a, b
 ''';
-      final chunk = LualikeIrCompiler().compile(parse(source));
-      final result = await LualikeIrVm().execute(chunk);
+      final bridge = LuaLike(runtime: LualikeIrRuntime());
+      final result = _unwrapResult(await bridge.execute(source));
       expect(result, equals(<dynamic>[7, 8]));
     });
 
@@ -51,8 +65,8 @@ return a, b
       const source =
           'local function passthrough(...) return ... end\n'
           'local x, y, z = passthrough(9)\nreturn x, y, z';
-      final chunk = LualikeIrCompiler().compile(parse(source));
-      final result = await LualikeIrVm().execute(chunk);
+      final bridge = LuaLike(runtime: LualikeIrRuntime());
+      final result = _unwrapResult(await bridge.execute(source));
       expect(result, equals(<dynamic>[9, null, null]));
     });
   });

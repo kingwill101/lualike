@@ -96,6 +96,9 @@ class LualikeIrDebugInfo {
     required this.absoluteSourcePath,
     this.localNames = const [],
     this.upvalueNames = const [],
+    this.toBeClosedNamesByPc = const {},
+    this.preferredName,
+    this.preferredNameWhat = '',
   });
 
   /// Line number for each instruction (packed form optional).
@@ -109,6 +112,15 @@ class LualikeIrDebugInfo {
 
   /// Upvalue names.
   final List<String> upvalueNames;
+
+  /// Local names attached to individual `TBC` instructions for diagnostics.
+  final Map<int, String> toBeClosedNamesByPc;
+
+  /// Preferred debug name for stack frames created from this prototype.
+  final String? preferredName;
+
+  /// Debug name classification for [preferredName].
+  final String preferredNameWhat;
 }
 
 /// Local variable debug entry.
@@ -117,11 +129,13 @@ class LocalDebugEntry {
     required this.name,
     required this.startPc,
     required this.endPc,
+    this.register,
   });
 
   final String name;
   final int startPc;
   final int endPc;
+  final int? register;
 }
 
 /// A lualike IR prototype (function), mirroring Lua's Proto structure.

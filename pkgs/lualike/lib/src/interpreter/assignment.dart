@@ -109,10 +109,22 @@ mixin InterpreterAssignmentMixin on AstVisitor<Object?> {
     if (value.isToBeClose && !isToBeClose) {
       return false;
     }
+    if (value.isConst && !isConst) {
+      return false;
+    }
     if (isConst) {
       return false;
     }
-    return value.metatable != null || value.metatableRef != null;
+    return value.raw is Map ||
+        value.metatable != null ||
+        value.metatableRef != null ||
+        value.upvalues != null ||
+        value.functionBody != null ||
+        value.closureEnvironment != null ||
+        value.globalProxyEnvironment != null ||
+        value.functionName != null ||
+        value.debugLineDefined != null ||
+        value.strippedDebugInfo;
   }
 
   Object? _snapshotAssignmentResult(Object? value) {
@@ -154,6 +166,8 @@ mixin InterpreterAssignmentMixin on AstVisitor<Object?> {
       value.raw,
       isConst: isConst,
       isToBeClose: isToBeClose,
+      skipAllocationDebt: value.skipAllocationDebt,
+      skipGcRegistration: value.skipGcRegistration,
       upvalues: value.upvalues,
       interpreter: value.interpreter,
       functionBody: value.functionBody,

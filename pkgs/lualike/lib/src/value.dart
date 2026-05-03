@@ -94,6 +94,20 @@ class Value extends Object implements Map<String, dynamic>, GCObject {
   /// Temporary keys are not counted for GC debt to avoid tracking overhead.
   bool isTempKey = false;
 
+  /// Whether this wrapper should be excluded from allocation-debt accounting.
+  ///
+  /// This keeps bookkeeping-neutral clones of shared runtime constants from
+  /// perturbing Lua-visible `collectgarbage("count")` results.
+  bool skipAllocationDebt = false;
+
+  /// Whether this wrapper should skip eager GC registration.
+  ///
+  /// Some hot bytecode-only wrappers carry primitive payloads that do not own
+  /// per-instance GC references. They can stay off the generational tracking
+  /// sets until they escape into a tracked container or a collection discovers
+  /// them from roots, which avoids repeated registration churn in tight loops.
+  bool skipGcRegistration = false;
+
   /// Hint for fast-calling simple Lua closures (e.g., comparator x < y)
   /// Currently used to accelerate very common patterns in tight loops.
   bool isLessComparator = false;
@@ -366,6 +380,8 @@ class Value extends Object implements Map<String, dynamic>, GCObject {
     this.isConst = false,
     this.isToBeClose = false,
     this.isTempKey = false,
+    this.skipAllocationDebt = false,
+    this.skipGcRegistration = false,
     this.upvalues,
     this.interpreter,
     this.functionBody,
@@ -412,8 +428,47 @@ class Value extends Object implements Map<String, dynamic>, GCObject {
     // Always register with the GC so mark/unmark and separation logic
     // remains correct, but avoid charging allocation debt for
     // primitive-like wrappers to reduce auto-trigger overhead.
-    final gcLocal2 = GCAccess.fromValue(this);
-    gcLocal2?.register(this, countAllocation: _shouldCountAllocation());
+    if (!skipGcRegistration) {
+      final gcLocal2 = GCAccess.fromValue(this);
+      gcLocal2?.register(this, countAllocation: _shouldCountAllocation());
+    }
+  }
+
+  Value.primitive(
+    Object? raw, {
+    this.isMulti = false,
+    this.isConst = false,
+    this.isToBeClose = false,
+    this.isTempKey = false,
+    this.skipAllocationDebt = false,
+    this.skipGcRegistration = false,
+    this.upvalues,
+    this.interpreter,
+    this.functionBody,
+    this.closureEnvironment,
+    this.functionName,
+    this.debugLineDefined,
+    this.strippedDebugInfo = false,
+  }) : _raw = raw {
+    _isInitialized = true;
+    _isFreed = false;
+
+    final type = switch (raw) {
+      null => 'nil',
+      bool() => 'boolean',
+      int() || double() || BigInt() => 'number',
+      String() => 'string',
+      LuaString() => 'string',
+      _ => 'number', // keep existing fallback for any other numeric-like types
+    };
+    if (MetaTable().isDefaultMetatableActive(type)) {
+      MetaTable().applyDefaultMetatable(this);
+    }
+
+    if (!skipGcRegistration) {
+      final gcLocal = GCAccess.fromValue(this);
+      gcLocal?.register(this, countAllocation: _shouldCountAllocation());
+    }
   }
 
   // ---------------------------------------------------------------------------
@@ -538,6 +593,7 @@ class Value extends Object implements Map<String, dynamic>, GCObject {
   bool _shouldCountAllocation() {
     if (isMulti) return false; // short-lived carrier, don't count
     if (raw is VirtualLuaTable) return false;
+    if (skipAllocationDebt) return false;
     if (isTempKey) {
       if (Logger.enabled) {
         Logger.debugLazy(
@@ -724,6 +780,8 @@ class Value extends Object implements Map<String, dynamic>, GCObject {
         metatable: metatable != null ? Map.from(metatable!) : null,
         isConst: isConst,
         isToBeClose: isToBeClose,
+        skipAllocationDebt: skipAllocationDebt,
+        skipGcRegistration: skipGcRegistration,
         upvalues: upvalues,
         interpreter: interpreter,
         functionBody: functionBody,
@@ -739,6 +797,8 @@ class Value extends Object implements Map<String, dynamic>, GCObject {
       metatable: metatable != null ? Map.from(metatable!) : null,
       isConst: isConst,
       isToBeClose: isToBeClose,
+      skipAllocationDebt: skipAllocationDebt,
+      skipGcRegistration: skipGcRegistration,
       upvalues: upvalues,
       interpreter: interpreter,
       functionBody: functionBody,
@@ -1004,7 +1064,42 @@ class Value extends Object implements Map<String, dynamic>, GCObject {
   }
 
   @override
-  int get hashCode => raw.hashCode;
+  int get hashCode {
+    final numericKey = _canonicalNumericHashKey(raw);
+    if (numericKey != null) {
+      return numericKey.hashCode;
+    }
+    if (raw is LuaString) {
+      return (raw as LuaString).toString().hashCode;
+    }
+    return raw.hashCode;
+  }
+
+  static BigInt? _canonicalNumericHashKey(Object? value) {
+    if (value is int) {
+      return BigInt.from(value);
+    }
+    if (value is BigInt) {
+      return value;
+    }
+    if (value is double) {
+      if (!value.isFinite) {
+        return null;
+      }
+      if (value == 0) {
+        return BigInt.zero;
+      }
+      if (value.truncateToDouble() != value) {
+        return null;
+      }
+      try {
+        return BigInt.parse(value.toStringAsFixed(0));
+      } catch (_) {
+        return null;
+      }
+    }
+    return null;
+  }
 
   @override
   bool operator ==(Object other) => equals(other);

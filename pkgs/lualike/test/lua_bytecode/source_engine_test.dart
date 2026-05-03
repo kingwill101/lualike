@@ -8,6 +8,8 @@ import 'package:lualike/command/lualike_command_runner.dart';
 import 'package:lualike/src/lua_bytecode/runtime.dart';
 import 'package:test/test.dart';
 
+import '../helpers/package_paths.dart';
+
 void main() {
   final luacBinary = _resolveLuacBinary();
   final skipReason = luacBinary == null
@@ -1015,6 +1017,30 @@ return t.a.b.add(3), t.a.b:scale(5)
       },
     );
 
+    test(
+      'load chunks can return local tables when called with loader args',
+      () async {
+        final result = await executeCode(r'''
+local chunk = assert(load([[
+local M = {}
+
+function M:get()
+  return self.value
+end
+
+M.value = "loaded"
+return M
+]]))
+
+local module = chunk("example.module", "example/module.lua")
+return module:get()
+''', mode: EngineMode.luaBytecode);
+
+        expect(_flatten(result), equals(<Object?>['loaded']));
+      },
+      timeout: const Timeout(Duration(seconds: 5)),
+    );
+
     test('executeCode runs coroutine yield and resume via bytecode', () async {
       final result = await executeCode('''
 local co = coroutine.create(function(a)
@@ -1209,6 +1235,33 @@ return loaded[1], loaded[2]
       },
     );
 
+    test('executeCode requires self-referential module tables', () async {
+      final tempDir = await Directory.systemTemp.createTemp(
+        'lbc_require_cycle_',
+      );
+      addTearDown(() async {
+        if (await tempDir.exists()) {
+          await tempDir.delete(recursive: true);
+        }
+      });
+
+      final moduleFile = File('${tempDir.path}/cycle.lua');
+      await moduleFile.writeAsString('''
+local M = {}
+M.__index = M
+return M
+''');
+
+      final searchPath = '${tempDir.path.replaceAll('\\', '/')}/?.lua';
+      final result = await executeCode('''
+package.path = ${_luaStringLiteral(searchPath)}
+local loaded = require("cycle")
+return loaded.__index == loaded
+''', mode: EngineMode.luaBytecode);
+
+      expect(_flatten(result), equals(<Object?>[true]));
+    });
+
     test('executeCode stores globals through a local _ENV table', () async {
       final result = await executeCode(r'''
 local loader = function (...)
@@ -1337,37 +1390,76 @@ return a[2], b, c == print, a[1].alo == assert
       expect(LuaLikeConfig().defaultEngineMode, EngineMode.luaBytecode);
     });
 
-    test('CLI runs raw luac chunks under --lua-bytecode', () async {
-      // This exercises the real `dart run bin/main.dart` path, so a clean
-      // machine can spend most of the default test budget compiling the CLI.
-      final tempDir = Directory.systemTemp.createTempSync(
-        'lualike_lua_bytecode_cli_',
-      );
-      final sourceFile = File('${tempDir.path}/fixture.lua');
-      final chunkFile = File('${tempDir.path}/fixture.luac');
+    test(
+      'CLI runs raw luac chunks under --lua-bytecode',
+      () async {
+        // This exercises the real `dart run bin/main.dart` path, so a clean
+        // machine can spend most of the default test budget compiling the CLI.
+        final tempDir = Directory.systemTemp.createTempSync(
+          'lualike_lua_bytecode_cli_',
+        );
+        final sourceFile = File('${tempDir.path}/fixture.lua');
+        final chunkFile = File('${tempDir.path}/fixture.luac');
 
-      try {
-        sourceFile.writeAsStringSync("print('bytecode cli ok')");
-        final compile = Process.runSync(luacBinary!, <String>[
-          '-o',
-          chunkFile.path,
-          sourceFile.path,
-        ]);
-        expect(compile.exitCode, equals(0), reason: '${compile.stderr}');
+        try {
+          sourceFile.writeAsStringSync("print('bytecode cli ok')");
+          final compile = Process.runSync(luacBinary!, <String>[
+            '-o',
+            chunkFile.path,
+            sourceFile.path,
+          ]);
+          expect(compile.exitCode, equals(0), reason: '${compile.stderr}');
 
-        final result = await Process.run(Platform.resolvedExecutable, <String>[
-          'run',
-          'bin/main.dart',
-          '--lua-bytecode',
-          chunkFile.path,
-        ]);
+          final result = await Process.run(
+            Platform.resolvedExecutable,
+            <String>[
+              'run',
+              packagePath('bin/main.dart'),
+              '--lua-bytecode',
+              chunkFile.path,
+            ],
+          );
 
-        expect(result.exitCode, equals(0), reason: '${result.stderr}');
-        expect(result.stdout as String, contains('bytecode cli ok'));
-      } finally {
-        tempDir.deleteSync(recursive: true);
-      }
-    }, skip: skipReason, timeout: Timeout.factor(4));
+          expect(result.exitCode, equals(0), reason: '${result.stderr}');
+          expect(result.stdout as String, contains('bytecode cli ok'));
+        } finally {
+          tempDir.deleteSync(recursive: true);
+        }
+      },
+      skip: skipReason,
+      timeout: Timeout.factor(4),
+    );
+
+    test(
+      'command runner auto-selects lua_bytecode engine mode for raw luac chunks',
+      () async {
+        final tempDir = Directory.systemTemp.createTempSync(
+          'lualike_lua_bytecode_runner_auto_',
+        );
+        final sourceFile = File('${tempDir.path}/fixture.lua');
+        final chunkFile = File('${tempDir.path}/fixture.luac');
+
+        try {
+          LuaLikeConfig().defaultEngineMode = EngineMode.ast;
+          sourceFile.writeAsStringSync('return 42');
+          final compile = Process.runSync(luacBinary!, <String>[
+            '-o',
+            chunkFile.path,
+            sourceFile.path,
+          ]);
+          expect(compile.exitCode, equals(0), reason: '${compile.stderr}');
+
+          final runner = LuaLikeCommandRunner();
+          await runner.run([chunkFile.path]);
+
+          expect(LuaLikeConfig().defaultEngineMode, EngineMode.luaBytecode);
+        } finally {
+          tempDir.deleteSync(recursive: true);
+        }
+      },
+      skip: skipReason,
+      timeout: Timeout.factor(4),
+    );
 
     test(
       'unsupported source subsets fail explicitly without AST fallback',

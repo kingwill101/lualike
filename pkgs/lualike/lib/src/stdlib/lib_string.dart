@@ -251,7 +251,11 @@ _RegexBackreferencePattern? _translateLuaBackreferencePattern(String pattern) {
           index += 2;
           continue;
         }
-        classBuffer.write(pattern[index]);
+        if (pattern[index] == r'\') {
+          classBuffer.write(r'\\');
+        } else {
+          classBuffer.write(pattern[index]);
+        }
         index++;
       }
       if (index >= pattern.length) {
@@ -581,6 +585,7 @@ class StringLibrary extends Library {
     context.define("dump", _StringDump(interpreter));
     context.define("find", _StringFind(interpreter));
     context.define("format", _StringFormat(interpreter));
+    context.define("gfind", _StringGmatch(interpreter));
     context.define("gmatch", _StringGmatch(interpreter));
     context.define("gsub", _StringGsub(interpreter));
     context.define("len", _StringLen(interpreter));

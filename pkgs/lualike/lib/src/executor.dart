@@ -5,10 +5,7 @@ import 'parse.dart';
 import 'semantic_checker.dart';
 import 'runtime/lua_runtime.dart';
 import 'config.dart';
-import 'ir/compiler.dart';
-import 'ir/disassembler.dart';
 import 'ir/runtime.dart';
-import 'ir/vm.dart';
 import 'lua_error.dart';
 import 'lua_bytecode/runtime.dart';
 
@@ -51,23 +48,6 @@ Future<Object?> executeCode(
     final semanticError = validateProgramSemantics(program);
     if (semanticError != null) {
       throw Exception(semanticError);
-    }
-
-    if (selectedMode == EngineMode.ir) {
-      final chunk = LualikeIrCompiler().compile(program);
-      if (LuaLikeConfig().dumpIr) {
-        final disassembly = disassembleChunk(chunk);
-        if (disassembly.isNotEmpty) {
-          print('--- IR Disassembly ---');
-          print(disassembly);
-          print('--- End IR Disassembly ---');
-        }
-      }
-      final result = await LualikeIrVm(
-        environment: runtime.globals,
-        runtime: runtime,
-      ).execute(chunk);
-      return result;
     }
 
     return await runtime.runAst(program.statements);

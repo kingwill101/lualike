@@ -26,6 +26,17 @@ void main() {
     test('Division', () async => await check('8 / 2', 4));
     test('Floor Division', () async => await check('7 // 2', 3));
     test('Modulo', () async => await check('10 % 3', 1));
+    test('Float modulo by zero is NaN', () async {
+      await check('0.0 % 0', null, isNaN: true);
+      await check('1.3 % 0', null, isNaN: true);
+    });
+    test('Float modulo keeps Lua infinity semantics', () async {
+      await check('1 % math.huge', 1);
+      await check('1e30 % math.huge', 1e30);
+      await check('1e30 % -math.huge', double.negativeInfinity);
+      await check('-1 % math.huge', double.infinity);
+      await check('-1 % -math.huge', -1);
+    });
     test('Exponentiation', () async => await check('2 ^ 3', 8));
     test('Negation', () async => await check('-5', -5));
     test('Bitwise AND', () async => await check('0xF0 & 0x0F', 0));

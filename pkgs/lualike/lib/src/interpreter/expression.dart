@@ -64,6 +64,8 @@ Value _detachTemporaryValue(Value value) {
     isConst: value.isConst,
     isToBeClose: value.isToBeClose,
     isTempKey: value.isTempKey,
+    skipAllocationDebt: value.skipAllocationDebt,
+    skipGcRegistration: value.skipGcRegistration,
     upvalues: value.upvalues,
     interpreter: value.interpreter,
     functionBody: value.functionBody,
@@ -1177,7 +1179,7 @@ mixin InterpreterExpressionMixin on AstVisitor<Object?> {
           );
         }
         final result = await envValue.getValueAsync(
-          interpreter.constantStringValue(node.name.codeUnits),
+          interpreter.constantRawStringValue(node.name),
         );
         return result is Value ? result : interpreter.wrapRuntimeValue(result);
       } else if (envValue.raw == null) {

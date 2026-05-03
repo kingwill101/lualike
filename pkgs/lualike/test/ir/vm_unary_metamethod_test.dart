@@ -1,24 +1,30 @@
 @Tags(['ir'])
 library;
 
-import 'package:lualike/src/ir/compiler.dart';
+import 'package:lualike/src/interop.dart';
 import 'package:lualike/src/ir/runtime.dart';
-import 'package:lualike/src/ir/vm.dart';
-import 'package:lualike/src/parse.dart';
+import 'package:lualike/src/lua_string.dart';
 import 'package:lualike/src/value.dart';
 import 'package:test/test.dart';
 
-dynamic _unwrap(dynamic value) => value is Value ? value.raw : value;
-
-dynamic _compile(String source) {
-  final program = parse(source);
-  return LualikeIrCompiler().compile(program);
+Object? _unwrap(dynamic value) {
+  if (value is Value) {
+    return _unwrap(value.raw);
+  }
+  if (value is LuaString) {
+    return value.toString();
+  }
+  if (value is List) {
+    return value.map(_unwrap).toList();
+  }
+  return value;
 }
 
 void main() {
-  group('LualikeIrVm unary metamethods', () {
+  group('IR unary metamethods', () {
     test('__unm receives operand twice and returns first result', () async {
-      final chunk = _compile(r'''
+      final bridge = LuaLike(runtime: LualikeIrRuntime());
+      final outcome = await bridge.execute(r'''
         local captures = {}
         local subject = setmetatable({}, {
           __unm = function(...)
@@ -32,9 +38,6 @@ void main() {
         local result = -subject
         return captures.count, captures.first, captures.second, result
       ''');
-      final runtime = LualikeIrRuntime();
-      final vm = LualikeIrVm(environment: runtime.globals, runtime: runtime);
-      final outcome = await vm.execute(chunk);
       expect(outcome, isA<List>());
       final results = outcome as List<dynamic>;
       expect(results, hasLength(4));
@@ -48,7 +51,8 @@ void main() {
     });
 
     test('__bnot receives operand twice', () async {
-      final chunk = _compile(r'''
+      final bridge = LuaLike(runtime: LualikeIrRuntime());
+      final outcome = await bridge.execute(r'''
         local captures = {}
         local subject = setmetatable({}, {
           __bnot = function(...)
@@ -62,9 +66,6 @@ void main() {
         local result = ~subject
         return captures.count, captures.first, captures.second, result
       ''');
-      final runtime = LualikeIrRuntime();
-      final vm = LualikeIrVm(environment: runtime.globals, runtime: runtime);
-      final outcome = await vm.execute(chunk);
       expect(outcome, isA<List>());
       final results = outcome as List<dynamic>;
       expect(results, hasLength(4));
@@ -75,7 +76,8 @@ void main() {
     });
 
     test('__len receives operand twice', () async {
-      final chunk = _compile(r'''
+      final bridge = LuaLike(runtime: LualikeIrRuntime());
+      final outcome = await bridge.execute(r'''
         local captures = {}
         local subject = setmetatable({}, {
           __len = function(...)
@@ -89,9 +91,6 @@ void main() {
         local result = #subject
         return captures.count, captures.first, captures.second, result
       ''');
-      final runtime = LualikeIrRuntime();
-      final vm = LualikeIrVm(environment: runtime.globals, runtime: runtime);
-      final outcome = await vm.execute(chunk);
       expect(outcome, isA<List>());
       final results = outcome as List<dynamic>;
       expect(results, hasLength(4));

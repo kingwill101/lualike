@@ -10,6 +10,17 @@ import 'package:lualike/src/stdlib/library.dart';
 import 'package:lualike/src/stack.dart';
 import 'package:lualike/src/value.dart';
 
+/// Produces a stable cache key for Lua strings based on their raw byte
+/// sequence. This avoids collisions between textual keys such as the string
+/// `"100"` and a one-byte string whose byte value is `100` (`"d"`).
+String luaStringCacheKey(List<int> bytes) {
+  return luaStringCacheKeyFromRawString(String.fromCharCodes(bytes));
+}
+
+/// Produces a Lua string cache key for a Dart string whose code units already
+/// represent the intended Lua byte sequence.
+String luaStringCacheKeyFromRawString(String value) => 'b:$value';
+
 /// Result of loading a chunk through the active runtime engine.
 class LuaChunkLoadResult {
   const LuaChunkLoadResult.success(this.chunk) : errorMessage = null;
@@ -89,6 +100,7 @@ abstract interface class LuaRuntime {
   Object? dumpFunction(Value function, {bool stripDebugInfo = false});
   LuaFunctionDebugInfo? debugInfoForFunction(Value function);
   Value constantStringValue(List<int> bytes);
+  Value constantRawStringValue(String value);
   Value constantPrimitiveValue(Object? raw);
 
   // Call stack & debugging
@@ -119,6 +131,7 @@ abstract interface class LuaRuntime {
   void pushExternalGcRoots(Iterable<Object?> Function() provider);
   void popExternalGcRoots(Iterable<Object?> Function() provider);
   void runAutoGcAtSafePoint();
+  bool shouldRunLoopGcAtSafePoint(int loopCounter);
   Future<void> runLoopGcAtSafePoint(int loopCounter);
 
   // IO / modules
