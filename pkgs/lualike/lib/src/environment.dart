@@ -1113,13 +1113,6 @@ class Environment extends GCObject {
 }
 
 bool _tryFastReplaceBoxValue(Box<dynamic> box, dynamic incoming) {
-  bool isFastReplacePayload(Object? raw) =>
-      raw == null ||
-      raw is num ||
-      raw is bool ||
-      raw is String ||
-      raw is LuaString;
-
   if (incoming is! Value) {
     return false;
   }
@@ -1142,11 +1135,11 @@ bool _tryFastReplaceBoxValue(Box<dynamic> box, dynamic incoming) {
   if (incoming.upvalues != null || existing.upvalues != null) {
     return false;
   }
-  if (!isFastReplacePayload(existing.raw)) {
+  if (!isLuaPrimitiveSlot(existing.raw)) {
     return false;
   }
   final raw = incoming.raw;
-  if (!isFastReplacePayload(raw)) {
+  if (!isLuaPrimitiveSlot(raw)) {
     return false;
   }
 
