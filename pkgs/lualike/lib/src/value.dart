@@ -928,7 +928,19 @@ class Value extends Object implements Map<String, dynamic>, GCObject {
   /// table, if one is registered. Returns null if none is registered or the
   /// value is not a Map.
   static Value? lookupCanonicalTableWrapper(Object? table) {
-    return _lookupTableIdentity(table);
+    final direct = _lookupTableIdentity(table);
+    if (direct != null || table is! Map) {
+      return direct;
+    }
+    try {
+      final storage = _canonicalTableStorage[table];
+      if (storage != null && !identical(storage, table)) {
+        return _lookupTableIdentity(storage);
+      }
+    } catch (_) {
+      return null;
+    }
+    return null;
   }
 
   static TableStorage _ensureCanonicalStorage(Map<dynamic, dynamic> map) {
