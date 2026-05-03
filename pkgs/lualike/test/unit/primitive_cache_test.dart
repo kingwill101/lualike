@@ -2,6 +2,7 @@ import 'dart:typed_data';
 
 import 'package:lualike/lualike.dart';
 import 'package:lualike/src/coroutine.dart';
+import 'package:lualike/src/lua_bytecode/runtime.dart';
 import 'package:lualike/src/runtime/lua_results.dart';
 import 'package:lualike/src/runtime/lua_slot.dart';
 import 'package:lualike/src/runtime/vararg_table.dart';
@@ -582,6 +583,17 @@ void main() {
 
     expect(identical(wrapped, cached), true);
     expect(identical(interpreter.wrapRuntimeValue(raw), cached), true);
+  });
+
+  test('lua_bytecode runtime Lua strings reuse the interpreter cache', () {
+    final runtime = LuaBytecodeRuntime();
+    final raw = LuaString.fromDartString('bytecode-slot');
+
+    final wrapped = runtime.constantStringValue(raw.bytes);
+    final cached = runtime.debugInterpreter.constantStringValue(raw.bytes);
+
+    expect(identical(wrapped, cached), true);
+    expect(identical(wrapped.interpreter, runtime), true);
   });
 
   test('runtime Dart string values reuse the runtime string cache', () {

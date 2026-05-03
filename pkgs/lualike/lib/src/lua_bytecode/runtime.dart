@@ -470,18 +470,7 @@ class LuaBytecodeRuntime implements LuaRuntime {
 
   @override
   Value constantStringValue(List<int> bytes) {
-    final key = luaStringCacheKey(bytes);
-    final cached = _interpreter.literalValueCache[key];
-    if (cached != null) {
-      _ensureValueInterpreter(cached);
-      return cached;
-    }
-
-    final luaString = _interpreter.literalStringInternPool[key] ??=
-        LuaString.fromBytes(bytes);
-    final value = Value(luaString)..interpreter = this;
-    _interpreter.literalValueCache[key] = value;
-    return value;
+    return _interpreter.constantStringValue(bytes)..interpreter = this;
   }
 
   @override
