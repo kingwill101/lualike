@@ -1289,7 +1289,7 @@ class DoFileFunction extends BuiltinFunction {
       throw LuaError("Error in dofile('$filename'): $error");
     }
 
-    final chunk = loaded is Value ? loaded : Value.wrap(loaded);
+    final chunk = valueFromLuaSlot(runtime, loaded);
     try {
       return await runtime.callFunction(chunk, const <Object?>[]);
     } on YieldException {
