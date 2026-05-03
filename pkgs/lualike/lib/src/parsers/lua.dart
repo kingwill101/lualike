@@ -1,3 +1,5 @@
+import 'dart:convert' as convert;
+
 import 'package:lualike/src/lua_error.dart' show LuaError;
 import 'package:petitparser/petitparser.dart';
 import 'package:source_span/source_span.dart';
@@ -54,31 +56,17 @@ class LuaGrammarDefinition extends GrammarDefinition {
   /// punctuation tokens ("+", "<=", etc.) unchanged while giving keywords
   /// proper word-boundaries.
   Parser _token(Object parser) {
-    Parser inner;
-
     if (parser is Parser) {
-      inner = parser;
-    } else {
-      final String lexeme = parser as String;
-      // Determine if the lexeme ends with an identifier character.
-      final bool endsWithIdentChar = RegExp(
-        r'[A-Za-z0-9_]',
-      ).hasMatch(lexeme.substring(lexeme.length - 1));
-
-      if (endsWithIdentChar) {
-        // Match the exact lexeme, *then* assert the next char is not another
-        // identifier char (negative look-ahead).  `pick(0)` keeps only the
-        // first parser’s result so that downstream code continues to receive
-        // the plain string, not a List.
-        inner = (string(lexeme) & pattern('A-Za-z0-9_').not()).pick(0);
-      } else {
-        inner = string(lexeme);
-      }
+      return parser.trim(ref0(_whiteSpaceAndComments));
     }
 
-    // Attach the trim *after* the inner parser so that we keep the actual
-    // matched lexeme intact for error reporting.
-    return inner.trim(ref0(_whiteSpaceAndComments));
+    final lexeme = parser as String;
+    return _TokenParser(
+      lexeme,
+      needsIdentifierBoundary: _isIdentifierContinueCodeUnit(
+        lexeme.codeUnitAt(lexeme.length - 1),
+      ),
+    );
   }
 
   // Matches at least one whitespace or comment segment. Used by `_token` for
@@ -87,8 +75,7 @@ class LuaGrammarDefinition extends GrammarDefinition {
   // zero-or-more) would recurse indefinitely and trigger PetitParser’s
   // `PossessiveRepeatingParser` assertion. Therefore we use `plus()` here
   // instead of `star()`.
-  Parser _whiteSpaceAndComments() =>
-      (whitespace() | ref0(_longComment) | ref0(_lineComment)).plus();
+  Parser _whiteSpaceAndComments() => _TriviaParser();
 
   /// Recognize a leading hash-line ('#...\n') used as an initial comment in
   /// file-based chunks (Lua skips the first line if it starts with '#'). This
@@ -103,22 +90,12 @@ class LuaGrammarDefinition extends GrammarDefinition {
   /// Optional ESC (0x1B) marker used by the legacy AST/internal chunk path.
   /// Accepting it here allows loader code to uniformly pass decoded text to
   /// the parser even when a legacy chunk starts with ESC.
-  Parser _escMarker() => (pattern('\u001B')).flatten();
+  Parser _escMarker() => char('\u001B');
 
   /// Optional UTF-8 BOM at the very start of a file. When present, it is
   /// ignored by the grammar so users can load files that begin with a BOM
   /// without needing special handling in callers.
   Parser _bom() => string('\uFEFF');
-
-  Parser _lineComment() {
-    final eol = string('\r\n') | string('\n\r') | char('\n') | char('\r');
-    return (string('--') & pattern('\r\n').neg().star() & eol.optional())
-        .flatten();
-  }
-
-  // Long comment --[=[ ... ]=] with optional = depth
-  Parser _longComment() =>
-      (string('--') & _LongCommentBracketParser()).flatten();
 
   // ---------- Lexical tokens ------------------------------------------------
   // Lua identifiers cannot be reserved keywords. Filter them out so that
@@ -150,6 +127,8 @@ class LuaGrammarDefinition extends GrammarDefinition {
     'while',
   };
 
+  static final RegExp _hexEscapePattern = RegExp(r'\\x([0-9A-Fa-f]{2})');
+
   /// Creates a positioned ParserException with accurate source location
   ParserException _createPositionedException(
     dynamic nodeOrPosition,
@@ -179,25 +158,7 @@ class LuaGrammarDefinition extends GrammarDefinition {
     });
   }
 
-  Parser _identifier() {
-    final base = (_letter() & (_letter() | digit()).star()).flatten();
-    // Capture start and end positions to create SourceSpan
-    return position()
-        .seq(base)
-        .seq(position())
-        .trim(ref0(_whiteSpaceAndComments))
-        .map((vals) {
-          final start = vals[0] as int;
-          final text = vals[1] as String;
-          final end = vals[2] as int;
-          final id = Identifier(text);
-          id.setSpan(_sourceFile.span(start, end));
-          return id;
-        })
-        .where((id) => !_keywords.contains((id).name));
-  }
-
-  Parser _letter() => pattern('A-Za-z_');
+  Parser _identifier() => _IdentifierParser(this);
 
   // Matches Lua numeric literals:
   //   • Decimal:  123   1.5   .5   1e3   1.5e-2
@@ -304,8 +265,8 @@ class LuaGrammarDefinition extends GrammarDefinition {
       ref0(_breakStat) |
       ref0(_labelStat) |
       ref0(_gotoStat) |
-      ref0(_assignment) |
       ref0(_returnlessExprStatement) |
+      ref0(_assignment) |
       // Error case: Detect bare string literals and report appropriate error
       _stringLiteral().map((literal) {
         final errorText =
@@ -361,171 +322,26 @@ class LuaGrammarDefinition extends GrammarDefinition {
   }
 
   // explist ::= exp {',' exp}
-  Parser _explist() =>
-      (ref0(_expression) & (_token(',') & ref0(_expression)).star()).map((
-        values,
-      ) {
-        final first = values[0] as AstNode;
-        final restPairs = values[1] as List;
-        final exprs = [first];
-        for (final pair in restPairs) {
-          exprs.add(pair[1] as AstNode);
-        }
-        return exprs;
-      });
+  Parser _explist() => _ExpressionListParser(ref0(_expression), _token(','));
 
-  // Full expression with operator precedence handled by [ExpressionBuilder].
-  Parser _expression() {
-    final builder = ExpressionBuilder();
-
-    // --- Custom primitives: power & unary handling (Lua-specific) ---
-    builder.primitive(ref0(_unaryExpression));
-
-    // --- multiplicative */%// ---
-    builder.group().left(
-      ref0(_mulOperator),
-      (dynamic a, dynamic op, dynamic b) =>
-          _makeBinaryExpression(a as AstNode, op, b as AstNode),
-    );
-
-    // --- additive + - ---
-    builder.group().left(
-      ref0(_addOperator),
-      (dynamic a, dynamic op, dynamic b) =>
-          _makeBinaryExpression(a as AstNode, op, b as AstNode),
-    );
-
-    // --- concatenation .. (right-assoc) ---
-    builder.group().right(
-      _binaryOperatorToken(_token('..')),
-      (dynamic a, dynamic op, dynamic b) =>
-          _makeBinaryExpression(a as AstNode, op, b as AstNode),
-    );
-
-    // --- bitwise shift << >> ---
-    builder.group().left(
-      ref0(_shiftOperator),
-      (dynamic a, dynamic op, dynamic b) =>
-          _makeBinaryExpression(a as AstNode, op, b as AstNode),
-    );
-
-    // --- bitwise and & ---
-    builder.group().left(
-      _binaryOperatorToken(_token('&')),
-      (dynamic a, dynamic op, dynamic b) =>
-          _makeBinaryExpression(a as AstNode, op, b as AstNode),
-    );
-
-    // --- bitwise xor ~ ---
-    builder.group().left(
-      _binaryOperatorToken(_token('~')),
-      (dynamic a, dynamic op, dynamic b) =>
-          _makeBinaryExpression(a as AstNode, op, b as AstNode),
-    );
-
-    // --- bitwise or | ---
-    builder.group().left(
-      _binaryOperatorToken(_token('|')),
-      (dynamic a, dynamic op, dynamic b) =>
-          _makeBinaryExpression(a as AstNode, op, b as AstNode),
-    );
-
-    // --- comparison < > <= >= == ~= ---
-    builder.group().left(
-      ref0(_comparisonOperator),
-      (dynamic a, dynamic op, dynamic b) =>
-          _makeBinaryExpression(a as AstNode, op, b as AstNode),
-    );
-
-    // --- logical and ---
-    builder.group().left(
-      _binaryOperatorToken(_token('and')),
-      (dynamic a, dynamic op, dynamic b) =>
-          _makeBinaryExpression(a as AstNode, op, b as AstNode),
-    );
-
-    // --- logical or (lowest precedence) ---
-    builder.group().left(
-      _binaryOperatorToken(_token('or')),
-      (dynamic a, dynamic op, dynamic b) =>
-          _makeBinaryExpression(a as AstNode, op, b as AstNode),
-    );
-
-    return builder.build().cast<AstNode>();
-  }
-
-  // ---------- Operators parsers -------------------------------------------
-  Parser _unaryOperator() =>
-      (_token('-') | _token('#') | _token('not') | _token('~'));
-
-  Parser _unaryOperatorToken() {
-    return (position() & ref0(_unaryOperator)).map((vals) {
-      final offset = vals[0] as int;
-      final op = vals[1] as String;
-      final line = _sourceFile.location(offset).line;
-      return (op: op, line: line, offset: offset);
-    });
-  }
-
-  Parser _mulOperator() => _binaryOperatorToken(
-    _token('//') | _token('*') | _token('/') | _token('%'),
-  );
-
-  Parser _addOperator() => _binaryOperatorToken(_token('+') | _token('-'));
-
-  Parser _comparisonOperator() => _binaryOperatorToken(
-    _token('<=') |
-        _token('>=') |
-        _token('<') |
-        _token('>') |
-        _token('==') |
-        _token('~='),
-  );
-
-  Parser _shiftOperator() => _binaryOperatorToken(_token('<<') | _token('>>'));
+  // Full expression with operator precedence handled by [_ExpressionParser].
+  Parser _expression() => _ExpressionParser(this, ref0(_unaryExpression));
 
   // ---------- Primary expressions -----------------------------------------
-  Parser _primaryExpression() =>
-      ref0(_functionLiteral).trim(ref0(_whiteSpaceAndComments)) |
-      ref0(_prefixExp).trim(ref0(_whiteSpaceAndComments)) |
-      ref0(_numberLiteral).trim(ref0(_whiteSpaceAndComments)) |
-      ref0(_booleanLiteral).trim(ref0(_whiteSpaceAndComments)) |
-      ref0(_nilLiteral).trim(ref0(_whiteSpaceAndComments)) |
-      ref0(_vararg).trim(ref0(_whiteSpaceAndComments)) |
-      ref0(_stringLiteral).trim(ref0(_whiteSpaceAndComments)) |
-      ref0(_tableConstructor).trim(ref0(_whiteSpaceAndComments)) |
-      ref0(_groupedExpression).trim(ref0(_whiteSpaceAndComments));
+  Parser _primaryExpression() => _PrimaryExpressionParser(
+    definition: this,
+    functionLiteral: ref0(_functionLiteral),
+    prefixExpression: ref0(_prefixExp),
+    numberLiteral: ref0(_numberLiteral),
+    stringLiteral: ref0(_stringLiteral),
+    tableConstructor: ref0(_tableConstructor),
+  );
 
   Parser _groupedExpression() => _span(
     (_token('(') & ref0(_expression) & _token(')')).map(
       (values) => GroupedExpression(values[1] as AstNode),
     ),
   );
-
-  Parser _nilLiteral() => position()
-      .seq(_token('nil'))
-      .seq(position())
-      .map((vals) => _annotate(NilValue(), vals[0] as int, vals[2] as int));
-
-  Parser _booleanLiteral() {
-    final trueLit = position()
-        .seq(_token('true'))
-        .seq(position())
-        .map(
-          (vals) =>
-              _annotate(BooleanLiteral(true), vals[0] as int, vals[2] as int),
-        );
-
-    final falseLit = position()
-        .seq(_token('false'))
-        .seq(position())
-        .map(
-          (vals) =>
-              _annotate(BooleanLiteral(false), vals[0] as int, vals[2] as int),
-        );
-
-    return trueLit | falseLit;
-  }
 
   // In Lua, an expression statement is only valid when the expression is
   // a function call or a method call (or vararg “...” which we treat as
@@ -541,252 +357,192 @@ class LuaGrammarDefinition extends GrammarDefinition {
   // grammar (§3.3.1).
 
   Parser _returnlessExprStatement() {
-    // Lua allows an *expression statement* only when the expression is a
-    // function- or method-call (see Lua 5.4 §3.3.1).  We implement this by
-    // first performing a non-consuming look-ahead that succeeds **only** if
-    // the upcoming expression parses to a FunctionCall/MethodCall AST node.
-
-    // Positive look-ahead (does not consume input).
-    final callAhead = ref0(
-      _prefixExp,
-    ).where((n) => n is FunctionCall || n is MethodCall).and();
-
-    // Real statement: full expression → ExpressionStatement with span.
-    final callStmt = _span(
-      ref0(_expression).map((expr) => ExpressionStatement(expr)),
+    // Lua allows an expression statement only when the expression is a
+    // function- or method-call (see Lua 5.4 §3.3.1).
+    return _ReturnlessExpressionStatementParser(
+      definition: this,
+      prefixExpression: ref0(_prefixExp),
     );
-
-    // Combine: require look-ahead, then parse the actual statement, keep it.
-    return (callAhead & callStmt).pick(1);
   }
 
   // ----------------- Literals ---------------------------------------------
 
-  // String literal parser that supports escape sequences (" ")
-  Parser _stringLiteral() {
-    // Helper to build content parser for given quote char
-    Parser contentParser(String quote) {
-      // Either an escaped character (\\X) or any char except the closing quote
-      return ((char('\\') & any()) | pattern('^$quote')).star().flatten();
-    }
+  // String literal parser that supports escape sequences.
+  Parser _stringLiteral() => _StringLiteralParser(this);
 
-    // Tag each alternative so we know if it's a long string.
-    final long = _LongBracketParser().map((s) => ['long', s]);
+  StringLiteral _longStringLiteral(String content, int start, int end) =>
+      _annotate(StringLiteral(content, isLongString: true), start, end);
 
-    // Closed short strings
-    final dq = (char('"') & contentParser('"') & char('"')).flatten().map(
-      (s) => ['dq', s],
-    );
-    final sq = (char("'") & contentParser("'") & char("'")).flatten().map(
-      (s) => ['sq', s],
-    );
-
-    // Unterminated short strings: start quote + content, but NOT followed by a closing quote
-    final dqUnclosed = (char('"') & contentParser('"') & char('"').not())
-        .flatten()
-        .map((s) => ['dq_unclosed', s]);
-    final sqUnclosed = (char("'") & contentParser("'") & char("'").not())
-        .flatten()
-        .map((s) => ['sq_unclosed', s]);
-
-    final literalBody = (long | dq | sq | dqUnclosed | sqUnclosed);
-
-    return position().seq(literalBody).seq(position()).trim(ref0(_whiteSpaceAndComments)).map((
-      vals,
-    ) {
-      final start = vals[0] as int;
-      final tagged = vals[1] as List;
-      final tag = tagged[0] as String;
-      final lexeme = tagged[1] as String;
-      final end = vals[2] as int;
-
-      if (tag == 'long') {
-        // lexeme is already the raw content.
-        return _annotate(StringLiteral(lexeme, isLongString: true), start, end);
-      } else if (tag == 'dq_unclosed' || tag == 'sq_unclosed') {
-        // Remove the starting quote only; there is no closing quote.
-        final content = lexeme.substring(1);
-
-        // Pre-validate content to surface escape-sequence errors before EOF
-        try {
-          LuaStringParser.parseStringContent(content);
-          // If validation passes, it's an unfinished string
-          throw _createPositionedException(
-            start,
-            "unfinished string near '<eof>'",
-          );
-        } catch (e) {
-          if (e is FormatException) {
-            // Convert detailed error message for escape sequence errors
-            String errorMessage = e.message;
-            if (errorMessage.contains('hexadecimal digit expected')) {
-              // Prefer no closing quote in the preview for unfinished strings
-              final quotedString = '"$content';
-              errorMessage =
-                  "[string \"\"]:1: hexadecimal digit expected near '$quotedString'";
-            } else if (errorMessage.contains('invalid escape sequence')) {
-              final quotedString = '"$content'; // No closing quote
-              errorMessage =
-                  "[string \"\"]:1: invalid escape sequence near '$quotedString'";
-            } else if (errorMessage.contains('missing \'}\' near|context:')) {
-              // Unclosed string due to missing closing brace in \u{...}
-              // Reconstruct snippet from actual content without assuming a prefix.
-              final contextStart = errorMessage.indexOf('context:') + 8;
-              final rawContext = errorMessage.substring(contextStart);
-              final hasTrailingQuote = rawContext.endsWith('"');
-              final ctxCore = hasTrailingQuote
-                  ? rawContext.substring(0, rawContext.length - 1)
-                  : rawContext;
-              final needle = '\\$ctxCore';
-              final idx = content.indexOf(needle);
-              final snippet = (idx >= 0)
-                  ? (content.substring(0, idx) + needle)
-                  : ('\\$ctxCore');
-              errorMessage = "[string \"\"]:1: missing '}' near '$snippet'";
-            } else if (errorMessage.startsWith('[string')) {
-              // Already formatted upstream
-            } else {
-              // Fallback to unfinished string
-              errorMessage = "[string \"\"]:1: unfinished string near '<eof>'";
-            }
-            throw _createPositionedException(start, errorMessage);
-          }
-          rethrow;
+  Never _throwUnfinishedShortString(String content, int start) {
+    // Pre-validate content to surface escape-sequence errors before EOF.
+    try {
+      LuaStringParser.parseStringContent(content);
+      throw _createPositionedException(start, "unfinished string near '<eof>'");
+    } catch (e) {
+      if (e is FormatException) {
+        // Convert detailed error message for escape sequence errors.
+        String errorMessage = e.message;
+        if (errorMessage.contains('hexadecimal digit expected')) {
+          final quotedString = '"$content';
+          errorMessage =
+              "[string \"\"]:1: hexadecimal digit expected near '$quotedString'";
+        } else if (errorMessage.contains('invalid escape sequence')) {
+          final quotedString = '"$content';
+          errorMessage =
+              "[string \"\"]:1: invalid escape sequence near '$quotedString'";
+        } else if (errorMessage.contains('missing \'}\' near|context:')) {
+          final contextStart = errorMessage.indexOf('context:') + 8;
+          final rawContext = errorMessage.substring(contextStart);
+          final hasTrailingQuote = rawContext.endsWith('"');
+          final ctxCore = hasTrailingQuote
+              ? rawContext.substring(0, rawContext.length - 1)
+              : rawContext;
+          final needle = '\\$ctxCore';
+          final idx = content.indexOf(needle);
+          final snippet = (idx >= 0)
+              ? (content.substring(0, idx) + needle)
+              : ('\\$ctxCore');
+          errorMessage = "[string \"\"]:1: missing '}' near '$snippet'";
+        } else if (!errorMessage.startsWith('[string')) {
+          errorMessage = "[string \"\"]:1: unfinished string near '<eof>'";
         }
-      } else {
-        // Closed short strings
-        final content = lexeme.substring(1, lexeme.length - 1);
-        // Normalize \xHH to decimal escapes to work around parser
-        // differences while preserving exact byte values.
-        String normalizeHexEscapes(String s) {
-          final re = RegExp(r'\\x([0-9A-Fa-f]{2})');
-          return s.replaceAllMapped(re, (m) {
-            final value = int.parse(m.group(1)!, radix: 16);
-            return '\\$value';
-          });
-        }
-
-        final normalized = normalizeHexEscapes(content);
-
-        // Pre-validate string content for escape sequence errors
-        try {
-          LuaStringParser.parseStringContent(normalized);
-        } catch (e) {
-          if (e is FormatException) {
-            // Convert detailed error message for escape sequence errors
-            String errorMessage = e.message;
-            if (errorMessage.contains('hexadecimal digit expected')) {
-              if (errorMessage.contains('|invalid')) {
-                errorMessage = errorMessage.replaceAll('|invalid', '');
-                final quotedString = '"$content';
-                errorMessage =
-                    "[string \"\"]:1: $errorMessage near '$quotedString'";
-              } else if (errorMessage.contains('|incomplete')) {
-                errorMessage = errorMessage.replaceAll('|incomplete', '');
-                final quotedString = '"$content"';
-                errorMessage =
-                    "[string \"\"]:1: $errorMessage near '$quotedString'";
-              } else {
-                final quotedString = '"$content"';
-                errorMessage =
-                    "[string \"\"]:1: hexadecimal digit expected near '$quotedString'";
-              }
-            } else if (errorMessage.contains('invalid escape sequence')) {
-              // For general invalid escape sequences like \g
-              final quotedString =
-                  '"$content'; // No closing quote for invalid escapes
-              errorMessage =
-                  "[string \"\"]:1: invalid escape sequence near '$quotedString'";
-            } else if (errorMessage.contains('decimal escape too large')) {
-              // For decimal escape sequences that are out of range
-              final quotedString = '"$content"';
-              errorMessage =
-                  "[string \"\"]:1: decimal escape too large near '$quotedString'";
-            } else if (errorMessage.contains(
-              'UTF-8 value too large|context:',
-            )) {
-              // Use provided context to reconstruct snippet without the
-              // closing '}'. This matches Lua's CLI output.
-              final contextStart = errorMessage.indexOf('context:') + 8;
-              final ctx = errorMessage.substring(
-                contextStart,
-              ); // e.g. u{100000000
-              final needle = '\\$ctx';
-              final idx = content.indexOf(needle);
-              final snippet = (idx >= 0)
-                  ? (content.substring(0, idx) + needle)
-                  : ('\\$ctx');
-              errorMessage =
-                  "[string \"\"]:1: UTF-8 value too large near '$snippet'";
-            } else if (errorMessage.contains('UTF-8 value too large')) {
-              // Generic too-large case
-              errorMessage =
-                  "[string \"\"]:1: UTF-8 value too large near '$content'";
-            } else if (errorMessage.contains('missing \'{\' near|context:')) {
-              // For \u escape sequences missing opening brace
-              final contextStart = errorMessage.indexOf('context:') + 8;
-              final rawContext = errorMessage.substring(contextStart);
-              final hasTrailingQuote = rawContext.endsWith('"');
-              final ctxCore = hasTrailingQuote
-                  ? rawContext.substring(0, rawContext.length - 1)
-                  : rawContext;
-              final needle = '\\$ctxCore';
-              final idx = content.indexOf(needle);
-              final snippet = (idx >= 0)
-                  ? (content.substring(0, idx) +
-                        needle +
-                        (hasTrailingQuote ? '"' : ''))
-                  : ('\\$rawContext');
-              errorMessage = "[string \"\"]:1: missing '{' near '$snippet'";
-            } else if (errorMessage.contains('missing \'}\' near|context:')) {
-              // For \u{ escape sequences missing closing brace
-              final contextStart = errorMessage.indexOf('context:') + 8;
-              final rawContext = errorMessage.substring(contextStart);
-              final hasTrailingQuote = rawContext.endsWith('"');
-              final ctxCore = hasTrailingQuote
-                  ? rawContext.substring(0, rawContext.length - 1)
-                  : rawContext;
-              final needle = '\\$ctxCore';
-              final idx = content.indexOf(needle);
-              final snippet = (idx >= 0)
-                  ? (content.substring(0, idx) +
-                        needle +
-                        (hasTrailingQuote ? '"' : ''))
-                  : ('\\$rawContext');
-              errorMessage = "[string \"\"]:1: missing '}' near '$snippet'";
-            } else if (errorMessage.contains(
-              'hexadecimal digit expected near|context:',
-            )) {
-              // For \u{ escape sequences with no hex digits
-              final contextStart = errorMessage.indexOf('context:') + 8;
-              final rawContext = errorMessage.substring(contextStart);
-              final hasTrailingQuote = rawContext.endsWith('"');
-              final ctxCore = hasTrailingQuote
-                  ? rawContext.substring(0, rawContext.length - 1)
-                  : rawContext;
-              final needle = '\\$ctxCore';
-              final idx = content.indexOf(needle);
-              final snippet = (idx >= 0)
-                  ? (content.substring(0, idx) +
-                        needle +
-                        (hasTrailingQuote ? '"' : ''))
-                  : ('\\$rawContext');
-              errorMessage =
-                  "[string \"\"]:1: hexadecimal digit expected near '$snippet'";
-            }
-            throw _createPositionedException(start, errorMessage);
-          }
-          rethrow;
-        }
-
-        // Use normalized content so downstream parsing yields correct bytes
-        return _annotate(StringLiteral(normalized), start, end);
+        throw _createPositionedException(start, errorMessage);
       }
-    });
+      rethrow;
+    }
   }
 
-  // vararg '...'
-  Parser _vararg() => _token('...').map((_) => VarArg());
+  StringLiteral _shortStringLiteral(
+    String content,
+    int start,
+    int end, {
+    required bool hasEscape,
+    required bool hasRawNewline,
+  }) {
+    if (!hasEscape && !hasRawNewline) {
+      return _annotate(
+        StringLiteral.withParsedBytes(content, convert.utf8.encode(content)),
+        start,
+        end,
+      );
+    }
+
+    final normalized = _normalizeHexEscapes(content);
+
+    late final List<int> bytes;
+    try {
+      bytes = LuaStringParser.parseStringContent(normalized);
+    } catch (e) {
+      if (e is FormatException) {
+        // Convert detailed error message for escape sequence errors.
+        String errorMessage = e.message;
+        if (errorMessage.contains('hexadecimal digit expected')) {
+          if (errorMessage.contains('|invalid')) {
+            errorMessage = errorMessage.replaceAll('|invalid', '');
+            final quotedString = '"$content';
+            errorMessage =
+                "[string \"\"]:1: $errorMessage near '$quotedString'";
+          } else if (errorMessage.contains('|incomplete')) {
+            errorMessage = errorMessage.replaceAll('|incomplete', '');
+            final quotedString = '"$content"';
+            errorMessage =
+                "[string \"\"]:1: $errorMessage near '$quotedString'";
+          } else {
+            final quotedString = '"$content"';
+            errorMessage =
+                "[string \"\"]:1: hexadecimal digit expected near '$quotedString'";
+          }
+        } else if (errorMessage.contains('invalid escape sequence')) {
+          final quotedString = '"$content';
+          errorMessage =
+              "[string \"\"]:1: invalid escape sequence near '$quotedString'";
+        } else if (errorMessage.contains('decimal escape too large')) {
+          final quotedString = '"$content"';
+          errorMessage =
+              "[string \"\"]:1: decimal escape too large near '$quotedString'";
+        } else if (errorMessage.contains('UTF-8 value too large|context:')) {
+          final contextStart = errorMessage.indexOf('context:') + 8;
+          final ctx = errorMessage.substring(contextStart);
+          final needle = '\\$ctx';
+          final idx = content.indexOf(needle);
+          final snippet = (idx >= 0)
+              ? (content.substring(0, idx) + needle)
+              : ('\\$ctx');
+          errorMessage =
+              "[string \"\"]:1: UTF-8 value too large near '$snippet'";
+        } else if (errorMessage.contains('UTF-8 value too large')) {
+          errorMessage =
+              "[string \"\"]:1: UTF-8 value too large near '$content'";
+        } else if (errorMessage.contains('missing \'{\' near|context:')) {
+          final contextStart = errorMessage.indexOf('context:') + 8;
+          final rawContext = errorMessage.substring(contextStart);
+          final hasTrailingQuote = rawContext.endsWith('"');
+          final ctxCore = hasTrailingQuote
+              ? rawContext.substring(0, rawContext.length - 1)
+              : rawContext;
+          final needle = '\\$ctxCore';
+          final idx = content.indexOf(needle);
+          final snippet = (idx >= 0)
+              ? (content.substring(0, idx) +
+                    needle +
+                    (hasTrailingQuote ? '"' : ''))
+              : ('\\$rawContext');
+          errorMessage = "[string \"\"]:1: missing '{' near '$snippet'";
+        } else if (errorMessage.contains('missing \'}\' near|context:')) {
+          final contextStart = errorMessage.indexOf('context:') + 8;
+          final rawContext = errorMessage.substring(contextStart);
+          final hasTrailingQuote = rawContext.endsWith('"');
+          final ctxCore = hasTrailingQuote
+              ? rawContext.substring(0, rawContext.length - 1)
+              : rawContext;
+          final needle = '\\$ctxCore';
+          final idx = content.indexOf(needle);
+          final snippet = (idx >= 0)
+              ? (content.substring(0, idx) +
+                    needle +
+                    (hasTrailingQuote ? '"' : ''))
+              : ('\\$rawContext');
+          errorMessage = "[string \"\"]:1: missing '}' near '$snippet'";
+        } else if (errorMessage.contains(
+          'hexadecimal digit expected near|context:',
+        )) {
+          final contextStart = errorMessage.indexOf('context:') + 8;
+          final rawContext = errorMessage.substring(contextStart);
+          final hasTrailingQuote = rawContext.endsWith('"');
+          final ctxCore = hasTrailingQuote
+              ? rawContext.substring(0, rawContext.length - 1)
+              : rawContext;
+          final needle = '\\$ctxCore';
+          final idx = content.indexOf(needle);
+          final snippet = (idx >= 0)
+              ? (content.substring(0, idx) +
+                    needle +
+                    (hasTrailingQuote ? '"' : ''))
+              : ('\\$rawContext');
+          errorMessage =
+              "[string \"\"]:1: hexadecimal digit expected near '$snippet'";
+        }
+        throw _createPositionedException(start, errorMessage);
+      }
+      rethrow;
+    }
+
+    return _annotate(
+      StringLiteral.withParsedBytes(normalized, bytes),
+      start,
+      end,
+    );
+  }
+
+  String _normalizeHexEscapes(String content) {
+    if (!content.contains(r'\x')) {
+      return content;
+    }
+    return content.replaceAllMapped(_hexEscapePattern, (m) {
+      final value = int.parse(m.group(1)!, radix: 16);
+      return '\\$value';
+    });
+  }
 
   // ----------------- Table constructors -----------------------------------
 
@@ -812,34 +568,8 @@ class LuaGrammarDefinition extends GrammarDefinition {
 
   Parser _fieldsep() => _token(',') | _token(';');
 
-  Parser _field() {
-    // 1. [exp] = exp
-    final indexed =
-        (_token('[') &
-                ref0(_expression) &
-                _token(']') &
-                _token('=') &
-                ref0(_expression))
-            .map((values) {
-              final key = values[1] as AstNode;
-              final val = values[4] as AstNode;
-              return IndexedTableEntry(key, val);
-            });
-
-    // 2. Name = exp
-    final keyed = (_identifier() & _token('=') & ref0(_expression)).map((
-      values,
-    ) {
-      final nameId = values[0] as Identifier;
-      final val = values[2] as AstNode;
-      return KeyedTableEntry(nameId, val);
-    });
-
-    // 3. exp
-    final literal = ref0(_expression).map((expr) => TableEntryLiteral(expr));
-
-    return indexed | keyed | literal;
-  }
+  Parser _field() =>
+      _FieldParser(expression: ref0(_expression), identifier: _identifier());
 
   // prefixexp ::= var | functioncall | '(' exp ')'
   Parser _prefixExp() {
@@ -849,56 +579,40 @@ class LuaGrammarDefinition extends GrammarDefinition {
 
     return (base & suffix).map((values) {
       AstNode expr = values[0] as AstNode;
-      final List<dynamic> sufs = values[1] as List;
+      final sufs = (values[1] as List).cast<_PrefixSuffix>();
       for (final s in sufs) {
-        final type = s[0] as String;
-        switch (type) {
-          case 'index':
-            final access = TableIndexAccess(expr, s[1] as AstNode);
-            access.setSpan(expr.span ?? _sourceFile.span(0, 0));
-            expr = access;
-            break;
-          case 'field':
-            final access = TableFieldAccess(expr, s[1] as Identifier);
-            access.setSpan(expr.span ?? _sourceFile.span(0, 0));
-            expr = access;
-            break;
-          case 'call':
-            final args = (s[1] as List).cast<AstNode>();
-            final call = FunctionCall(expr, args);
-            call.setSpan(expr.span ?? _sourceFile.span(0, 0));
-            expr = call;
-            break;
-          case 'method':
-            final id = s[1] as Identifier;
-            final args = (s[2] as List).cast<AstNode>();
-            final mcall = MethodCall(expr, id, args, implicitSelf: true);
-            mcall.setSpan(expr.span ?? _sourceFile.span(0, 0));
-            expr = mcall;
-            break;
+        if (s is _IndexSuffix) {
+          final access = TableIndexAccess(expr, s.expression);
+          access.setSpan(expr.span ?? _sourceFile.span(0, 0));
+          expr = access;
+        } else if (s is _FieldSuffix) {
+          final access = TableFieldAccess(expr, s.identifier);
+          access.setSpan(expr.span ?? _sourceFile.span(0, 0));
+          expr = access;
+        } else if (s is _CallSuffix) {
+          final call = FunctionCall(expr, s.args);
+          call.setSpan(expr.span ?? _sourceFile.span(0, 0));
+          expr = call;
+        } else if (s is _MethodSuffix) {
+          final mcall = MethodCall(
+            expr,
+            s.identifier,
+            s.args,
+            implicitSelf: true,
+          );
+          mcall.setSpan(expr.span ?? _sourceFile.span(0, 0));
+          expr = mcall;
         }
       }
       return expr;
     });
   }
 
-  Parser _suffix() {
-    // index
-    final index = (_token('[') & ref0(_expression) & _token(']')).map(
-      (vals) => ['index', vals[1]],
-    );
-    // field .Name
-    final field = (_token('.') & _identifier()).map(
-      (vals) => ['field', vals[1]],
-    );
-    // method call :Name args
-    final method = (_token(':') & _identifier() & ref0(_args)).map(
-      (vals) => ['method', vals[1], vals[2]],
-    );
-    // function call args
-    final call = ref0(_args).map((a) => ['call', a]);
-    return index | field | method | call;
-  }
+  Parser _suffix() => _SuffixParser(
+    expression: ref0(_expression),
+    identifier: _identifier(),
+    args: ref0(_args),
+  );
 
   // args ::= '(' [explist] ')' | tableconstructor | LiteralString
   Parser _args() {
@@ -1149,41 +863,39 @@ class LuaGrammarDefinition extends GrammarDefinition {
   // ----------------- Expression helpers for correct '^' precedence -------
 
   // Parses unary prefix operators and builds nested UnaryExpression nodes.
-  Parser _unaryExpression() {
-    final unarySeq = (ref0(_unaryOperatorToken).plus() & ref0(_powerExpression))
-        .map((vals) {
-          final ops = vals[0] as List;
-          AstNode node = vals[1] as AstNode;
-          for (var i = ops.length - 1; i >= 0; i--) {
-            final opSpec = ops[i];
-            final op = switch (opSpec) {
-              String value => value,
-              ({String op, int line, int offset}) value => value.op,
-              _ => opSpec.toString(),
-            };
-            final operatorLine = switch (opSpec) {
-              ({String op, int line, int offset}) value => value.line,
-              _ => null,
-            };
-            final operatorOffset = switch (opSpec) {
-              ({String op, int line, int offset}) value => value.offset,
-              _ => null,
-            };
-            final unary = UnaryExpression(op, node, operatorLine: operatorLine);
-            if (operatorOffset != null && node.span != null) {
-              unary.setSpan(
-                _sourceFile.span(operatorOffset, node.span!.end.offset),
-              );
-            } else if (node.span != null) {
-              unary.setSpan(node.span!);
-            }
-            node = unary;
-          }
-          return node;
-        });
+  Parser _unaryExpression() =>
+      _UnaryExpressionParser(this, ref0(_powerExpression));
 
-    // If there is no unary operator, just parse the power expression.
-    return unarySeq | ref0(_powerExpression);
+  _UnaryOperatorMatch? _matchUnaryOperator(String buffer, int position) {
+    final start = _skipLuaTrivia(buffer, position);
+    if (start >= buffer.length) {
+      return null;
+    }
+
+    _UnaryOperatorMatch match(String lexeme) => _UnaryOperatorMatch(
+      lexeme: lexeme,
+      offset: start,
+      end: _skipLuaTrivia(buffer, start + lexeme.length),
+    );
+
+    switch (buffer.codeUnitAt(start)) {
+      case 0x2D: // -
+        return match('-');
+      case 0x23: // #
+        return match('#');
+      case 0x7E: // ~
+        return match('~');
+      case 0x6E: // n
+        const lexeme = 'not';
+        final rawEnd = start + lexeme.length;
+        if (_matchesLexeme(buffer, start, lexeme) &&
+            (rawEnd >= buffer.length ||
+                !_isIdentifierContinueCodeUnit(buffer.codeUnitAt(rawEnd)))) {
+          return match(lexeme);
+        }
+    }
+
+    return null;
   }
 
   // Parses a chain of '^' operators with right associativity. The right-hand
@@ -1210,10 +922,20 @@ class LuaGrammarDefinition extends GrammarDefinition {
     return (position() & tokenParser).map((vals) {
       final offset = vals[0] as int;
       final op = vals[1] as String;
-      final line = _sourceFile.location(offset).line;
-      return (op: op, line: line);
+      return (op: op, offset: offset);
     });
   }
+
+  int? _binaryOperatorLine(dynamic opSpec) => switch (opSpec) {
+    ({String op, int line}) value => value.line,
+    ({String op, int offset}) value => _sourceFile.location(value.offset).line,
+    _ => null,
+  };
+
+  int? _binaryOperatorOffset(dynamic opSpec) => switch (opSpec) {
+    ({String op, int offset}) value => value.offset,
+    _ => null,
+  };
 
   BinaryExpression _makeBinaryExpression(
     AstNode left,
@@ -1223,30 +945,40 @@ class LuaGrammarDefinition extends GrammarDefinition {
     final op = switch (opSpec) {
       String value => value,
       ({String op, int line}) value => value.op,
+      ({String op, int offset}) value => value.op,
       _ => opSpec.toString(),
     };
-    final operatorLine = switch (opSpec) {
-      ({String op, int line}) value => value.line,
-      _ => null,
-    };
-    int? adjustedOperatorLine = operatorLine;
+
+    final operatorOffset = _binaryOperatorOffset(opSpec);
+    var adjustedOperatorLine = operatorOffset == null
+        ? null
+        : _sourceFile.location(operatorOffset).line;
+    var fallbackOperatorLineResolved = operatorOffset != null;
     if (left.span != null && right.span != null) {
       final searchStart = left.span!.start.offset;
       final searchEnd = right.span!.start.offset;
-      if (searchStart <= searchEnd) {
+      if (operatorOffset == null && searchStart <= searchEnd) {
         final betweenText = _sourceFile.span(searchStart, searchEnd).text;
         final opIndex = betweenText.lastIndexOf(op);
         if (opIndex >= 0) {
           adjustedOperatorLine = _sourceFile
               .location(searchStart + opIndex)
               .line;
-        } else if (adjustedOperatorLine != null &&
-            left.span!.start.line != right.span!.start.line &&
-            right.span!.start.line > left.span!.start.line + 1 &&
-            adjustedOperatorLine <= left.span!.start.line) {
-          adjustedOperatorLine = right.span!.start.line - 1;
+        } else {
+          final resolvedOperatorLine = _binaryOperatorLine(opSpec);
+          fallbackOperatorLineResolved = true;
+          adjustedOperatorLine = resolvedOperatorLine;
+          if (resolvedOperatorLine != null &&
+              left.span!.start.line != right.span!.start.line &&
+              right.span!.start.line > left.span!.start.line + 1 &&
+              resolvedOperatorLine <= left.span!.start.line) {
+            adjustedOperatorLine = right.span!.start.line - 1;
+          }
         }
       }
+    }
+    if (adjustedOperatorLine == null && !fallbackOperatorLineResolved) {
+      adjustedOperatorLine = _binaryOperatorLine(opSpec);
     }
 
     final node = BinaryExpression(
@@ -1387,6 +1119,1118 @@ class LuaGrammarDefinition extends GrammarDefinition {
   }
 }
 
+class _StringLiteralParser extends Parser<StringLiteral> {
+  _StringLiteralParser(this.definition);
+
+  final LuaGrammarDefinition definition;
+  final Parser<String> _longBracketParser = _LongBracketParser();
+
+  @override
+  Result<StringLiteral> parseOn(Context context) {
+    final buffer = context.buffer;
+    final start = _skipLuaTrivia(buffer, context.position);
+    if (start >= buffer.length) {
+      return context.failure('string literal expected');
+    }
+
+    final codeUnit = buffer.codeUnitAt(start);
+    if (codeUnit == 0x5B) {
+      return _parseLongString(context, buffer, start);
+    }
+    if (codeUnit == 0x22 || codeUnit == 0x27) {
+      return _parseShortString(context, buffer, start, codeUnit);
+    }
+    return context.failure('string literal expected', start);
+  }
+
+  Result<StringLiteral> _parseLongString(
+    Context context,
+    String buffer,
+    int start,
+  ) {
+    if (!_startsLongBracket(buffer, start)) {
+      return context.failure('string literal expected', start);
+    }
+
+    final result = _longBracketParser.parseOn(Context(buffer, start));
+    if (result is Failure) {
+      return context.failure(result.message, result.position);
+    }
+
+    final rawEnd = result.position;
+    final node = definition._longStringLiteral(result.value, start, rawEnd);
+    return context.success(node, _skipLuaTrivia(buffer, rawEnd));
+  }
+
+  Result<StringLiteral> _parseShortString(
+    Context context,
+    String buffer,
+    int start,
+    int quote,
+  ) {
+    var current = start + 1;
+    var hasEscape = false;
+    var hasRawNewline = false;
+    while (current < buffer.length) {
+      final codeUnit = buffer.codeUnitAt(current);
+      if (codeUnit == quote) {
+        final rawEnd = current + 1;
+        final content = buffer.substring(start + 1, current);
+        final node = definition._shortStringLiteral(
+          content,
+          start,
+          rawEnd,
+          hasEscape: hasEscape,
+          hasRawNewline: hasRawNewline,
+        );
+        return context.success(node, _skipLuaTrivia(buffer, rawEnd));
+      }
+      if (codeUnit == 0x5C && current + 1 < buffer.length) {
+        hasEscape = true;
+        current += 2;
+      } else {
+        if (codeUnit == 0x0A || codeUnit == 0x0D) {
+          hasRawNewline = true;
+        }
+        current++;
+      }
+    }
+
+    final content = buffer.substring(start + 1);
+    definition._throwUnfinishedShortString(content, start);
+  }
+
+  @override
+  _StringLiteralParser copy() => _StringLiteralParser(definition);
+}
+
+class _ExpressionListParser extends Parser<List<AstNode>> {
+  _ExpressionListParser(this.expression, this.comma);
+
+  Parser expression;
+  Parser comma;
+
+  @override
+  Result<List<AstNode>> parseOn(Context context) {
+    final firstResult = expression.parseOn(context);
+    if (firstResult is Failure) {
+      return firstResult;
+    }
+
+    final expressions = <AstNode>[firstResult.value as AstNode];
+    var current = firstResult.position;
+    final buffer = context.buffer;
+
+    while (true) {
+      final commaResult = comma.parseOn(Context(buffer, current));
+      if (commaResult is Failure) {
+        break;
+      }
+
+      final expressionResult = expression.parseOn(
+        Context(buffer, commaResult.position),
+      );
+      if (expressionResult is Failure) {
+        return expressionResult;
+      }
+      expressions.add(expressionResult.value as AstNode);
+      current = expressionResult.position;
+    }
+
+    return context.success(expressions, current);
+  }
+
+  @override
+  _ExpressionListParser copy() => _ExpressionListParser(expression, comma);
+
+  @override
+  List<Parser> get children => [expression, comma];
+
+  @override
+  void replace(Parser source, Parser target) {
+    super.replace(source, target);
+    if (expression == source) {
+      expression = target;
+    }
+    if (comma == source) {
+      comma = target;
+    }
+  }
+}
+
+class _FieldParser extends Parser<TableEntry> {
+  _FieldParser({required this.expression, required this.identifier});
+
+  Parser expression;
+  Parser identifier;
+
+  @override
+  Result<TableEntry> parseOn(Context context) {
+    final buffer = context.buffer;
+    final start = _skipLuaTrivia(buffer, context.position);
+    if (start >= buffer.length) {
+      return context.failure('table field expected', start);
+    }
+
+    if (buffer.codeUnitAt(start) == 0x5B &&
+        !_startsLongBracket(buffer, start)) {
+      final indexedResult = _parseIndexed(context, buffer, start);
+      if (indexedResult is Success<TableEntry>) {
+        return indexedResult;
+      }
+    }
+
+    if (_isIdentifierStartCodeUnit(buffer.codeUnitAt(start))) {
+      final keyedResult = _parseKeyed(context, buffer, start);
+      if (keyedResult is Success<TableEntry>) {
+        return keyedResult;
+      }
+    }
+
+    return _parseLiteral(context, buffer, start);
+  }
+
+  Result<TableEntry> _parseIndexed(Context context, String buffer, int start) {
+    final keyResult = expression.parseOn(
+      Context(buffer, _skipLuaTrivia(buffer, start + 1)),
+    );
+    if (keyResult is Failure) {
+      return keyResult;
+    }
+
+    final close = _skipLuaTrivia(buffer, keyResult.position);
+    if (close >= buffer.length || buffer.codeUnitAt(close) != 0x5D) {
+      return context.failure('"]" expected', close);
+    }
+
+    final equals = _skipLuaTrivia(buffer, close + 1);
+    if (equals >= buffer.length || buffer.codeUnitAt(equals) != 0x3D) {
+      return context.failure('"=" expected', equals);
+    }
+
+    final valueResult = expression.parseOn(
+      Context(buffer, _skipLuaTrivia(buffer, equals + 1)),
+    );
+    if (valueResult is Failure) {
+      return valueResult;
+    }
+
+    return context.success(
+      IndexedTableEntry(
+        keyResult.value as AstNode,
+        valueResult.value as AstNode,
+      ),
+      valueResult.position,
+    );
+  }
+
+  Result<TableEntry> _parseKeyed(Context context, String buffer, int start) {
+    final identifierResult = identifier.parseOn(Context(buffer, start));
+    if (identifierResult is Failure) {
+      return identifierResult;
+    }
+
+    final equals = _skipLuaTrivia(buffer, identifierResult.position);
+    if (equals >= buffer.length || buffer.codeUnitAt(equals) != 0x3D) {
+      return context.failure('"=" expected', equals);
+    }
+
+    final valueResult = expression.parseOn(
+      Context(buffer, _skipLuaTrivia(buffer, equals + 1)),
+    );
+    if (valueResult is Failure) {
+      return valueResult;
+    }
+
+    return context.success(
+      KeyedTableEntry(
+        identifierResult.value as Identifier,
+        valueResult.value as AstNode,
+      ),
+      valueResult.position,
+    );
+  }
+
+  Result<TableEntry> _parseLiteral(Context context, String buffer, int start) {
+    final result = expression.parseOn(Context(buffer, start));
+    if (result is Failure) {
+      return result;
+    }
+    return context.success(
+      TableEntryLiteral(result.value as AstNode),
+      result.position,
+    );
+  }
+
+  @override
+  _FieldParser copy() =>
+      _FieldParser(expression: expression, identifier: identifier);
+
+  @override
+  List<Parser> get children => [expression, identifier];
+
+  @override
+  void replace(Parser source, Parser target) {
+    super.replace(source, target);
+    if (expression == source) {
+      expression = target;
+    }
+    if (identifier == source) {
+      identifier = target;
+    }
+  }
+}
+
+sealed class _PrefixSuffix {
+  const _PrefixSuffix();
+}
+
+final class _IndexSuffix extends _PrefixSuffix {
+  const _IndexSuffix(this.expression);
+
+  final AstNode expression;
+}
+
+final class _FieldSuffix extends _PrefixSuffix {
+  const _FieldSuffix(this.identifier);
+
+  final Identifier identifier;
+}
+
+final class _CallSuffix extends _PrefixSuffix {
+  const _CallSuffix(this.args);
+
+  final List<AstNode> args;
+}
+
+final class _MethodSuffix extends _PrefixSuffix {
+  const _MethodSuffix(this.identifier, this.args);
+
+  final Identifier identifier;
+  final List<AstNode> args;
+}
+
+class _SuffixParser extends Parser<_PrefixSuffix> {
+  _SuffixParser({
+    required this.expression,
+    required this.identifier,
+    required this.args,
+  });
+
+  Parser expression;
+  Parser identifier;
+  Parser args;
+
+  @override
+  Result<_PrefixSuffix> parseOn(Context context) {
+    final buffer = context.buffer;
+    final start = _skipLuaTrivia(buffer, context.position);
+    if (start >= buffer.length) {
+      return context.failure('suffix expected');
+    }
+
+    switch (buffer.codeUnitAt(start)) {
+      case 0x5B: // [
+        if (_startsLongBracket(buffer, start)) {
+          return _parseCall(context, buffer, start);
+        }
+        return _parseIndex(context, buffer, start);
+      case 0x2E: // .
+        return _parseField(context, buffer, start);
+      case 0x3A: // :
+        return _parseMethod(context, buffer, start);
+      case 0x28: // (
+      case 0x7B: // {
+      case 0x22: // "
+      case 0x27: // '
+        return _parseCall(context, buffer, start);
+    }
+
+    return context.failure('suffix expected', start);
+  }
+
+  Result<_PrefixSuffix> _parseIndex(Context context, String buffer, int start) {
+    final expressionResult = expression.parseOn(
+      Context(buffer, _skipLuaTrivia(buffer, start + 1)),
+    );
+    if (expressionResult is Failure) {
+      return expressionResult;
+    }
+
+    final close = _skipLuaTrivia(buffer, expressionResult.position);
+    if (close >= buffer.length || buffer.codeUnitAt(close) != 0x5D) {
+      return context.failure('"]" expected', close);
+    }
+
+    return context.success(
+      _IndexSuffix(expressionResult.value as AstNode),
+      _skipLuaTrivia(buffer, close + 1),
+    );
+  }
+
+  Result<_PrefixSuffix> _parseField(Context context, String buffer, int start) {
+    final identifierResult = identifier.parseOn(
+      Context(buffer, _skipLuaTrivia(buffer, start + 1)),
+    );
+    if (identifierResult is Failure) {
+      return identifierResult;
+    }
+
+    return context.success(
+      _FieldSuffix(identifierResult.value as Identifier),
+      identifierResult.position,
+    );
+  }
+
+  Result<_PrefixSuffix> _parseMethod(
+    Context context,
+    String buffer,
+    int start,
+  ) {
+    final identifierResult = identifier.parseOn(
+      Context(buffer, _skipLuaTrivia(buffer, start + 1)),
+    );
+    if (identifierResult is Failure) {
+      return identifierResult;
+    }
+
+    final argsResult = args.parseOn(Context(buffer, identifierResult.position));
+    if (argsResult is Failure) {
+      return argsResult;
+    }
+
+    return context.success(
+      _MethodSuffix(
+        identifierResult.value as Identifier,
+        (argsResult.value as List).cast<AstNode>(),
+      ),
+      argsResult.position,
+    );
+  }
+
+  Result<_PrefixSuffix> _parseCall(Context context, String buffer, int start) {
+    final argsResult = args.parseOn(Context(buffer, start));
+    if (argsResult is Failure) {
+      return argsResult;
+    }
+    return context.success(
+      _CallSuffix((argsResult.value as List).cast<AstNode>()),
+      argsResult.position,
+    );
+  }
+
+  @override
+  _SuffixParser copy() =>
+      _SuffixParser(expression: expression, identifier: identifier, args: args);
+
+  @override
+  List<Parser> get children => [expression, identifier, args];
+
+  @override
+  void replace(Parser source, Parser target) {
+    super.replace(source, target);
+    if (expression == source) {
+      expression = target;
+    }
+    if (identifier == source) {
+      identifier = target;
+    }
+    if (args == source) {
+      args = target;
+    }
+  }
+}
+
+class _ReturnlessExpressionStatementParser extends Parser<ExpressionStatement> {
+  _ReturnlessExpressionStatementParser({
+    required this.definition,
+    required this.prefixExpression,
+  });
+
+  final LuaGrammarDefinition definition;
+  Parser prefixExpression;
+
+  @override
+  Result<ExpressionStatement> parseOn(Context context) {
+    final buffer = context.buffer;
+    final start = _skipLuaTrivia(buffer, context.position);
+    if (!_couldStartCallStatement(buffer, start)) {
+      return context.failure('function call expected', start);
+    }
+
+    final result = prefixExpression.parseOn(Context(buffer, start));
+    if (result is Failure) {
+      return result;
+    }
+
+    final expression = result.value as AstNode;
+    if (expression is! FunctionCall && expression is! MethodCall) {
+      return context.failure('function call expected', start);
+    }
+
+    final statement = ExpressionStatement(expression);
+    statement.setSpan(definition._sourceFile.span(start, result.position));
+    return context.success(statement, result.position);
+  }
+
+  bool _couldStartCallStatement(String buffer, int start) {
+    if (start >= buffer.length) {
+      return false;
+    }
+
+    final first = buffer.codeUnitAt(start);
+    if (first == 0x28) {
+      return true;
+    }
+    if (!_isIdentifierStartCodeUnit(first)) {
+      return false;
+    }
+
+    var current = _scanIdentifierEnd(buffer, start);
+    while (true) {
+      current = _skipLuaTrivia(buffer, current);
+      if (current >= buffer.length) {
+        return false;
+      }
+
+      switch (buffer.codeUnitAt(current)) {
+        case 0x28: // (
+        case 0x7B: // {
+        case 0x22: // "
+        case 0x27: // '
+          return true;
+        case 0x5B: // [
+          return true;
+        case 0x3A: // :
+          return true;
+        case 0x2E: // .
+          final nameStart = _skipLuaTrivia(buffer, current + 1);
+          if (nameStart >= buffer.length ||
+              !_isIdentifierStartCodeUnit(buffer.codeUnitAt(nameStart))) {
+            return false;
+          }
+          current = _scanIdentifierEnd(buffer, nameStart);
+          continue;
+      }
+
+      return false;
+    }
+  }
+
+  @override
+  _ReturnlessExpressionStatementParser copy() =>
+      _ReturnlessExpressionStatementParser(
+        definition: definition,
+        prefixExpression: prefixExpression,
+      );
+
+  @override
+  List<Parser> get children => [prefixExpression];
+
+  @override
+  void replace(Parser source, Parser target) {
+    super.replace(source, target);
+    if (prefixExpression == source) {
+      prefixExpression = target;
+    }
+  }
+}
+
+class _PrimaryExpressionParser extends Parser<AstNode> {
+  _PrimaryExpressionParser({
+    required this.definition,
+    required this.functionLiteral,
+    required this.prefixExpression,
+    required this.numberLiteral,
+    required this.stringLiteral,
+    required this.tableConstructor,
+  });
+
+  final LuaGrammarDefinition definition;
+  Parser functionLiteral;
+  Parser prefixExpression;
+  Parser numberLiteral;
+  Parser stringLiteral;
+  Parser tableConstructor;
+
+  @override
+  Result<AstNode> parseOn(Context context) {
+    final buffer = context.buffer;
+    final start = _skipLuaTrivia(buffer, context.position);
+    if (start >= buffer.length) {
+      return context.failure('primary expression expected');
+    }
+
+    final literalResult = _parseDirectLiteral(context, buffer, start);
+    if (literalResult != null) {
+      return literalResult;
+    }
+
+    final parser = _selectParser(buffer, start);
+    if (parser == null) {
+      return context.failure('primary expression expected', start);
+    }
+
+    final result = parser.parseOn(Context(buffer, start));
+    if (result is Failure) {
+      return result;
+    }
+    return context.success(result.value as AstNode, result.position);
+  }
+
+  Result<AstNode>? _parseDirectLiteral(
+    Context context,
+    String buffer,
+    int start,
+  ) {
+    final codeUnit = buffer.codeUnitAt(start);
+    if (codeUnit == 0x2E && _matchesLexeme(buffer, start, '...')) {
+      return context.success(VarArg(), _skipLuaTrivia(buffer, start + 3));
+    }
+    if (codeUnit == 0x66 && _matchesKeywordLexeme(buffer, start, 'false')) {
+      return _literalSuccess(context, BooleanLiteral(false), start, 5);
+    }
+    if (codeUnit == 0x6E && _matchesKeywordLexeme(buffer, start, 'nil')) {
+      return _literalSuccess(context, NilValue(), start, 3);
+    }
+    if (codeUnit == 0x74 && _matchesKeywordLexeme(buffer, start, 'true')) {
+      return _literalSuccess(context, BooleanLiteral(true), start, 4);
+    }
+    return null;
+  }
+
+  Result<AstNode> _literalSuccess(
+    Context context,
+    AstNode node,
+    int start,
+    int rawLength,
+  ) {
+    final end = _skipLuaTrivia(context.buffer, start + rawLength);
+    node.setSpan(definition._sourceFile.span(start, end));
+    return context.success(node, end);
+  }
+
+  Parser? _selectParser(String buffer, int start) {
+    final codeUnit = buffer.codeUnitAt(start);
+    if (codeUnit == 0x28) {
+      return prefixExpression;
+    }
+    if (codeUnit == 0x7B) {
+      return tableConstructor;
+    }
+    if (codeUnit == 0x22 || codeUnit == 0x27) {
+      return stringLiteral;
+    }
+    if (codeUnit == 0x5B) {
+      return _startsLongBracket(buffer, start) ? stringLiteral : null;
+    }
+    if (codeUnit == 0x2E) {
+      return start + 1 < buffer.length &&
+              _isDigitCodeUnit(buffer.codeUnitAt(start + 1))
+          ? numberLiteral
+          : null;
+    }
+    if (_isDigitCodeUnit(codeUnit)) {
+      return numberLiteral;
+    }
+    if (_matchesKeywordLexeme(buffer, start, 'function')) {
+      return functionLiteral;
+    }
+    return _isIdentifierStartCodeUnit(codeUnit) ? prefixExpression : null;
+  }
+
+  @override
+  _PrimaryExpressionParser copy() => _PrimaryExpressionParser(
+    definition: definition,
+    functionLiteral: functionLiteral,
+    prefixExpression: prefixExpression,
+    numberLiteral: numberLiteral,
+    stringLiteral: stringLiteral,
+    tableConstructor: tableConstructor,
+  );
+
+  @override
+  List<Parser> get children => [
+    functionLiteral,
+    prefixExpression,
+    numberLiteral,
+    stringLiteral,
+    tableConstructor,
+  ];
+
+  @override
+  void replace(Parser source, Parser target) {
+    super.replace(source, target);
+    if (functionLiteral == source) {
+      functionLiteral = target;
+    }
+    if (prefixExpression == source) {
+      prefixExpression = target;
+    }
+    if (numberLiteral == source) {
+      numberLiteral = target;
+    }
+    if (stringLiteral == source) {
+      stringLiteral = target;
+    }
+    if (tableConstructor == source) {
+      tableConstructor = target;
+    }
+  }
+}
+
+class _UnaryExpressionParser extends Parser<AstNode> {
+  _UnaryExpressionParser(this.definition, this.powerExpression);
+
+  final LuaGrammarDefinition definition;
+  Parser powerExpression;
+
+  @override
+  Result<AstNode> parseOn(Context context) {
+    final buffer = context.buffer;
+    final firstOperator = definition._matchUnaryOperator(
+      buffer,
+      context.position,
+    );
+    if (firstOperator == null) {
+      final result = powerExpression.parseOn(context);
+      if (result is Failure) {
+        return result;
+      }
+      return context.success(result.value as AstNode, result.position);
+    }
+
+    var current = firstOperator.end;
+    final operators = <_UnaryOperatorMatch>[firstOperator];
+    while (true) {
+      final operator = definition._matchUnaryOperator(buffer, current);
+      if (operator == null) {
+        break;
+      }
+      operators.add(operator);
+      current = operator.end;
+    }
+
+    final powerResult = powerExpression.parseOn(Context(buffer, current));
+    if (powerResult is Failure) {
+      return powerResult;
+    }
+
+    var node = powerResult.value as AstNode;
+    for (var i = operators.length - 1; i >= 0; i--) {
+      final operator = operators[i];
+      final unary = UnaryExpression(
+        operator.lexeme,
+        node,
+        operatorLine: definition._sourceFile.location(operator.offset).line,
+      );
+      if (node.span != null) {
+        unary.setSpan(
+          definition._sourceFile.span(operator.offset, node.span!.end.offset),
+        );
+      }
+      node = unary;
+    }
+
+    return context.success(node, powerResult.position);
+  }
+
+  @override
+  _UnaryExpressionParser copy() =>
+      _UnaryExpressionParser(definition, powerExpression);
+
+  @override
+  List<Parser> get children => [powerExpression];
+
+  @override
+  void replace(Parser source, Parser target) {
+    super.replace(source, target);
+    if (powerExpression == source) {
+      powerExpression = target;
+    }
+  }
+}
+
+final class _UnaryOperatorMatch {
+  const _UnaryOperatorMatch({
+    required this.lexeme,
+    required this.offset,
+    required this.end,
+  });
+
+  final String lexeme;
+  final int offset;
+  final int end;
+}
+
+class _ExpressionParser extends Parser<AstNode> {
+  _ExpressionParser(this.definition, this.operand);
+
+  final LuaGrammarDefinition definition;
+  Parser operand;
+
+  @override
+  Result<AstNode> parseOn(Context context) => _parseExpression(context, 1);
+
+  Result<AstNode> _parseExpression(Context context, int minimumPrecedence) {
+    var leftResult = operand.parseOn(context);
+    if (leftResult is Failure) {
+      return leftResult;
+    }
+
+    var left = leftResult.value as AstNode;
+    var current = leftResult.position;
+    final buffer = context.buffer;
+
+    while (true) {
+      final operator = _matchBinaryOperator(buffer, current);
+      if (operator == null || operator.precedence < minimumPrecedence) {
+        break;
+      }
+
+      final rightMinimumPrecedence = operator.rightAssociative
+          ? operator.precedence
+          : operator.precedence + 1;
+      final rightResult = _parseExpression(
+        Context(buffer, operator.end),
+        rightMinimumPrecedence,
+      );
+      if (rightResult is Failure) {
+        return rightResult;
+      }
+
+      left = definition._makeBinaryExpression(left, (
+        op: operator.lexeme,
+        offset: operator.offset,
+      ), rightResult.value);
+      current = rightResult.position;
+    }
+
+    return context.success(left, current);
+  }
+
+  @override
+  _ExpressionParser copy() => _ExpressionParser(definition, operand);
+
+  @override
+  List<Parser> get children => [operand];
+
+  @override
+  void replace(Parser source, Parser target) {
+    super.replace(source, target);
+    if (operand == source) {
+      operand = target;
+    }
+  }
+}
+
+final class _BinaryOperatorMatch {
+  const _BinaryOperatorMatch({
+    required this.lexeme,
+    required this.offset,
+    required this.end,
+    required this.precedence,
+    required this.rightAssociative,
+  });
+
+  final String lexeme;
+  final int offset;
+  final int end;
+  final int precedence;
+  final bool rightAssociative;
+}
+
+_BinaryOperatorMatch? _matchBinaryOperator(String buffer, int position) {
+  final start = _skipLuaTrivia(buffer, position);
+  if (start >= buffer.length) {
+    return null;
+  }
+
+  _BinaryOperatorMatch? match(
+    String lexeme,
+    int precedence, {
+    bool rightAssociative = false,
+    bool identifierBoundary = false,
+  }) {
+    final rawEnd = start + lexeme.length;
+    if (!_matchesLexeme(buffer, start, lexeme)) {
+      return null;
+    }
+    if (identifierBoundary &&
+        rawEnd < buffer.length &&
+        _isIdentifierContinueCodeUnit(buffer.codeUnitAt(rawEnd))) {
+      return null;
+    }
+    return _BinaryOperatorMatch(
+      lexeme: lexeme,
+      offset: start,
+      end: _skipLuaTrivia(buffer, rawEnd),
+      precedence: precedence,
+      rightAssociative: rightAssociative,
+    );
+  }
+
+  switch (buffer.codeUnitAt(start)) {
+    case 0x6F: // o
+      return match('or', 1, identifierBoundary: true);
+    case 0x61: // a
+      return match('and', 2, identifierBoundary: true);
+    case 0x3C: // <
+      return match('<<', 7) ?? match('<=', 3) ?? match('<', 3);
+    case 0x3E: // >
+      return match('>>', 7) ?? match('>=', 3) ?? match('>', 3);
+    case 0x3D: // =
+      return match('==', 3);
+    case 0x7E: // ~
+      return match('~=', 3) ?? match('~', 5);
+    case 0x7C: // |
+      return match('|', 4);
+    case 0x26: // &
+      return match('&', 6);
+    case 0x2E: // .
+      return match('..', 8, rightAssociative: true);
+    case 0x2B: // +
+      return match('+', 9);
+    case 0x2D: // -
+      return match('-', 9);
+    case 0x2A: // *
+      return match('*', 10);
+    case 0x2F: // /
+      return match('//', 10) ?? match('/', 10);
+    case 0x25: // %
+      return match('%', 10);
+  }
+  return null;
+}
+
+bool _matchesLexeme(String buffer, int position, String lexeme) {
+  final end = position + lexeme.length;
+  if (end > buffer.length) {
+    return false;
+  }
+  for (var i = 0; i < lexeme.length; i++) {
+    if (buffer.codeUnitAt(position + i) != lexeme.codeUnitAt(i)) {
+      return false;
+    }
+  }
+  return true;
+}
+
+bool _matchesKeywordLexeme(String buffer, int position, String lexeme) {
+  final end = position + lexeme.length;
+  return _matchesLexeme(buffer, position, lexeme) &&
+      (end >= buffer.length ||
+          !_isIdentifierContinueCodeUnit(buffer.codeUnitAt(end)));
+}
+
+bool _startsLongBracket(String buffer, int position) {
+  if (position >= buffer.length || buffer.codeUnitAt(position) != 0x5B) {
+    return false;
+  }
+
+  var current = position + 1;
+  while (current < buffer.length && buffer.codeUnitAt(current) == 0x3D) {
+    current++;
+  }
+  return current < buffer.length && buffer.codeUnitAt(current) == 0x5B;
+}
+
+bool _isDigitCodeUnit(int codeUnit) => codeUnit >= 0x30 && codeUnit <= 0x39;
+
+class _TokenParser extends Parser<String> {
+  _TokenParser(this.lexeme, {required this.needsIdentifierBoundary});
+
+  final String lexeme;
+  final bool needsIdentifierBoundary;
+
+  @override
+  Result<String> parseOn(Context context) {
+    final start = _skipLuaTrivia(context.buffer, context.position);
+    final end = _matchEnd(context.buffer, start);
+    if (end < 0) {
+      return context.failure('"$lexeme" expected', start);
+    }
+    return context.success(lexeme, _skipLuaTrivia(context.buffer, end));
+  }
+
+  @override
+  int fastParseOn(String buffer, int position) {
+    final start = _skipLuaTrivia(buffer, position);
+    final end = _matchEnd(buffer, start);
+    return end < 0 ? -1 : _skipLuaTrivia(buffer, end);
+  }
+
+  int _matchEnd(String buffer, int start) {
+    final end = start + lexeme.length;
+    if (end > buffer.length) {
+      return -1;
+    }
+    for (var i = 0; i < lexeme.length; i++) {
+      if (buffer.codeUnitAt(start + i) != lexeme.codeUnitAt(i)) {
+        return -1;
+      }
+    }
+    if (needsIdentifierBoundary &&
+        end < buffer.length &&
+        _isIdentifierContinueCodeUnit(buffer.codeUnitAt(end))) {
+      return -1;
+    }
+    return end;
+  }
+
+  @override
+  _TokenParser copy() =>
+      _TokenParser(lexeme, needsIdentifierBoundary: needsIdentifierBoundary);
+
+  @override
+  bool hasEqualProperties(_TokenParser other) =>
+      super.hasEqualProperties(other) &&
+      lexeme == other.lexeme &&
+      needsIdentifierBoundary == other.needsIdentifierBoundary;
+
+  @override
+  String toString() => '"$lexeme" expected';
+}
+
+class _TriviaParser extends Parser<void> {
+  _TriviaParser();
+
+  @override
+  Result<void> parseOn(Context context) {
+    final current = _skipLuaTrivia(context.buffer, context.position);
+    if (current == context.position) {
+      return context.failure('whitespace or comment expected');
+    }
+    return context.success(null, current);
+  }
+
+  @override
+  int fastParseOn(String buffer, int position) {
+    final current = _skipLuaTrivia(buffer, position);
+    return current == position ? -1 : current;
+  }
+
+  @override
+  _TriviaParser copy() => _TriviaParser();
+}
+
+class _IdentifierParser extends Parser<Identifier> {
+  _IdentifierParser(this.definition);
+
+  final LuaGrammarDefinition definition;
+
+  @override
+  Result<Identifier> parseOn(Context context) {
+    final buffer = context.buffer;
+    final start = _skipLuaTrivia(buffer, context.position);
+    if (start >= buffer.length ||
+        !_isIdentifierStartCodeUnit(buffer.codeUnitAt(start))) {
+      return context.failure('identifier expected');
+    }
+
+    var current = start + 1;
+    while (current < buffer.length &&
+        _isIdentifierContinueCodeUnit(buffer.codeUnitAt(current))) {
+      current++;
+    }
+
+    final name = buffer.substring(start, current);
+    if (LuaGrammarDefinition._keywords.contains(name)) {
+      return context.failure('unexpected "$name"', start);
+    }
+
+    final id = Identifier(name);
+    id.setSpan(definition._sourceFile.span(start, current));
+    final end = _skipLuaTrivia(buffer, current);
+    return context.success(id, end);
+  }
+
+  @override
+  _IdentifierParser copy() => _IdentifierParser(definition);
+}
+
+int _skipLuaTrivia(String buffer, int position) {
+  var current = position;
+  while (current < buffer.length) {
+    final codeUnit = buffer.codeUnitAt(current);
+    if (_isLuaWhitespaceCodeUnit(codeUnit)) {
+      current++;
+      continue;
+    }
+
+    if (!_startsLineComment(buffer, current)) {
+      break;
+    }
+
+    final longCommentEnd = _scanLongCommentEnd(buffer, current + 2);
+    if (longCommentEnd != null) {
+      current = longCommentEnd;
+      continue;
+    }
+
+    current = _scanLineCommentEnd(buffer, current + 2);
+  }
+  return current;
+}
+
+bool _isLuaWhitespaceCodeUnit(int codeUnit) =>
+    codeUnit == 0x20 ||
+    codeUnit == 0x09 ||
+    codeUnit == 0x0A ||
+    codeUnit == 0x0B ||
+    codeUnit == 0x0C ||
+    codeUnit == 0x0D;
+
+bool _startsLineComment(String buffer, int position) =>
+    position + 1 < buffer.length &&
+    buffer.codeUnitAt(position) == 0x2D &&
+    buffer.codeUnitAt(position + 1) == 0x2D;
+
+int _scanLineCommentEnd(String buffer, int position) {
+  var current = position;
+  while (current < buffer.length) {
+    final codeUnit = buffer.codeUnitAt(current);
+    current++;
+    if (codeUnit == 0x0A || codeUnit == 0x0D) {
+      if (current < buffer.length) {
+        final next = buffer.codeUnitAt(current);
+        if ((codeUnit == 0x0A && next == 0x0D) ||
+            (codeUnit == 0x0D && next == 0x0A)) {
+          current++;
+        }
+      }
+      break;
+    }
+  }
+  return current;
+}
+
+int? _scanLongCommentEnd(String buffer, int position) {
+  if (position >= buffer.length || buffer.codeUnitAt(position) != 0x5B) {
+    return null;
+  }
+
+  var current = position + 1;
+  while (current < buffer.length && buffer.codeUnitAt(current) == 0x3D) {
+    current++;
+  }
+
+  if (current >= buffer.length || buffer.codeUnitAt(current) != 0x5B) {
+    return null;
+  }
+
+  final eqCount = current - position - 1;
+  final contentStart = current + 1;
+  final closing = ']${'=' * eqCount}]';
+  final closeIndex = buffer.indexOf(closing, contentStart);
+  if (closeIndex == -1) {
+    throw ParserException(
+      Failure(buffer, position - 2, "unfinished comment near '<eof>'"),
+    );
+  }
+  return closeIndex + closing.length;
+}
+
 class _LongBracketParser extends Parser<String> {
   _LongBracketParser();
 
@@ -1457,49 +2301,6 @@ class _LongBracketParser extends Parser<String> {
 
   @override
   _LongBracketParser copy() => _LongBracketParser();
-}
-
-class _LongCommentBracketParser extends Parser<String> {
-  _LongCommentBracketParser();
-
-  @override
-  Result<String> parseOn(Context context) {
-    final buffer = context.buffer;
-    final start = context.position;
-    if (start >= buffer.length || buffer.codeUnitAt(start) != 0x5B /* '[' */ ) {
-      return context.failure('long comment expected');
-    }
-    var idx = start + 1;
-    while (idx < buffer.length && buffer.codeUnitAt(idx) == 0x3D /* '=' */ ) {
-      idx++;
-    }
-    if (idx >= buffer.length || buffer.codeUnitAt(idx) != 0x5B) {
-      return context.failure('long comment start delimiter not found');
-    }
-    final eqCount = idx - start - 1;
-    final contentStart = idx + 1;
-    final closing = ']${'=' * eqCount}]';
-    final closeIdx = buffer.indexOf(closing, contentStart);
-    if (closeIdx == -1) {
-      // Unfinished long comment: surface a Lua-style error message.
-      // We can't use _createPositionedException here as we're outside the LuaGrammarDefinition class
-      throw ParserException(
-        Failure(buffer, context.position, "unfinished comment near '<eof>'"),
-      );
-    }
-    // Skip the content, return success at the end of the comment
-    return context.success('', closeIdx + closing.length);
-  }
-
-  @override
-  int fastParseOn(String buffer, int position) {
-    final ctx = Context(buffer, position);
-    final res = parseOn(ctx);
-    return res is Failure ? -1 : res.position;
-  }
-
-  @override
-  _LongCommentBracketParser copy() => _LongCommentBracketParser();
 }
 
 /// Parse [source] into an [AST] using the **new PetitParser** implementation.
@@ -1608,6 +2409,15 @@ bool _isIdentifierStartCodeUnit(int codeUnit) =>
 bool _isIdentifierContinueCodeUnit(int codeUnit) =>
     _isIdentifierStartCodeUnit(codeUnit) ||
     (codeUnit >= 0x30 && codeUnit <= 0x39);
+
+int _scanIdentifierEnd(String buffer, int start) {
+  var current = start + 1;
+  while (current < buffer.length &&
+      _isIdentifierContinueCodeUnit(buffer.codeUnitAt(current))) {
+    current++;
+  }
+  return current;
+}
 
 int _skipSyntaxTrivia(String source, int index) {
   var current = index;
