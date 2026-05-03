@@ -18,10 +18,10 @@ bool _isInlineableMutableLocalPrimitive(Object? value) {
         value.strippedDebugInfo) {
       return false;
     }
-    return raw == null || raw is bool || raw is num || raw is BigInt;
+    return isLuaScalarPrimitiveSlot(raw);
   }
 
-  return value == null || value is bool || value is num || value is BigInt;
+  return isLuaScalarPrimitiveSlot(value);
 }
 
 Object? _mutableLocalStorageValue(Object? value) {

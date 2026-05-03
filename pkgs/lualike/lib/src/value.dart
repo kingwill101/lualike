@@ -991,10 +991,7 @@ class Value extends Object implements Map<String, dynamic>, GCObject {
     }
     if (isTable) return true; // tables are significant
     final payload = raw;
-    if (payload == null ||
-        payload is bool ||
-        payload is num ||
-        payload is BigInt) {
+    if (isLuaScalarPrimitiveSlot(payload)) {
       return false;
     }
     // Count strings to model Lua's GC pressure from string creation

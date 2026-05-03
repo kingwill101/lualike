@@ -8852,7 +8852,7 @@ Value _cloneBytecodeValue(Value source) {
 
 bool _canUsePrimitiveBytecodeClone(Value source) {
   final raw = source.raw;
-  if (raw == null || raw is bool || raw is num || raw is BigInt) {
+  if (isLuaScalarPrimitiveSlot(raw)) {
     return true;
   }
   if (raw is! String && raw is! LuaString) {

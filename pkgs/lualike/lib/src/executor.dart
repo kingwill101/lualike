@@ -86,7 +86,7 @@ Object? _publicExecutionResult(Object? result) {
 Object? _publicResultSlot(Object? result) {
   if (result is Value) {
     final raw = result.raw;
-    if (raw == null || raw is bool || raw is num || raw is BigInt) {
+    if (isLuaScalarPrimitiveSlot(raw)) {
       return raw;
     }
     if (raw is LuaString) {
