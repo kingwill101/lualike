@@ -1119,12 +1119,15 @@ final class LuaBytecodeVm {
             }
           case 'NEWTABLE':
             {
-              final extra = _consumeExtraArg(frame);
+              final extra = word.kFlag
+                  ? _consumeExtraArg(frame)
+                  : _consumeOptionalZeroExtraArg(frame);
+              final extraAx = extra?.ax ?? 0;
               final tableStorage = TableStorage();
               final arraySize =
                   word.vc +
                   (word.kFlag
-                      ? extra.ax * (LuaBytecodeInstructionLayout.maxArgVC + 1)
+                      ? extraAx * (LuaBytecodeInstructionLayout.maxArgVC + 1)
                       : 0);
               if (arraySize > 0) {
                 tableStorage.ensureArrayCapacity(arraySize);
@@ -1622,7 +1625,7 @@ final class LuaBytecodeVm {
               try {
                 frame.markToBeClosed(word.a);
               } on LuaError catch (error) {
-                final localName = frame.activeLocalName(word.a);
+                final localName = frame.localNameForError(word.a);
                 if (localName != null &&
                     error.message ==
                         'to-be-closed variable value must have a __close metamethod') {
@@ -4085,8 +4088,8 @@ final class LuaBytecodeVm {
         throw LuaError.typeError('attempt to call a ${getLuaType(func)} value');
       }
 
-      final callResult = await runtime.callFunction(func, callArgs);
-      return _packBytecodeProtectedCallSuccess(callResult);
+      final callResults = await _invokeValueWithName(func, callArgs);
+      return <Value>[_runtimeValue(runtime, true), ...callResults];
     } on TailCallException catch (tail) {
       final callee = tail.functionValue is Value
           ? tail.functionValue as Value
@@ -5617,6 +5620,21 @@ final class LuaBytecodeVm {
     return extra;
   }
 
+  LuaBytecodeInstructionWord? _consumeOptionalZeroExtraArg(
+    _LuaBytecodeFrame frame,
+  ) {
+    if (frame.pc >= frame.closure.prototype.code.length) {
+      return null;
+    }
+    final next = frame.closure.prototype.code[frame.pc];
+    if (LuaBytecodeOpcodes.byCode(next.opcodeValue).name == 'EXTRAARG' &&
+        next.ax == 0) {
+      frame.pc++;
+      return next;
+    }
+    return null;
+  }
+
   List<Value> _normalizeResults(Object? result) {
     if (result == null) {
       return const <Value>[];
@@ -6551,6 +6569,49 @@ final class _LuaBytecodeFrame implements LuaBytecodeGCRootProvider {
     return activeLocalNameAt(registerIndex, pc);
   }
 
+  String? localNameForError(int registerIndex) {
+    for (final targetPc in <int>[pc, pc - 1, pc + 1]) {
+      final localName = activeLocalNameAt(registerIndex, targetPc);
+      if (localName != null) {
+        return localName;
+      }
+      var inferredRegister = 0;
+      for (final local in sortedDebugLocals) {
+        if (local.register != null ||
+            targetPc < local.startPc - 1 ||
+            targetPc >= local.endPc) {
+          continue;
+        }
+        final name = local.name;
+        if (name == null || name.isEmpty || name.startsWith('(')) {
+          continue;
+        }
+        if (inferredRegister == registerIndex) {
+          return name;
+        }
+        inferredRegister++;
+      }
+    }
+    LuaBytecodeLocalVariableDebugInfo? fallback;
+    for (final local in sortedDebugLocals) {
+      if (local.register != registerIndex || local.name == null) {
+        continue;
+      }
+      final name = local.name!;
+      if (name.isEmpty || name.startsWith('(')) {
+        continue;
+      }
+      fallback ??= local;
+      if (pc >= local.startPc - 1 && pc <= local.endPc) {
+        return name;
+      }
+    }
+    if (fallback case final local?) {
+      return local.name;
+    }
+    return null;
+  }
+
   String? activeLocalNameAt(int registerIndex, int targetPc) {
     if (targetPc < 0 || targetPc >= _activeNamedLocalsByPc.length) {
       return null;
@@ -6713,7 +6774,7 @@ final class _LuaBytecodeFrame implements LuaBytecodeGCRootProvider {
             ? mutableSlotValue
             : Value.toBeClose(mutableSlotValue);
       } on UnsupportedError catch (error, stackTrace) {
-        final localName = activeLocalName(registerIndex);
+        final localName = localNameForError(registerIndex);
         final message = localName != null
             ? "variable '$localName' got a non-closable value"
             : (error.message ?? error.toString());
@@ -8515,8 +8576,8 @@ Value _constantValue(
     LuaBytecodeFloatConstant(:final value) => runtime.constantPrimitiveValue(
       value,
     ),
-    LuaBytecodeStringConstant(:final value) => runtime.constantRawStringValue(
-      value,
+    LuaBytecodeStringConstant(:final value) => runtime.constantStringValue(
+      value.codeUnits,
     ),
   };
   cache[index] = value;

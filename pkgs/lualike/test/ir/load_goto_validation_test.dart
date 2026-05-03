@@ -18,9 +18,9 @@ void main() {
       ''');
 
       final f = lua.getGlobal('f') as Value;
+      expect(f.unwrap(), isNull);
       final err = lua.getGlobal('err') as Value;
 
-      expect(f.unwrap(), isNull);
       expect(err.unwrap(), contains("label 'l1'"));
     });
 
@@ -30,9 +30,9 @@ void main() {
       ''');
 
       final f = lua.getGlobal('f') as Value;
+      expect(f.unwrap(), isNull);
       final err = lua.getGlobal('err') as Value;
 
-      expect(f.unwrap(), isNull);
       expect(err.unwrap(), contains("scope of 'aa'"));
     });
   });

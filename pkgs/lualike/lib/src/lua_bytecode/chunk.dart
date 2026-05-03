@@ -299,7 +299,7 @@ List<int?> _linesByPcFor(LuaBytecodePrototype prototype) {
   if (cached != null) {
     return cached;
   }
-  final built = prototype._buildLinesByPc();
+  final built = List<int?>.unmodifiable(prototype._buildLinesByPc());
   _prototypeLinesByPc[prototype] = built;
   return built;
 }

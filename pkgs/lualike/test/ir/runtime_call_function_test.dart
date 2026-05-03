@@ -47,6 +47,28 @@ void main() {
       final numeric = result is Value ? result.raw : result;
       expect(numeric, equals(42));
     });
+
+    test('reports too-long callable table chains', () async {
+      final bridge = LuaLike(runtime: LualikeIrRuntime());
+      final runtime = bridge.vm;
+
+      await bridge.execute('''
+        target = {}
+        for _ = 1, 16 do
+          target = setmetatable({}, {__call = target})
+        end
+      ''');
+
+      final target = bridge.getGlobal('target') as Value;
+      await expectLater(
+        runtime.callFunction(target, const <Object?>[]),
+        throwsA(
+          predicate<Object>(
+            (error) => error.toString().contains("__call' chain too long"),
+          ),
+        ),
+      );
+    });
   });
 
   group('LualikeIrRuntime load & stdlib integration', () {
@@ -77,6 +99,17 @@ void main() {
         return chunk()
       ''');
       expect(unwrap(result), equals(7));
+    });
+
+    test('loaded chunk can use pairs iterator from globals', () async {
+      final result = await bridge.execute(r'''
+        local chunk = assert(load("for k, v in pairs({10, 20}) do return k, v end"))
+        return chunk()
+      ''');
+
+      expect(result, isA<List>());
+      final values = (result as List).map(unwrap).toList();
+      expect(values, equals(<Object?>[1, 10]));
     });
 
     test('pcall surfaces math.huge shift error message', () async {
@@ -221,6 +254,8 @@ void main() {
       'goto.lua global declaration block through local foo assertions',
       () async {
         final result = await bridge.execute(r'''
+          global<const> load, string
+
           local function checkerr (code, err)
           local st, msg = load(code)
           _ENV.assert(not st and string.find(msg, err))
@@ -273,6 +308,8 @@ void main() {
       'goto.lua global declaration block trailing const and wildcard cases',
       () async {
         final result = await bridge.execute(r'''
+        global<const> load, string, assert
+
         local function checkerr (code, err)
           local st, msg = load(code)
           assert(not st and string.find(msg, err))

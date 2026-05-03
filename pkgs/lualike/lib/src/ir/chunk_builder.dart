@@ -93,7 +93,10 @@ class LualikeIrPrototypeBuilder {
         (_lineInfo.isNotEmpty ||
             sourcePath != null ||
             preferredDebugName != null ||
-            preferredDebugNameWhat.isNotEmpty)) {
+            preferredDebugNameWhat.isNotEmpty ||
+            localDebugEntries.isNotEmpty ||
+            upvalueNames.isNotEmpty ||
+            toBeClosedNamesByPc.isNotEmpty)) {
       info = LualikeIrDebugInfo(
         lineInfo: List.unmodifiable(_lineInfo),
         absoluteSourcePath: sourcePath,
@@ -106,6 +109,8 @@ class LualikeIrPrototypeBuilder {
     } else if (info != null &&
         (preferredDebugName != null ||
             preferredDebugNameWhat.isNotEmpty ||
+            localDebugEntries.isNotEmpty ||
+            upvalueNames.isNotEmpty ||
             toBeClosedNamesByPc.isNotEmpty)) {
       info = LualikeIrDebugInfo(
         lineInfo: info.lineInfo,

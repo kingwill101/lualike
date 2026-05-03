@@ -4,10 +4,13 @@ library;
 import 'package:lualike/src/environment.dart';
 import 'package:lualike/src/config.dart';
 import 'package:lualike/src/executor.dart';
+import 'package:lualike/src/logging/logging.dart';
 import 'package:lualike/src/value.dart';
 import 'package:test/test.dart';
 
 void main() {
+  Logger.setEnabled(false);
+
   group('Lualike IR lowered comparisons', () {
     test('executes comparisons', () async {
       expect(await executeCode('return 3 < 4', mode: EngineMode.ir), isTrue);
@@ -27,7 +30,8 @@ void main() {
         await executeCode(
           'return x == "foo"',
           mode: EngineMode.ir,
-          onRuntimeSetup: (runtime) => runtime.globals.define('x', env.get('x')!),
+          onRuntimeSetup: (runtime) =>
+              runtime.globals.define('x', env.get('x')!),
         ),
         isTrue,
       );
@@ -39,7 +43,8 @@ void main() {
         await executeCode(
           'return x == 5',
           mode: EngineMode.ir,
-          onRuntimeSetup: (runtime) => runtime.globals.define('x', env.get('x')!),
+          onRuntimeSetup: (runtime) =>
+              runtime.globals.define('x', env.get('x')!),
         ),
         isTrue,
       );
@@ -47,7 +52,8 @@ void main() {
         await executeCode(
           'return x < 10',
           mode: EngineMode.ir,
-          onRuntimeSetup: (runtime) => runtime.globals.define('x', env.get('x')!),
+          onRuntimeSetup: (runtime) =>
+              runtime.globals.define('x', env.get('x')!),
         ),
         isTrue,
       );
@@ -55,7 +61,8 @@ void main() {
         await executeCode(
           'return x >= 3',
           mode: EngineMode.ir,
-          onRuntimeSetup: (runtime) => runtime.globals.define('x', env.get('x')!),
+          onRuntimeSetup: (runtime) =>
+              runtime.globals.define('x', env.get('x')!),
         ),
         isTrue,
       );

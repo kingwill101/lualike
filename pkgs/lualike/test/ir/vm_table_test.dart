@@ -3,6 +3,7 @@ library;
 
 import 'package:lualike/src/config.dart';
 import 'package:lualike/src/executor.dart';
+import 'package:lualike/src/lua_string.dart';
 import 'package:lualike/src/value.dart';
 import 'package:test/test.dart';
 
@@ -55,8 +56,8 @@ void main() {
     });
 
     test('constructs table literal with sequential elements', () async {
-      final result = await executeCode('return {1, 2, 3}', mode: EngineMode.ir)
-          as Value;
+      final result =
+          await executeCode('return {1, 2, 3}', mode: EngineMode.ir) as Value;
 
       expect(result[Value(1)]?.raw, equals(1));
       expect(result[Value(2)]?.raw, equals(2));
@@ -64,10 +65,9 @@ void main() {
     });
 
     test('constructs table literal with keyed and indexed fields', () async {
-      final result = await executeCode(
-        'return {foo = 5, [3] = 7, 9}',
-        mode: EngineMode.ir,
-      ) as Value;
+      final result =
+          await executeCode('return {foo = 5, [3] = 7, 9}', mode: EngineMode.ir)
+              as Value;
 
       expect(result[Value('foo')]?.raw, equals(5));
       expect(result[Value(3)]?.raw, equals(7));
@@ -85,9 +85,13 @@ local value = func2close(marker)
 local mt = getmetatable(value)
 return type(mt), mt.__close == marker
 ''';
-      final result = await executeCode(source, mode: EngineMode.ir) as Value;
-      final normalized = (result.raw as List<Object?>)
-          .map((value) => value is Value ? value.raw : value)
+      final result = await executeCode(source, mode: EngineMode.ir);
+      final values = result is Value ? result.raw as List<Object?> : result;
+      final normalized = (values as List<Object?>)
+          .map((value) {
+            final raw = value is Value ? value.raw : value;
+            return raw is LuaString ? raw.toString() : raw;
+          })
           .toList(growable: false);
 
       expect(normalized, equals(<Object?>['table', true]));
@@ -115,10 +119,8 @@ return build(3, 4, 5)
         60,
         (index) => '${index + 1}',
       ).join(', ');
-      final result = await executeCode(
-        'return {$literals}',
-        mode: EngineMode.ir,
-      ) as Value;
+      final result =
+          await executeCode('return {$literals}', mode: EngineMode.ir) as Value;
 
       for (var i = 1; i <= 60; i++) {
         expect(result[Value(i)]?.raw, equals(i));

@@ -3,7 +3,6 @@ import 'package:lualike/lualike.dart';
 import 'package:lualike/src/coroutine.dart';
 import 'package:lualike/src/gc/memory_credits.dart';
 import 'package:lualike/src/io/lua_file.dart';
-import 'package:lualike/src/lua_bytecode/runtime.dart';
 import 'package:lualike/src/lua_bytecode/vm.dart';
 import 'package:lualike/src/stdlib/lib_io.dart';
 import 'package:lualike/src/stdlib/metatables.dart';
@@ -36,7 +35,7 @@ Interpreter? _resolveDebugInterpreter(LuaRuntime? runtime) {
 }
 
 CallFrame? _resolveVisibleRunningBytecodeCoroutineFrame(
-  LuaBytecodeRuntime runtime,
+  LuaRuntime runtime,
   Coroutine coroutine,
   int level,
 ) {
@@ -567,17 +566,11 @@ class _GetLocal extends BuiltinFunction {
         );
       }
       final coroutine = threadArg.raw as Coroutine;
-      final coroutineRuntime = coroutine.closureEnvironment.interpreter;
-      final frame =
-          coroutineRuntime is LuaBytecodeRuntime &&
-              coroutine.status == CoroutineStatus.suspended
-          ? switch (bytecodeSuspendedCoroutineFrames(
-              coroutine,
-              startLevel: level,
-            )) {
-              [final frame, ...] => frame,
-              _ => null,
-            }
+      final bytecodeFrames = coroutine.status == CoroutineStatus.suspended
+          ? bytecodeSuspendedCoroutineFrames(coroutine, startLevel: level)
+          : const <CallFrame>[];
+      final frame = bytecodeFrames.isNotEmpty
+          ? bytecodeFrames.first
           : _resolveDebugCoroutineFrame(coroutine, level);
       if (frame == null) {
         throw LuaError(
@@ -924,17 +917,11 @@ class _SetLocal extends BuiltinFunction {
         );
       }
       final coroutine = thread.raw as Coroutine;
-      final coroutineRuntime = coroutine.closureEnvironment.interpreter;
-      frame =
-          coroutineRuntime is LuaBytecodeRuntime &&
-              coroutine.status == CoroutineStatus.suspended
-          ? switch (bytecodeSuspendedCoroutineFrames(
-              coroutine,
-              startLevel: level,
-            )) {
-              [final resolved, ...] => resolved,
-              _ => null,
-            }
+      final bytecodeFrames = coroutine.status == CoroutineStatus.suspended
+          ? bytecodeSuspendedCoroutineFrames(coroutine, startLevel: level)
+          : const <CallFrame>[];
+      frame = bytecodeFrames.isNotEmpty
+          ? bytecodeFrames.first
           : _resolveDebugCoroutineFrame(coroutine, level);
       if (frame == null) {
         throw LuaError(
@@ -1320,7 +1307,7 @@ class _Traceback extends BuiltinFunction {
     int startLevel,
   ) sync* {
     final runtime = coroutine.closureEnvironment.interpreter;
-    if (runtime is LuaBytecodeRuntime &&
+    if (runtime != null &&
         coroutine.status == CoroutineStatus.running &&
         identical(runtime.getCurrentCoroutine(), coroutine)) {
       for (var level = startLevel; ; level++) {
@@ -1335,8 +1322,7 @@ class _Traceback extends BuiltinFunction {
         yield frame;
       }
     }
-    if (runtime is LuaBytecodeRuntime &&
-        coroutine.status == CoroutineStatus.suspended) {
+    if (coroutine.status == CoroutineStatus.suspended) {
       final bytecodeFrames = bytecodeSuspendedCoroutineFrames(
         coroutine,
         startLevel: startLevel,
@@ -1596,8 +1582,15 @@ class _Traceback extends BuiltinFunction {
         currentCoroutine != null &&
         !identical(currentCoroutine, mainCoroutine)) {
       thread = currentCoroutine;
+      final coroutineRuntime = currentCoroutine.closureEnvironment.interpreter;
       usesCurrentBytecodeCoroutine =
-          currentCoroutine.closureEnvironment.interpreter is LuaBytecodeRuntime;
+          coroutineRuntime != null &&
+          _resolveVisibleRunningBytecodeCoroutineFrame(
+                coroutineRuntime,
+                currentCoroutine,
+                1,
+              ) !=
+              null;
     }
     if (thread case final Coroutine coroutine) {
       final startLevel = usesCurrentBytecodeCoroutine
@@ -1773,9 +1766,7 @@ class _GetInfoImpl extends BuiltinFunction {
   }
 
   CallFrame? _resolveCoroutineFrame(Coroutine coroutine, int level) {
-    final runtime = coroutine.closureEnvironment.interpreter;
-    if (runtime is LuaBytecodeRuntime &&
-        coroutine.status == CoroutineStatus.suspended) {
+    if (coroutine.status == CoroutineStatus.suspended) {
       final bytecodeFrames = bytecodeSuspendedCoroutineFrames(
         coroutine,
         startLevel: level,
