@@ -185,7 +185,8 @@ Value _valueFromPatternSlice(
   LuaRuntime? runtime,
 }) {
   if (!byteLevel) {
-    return runtime?.constantDartStringValue(value) ?? Value(value);
+    return runtime?.constantDartStringValue(value) ??
+        freshValueFromLuaSlot(null, value);
   }
   return valueFromOptionalLuaSlot(
     runtime,
@@ -194,21 +195,21 @@ Value _valueFromPatternSlice(
 }
 
 Value _runtimeOwnedFreshValue(LuaRuntime? runtime, Object? raw) {
-  final value = Value(raw);
-  value.interpreter = runtime;
-  return value;
+  return freshValueFromLuaSlot(runtime, raw);
 }
 
 Value _dartStringResultValue(LuaRuntime? runtime, String value) {
   if (value.length <= StringInterning.shortStringThreshold) {
-    return runtime?.constantDartStringValue(value) ?? Value(value);
+    return runtime?.constantDartStringValue(value) ??
+        freshValueFromLuaSlot(null, value);
   }
   return _runtimeOwnedFreshValue(runtime, value);
 }
 
 Value _luaStringResultValue(LuaRuntime? runtime, LuaString value) {
   if (value.bytes.length <= StringInterning.shortStringThreshold) {
-    return runtime?.constantStringValue(value.bytes) ?? Value(value);
+    return runtime?.constantStringValue(value.bytes) ??
+        freshValueFromLuaSlot(null, value);
   }
   return _runtimeOwnedFreshValue(runtime, value);
 }
