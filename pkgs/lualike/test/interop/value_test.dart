@@ -287,6 +287,30 @@ void main() {
       );
     });
 
+    test('integer and double equality avoids rounded large integers', () {
+      expect(Value(42) == Value(42.0), isTrue);
+      expect(Value(BigInt.from(42)) == Value(42.0), isTrue);
+      expect(Value(42).hashCode, Value(42.0).hashCode);
+      expect(Value(BigInt.from(42)).hashCode, Value(42).hashCode);
+      expect(Value(42) == Value(42.5), isFalse);
+
+      const maxExactDoubleInteger = 9007199254740992;
+      expect(
+        Value(maxExactDoubleInteger) == Value(maxExactDoubleInteger.toDouble()),
+        isTrue,
+      );
+      expect(
+        Value(maxExactDoubleInteger + 1) ==
+            Value(maxExactDoubleInteger.toDouble()),
+        isFalse,
+      );
+      expect(
+        Value(BigInt.from(maxExactDoubleInteger) + BigInt.one) ==
+            Value(maxExactDoubleInteger.toDouble()),
+        isFalse,
+      );
+    });
+
     test('Zero variants as table keys - direct assignment', () {
       final table = Value({});
       final negativeZero = Value(-0.0);

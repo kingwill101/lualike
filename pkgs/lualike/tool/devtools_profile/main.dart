@@ -1,6 +1,7 @@
 import 'dart:developer' as developer;
 
 import 'package:artisanal/args.dart';
+import 'package:devtools_region_profiler/devtools_region_profiler.dart';
 import 'package:lualike/lualike.dart';
 import 'package:lualike/src/utils/file_system_utils.dart' as fs;
 import 'package:lualike/src/utils/io_abstractions.dart' as io_abs;
@@ -109,6 +110,11 @@ Future<void> main(List<String> args) async {
         _makeScriptScenario(packageRoot, 'math', soft: soft, port: port),
         _makeScriptScenario(packageRoot, 'constructs', soft: soft, port: port),
       ],
+      'memory-profiles' => _makeMemoryProfileScenarios(
+        packageRoot,
+        soft: soft,
+        port: port,
+      ),
       'cstack' => _makeCstackScenarios(),
       'constructs-short-circuit' => [
         _constructsShortCircuitScenario(level: constructLevel),
@@ -206,7 +212,11 @@ Future<void> _runScenarioSet(
     );
     try {
       io_abs.stdout.writeln('  -> ${scenario.name}');
-      await scenario.run();
+      await _runScenarioBody(
+        scenario,
+        iterationLabel: iterationLabel,
+        measured: measured,
+      );
     } finally {
       stopwatch.stop();
       final elapsedMs =
@@ -263,6 +273,7 @@ _ProfileScenario _makeScriptScenario(
   final scriptPath = path.join(packageRoot, 'luascripts', 'test', '$name.lua');
   return _makeResolvedScriptScenario(
     name: name,
+    packageRoot: packageRoot,
     scriptPath: scriptPath,
     soft: soft,
     port: port,
@@ -279,6 +290,7 @@ Future<_ProfileScenario> _makeScriptPathScenario(
   final displayName = _displayScriptScenarioName(packageRoot, scriptPath);
   return _makeResolvedScriptScenario(
     name: displayName,
+    packageRoot: packageRoot,
     scriptPath: scriptPath,
     soft: soft,
     port: port,
@@ -287,6 +299,7 @@ Future<_ProfileScenario> _makeScriptPathScenario(
 
 _ProfileScenario _makeResolvedScriptScenario({
   required String name,
+  required String packageRoot,
   required String scriptPath,
   required bool soft,
   required bool port,
@@ -296,12 +309,18 @@ _ProfileScenario _makeResolvedScriptScenario({
     if (scriptSource == null) {
       throw StateError('Could not read scenario source at $scriptPath');
     }
+    final escapedPackageRoot = packageRoot
+        .replaceAll(r'\', '/')
+        .replaceAll("'", r"\'");
     final lua = LuaLike();
     _installTimelineHelpers(lua);
     final source = StringBuffer();
     source.writeln(port ? '_port = true' : '_port = false');
     source.writeln(soft ? '_soft = true' : '_soft = false');
-    source.writeln("package.path = 'luascripts/test/?.lua;' .. package.path");
+    source.writeln(
+      "package.path = '$escapedPackageRoot/luascripts/test/?.lua;"
+      "luascripts/test/?.lua;' .. package.path",
+    );
     source.write(scriptSource);
     await lua.execute(source.toString(), scriptPath: scriptPath);
   });
@@ -590,6 +609,77 @@ void _installTimelineHelpers(LuaLike lua) {
     );
     return null;
   });
+}
+
+Future<void> _runScenarioBody(
+  _ProfileScenario scenario, {
+  required String iterationLabel,
+  required bool measured,
+}) async {
+  if (!measured) {
+    await scenario.run();
+    return;
+  }
+
+  try {
+    await profileRegion(
+      'lualike:${scenario.name}',
+      attributes: {'scenario': scenario.name, 'iteration': iterationLabel},
+      options: const ProfileRegionOptions(
+        isolateScope: ProfileIsolateScope.current,
+      ),
+      () async {
+        await scenario.run();
+      },
+    );
+  } on ProfileRegionConfigurationException {
+    await scenario.run();
+  }
+}
+
+List<_ProfileScenario> _makeMemoryProfileScenarios(
+  String packageRoot, {
+  required bool soft,
+  required bool port,
+}) {
+  return [
+    _makeScriptScenario(
+      packageRoot,
+      'memory_profiles/short_lived_tables',
+      soft: soft,
+      port: port,
+    ),
+    _makeScriptScenario(
+      packageRoot,
+      'memory_profiles/nested_table_churn',
+      soft: soft,
+      port: port,
+    ),
+    _makeScriptScenario(
+      packageRoot,
+      'memory_profiles/closure_churn',
+      soft: soft,
+      port: port,
+    ),
+    _makeScriptScenario(
+      packageRoot,
+      'memory_profiles/coroutine_churn',
+      soft: soft,
+      port: port,
+    ),
+    _makeScriptScenario(
+      packageRoot,
+      'memory_profiles/weak_table_cleanup',
+      soft: soft,
+      port: port,
+    ),
+    _makeScriptScenario(
+      packageRoot,
+      'memory_profiles/register_write_churn',
+      soft: soft,
+      port: port,
+    ),
+  ];
 }
 
 final class _ProfileScenario {

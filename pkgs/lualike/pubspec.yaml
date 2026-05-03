@@ -33,6 +33,7 @@ dependencies:
   convert: ^3.1.2
   collection: ^1.19.1
   petitparser: ^7.0.2
+  devtools_region_profiler: ^0.1.0
   xrandom: ^0.7.2
   artisanal: ^0.2.0+1
   web: ^1.1.1
