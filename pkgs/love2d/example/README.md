@@ -38,6 +38,10 @@ The example browser sources are cloned from
 Pocket Bomber is cloned from `chongdashu/love2d-pocket-bomber-game` into
 [`assets/pocket_bomber/`](./assets/pocket_bomber/).
 
+Modern Pong is cloned from
+[GwyrddGlas/Modern-Pong](https://github.com/GwyrddGlas/Modern-Pong) into
+[`assets/modern_pong/`](./assets/modern_pong/).
+
 Shader Explorer lives in
 [`assets/shader_explorer/`](./assets/shader_explorer/) and loads shader source
 from a copied local shader bundle in
