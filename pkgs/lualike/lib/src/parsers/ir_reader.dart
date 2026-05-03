@@ -10,6 +10,8 @@ import 'string.dart';
 typedef _PrototypeUpdate = void Function(_ParsedPrototypeBuilder builder);
 typedef _DebugUpdate = void Function(_ParsedDebugInfoBuilder builder);
 
+final Parser<String> _irTriviaParser = _IrTriviaParser();
+
 /// Parses a textual `lualike_ir` description into executable IR objects.
 ///
 /// The accepted format is intentionally close to the IR model names so the
@@ -404,14 +406,7 @@ class _LualikeIrReaderDefinition extends GrammarDefinition {
     ).plus().flatten().trim(ref0(_whitespaceAndComments));
   }
 
-  Parser _whitespaceAndComments() => (whitespace().plus() | ref0(_lineComment));
-
-  Parser _lineComment() {
-    final endOfLine = string('\r\n') | string('\n\r') | char('\n') | char('\r');
-    final prefix = string('//') | string('#') | string('--');
-    return (prefix & pattern('\r\n').neg().star() & endOfLine.optional())
-        .flatten();
-  }
+  Parser _whitespaceAndComments() => _irTriviaParser;
 
   Parser _token(Object parser) {
     Parser inner;
@@ -430,6 +425,87 @@ class _LualikeIrReaderDefinition extends GrammarDefinition {
     }
     return inner.trim(ref0(_whitespaceAndComments));
   }
+}
+
+class _IrTriviaParser extends Parser<String> {
+  @override
+  Result<String> parseOn(Context context) {
+    final next = _scanIrTrivia(context.buffer, context.position);
+    if (next == context.position) {
+      return context.failure('whitespace or comment expected');
+    }
+    return context.success('', next);
+  }
+
+  @override
+  int fastParseOn(String buffer, int position) {
+    final next = _scanIrTrivia(buffer, position);
+    return next == position ? -1 : next;
+  }
+
+  @override
+  _IrTriviaParser copy() => _IrTriviaParser();
+}
+
+int _scanIrTrivia(String buffer, int position) {
+  var current = position;
+  while (current < buffer.length) {
+    final codeUnit = buffer.codeUnitAt(current);
+    if (_isIrWhitespace(codeUnit)) {
+      current++;
+      continue;
+    }
+    if (codeUnit == 0x23) {
+      current = _scanIrLineComment(buffer, current + 1);
+      continue;
+    }
+    if (current + 1 < buffer.length) {
+      final next = buffer.codeUnitAt(current + 1);
+      if (codeUnit == 0x2F && next == 0x2F) {
+        current = _scanIrLineComment(buffer, current + 2);
+        continue;
+      }
+      if (codeUnit == 0x2D && next == 0x2D) {
+        current = _scanIrLineComment(buffer, current + 2);
+        continue;
+      }
+    }
+    break;
+  }
+  return current;
+}
+
+int _scanIrLineComment(String buffer, int position) {
+  var current = position;
+  while (current < buffer.length) {
+    final codeUnit = buffer.codeUnitAt(current);
+    if (codeUnit == 0x0A || codeUnit == 0x0D) {
+      current++;
+      if (current < buffer.length) {
+        final next = buffer.codeUnitAt(current);
+        if ((codeUnit == 0x0A && next == 0x0D) ||
+            (codeUnit == 0x0D && next == 0x0A)) {
+          current++;
+        }
+      }
+      break;
+    }
+    current++;
+  }
+  return current;
+}
+
+bool _isIrWhitespace(int codeUnit) {
+  switch (codeUnit) {
+    case 0x20: // space
+    case 0x09: // tab
+    case 0x0A: // LF
+    case 0x0D: // CR
+    case 0x0C: // FF
+    case 0x0B: // VT
+      return true;
+  }
+  return false;
 }
 
 String _decodeString(String content) {

@@ -67,6 +67,7 @@ const _groupScenarios = <String, List<String>>{
     'lua-pattern-compile-class',
     'lua-pattern-match-literal',
   ],
+  'ir-reader-all': <String>['ir-reader-small', 'ir-reader-instructions'],
 };
 
 final _leafScenarios = <String>{
@@ -99,6 +100,8 @@ final _leafScenarios = <String>{
   'lua-pattern-compile-literal',
   'lua-pattern-compile-class',
   'lua-pattern-match-literal',
+  'ir-reader-small',
+  'ir-reader-instructions',
 };
 
 final List<String> _scenarioNames = (<String>{
@@ -579,6 +582,16 @@ assert(n > 0)
       workUnits: 20000,
     ),
     'lua-pattern-match-literal' => _luaPatternMatchLiteralScenario(),
+    'ir-reader-small' => _irReaderScenario(
+      name: 'ir-reader-small',
+      source: _smallIrReaderSource,
+      workUnits: 2000,
+    ),
+    'ir-reader-instructions' => _irReaderScenario(
+      name: 'ir-reader-instructions',
+      source: _instructionHeavyIrReaderSource(),
+      workUnits: 400,
+    ),
     _ => throw ArgumentError.value(name, 'scenario', 'Unknown benchmark'),
   };
 }
@@ -822,6 +835,95 @@ _BenchScenario _luaPatternMatchLiteralScenario() {
       }
     },
   );
+}
+
+_BenchScenario _irReaderScenario({
+  required String name,
+  required String source,
+  required int workUnits,
+}) {
+  return _BenchScenario(
+    name: name,
+    workUnits: workUnits,
+    workLabel: 'IR parses',
+    run: (_) async {
+      var total = 0;
+      for (var i = 0; i < workUnits; i++) {
+        total += LualikeIrReader.parse(
+          source,
+        ).mainPrototype.instructions.length;
+      }
+      if (total == 0) {
+        throw StateError('unexpected zero total');
+      }
+    },
+  );
+}
+
+const _smallIrReaderSource = '''
+chunk has_debug_info=true {
+  prototype main register_count=1 param_count=0 is_vararg=true {
+    constants {
+      int 42;
+    }
+    instructions {
+      // pc=0 line=1
+      abc VARARGPREP a=0 b=0 c=0;
+      // pc=1 line=2
+      abx LOADK a=0 bx=0;
+      // pc=2 line=2
+      abc RETURN1 a=0 b=0 c=0;
+    }
+    debug_info {
+      line_info [1, 2, 2];
+      preferred_name "main";
+      preferred_name_what "global";
+    }
+  }
+}
+''';
+
+String _instructionHeavyIrReaderSource() {
+  final buffer = StringBuffer()
+    ..writeln('chunk has_debug_info=true has_constant_hash=true {')
+    ..writeln(
+      '  prototype main register_count=4 param_count=0 is_vararg=true {',
+    )
+    ..writeln('    constants {')
+    ..writeln('      int 1;')
+    ..writeln('      int 2;')
+    ..writeln('      short "value";')
+    ..writeln('    }')
+    ..writeln('    instructions {')
+    ..writeln('      abc VARARGPREP a=0 b=0 c=0;');
+  for (var index = 0; index < 96; index++) {
+    buffer
+      ..writeln('      // pc=$index line=${index + 1}')
+      ..writeln('      abx LOADK a=${index % 3} bx=${index % 2};')
+      ..writeln('      abc MOVE a=${(index + 1) % 3} b=${index % 3} c=0;');
+  }
+  buffer
+    ..writeln('      abc RETURN1 a=0 b=0 c=0;')
+    ..writeln('    }')
+    ..writeln('    debug_info {')
+    ..write('      line_info [');
+  for (var index = 0; index < 194; index++) {
+    if (index > 0) {
+      buffer.write(', ');
+    }
+    buffer.write(index + 1);
+  }
+  buffer
+    ..writeln('];')
+    ..writeln('      preferred_name "main";')
+    ..writeln('      preferred_name_what "global";')
+    ..writeln('      local_names {')
+    ..writeln('        local name="tmp" start_pc=1 end_pc=10 register=0;')
+    ..writeln('      }')
+    ..writeln('    }')
+    ..writeln('  }')
+    ..writeln('}');
+  return buffer.toString();
 }
 
 void _runPetitParserProfile(_ParserProfileSpec spec, {required int top}) {
