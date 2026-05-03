@@ -4,5 +4,4 @@ environment:
   sdk: ^3.9.0
 workspace:
   - pkgs/lualike
-  - pkgs/love2d
   - pkgs/test
