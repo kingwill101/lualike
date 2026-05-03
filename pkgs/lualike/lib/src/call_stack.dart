@@ -95,15 +95,25 @@ class CallFrame {
       );
     }
     if (scriptPath != null && currentLine > 0) {
-      final uri = Uri.file(scriptPath!);
-      final location = SourceLocation(
-        0,
-        sourceUrl: uri,
-        line: currentLine - 1,
-        column: 0,
-      );
-      final span = SourceSpan(location, location, '');
-      return LuaStackFrame(functionName, span: span, scriptPath: scriptPath);
+      // Guard against Lua chunk source names (e.g. '[string "..."]' or
+      // '=(label)') that are not real file paths.  On Windows, Uri.file()
+      // throws "Illegal character in path" for those strings.
+      Uri? uri;
+      try {
+        uri = Uri.file(scriptPath!);
+      } catch (_) {
+        uri = null;
+      }
+      if (uri != null) {
+        final location = SourceLocation(
+          0,
+          sourceUrl: uri,
+          line: currentLine - 1,
+          column: 0,
+        );
+        final span = SourceSpan(location, location, '');
+        return LuaStackFrame(functionName, span: span, scriptPath: scriptPath);
+      }
     }
     return LuaStackFrame(functionName, scriptPath: scriptPath);
   }
