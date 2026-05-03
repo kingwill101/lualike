@@ -26,5 +26,39 @@ void main() {
       final result = await executeCode('', mode: EngineMode.ir);
       expect(result, isNull);
     });
+
+    test(
+      'preserves byte-valued string constants after bytecode lowering',
+      () async {
+        final result = await executeCode(r'''
+local s = "\0\255\0"
+local a, b, c = string.byte(s, 1, 3)
+return a, b, c, string.char(0, 255, 0) == s
+''', mode: EngineMode.ir);
+
+        expect(result, equals(<Object?>[0, 255, 0, true]));
+      },
+    );
+
+    test(
+      'does not collide Dart text strings with Lua byte constants',
+      () async {
+        final result = await executeCode(
+          r'''
+local text = dart_text
+local literal = "\228"
+local text1, text2 = string.byte(text, 1, 2)
+local literal1 = string.byte(literal, 1)
+return text1, text2, literal1
+''',
+          mode: EngineMode.ir,
+          onRuntimeSetup: (runtime) {
+            runtime.globals.define('dart_text', 'ä');
+          },
+        );
+
+        expect(result, equals(<Object?>[195, 164, 228]));
+      },
+    );
   });
 }

@@ -2690,9 +2690,18 @@ class RequireFunction extends BuiltinFunction {
 
       late final Object? result;
       try {
-        result = await interpreter!.callFunction(searcher, <Object?>[
-          Value(moduleName),
-        ]);
+        // Use the direct Dart call for plain Dart functions (the common case
+        // for built-in package.searchers) to preserve existing return-value
+        // semantics.  Route Lua closures and bytecode callables through
+        // callFunction so their coroutine/yield semantics are respected.
+        final searcherRaw = searcher.raw;
+        if (searcherRaw is Function) {
+          result = await searcherRaw(<Object?>[Value(moduleName)]);
+        } else {
+          result = await interpreter!.callFunction(searcher, <Object?>[
+            Value(moduleName),
+          ]);
+        }
       } catch (error) {
         errors.add("searcher #$index error: $error");
         continue;
@@ -2711,12 +2720,21 @@ class RequireFunction extends BuiltinFunction {
           category: 'Require',
         );
 
-        // Loader failures should stop require() immediately rather than being
-        // treated like another missing-module searcher diagnostic.
-        final moduleResult = await interpreter!.callFunction(loader, <Object?>[
-          Value(moduleName),
-          loaderData,
-        ]);
+        // Same dispatch logic for the loader: direct call for Dart functions,
+        // callFunction for Lua/bytecode callables.
+        final Object? moduleResult;
+        final loaderRaw = loader.raw;
+        if (loaderRaw is Function) {
+          moduleResult = await loaderRaw(<Object?>[
+            Value(moduleName),
+            loaderData,
+          ]);
+        } else {
+          moduleResult = await interpreter!.callFunction(loader, <Object?>[
+            Value(moduleName),
+            loaderData,
+          ]);
+        }
 
         final loadedEntry = loaded[moduleName];
         final loadedRaw = loadedEntry is Value ? loadedEntry.raw : loadedEntry;

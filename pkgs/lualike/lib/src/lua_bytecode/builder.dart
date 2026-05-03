@@ -280,7 +280,9 @@ final class LuaBytecodePrototypeBuilder {
     final extraArg = normalizedArraySize ~/ extraUnit;
     final inlineArraySize = normalizedArraySize % extraUnit;
     emitVabc('NEWTABLE', a: target, b: 0, c: inlineArraySize, k: extraArg != 0);
-    emitExtraArg(ax: extraArg);
+    if (extraArg != 0) {
+      emitExtraArg(ax: extraArg);
+    }
   }
 
   void emitLoadNil({required int target, int count = 1}) {

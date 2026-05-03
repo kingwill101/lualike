@@ -140,7 +140,8 @@ class Interpreter extends AstVisitor<Object?>
 
   @override
   Value constantRawStringValue(String value) {
-    final key = luaStringCacheKeyFromRawString(value);
+    final encoded = LuaString.fromDartString(value);
+    final key = luaStringCacheKey(encoded.bytes);
     final cached = literalValueCache[key];
     if (cached != null) {
       cached.interpreter ??= this;
@@ -148,9 +149,7 @@ class Interpreter extends AstVisitor<Object?>
       return cached;
     }
 
-    final luaString = literalStringInternPool[key] ??= LuaString.fromDartString(
-      value,
-    );
+    final luaString = literalStringInternPool[key] ??= encoded;
     final wrapped = Value(luaString)..interpreter = this;
     _syncCachedTypeMetatable(wrapped, type: 'string');
     literalValueCache[key] = wrapped;
