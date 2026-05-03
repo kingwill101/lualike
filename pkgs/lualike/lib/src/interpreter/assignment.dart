@@ -74,12 +74,7 @@ mixin InterpreterAssignmentMixin on AstVisitor<Object?> {
         value.strippedDebugInfo) {
       return false;
     }
-    return raw == null ||
-        raw is bool ||
-        raw is num ||
-        raw is BigInt ||
-        raw is String ||
-        raw is LuaString;
+    return isLuaPrimitiveSlot(raw);
   }
 
   Value _detachPrimitiveValue(Value value) {
@@ -190,12 +185,7 @@ mixin InterpreterAssignmentMixin on AstVisitor<Object?> {
     bool isConst = false,
     bool isToBeClose = false,
   }) {
-    if (raw == null ||
-        raw is bool ||
-        raw is num ||
-        raw is BigInt ||
-        raw is String ||
-        raw is LuaString) {
+    if (isLuaPrimitiveSlot(raw)) {
       return Value.primitive(
         raw,
         isConst: isConst,

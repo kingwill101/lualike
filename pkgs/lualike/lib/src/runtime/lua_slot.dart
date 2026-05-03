@@ -10,6 +10,15 @@ import 'package:lualike/src/value.dart';
 /// away from using [Value] for every temporary runtime value.
 typedef LuaSlot = Object?;
 
+/// Returns whether [slot] is one of Lua's immediate primitive payloads.
+bool isLuaPrimitiveSlot(Object? slot) =>
+    slot == null ||
+    slot is bool ||
+    slot is num ||
+    slot is BigInt ||
+    slot is String ||
+    slot is LuaString;
+
 /// Returns whether [value] is a multi-result carrier in either the new internal
 /// shape or the existing public [Value.multi] shape.
 bool isLuaResults(Object? value) =>
@@ -104,12 +113,7 @@ Value valueFromOptionalLuaSlot(LuaRuntime? runtime, LuaSlot slot) {
     }
   }
 
-  if (slot == null ||
-      slot is bool ||
-      slot is num ||
-      slot is BigInt ||
-      slot is String ||
-      slot is LuaString) {
+  if (isLuaPrimitiveSlot(slot)) {
     return Value.primitive(slot);
   }
 
@@ -131,12 +135,7 @@ Value freshValueFromLuaSlot(
     return slot;
   }
 
-  if (slot == null ||
-      slot is bool ||
-      slot is num ||
-      slot is BigInt ||
-      slot is String ||
-      slot is LuaString) {
+  if (isLuaPrimitiveSlot(slot)) {
     return Value.primitive(slot, isTempKey: isTempKey, interpreter: runtime);
   }
 
