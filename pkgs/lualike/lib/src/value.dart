@@ -18,6 +18,8 @@ typedef AsyncFunction = Future<Object?> Function(List<Object?> args);
 
 abstract interface class VirtualLuaTable implements Map<dynamic, dynamic> {}
 
+const int _luaShortStringLimit = 40;
+
 String _comparisonTypeError(Object? left, Object? right) {
   final leftType = getLuaType(left);
   final rightType = getLuaType(right);
@@ -3443,7 +3445,12 @@ extension OperatorExtension on Value {
     final rightIsConcatable =
         otherRaw is LuaString || otherRaw is String || otherRaw is num;
     if (leftIsConcatable && rightIsConcatable) {
-      return Value(toLuaString(raw) + toLuaString(otherRaw));
+      final result = toLuaString(raw) + toLuaString(otherRaw);
+      final runtime = _resolveInterpreter();
+      if (runtime != null && result.bytes.length <= _luaShortStringLimit) {
+        return runtime.constantStringValue(result.bytes);
+      }
+      return Value(result)..interpreter = runtime;
     }
 
     final badValue = !leftIsConcatable ? raw : otherRaw;
