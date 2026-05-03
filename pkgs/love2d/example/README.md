@@ -23,6 +23,7 @@ flutter run -d linux -t lib/main_example_browser.dart
 flutter run -d linux -t lib/main_example_video.dart
 flutter run -d linux -t lib/main_pocket_bomber.dart
 flutter run -d linux -t lib/main_shader_explorer.dart
+flutter run -d linux -t lib/main_relic_breach.dart
 ```
 
 `main_example_video.dart` boots the existing vendored
@@ -42,3 +43,14 @@ Shader Explorer lives in
 from a copied local shader bundle in
 [`assets/shader_explorer/shaders/`](./assets/shader_explorer/shaders/), which
 is registered in `pubspec.yaml` and read through the LOVE asset filesystem.
+
+Relic Breach lives in
+[`assets/relic_breach/`](./assets/relic_breach/). It now uses imported Kenney
+packs for the dungeon slice, character sprites, audio, and fonts. Before
+running it from a fresh checkout, sync and normalize the asset packs from
+`pkgs/love2d/`:
+
+```bash
+dart run tool/sync_relic_breach_assets.dart
+dart run tool/normalize_relic_breach_atlas.dart
+```

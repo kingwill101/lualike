@@ -21,8 +21,17 @@ import 'love_flame_mouse_cursor_bridge.dart';
 import 'love_registered_fragment_shader_cache.dart';
 import 'love_flame_text_input_bridge.dart';
 import 'love_flame_viewport_geometry.dart';
+import 'love_profile_region_support.dart';
 
 const String _loveFlameLiveVideoOverlayKey = 'love-live-video-overlay';
+const int _loveProfileMainLoopRegionMilliseconds = int.fromEnvironment(
+  'LOVE2D_PROFILE_MAIN_LOOP_MS',
+  defaultValue: 5000,
+);
+const int _loveTraceFrameThresholdMilliseconds = int.fromEnvironment(
+  'LOVE2D_TRACE_FRAME_MS',
+  defaultValue: 0,
+);
 final RegExp _loveFlamePrewarmableImageAssetPattern = RegExp(
   r'\.(png|jpg|jpeg|gif|webp|bmp|wbmp)$',
   caseSensitive: false,
@@ -77,6 +86,7 @@ class LoveFlameHarness extends StatefulWidget {
     this.onQuitRequested,
     this.engineMode = EngineMode.luaBytecode,
     this.automaticGc = false,
+    this.imageWarmupAssetKeys,
     this.debugImageWarmupOverride,
     this.debugOnGameCreated,
   });
@@ -118,6 +128,13 @@ class LoveFlameHarness extends StatefulWidget {
   /// rendering costs without GC pauses.
   final bool automaticGc;
 
+  /// Bundled image assets to prewarm before marking the harness ready.
+  ///
+  /// When omitted, the harness prewarms image assets under the LOVE source
+  /// directory. Large games can pass the startup-critical image set here and
+  /// let secondary images load lazily.
+  final Iterable<String>? imageWarmupAssetKeys;
+
   /// Testing hook that replaces bundled startup image warmup.
   final Future<void> Function(
     LoveFlameHarnessGame game,
@@ -150,6 +167,7 @@ class _LoveFlameHarnessState extends State<LoveFlameHarness>
         onQuitRequested: widget.onQuitRequested ?? _defaultQuitRequested,
         engineMode: widget.engineMode,
         automaticGc: widget.automaticGc,
+        imageWarmupAssetKeys: widget.imageWarmupAssetKeys,
         debugImageWarmupOverride: widget.debugImageWarmupOverride,
       );
 
@@ -324,6 +342,7 @@ class _LoveFlameHarnessController extends ChangeNotifier {
     required this.onQuitRequested,
     required this.engineMode,
     required this.automaticGc,
+    this.imageWarmupAssetKeys,
     this.debugImageWarmupOverride,
   });
 
@@ -334,6 +353,7 @@ class _LoveFlameHarnessController extends ChangeNotifier {
   final Future<void> Function() onQuitRequested;
   final EngineMode engineMode;
   final bool automaticGc;
+  final Iterable<String>? imageWarmupAssetKeys;
   final Future<void> Function(
     LoveFlameHarnessGame game,
     LoveFilesystemState filesystem,
@@ -377,6 +397,12 @@ class _LoveFlameHarnessController extends ChangeNotifier {
   bool? _pendingVisibleState;
   bool? _lastDispatchedVisibleState;
   bool _lowMemoryPending = false;
+  bool _profileRegionsDisabled = false;
+  bool _mainLoopProfileCompleted = false;
+  Duration _mainLoopProfileElapsed = Duration.zero;
+  Stopwatch? _mainLoopProfileStopwatch;
+  LoveProfileRegionHandle? _mainLoopProfileRegion;
+  int _frameTraceIndex = 0;
 
   bool get isReady => _initialized;
   String? get errorMessage => _errorMessage;
@@ -401,7 +427,114 @@ class _LoveFlameHarnessController extends ChangeNotifier {
     return 'Running';
   }
 
-  Future<void> initialize() async {
+  Future<T> _runProfileRegion<T>(
+    String name,
+    Future<T> Function() body, {
+    Map<String, String> attributes = const <String, String>{},
+  }) async {
+    if (_profileRegionsDisabled) {
+      return body();
+    }
+
+    LoveProfileRegionHandle region;
+    try {
+      region = await startLoveProfileRegion(name, attributes: attributes);
+    } on LoveProfileRegionConfigurationException {
+      _profileRegionsDisabled = true;
+      return body();
+    }
+
+    try {
+      return await body();
+    } finally {
+      try {
+        await region.stop();
+      } on LoveProfileRegionConfigurationException {
+        _profileRegionsDisabled = true;
+      }
+    }
+  }
+
+  Future<void> _startMainLoopProfileRegionIfNeeded() async {
+    if (_profileRegionsDisabled ||
+        _mainLoopProfileCompleted ||
+        _mainLoopProfileRegion != null ||
+        _loveProfileMainLoopRegionMilliseconds <= 0) {
+      return;
+    }
+
+    try {
+      _mainLoopProfileRegion = await startLoveProfileRegion(
+        'love2d-main-loop',
+        attributes: <String, String>{
+          'entryAsset': entryAsset,
+          'phase': 'frame-loop',
+          'durationMs': _loveProfileMainLoopRegionMilliseconds.toString(),
+        },
+      );
+      _mainLoopProfileStopwatch = Stopwatch()..start();
+    } on LoveProfileRegionConfigurationException {
+      _profileRegionsDisabled = true;
+    }
+  }
+
+  Future<void> _advanceMainLoopProfileRegion() async {
+    final region = _mainLoopProfileRegion;
+    if (region == null || _mainLoopProfileCompleted) {
+      return;
+    }
+
+    _mainLoopProfileElapsed =
+        _mainLoopProfileStopwatch?.elapsed ?? _mainLoopProfileElapsed;
+    if (_mainLoopProfileElapsed.inMilliseconds <
+        _loveProfileMainLoopRegionMilliseconds) {
+      return;
+    }
+
+    _mainLoopProfileRegion = null;
+    _mainLoopProfileStopwatch?.stop();
+    _mainLoopProfileStopwatch = null;
+    _mainLoopProfileCompleted = true;
+    try {
+      await region.stop();
+    } on LoveProfileRegionConfigurationException {
+      _profileRegionsDisabled = true;
+    }
+  }
+
+  void _discardMainLoopProfileRegion() {
+    final region = _mainLoopProfileRegion;
+    _mainLoopProfileRegion = null;
+    _mainLoopProfileStopwatch?.stop();
+    _mainLoopProfileStopwatch = null;
+    if (region != null) {
+      unawaited(_stopDiscardedMainLoopProfileRegion(region));
+    }
+  }
+
+  Future<void> _stopDiscardedMainLoopProfileRegion(
+    LoveProfileRegionHandle region,
+  ) async {
+    try {
+      await region.stop();
+    } on LoveProfileRegionConfigurationException {
+      _profileRegionsDisabled = true;
+    }
+  }
+
+  Future<void> initialize() {
+    return _runProfileRegion(
+      'love2d-startup',
+      _initialize,
+      attributes: <String, String>{
+        'entryAsset': entryAsset,
+        'phase': 'startup',
+      },
+    );
+  }
+
+  Future<void> _initialize() async {
+    _discardMainLoopProfileRegion();
     _initialized = false;
     _startupWarmupPending = false;
     _updateInFlight = false;
@@ -411,6 +544,9 @@ class _LoveFlameHarnessController extends ChangeNotifier {
     _errorMessage = null;
     _runtime = null;
     _lastDispatchedVisibleState = null;
+    _mainLoopProfileCompleted = false;
+    _mainLoopProfileElapsed = Duration.zero;
+    _mainLoopProfileStopwatch = null;
     notifyListeners();
 
     LoveScriptRuntime? runtimeForError;
@@ -469,9 +605,7 @@ class _LoveFlameHarnessController extends ChangeNotifier {
       await runtime.callDrawIfDefined();
       await _commitPresentedFrame(runtime);
       await _awaitStartupWarmups(
-        imageWarmup:
-            debugImageWarmupOverride?.call(game, filesystem) ??
-            _prewarmBundleSourceImages(filesystem),
+        imageWarmup: _startupImageWarmup(filesystem),
         surfaceSnapshot: game.presentedFrame,
       );
       if (await _restartIfRequested()) {
@@ -560,29 +694,59 @@ class _LoveFlameHarnessController extends ChangeNotifier {
   }
 
   Future<void> _runFrame(double dt) async {
+    final frameTraceStopwatch = _loveTraceFrameThresholdMilliseconds > 0
+        ? (Stopwatch()..start())
+        : null;
+    final frameTracePhases = frameTraceStopwatch == null
+        ? null
+        : <String, int>{};
+
+    Future<T> tracePhase<T>(String name, Future<T> Function() body) async {
+      if (frameTraceStopwatch == null || frameTracePhases == null) {
+        return body();
+      }
+
+      final phaseStopwatch = Stopwatch()..start();
+      try {
+        return await body();
+      } finally {
+        phaseStopwatch.stop();
+        frameTracePhases[name] = phaseStopwatch.elapsedMicroseconds;
+      }
+    }
+
     try {
-      await _dispatchResizeIfNeeded();
+      await tracePhase('resize', _dispatchResizeIfNeeded);
       final runtime = _runtime;
       if (runtime == null) {
         return;
       }
 
-      await _flushPendingRuntimeSignals(runtime);
-      if (await _handleMainLoopExitStatus(
-        await runtime.processMainLoopEvents(),
+      await tracePhase('profileStart', _startMainLoopProfileRegionIfNeeded);
+      await tracePhase('signals', () => _flushPendingRuntimeSignals(runtime));
+      final exitAfterEvents = await tracePhase(
+        'events',
+        runtime.processMainLoopEvents,
+      );
+      if (await tracePhase(
+        'exitEvents',
+        () => _handleMainLoopExitStatus(exitAfterEvents),
       )) {
         await _restartIfRequested();
         return;
       }
       final steppedDt = runtime.context.stepExternal(dt);
       if (steppedDt > 0) {
-        await runtime.callUpdateIfDefined(steppedDt);
+        await tracePhase(
+          'update',
+          () => runtime.callUpdateIfDefined(steppedDt),
+        );
       }
       runtime.context.beginDrawFrame();
       runtime.context.graphics.origin();
-      await runtime.callDrawIfDefined();
-      await _commitPresentedFrame(runtime);
-      if (await _restartIfRequested()) {
+      await tracePhase('draw', runtime.callDrawIfDefined);
+      await tracePhase('commit', () => _commitPresentedFrame(runtime));
+      if (await tracePhase('restart', _restartIfRequested)) {
         return;
       }
     } catch (error, stackTrace) {
@@ -592,6 +756,27 @@ class _LoveFlameHarnessController extends ChangeNotifier {
         stackTrace: stackTrace,
       );
     } finally {
+      await tracePhase('profileAdvance', _advanceMainLoopProfileRegion);
+      frameTraceStopwatch?.stop();
+      if (frameTraceStopwatch != null &&
+          frameTracePhases != null &&
+          frameTraceStopwatch.elapsedMilliseconds >=
+              _loveTraceFrameThresholdMilliseconds) {
+        _frameTraceIndex += 1;
+        final phases = frameTracePhases.entries
+            .map(
+              (entry) =>
+                  '${entry.key}=${(entry.value / 1000).toStringAsFixed(2)}ms',
+            )
+            .join(' ');
+        debugPrint(
+          'love2d-frame-trace '
+          'frame=$_frameTraceIndex '
+          'dtMs=${(dt * 1000).toStringAsFixed(2)} '
+          'totalMs=${frameTraceStopwatch.elapsedMicroseconds / 1000} '
+          '$phases',
+        );
+      }
       _updateInFlight = false;
     }
   }
@@ -680,8 +865,46 @@ class _LoveFlameHarnessController extends ChangeNotifier {
       return;
     }
 
+    await _prewarmBundledImageAssets(assetKeys);
+  }
+
+  Future<void> _startupImageWarmup(LoveFilesystemState filesystem) {
+    final debugOverride = debugImageWarmupOverride;
+    if (debugOverride != null) {
+      return debugOverride(game, filesystem);
+    }
+
+    final explicitAssetKeys = imageWarmupAssetKeys;
+    if (explicitAssetKeys != null) {
+      return _prewarmBundledImageAssets(explicitAssetKeys);
+    }
+
+    return _prewarmBundleSourceImages(filesystem);
+  }
+
+  Future<void> _prewarmBundledImageAssets(Iterable<String> assetKeys) async {
+    final keys = assetKeys.toList(growable: false);
+    if (keys.isEmpty) {
+      return;
+    }
+
+    const workerLimit = 8;
+    var nextIndex = 0;
+
+    Future<void> worker() async {
+      while (true) {
+        final index = nextIndex;
+        if (index >= keys.length) {
+          return;
+        }
+        nextIndex = index + 1;
+        await _prewarmBundledImageAsset(keys[index]);
+      }
+    }
+
+    final workerCount = keys.length < workerLimit ? keys.length : workerLimit;
     await Future.wait(
-      assetKeys.map(_prewarmBundledImageAsset),
+      List<Future<void>>.generate(workerCount, (_) => worker()),
       eagerError: false,
     );
   }
@@ -956,6 +1179,7 @@ class _LoveFlameHarnessController extends ChangeNotifier {
   @override
   void dispose() {
     _disposed = true;
+    _discardMainLoopProfileRegion();
     super.dispose();
   }
 }
@@ -1064,64 +1288,88 @@ class _LoveHarnessViewportState extends State<_LoveHarnessViewport> {
         onPointerSignal: widget.controller.input.handlePointerSignal,
         child: _ViewportSizeReporter(
           onSizeChanged: _handleViewportSizeChanged,
-          child: DecoratedBox(
-            decoration: const BoxDecoration(
-              gradient: LinearGradient(
-                colors: [Color(0xFF050816), Color(0xFF101827)],
-                begin: Alignment.topLeft,
-                end: Alignment.bottomRight,
-              ),
-            ),
-            child: Stack(
-              children: [
-                Positioned.fill(
-                  child: GameWidget<LoveFlameHarnessGame>(
-                    game: widget.game,
-                    focusNode: _focusNode,
-                    autofocus: true,
-                    overlayBuilderMap: {
-                      _loveFlameLiveVideoOverlayKey: (context, game) {
-                        return LoveFlameLiveVideoOverlay(
-                          presentedFrameListenable:
-                              game.presentedFrameListenable,
-                          windowMetricsProvider: () => game.host.windowMetrics,
-                          cameraProvider: () => game.camera,
-                        );
-                      },
-                    },
-                    initialActiveOverlays: const <String>[
-                      _loveFlameLiveVideoOverlayKey,
-                    ],
+          child: LayoutBuilder(
+            builder: (context, constraints) {
+              final viewportSize = Size(
+                constraints.maxWidth,
+                constraints.maxHeight,
+              );
+              final presentation = loveFlamePresentationGeometry(
+                windowMetrics: widget.controller.game.host.windowMetrics,
+                viewportSize: viewportSize,
+              );
+              return DecoratedBox(
+                decoration: const BoxDecoration(
+                  gradient: LinearGradient(
+                    colors: [Color(0xFF050816), Color(0xFF101827)],
+                    begin: Alignment.topLeft,
+                    end: Alignment.bottomRight,
                   ),
                 ),
-                if (_imageCursor case final imageCursor?)
-                  Positioned(
-                    key: const Key('love-image-cursor'),
-                    left: _imageCursorX - imageCursor.hotspotX,
-                    top: _imageCursorY - imageCursor.hotspotY,
-                    child: IgnorePointer(
-                      child: _LoveImageCursorOverlay(cursor: imageCursor),
+                child: Stack(
+                  children: [
+                    Positioned.fill(
+                      child: IgnorePointer(
+                        child: CustomPaint(
+                          painter: _LoveHarnessBackdropPainter(
+                            presentation: presentation,
+                          ),
+                        ),
+                      ),
                     ),
-                  ),
-                if (_systemCursorType case final systemCursorType?)
-                  Positioned(
-                    key: const Key('love-system-cursor'),
-                    left:
-                        _imageCursorX -
-                        _loveSystemCursorOverlayForType(
-                          systemCursorType,
-                        ).hotspotX,
-                    top:
-                        _imageCursorY -
-                        _loveSystemCursorOverlayForType(
-                          systemCursorType,
-                        ).hotspotY,
-                    child: IgnorePointer(
-                      child: _LoveSystemCursorOverlay(type: systemCursorType),
+                    Positioned.fill(
+                      child: GameWidget<LoveFlameHarnessGame>(
+                        game: widget.game,
+                        focusNode: _focusNode,
+                        autofocus: true,
+                        overlayBuilderMap: {
+                          _loveFlameLiveVideoOverlayKey: (context, game) {
+                            return LoveFlameLiveVideoOverlay(
+                              presentedFrameListenable:
+                                  game.presentedFrameListenable,
+                              windowMetricsProvider: () =>
+                                  game.host.windowMetrics,
+                              cameraProvider: () => game.camera,
+                            );
+                          },
+                        },
+                        initialActiveOverlays: const <String>[
+                          _loveFlameLiveVideoOverlayKey,
+                        ],
+                      ),
                     ),
-                  ),
-              ],
-            ),
+                    if (_imageCursor case final imageCursor?)
+                      Positioned(
+                        key: const Key('love-image-cursor'),
+                        left: _imageCursorX - imageCursor.hotspotX,
+                        top: _imageCursorY - imageCursor.hotspotY,
+                        child: IgnorePointer(
+                          child: _LoveImageCursorOverlay(cursor: imageCursor),
+                        ),
+                      ),
+                    if (_systemCursorType case final systemCursorType?)
+                      Positioned(
+                        key: const Key('love-system-cursor'),
+                        left:
+                            _imageCursorX -
+                            _loveSystemCursorOverlayForType(
+                              systemCursorType,
+                            ).hotspotX,
+                        top:
+                            _imageCursorY -
+                            _loveSystemCursorOverlayForType(
+                              systemCursorType,
+                            ).hotspotY,
+                        child: IgnorePointer(
+                          child: _LoveSystemCursorOverlay(
+                            type: systemCursorType,
+                          ),
+                        ),
+                      ),
+                  ],
+                ),
+              );
+            },
           ),
         ),
       ),
@@ -1308,6 +1556,125 @@ class _ViewportSizeReporterState extends State<_ViewportSizeReporter> {
         return widget.child;
       },
     );
+  }
+}
+
+class _LoveHarnessBackdropPainter extends CustomPainter {
+  const _LoveHarnessBackdropPainter({required this.presentation});
+
+  final LoveFlamePresentationGeometry presentation;
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final bounds = Offset.zero & size;
+    canvas.drawRect(
+      bounds,
+      Paint()
+        ..shader = const LinearGradient(
+          colors: [Color(0xFF050816), Color(0xFF0D1322), Color(0xFF111C2F)],
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+        ).createShader(bounds),
+    );
+
+    canvas.drawCircle(
+      Offset(size.width * 0.18, size.height * 0.22),
+      size.shortestSide * 0.18,
+      Paint()..color = const Color(0x1438BDF8),
+    );
+    canvas.drawCircle(
+      Offset(size.width * 0.82, size.height * 0.78),
+      size.shortestSide * 0.16,
+      Paint()..color = const Color(0x12F59E0B),
+    );
+
+    final destinationRect = presentation.destinationRect;
+    for (double y = 28; y < size.height; y += 28) {
+      if (destinationRect.height > 0 &&
+          y > destinationRect.top - 12 &&
+          y < destinationRect.bottom + 12) {
+        continue;
+      }
+      canvas.drawLine(
+        Offset(24, y),
+        Offset(size.width - 24, y),
+        Paint()
+          ..color = const Color(0x112B4269)
+          ..strokeWidth = 1,
+      );
+    }
+
+    if (destinationRect.width <= 0 || destinationRect.height <= 0) {
+      return;
+    }
+
+    final shadowRect = destinationRect.inflate(18);
+    final frameRect = destinationRect.inflate(10);
+    canvas.drawRRect(
+      RRect.fromRectAndRadius(shadowRect, const Radius.circular(28)),
+      Paint()..color = const Color(0x55030A16),
+    );
+    canvas.drawRRect(
+      RRect.fromRectAndRadius(frameRect, const Radius.circular(22)),
+      Paint()
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = 2
+        ..color = const Color(0x2A86EFAC),
+    );
+    canvas.drawRRect(
+      RRect.fromRectAndRadius(destinationRect, const Radius.circular(16)),
+      Paint()
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = 1.5
+        ..color = const Color(0x40E2E8F0),
+    );
+
+    _drawCornerMarker(
+      canvas,
+      destinationRect.topLeft,
+      horizontal: 20,
+      vertical: 14,
+    );
+    _drawCornerMarker(
+      canvas,
+      destinationRect.topRight,
+      horizontal: -20,
+      vertical: 14,
+    );
+    _drawCornerMarker(
+      canvas,
+      destinationRect.bottomLeft,
+      horizontal: 20,
+      vertical: -14,
+    );
+    _drawCornerMarker(
+      canvas,
+      destinationRect.bottomRight,
+      horizontal: -20,
+      vertical: -14,
+    );
+  }
+
+  void _drawCornerMarker(
+    Canvas canvas,
+    Offset anchor, {
+    required double horizontal,
+    required double vertical,
+  }) {
+    final paint = Paint()
+      ..color = const Color(0x66F8FAFC)
+      ..strokeWidth = 2
+      ..strokeCap = StrokeCap.round;
+    canvas.drawLine(anchor, Offset(anchor.dx + horizontal, anchor.dy), paint);
+    canvas.drawLine(anchor, Offset(anchor.dx, anchor.dy + vertical), paint);
+  }
+
+  @override
+  bool shouldRepaint(covariant _LoveHarnessBackdropPainter oldDelegate) {
+    return oldDelegate.presentation.destinationRect !=
+            presentation.destinationRect ||
+        oldDelegate.presentation.viewportSize != presentation.viewportSize ||
+        oldDelegate.presentation.logicalSize != presentation.logicalSize;
   }
 }
 

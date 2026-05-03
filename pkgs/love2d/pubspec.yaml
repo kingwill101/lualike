@@ -14,6 +14,7 @@ dependencies:
   audioplayers: ^6.6.0
   build: ^4.0.5
   crypto: ^3.0.6
+  devtools_region_profiler: ^0.1.0
   flame: ^1.37.0
   flame_forge2d: ^0.19.2+6
   flutter:

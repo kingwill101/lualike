@@ -238,16 +238,8 @@ class LoveFlameHost<W extends World> implements LoveHost {
       throw StateError('No bundled Flutter image asset found for "$assetKey".');
     }
 
-    final imageData = LoveImageData.decodeEncodedBytes(
-      bytes: encodedBytes.buffer.asUint8List(
-        encodedBytes.offsetInBytes,
-        encodedBytes.lengthInBytes,
-      ),
-      source: assetKey,
-    );
-    final image = await _decodeImageDataToUiImage(imageData);
+    final image = await _loadAssetKeyImage(assetKey, encodedBytes);
     if (game.images.containsKey(assetKey)) {
-      image.dispose();
       return;
     }
 
@@ -534,30 +526,6 @@ class LoveFlameHost<W extends World> implements LoveHost {
       height: image.height,
       bytes: bytes,
     );
-  }
-
-  Future<ui.Image> _decodeImageDataToUiImage(LoveImageData imageData) {
-    final pixels = Uint8List(imageData.width * imageData.height * 4);
-    for (var y = 0; y < imageData.height; y++) {
-      for (var x = 0; x < imageData.width; x++) {
-        final color = imageData.getPixel(x, y).clamped();
-        final offset = ((y * imageData.width) + x) * 4;
-        pixels[offset] = (color.r * 255).round();
-        pixels[offset + 1] = (color.g * 255).round();
-        pixels[offset + 2] = (color.b * 255).round();
-        pixels[offset + 3] = (color.a * 255).round();
-      }
-    }
-
-    final completer = Completer<ui.Image>();
-    ui.decodeImageFromPixels(
-      pixels,
-      imageData.width,
-      imageData.height,
-      ui.PixelFormat.rgba8888,
-      completer.complete,
-    );
-    return completer.future;
   }
 
   Future<String> _loadFontFamily(String source, Uint8List bytes) async {
