@@ -5,6 +5,21 @@ import '../lua_error.dart';
 import '../lua_string.dart';
 import '../value.dart';
 
+Value _extensionValue(Object? value) {
+  if (value is Value) {
+    return value;
+  }
+  if (value == null ||
+      value is bool ||
+      value is num ||
+      value is BigInt ||
+      value is String ||
+      value is LuaString) {
+    return Value.primitive(value);
+  }
+  return Value(value);
+}
+
 dynamic fromLuaValue(dynamic obj) {
   if (obj is Value) {
     if (obj.raw is Map) {
@@ -83,7 +98,7 @@ Value toLuaValue(dynamic dy) {
     return Value(list);
   }
   // For any other type, simply wrap it.
-  return Value(dy);
+  return Value.wrap(dy);
 }
 
 /// Extension methods for the Value class to simplify common operations
@@ -92,7 +107,7 @@ extension ValueExtension<T> on T {
 
   bool get isValue => this is Value;
 
-  Value get value => this is Value ? this as Value : Value(this);
+  Value get value => _extensionValue(this);
 
   /// Unwraps a Value to its raw content if it is a Value, otherwise returns the object itself
   dynamic get unwrapped {
@@ -150,7 +165,7 @@ extension ValueExtension<T> on T {
   /// Handles string and table concatenation with metamethods.
   /// Returns a new Value representing the concatenated result.
   Value concat(dynamic other) {
-    final wrappedOther = other is Value ? other : Value(other);
+    final wrappedOther = _extensionValue(other);
 
     // Check for __concat metamethod
     var metamethod =

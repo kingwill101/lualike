@@ -37,7 +37,7 @@ extension DynamicValueExtension on dynamic {
       return Value(list);
     }
     // For any other type, simply wrap it.
-    return Value(this);
+    return Value.wrap(this);
   }
 
   /// Safely unwrap a Value or return the original object
