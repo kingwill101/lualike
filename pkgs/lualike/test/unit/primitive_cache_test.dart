@@ -852,11 +852,14 @@ void main() {
     final stringInfo = TestLib.querystr([
       interpreter.constantDartStringValue('abc'),
     ], runtime: interpreter);
+    final ref = TestLib.tref([userdata], runtime: interpreter);
+    final restored = TestLib.getref([ref.raw], runtime: interpreter);
 
     expect(userdata.interpreter, same(interpreter));
     expect(lightUserdata.interpreter, same(interpreter));
     expect(tableInfo.interpreter, same(interpreter));
     expect(stringInfo.interpreter, same(interpreter));
+    expect(identical(restored, userdata), true);
     expect(userdata.raw, isA<Map>());
     expect(lightUserdata.raw, isA<Map>());
     expect(tableInfo.raw, isA<Map>());
