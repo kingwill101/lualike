@@ -204,16 +204,18 @@ class LuaLike {
       selectedMode = LuaLikeConfig().defaultEngineMode;
     }
 
-    assert(
-      runtime == null ||
-          switch ((runtime, selectedMode)) {
-            (LualikeIrRuntime(), EngineMode.ir) => true,
-            (LuaBytecodeRuntime(), EngineMode.luaBytecode) => true,
-            (Interpreter(), EngineMode.ast) => true,
-            _ => false,
-          },
-      'runtime type does not match engineMode',
-    );
+    if (runtime != null &&
+        !switch ((runtime, selectedMode)) {
+          (LualikeIrRuntime(), EngineMode.ir) => true,
+          (LuaBytecodeRuntime(), EngineMode.luaBytecode) => true,
+          (Interpreter(), EngineMode.ast) => true,
+          _ => false,
+        }) {
+      throw ArgumentError(
+        'runtime type ${runtime.runtimeType} does not match engineMode '
+        '$selectedMode',
+      );
+    }
 
     runtime ??= switch (selectedMode) {
       EngineMode.ir => LualikeIrRuntime(),

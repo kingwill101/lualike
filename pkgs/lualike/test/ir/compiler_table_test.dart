@@ -54,21 +54,24 @@ void main() {
       expect(getTable.c, isNot(equals(getTable.b)));
     });
 
-    test('compiles large integer literal access with GETTABLE fallback', () {
-      final program = parse('return arr[999]');
-      final instructions = _stripVarArgPrep(
-        LualikeIrCompiler().compile(program).mainPrototype,
-      );
+    test(
+      'compiles large integer literal access uses getTable for index > 0xFF',
+      () {
+        final program = parse('return arr[999]');
+        final instructions = _stripVarArgPrep(
+          LualikeIrCompiler().compile(program).mainPrototype,
+        );
 
-      expect(
-        instructions.any((instr) => instr.opcode == LualikeIrOpcode.getI),
-        isFalse,
-      );
-      expect(
-        instructions.any((instr) => instr.opcode == LualikeIrOpcode.getTable),
-        isTrue,
-      );
-    });
+        expect(
+          instructions.any((instr) => instr.opcode == LualikeIrOpcode.getI),
+          isFalse,
+        );
+        expect(
+          instructions.any((instr) => instr.opcode == LualikeIrOpcode.getTable),
+          isTrue,
+        );
+      },
+    );
 
     test('compiles empty table constructor', () {
       final program = parse('return {}');

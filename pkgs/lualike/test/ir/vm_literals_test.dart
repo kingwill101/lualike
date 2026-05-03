@@ -3,9 +3,12 @@ library;
 
 import 'package:lualike/src/config.dart';
 import 'package:lualike/src/executor.dart';
+import 'package:lualike/src/logging/logging.dart';
 import 'package:test/test.dart';
 
 void main() {
+  Logger.setEnabled(false);
+
   group('Lualike IR lowered literals', () {
     test('executes numeric return', () async {
       final result = await executeCode('return 123', mode: EngineMode.ir);
