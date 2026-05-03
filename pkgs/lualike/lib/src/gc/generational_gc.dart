@@ -272,6 +272,7 @@ class GenerationalGCManager {
       return false;
     }
     final interval = switch (_currentPhase) {
+      GCPhase.idle when hasPendingFinalizers || hasPendingAsyncFinalizers => 64,
       GCPhase.idle => 0,
       GCPhase.marking => 64,
       GCPhase.sweeping => 8,
@@ -285,6 +286,7 @@ class GenerationalGCManager {
   /// slowing allocation-heavy loops that do not rely on finalizer latency.
   int loopIncrementalGcBudget() {
     return switch (_currentPhase) {
+      GCPhase.idle when hasPendingFinalizers || hasPendingAsyncFinalizers => 32,
       GCPhase.idle => 0,
       GCPhase.marking => 16,
       GCPhase.sweeping => 128,

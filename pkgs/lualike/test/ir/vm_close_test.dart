@@ -3,10 +3,12 @@ library;
 
 import 'package:lualike/src/interop.dart';
 import 'package:lualike/src/ir/runtime.dart';
+import 'package:lualike/src/logging/logging.dart';
 import 'package:lualike/src/value.dart';
 import 'package:test/test.dart';
 
 void main() {
+  Logger.setEnabled(false);
   group('IR to-be-closed locals', () {
     test('captures return values before invoking __close', () async {
       final env = _buildEnv();

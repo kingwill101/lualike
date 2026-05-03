@@ -57,17 +57,20 @@ void main() {
       expect(actual, equals(7));
     });
 
-    test('executes table index assignment with large literal fallback', () async {
-      final result = await executeCode(
-        'arr[999] = "big"; return arr[999]',
-        mode: EngineMode.ir,
-        onRuntimeSetup: (runtime) {
-          runtime.globals.define('arr', Value.wrap({}));
-        },
-      );
-      final actual = _unwrapValue(result);
-      expect(actual, equals('big'));
-    });
+    test(
+      'executes table index assignment with large literal fallback',
+      () async {
+        final result = await executeCode(
+          'arr[999] = "big"; return arr[999]',
+          mode: EngineMode.ir,
+          onRuntimeSetup: (runtime) {
+            runtime.globals.define('arr', Value.wrap({}));
+          },
+        );
+        final actual = _unwrapValue(result);
+        expect(actual, equals('big'));
+      },
+    );
 
     test('honours __newindex metamethod', () async {
       final backing = Value.wrap({});

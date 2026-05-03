@@ -337,7 +337,8 @@ class _TableConcat extends BuiltinFunction {
         ? (args[3] as Value).raw as int
         : await getTableLength(table);
 
-    // If start > end, return empty string (Lua behavior)
+    // Empty ranges return an empty LuaString when the separator is byte-backed
+    // so table.concat preserves byte-string semantics.
     if (start > end) {
       return separatorValue is LuaString
           ? Value(LuaString.fromBytes(const <int>[]))
@@ -387,7 +388,8 @@ class _TableConcat extends BuiltinFunction {
       final BigInt integerValue => LuaString.fromDartString(
         integerValue.toString(),
       ).bytes,
-      _ => Uint8List(0),
+      null => Uint8List(0),
+      _ => LuaString.fromDartString(value.toString()).bytes,
     };
 
     final builder = BytesBuilder(copy: false);

@@ -7,6 +7,8 @@ import 'package:lualike/lualike.dart';
 import 'package:lualike/src/ir/runtime.dart';
 import 'package:test/test.dart';
 
+import '../helpers/package_paths.dart';
+
 Future<void> _executeGotoSource(String source) async {
   final runtime = LualikeIrRuntime();
   runtime.globals
@@ -18,7 +20,7 @@ Future<void> _executeGotoSource(String source) async {
 }
 
 String _gotoPrefix(int lineCount) {
-  final lines = File('pkgs/lualike/luascripts/test/goto.lua').readAsLinesSync();
+  final lines = File(packagePath('luascripts/test/goto.lua')).readAsLinesSync();
   return lines.take(lineCount).join('\n');
 }
 
@@ -133,9 +135,13 @@ void main() {
   );
 
   test('executes goto.lua through lowered IR runtime', () async {
+    final packagePattern = luaPathLiteral(
+      '${packagePath('luascripts/test/?.lua')};',
+    );
+    final gotoPath = luaPathLiteral(packagePath('luascripts/test/goto.lua'));
     await _executeGotoSource(
-      "package.path = 'pkgs/lualike/luascripts/test/?.lua;' .. package.path; "
-      "return dofile('pkgs/lualike/luascripts/test/goto.lua')",
+      'package.path = $packagePattern .. package.path; '
+      'return dofile($gotoPath)',
     );
   });
 }

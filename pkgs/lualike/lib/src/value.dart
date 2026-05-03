@@ -456,7 +456,10 @@ class Value extends Object implements Map<String, dynamic>, GCObject {
     final type = switch (raw) {
       null => 'nil',
       bool() => 'boolean',
-      _ => 'number',
+      int() || double() || BigInt() => 'number',
+      String() => 'string',
+      LuaString() => 'string',
+      _ => 'number', // keep existing fallback for any other numeric-like types
     };
     if (MetaTable().isDefaultMetatableActive(type)) {
       MetaTable().applyDefaultMetatable(this);
@@ -1061,7 +1064,42 @@ class Value extends Object implements Map<String, dynamic>, GCObject {
   }
 
   @override
-  int get hashCode => raw.hashCode;
+  int get hashCode {
+    final numericKey = _canonicalNumericHashKey(raw);
+    if (numericKey != null) {
+      return numericKey.hashCode;
+    }
+    if (raw is LuaString) {
+      return (raw as LuaString).toString().hashCode;
+    }
+    return raw.hashCode;
+  }
+
+  static BigInt? _canonicalNumericHashKey(Object? value) {
+    if (value is int) {
+      return BigInt.from(value);
+    }
+    if (value is BigInt) {
+      return value;
+    }
+    if (value is double) {
+      if (!value.isFinite) {
+        return null;
+      }
+      if (value == 0) {
+        return BigInt.zero;
+      }
+      if (value.truncateToDouble() != value) {
+        return null;
+      }
+      try {
+        return BigInt.parse(value.toStringAsFixed(0));
+      } catch (_) {
+        return null;
+      }
+    }
+    return null;
+  }
 
   @override
   bool operator ==(Object other) => equals(other);

@@ -29,8 +29,14 @@ void main(List<String> args) {
   );
   final disassembler = const LuaBytecodeDisassembler();
 
-  final emittedInstructions = disassembler.disassemble(emitted.chunk).mainPrototype.instructions;
-  final upstreamInstructions = disassembler.disassemble(upstream).mainPrototype.instructions;
+  final emittedInstructions = disassembler
+      .disassemble(emitted.chunk)
+      .mainPrototype
+      .instructions;
+  final upstreamInstructions = disassembler
+      .disassemble(upstream)
+      .mainPrototype
+      .instructions;
 
   _printSpanSummary(
     label: 'emitted',
@@ -53,24 +59,32 @@ void _printSpanSummary({
   required int startLine,
   required int endLine,
 }) {
-  final inSpan = instructions.where((instruction) {
-    final line = instruction.lineNumber;
-    return line != null && line >= startLine && line <= endLine;
-  }).toList(growable: false);
+  final inSpan = instructions
+      .where((instruction) {
+        final line = instruction.lineNumber;
+        return line != null && line >= startLine && line <= endLine;
+      })
+      .toList(growable: false);
 
   final perOpcode = <String, int>{};
   final perLine = <int, int>{};
   for (final instruction in inSpan) {
-    perOpcode.update(instruction.opcode.name, (value) => value + 1, ifAbsent: () => 1);
-    perLine.update(instruction.lineNumber!, (value) => value + 1, ifAbsent: () => 1);
+    perOpcode.update(
+      instruction.opcode.name,
+      (value) => value + 1,
+      ifAbsent: () => 1,
+    );
+    perLine.update(
+      instruction.lineNumber!,
+      (value) => value + 1,
+      ifAbsent: () => 1,
+    );
   }
 
   final sortedOpcodes = perOpcode.entries.toList()
     ..sort((left, right) {
       final countCompare = right.value.compareTo(left.value);
-      return countCompare != 0
-          ? countCompare
-          : left.key.compareTo(right.key);
+      return countCompare != 0 ? countCompare : left.key.compareTo(right.key);
     });
   final sortedLines = perLine.entries.toList()
     ..sort((left, right) => left.key.compareTo(right.key));

@@ -34,12 +34,42 @@ return outer(5)
       expect(_unwrap(result), equals(<dynamic>[1, 2, 3]));
     });
 
+    test('forwards ambient chunk varargs to lowered main closure', () async {
+      final bridge = LuaLike(runtime: LualikeIrRuntime());
+      bridge.vm.getCurrentEnv().define(
+        '...',
+        Value.multi([Value(1), Value(2)]),
+      );
+
+      final result = await bridge.execute('return ...');
+
+      expect(_unwrap(result), equals(<dynamic>[1, 2]));
+    });
+
     test('forwards varargs through nested closure', () async {
       final bridge = LuaLike(runtime: LualikeIrRuntime());
       final result = await bridge.execute(
         'return (function(...) return (function(...) return ... end)(...) end)(4, 5)',
       );
       expect(_unwrap(result), equals(<dynamic>[4, 5]));
+    });
+
+    test('empty varargs do not leak stale open-call registers', () async {
+      final bridge = LuaLike(runtime: LualikeIrRuntime());
+      final result = await bridge.execute('''
+local function drop(_, ...) return ... end
+
+local function f(n, a, ...)
+  if n == 0 then
+    local b, c, d = ...
+    return a, b, c, d, drop(drop(drop(...)))
+  end
+  return f(n - 1, ...)
+end
+
+return f(2)
+''');
+      expect(_unwrap(result), equals(<dynamic>[null, null, null, null]));
     });
 
     test('packs named vararg tables for lualike IR functions', () async {
@@ -52,6 +82,18 @@ end
 return pack(10, nil, 30)
 ''');
       expect(_unwrap(result), equals(<dynamic>[3, 10, null, 30]));
+    });
+
+    test('named vararg tables do not coerce string indexes', () async {
+      final bridge = LuaLike(runtime: LualikeIrRuntime());
+      final result = await bridge.execute('''
+local function pack(...t)
+  return t[1], t["1"], t.n
+end
+
+return pack(10, 20)
+''');
+      expect(_unwrap(result), equals(<dynamic>[10, null, 2]));
     });
 
     test('evaluates tail recursive factorial', () async {

@@ -189,6 +189,58 @@ String _cleanEmitterFailure(Object error) {
       : message;
 }
 
+LuaChunkLoadResult loadLuaBytecodeSourceChunk(
+  LuaRuntime runtime,
+  LuaChunkLoadRequest request,
+) {
+  final source = _sourceText(request.source);
+  if (source == null) {
+    return const LuaChunkLoadResult.failure('chunk source must be a string');
+  }
+
+  try {
+    final ast = parse(source, url: request.chunkName);
+    final semanticError = validateProgramSemantics(ast);
+    if (semanticError != null) {
+      return LuaChunkLoadResult.failure(
+        _adjustLoadValidationError(source, semanticError),
+      );
+    }
+    if (source.contains('goto') || source.contains('::')) {
+      final gotoError = GotoLabelValidator().checkGotoLabelViolations(ast);
+      if (gotoError != null) {
+        return LuaChunkLoadResult.failure(gotoError);
+      }
+    }
+
+    final artifact = const LuaBytecodeEmitter().compileProgram(
+      ast,
+      chunkName: request.chunkName,
+      sourceName: request.chunkName,
+    );
+    final closure = LuaBytecodeClosure.main(
+      runtime: runtime,
+      chunk: artifact.chunk,
+      chunkName: request.chunkName,
+      environment: _createLoadEnvironment(
+        runtime: runtime,
+        currentEnv: runtime.getCurrentEnv(),
+        providedEnv: request.environment,
+      ),
+    );
+    final value = Value(closure)..interpreter = runtime;
+    return LuaChunkLoadResult.success(value);
+  } on FormatException catch (error) {
+    return LuaChunkLoadResult.failure(error.message);
+  } on RangeError {
+    return const LuaChunkLoadResult.failure('bytecode overflow');
+  } on UnsupportedError catch (error) {
+    return LuaChunkLoadResult.failure(_cleanEmitterFailure(error));
+  } catch (error) {
+    return LuaChunkLoadResult.failure(error.toString());
+  }
+}
+
 /// Runtime wrapper that executes source by emitting real `lua_bytecode`
 /// chunks and running them through the bytecode VM.
 class LuaBytecodeRuntime implements LuaRuntime {
@@ -587,11 +639,11 @@ class LuaBytecodeRuntime implements LuaRuntime {
     if (gc.needsAsyncFinalizerDrain) {
       return true;
     }
+    final threshold = gc.autoTriggerDebtThreshold;
     final debt = gc.allocationDebt;
-    if (debt > 0) {
+    if (debt >= threshold) {
       return true;
     }
-    final threshold = gc.autoTriggerDebtThreshold;
     return gc.shouldForceAsyncLoopRescue(loopCounter, debt, threshold) ||
         gc.shouldAdvanceIncrementalLoopCycle(loopCounter);
   }
@@ -720,52 +772,7 @@ class LuaBytecodeRuntime implements LuaRuntime {
   }
 
   LuaChunkLoadResult _loadSourceChunk(LuaChunkLoadRequest request) {
-    final source = _sourceText(request.source);
-    if (source == null) {
-      return const LuaChunkLoadResult.failure('chunk source must be a string');
-    }
-
-    try {
-      final ast = parse(source, url: request.chunkName);
-      final semanticError = validateProgramSemantics(ast);
-      if (semanticError != null) {
-        return LuaChunkLoadResult.failure(
-          _adjustLoadValidationError(source, semanticError),
-        );
-      }
-      if (source.contains('goto') || source.contains('::')) {
-        final gotoError = GotoLabelValidator().checkGotoLabelViolations(ast);
-        if (gotoError != null) {
-          return LuaChunkLoadResult.failure(gotoError);
-        }
-      }
-
-      final artifact = const LuaBytecodeEmitter().compileProgram(
-        ast,
-        chunkName: request.chunkName,
-        sourceName: request.chunkName,
-      );
-      final closure = LuaBytecodeClosure.main(
-        runtime: this,
-        chunk: artifact.chunk,
-        chunkName: request.chunkName,
-        environment: _createLoadEnvironment(
-          runtime: this,
-          currentEnv: getCurrentEnv(),
-          providedEnv: request.environment,
-        ),
-      );
-      final value = Value(closure)..interpreter = this;
-      return LuaChunkLoadResult.success(value);
-    } on FormatException catch (error) {
-      return LuaChunkLoadResult.failure(error.message);
-    } on RangeError {
-      return const LuaChunkLoadResult.failure('bytecode overflow');
-    } on UnsupportedError catch (error) {
-      return LuaChunkLoadResult.failure(_cleanEmitterFailure(error));
-    } catch (error) {
-      return LuaChunkLoadResult.failure(error.toString());
-    }
+    return loadLuaBytecodeSourceChunk(this, request);
   }
 }
 

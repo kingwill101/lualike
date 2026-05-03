@@ -661,6 +661,9 @@ class NumberUtils {
   /// Perform modulo operation with Lua semantics
   static dynamic modulo(dynamic a, dynamic b) {
     if ((a is int || a is BigInt) && (b is int || b is BigInt)) {
+      // Lua semantics require integer modulo by zero to raise an error.
+      // Floating-point modulo by zero is intentionally allowed below and
+      // produces NaN (IEEE 754 behaviour). Do not unify the two branches.
       if (isZero(b)) {
         throw LuaError("attempt to perform 'n%0'");
       }

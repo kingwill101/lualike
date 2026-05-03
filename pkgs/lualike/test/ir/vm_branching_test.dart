@@ -3,10 +3,12 @@ library;
 
 import 'package:lualike/src/config.dart';
 import 'package:lualike/src/executor.dart';
+import 'package:lualike/src/logging/logging.dart';
 import 'package:lualike/src/value.dart';
 import 'package:test/test.dart';
 
 void main() {
+  Logger.setEnabled(false);
   dynamic unwrap(dynamic value) => value is Value ? value.raw : value;
 
   group('IR branching', () {
@@ -77,23 +79,19 @@ void main() {
       expect(unwrap(andTrue), equals(42));
 
       final andFalse = await executeCode(
-        'return cond and arr[1]',
+        'return cond and missing_global[1]',
         mode: EngineMode.ir,
         onRuntimeSetup: (runtime) {
-          runtime.globals
-            ..define('cond', Value(false))
-            ..define('arr', Value.wrap({1: 42}));
+          runtime.globals.define('cond', Value(false));
         },
       );
       expect(unwrap(andFalse), isFalse);
 
       final orTrue = await executeCode(
-        'return cond or arr[1]',
+        'return cond or missing_global[1]',
         mode: EngineMode.ir,
         onRuntimeSetup: (runtime) {
-          runtime.globals
-            ..define('cond', Value(true))
-            ..define('arr', Value.wrap({1: 7}));
+          runtime.globals.define('cond', Value(true));
         },
       );
       expect(unwrap(orTrue), isTrue);
