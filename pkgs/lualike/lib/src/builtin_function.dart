@@ -1,5 +1,6 @@
 import 'dart:async' show FutureOr;
 
+import 'package:lualike/src/runtime/lua_slot.dart';
 import 'package:lualike/src/runtime/lua_runtime.dart';
 import 'package:lualike/src/value.dart';
 
@@ -55,7 +56,13 @@ abstract class BuiltinFunction {
   /// Reuses cached wrappers for primitive Lua values when the active runtime
   /// supports it, falling back to a fresh wrapper otherwise.
   Value primitiveValue(Object? raw) {
-    return interpreter?.constantPrimitiveValue(raw) ?? Value(raw);
+    return cachedPrimitiveOrValue(interpreter, raw);
+  }
+
+  /// Reuses runtime-cached wrappers for public Dart string results while
+  /// preserving the public `raw is String` interop contract.
+  Value dartStringValue(String raw) {
+    return cachedPrimitiveOrValue(interpreter, raw);
   }
 }
 

@@ -21,11 +21,14 @@ import 'package:lualike/src/lua_string.dart';
 import 'package:lualike/src/parse.dart';
 import 'package:lualike/src/runtime/chunk_loading_support.dart';
 import 'package:lualike/src/runtime/compiled_artifact_support.dart';
+import 'package:lualike/src/runtime/lua_results.dart';
+import 'package:lualike/src/runtime/lua_slot.dart';
 import 'package:lualike/src/runtime/lua_runtime.dart';
 import 'package:lualike/src/semantic_checker.dart';
 import 'package:lualike/src/stack.dart';
 import 'package:lualike/src/stdlib/init.dart';
 import 'package:lualike/src/stdlib/library.dart';
+import 'package:lualike/src/stdlib/metatables.dart';
 import 'package:lualike/src/value.dart';
 
 bool looksLikeTrackedLuaBytecodeBytes(List<int> bytes) {
@@ -380,9 +383,7 @@ class LuaBytecodeRuntime implements LuaRuntime {
       if (results.length == 1) {
         return results.single;
       }
-      final packed = Value.multi(results);
-      packed.interpreter ??= this;
-      return packed;
+      return LuaResults(results);
     }
     final topFrame = callStack.top;
     final alreadyFramed = identical(topFrame?.callable, callee);
@@ -500,9 +501,21 @@ class LuaBytecodeRuntime implements LuaRuntime {
   }
 
   @override
-  Value constantPrimitiveValue(Object? raw) {
-    return _interpreter.constantPrimitiveValue(raw)..interpreter = this;
+  Value constantDartStringValue(String value) {
+    return _interpreter.constantDartStringValue(value)..interpreter = this;
   }
+
+  @override
+  Value constantPrimitiveValue(Object? raw) {
+    final value = _interpreter.constantPrimitiveValue(raw);
+    if (_defaultPrimitiveMetatableActive(raw)) {
+      _ensureValueInterpreter(value);
+    }
+    return value;
+  }
+
+  @override
+  Value wrapRuntimeValue(Object? raw) => valueFromLuaSlot(this, raw);
 
   @override
   CallStack get callStack => _interpreter.callStack;
@@ -710,7 +723,7 @@ class LuaBytecodeRuntime implements LuaRuntime {
       if (raw is String) {
         final lookup = globals.get(raw);
         if (lookup != null) {
-          callee = lookup is Value ? lookup : Value(lookup);
+          callee = valueFromLuaSlot(this, lookup);
           continue;
         }
       }
@@ -738,7 +751,7 @@ class LuaBytecodeRuntime implements LuaRuntime {
       }
 
       final originalCallee = callee;
-      callee = callMeta is Value ? callMeta : Value(callMeta);
+      callee = valueFromLuaSlot(this, callMeta);
       normalizedArgs = <Object?>[originalCallee, ...normalizedArgs];
       extraArgs += 1;
     }
@@ -750,14 +763,29 @@ class LuaBytecodeRuntime implements LuaRuntime {
     }
   }
 
+  bool _defaultPrimitiveMetatableActive(Object? raw) {
+    final type = switch (raw) {
+      null => 'nil',
+      bool() => 'boolean',
+      _ => 'number',
+    };
+    return MetaTable().isDefaultMetatableActive(type);
+  }
+
   List<Object?> _currentChunkArgs(Environment env) {
     final varargs = env.get('...');
+    final resultValues = luaResultValues(varargs);
+    if (resultValues != null) {
+      return List<Object?>.from(resultValues);
+    }
+    if (varargs is Value) {
+      if (varargs.raw == null) {
+        return const <Object?>[];
+      }
+      return <Object?>[varargs];
+    }
     return switch (varargs) {
-      Value(isMulti: true, raw: final List values) => List<Object?>.from(
-        values,
-      ),
-      Value(raw: null) || null => const <Object?>[],
-      final Value value => <Object?>[value],
+      null => const <Object?>[],
       _ => <Object?>[varargs],
     };
   }

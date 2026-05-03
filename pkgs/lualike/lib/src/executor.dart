@@ -8,6 +8,9 @@ import 'config.dart';
 import 'ir/runtime.dart';
 import 'lua_error.dart';
 import 'lua_bytecode/runtime.dart';
+import 'lua_string.dart';
+import 'runtime/lua_slot.dart';
+import 'value.dart';
 
 typedef RuntimeSetupCallback = void Function(LuaRuntime);
 
@@ -50,10 +53,10 @@ Future<Object?> executeCode(
       throw Exception(semanticError);
     }
 
-    return await runtime.runAst(program.statements);
+    return _publicExecutionResult(await runtime.runAst(program.statements));
   } on ReturnException catch (e) {
     // Handle return statement at the top level
-    return e.value;
+    return _publicExecutionResult(e.value);
   } on Exception catch (e, s) {
     // Format error message in Lua style
     final String errorMsg = switch (e) {
@@ -70,4 +73,28 @@ Future<Object?> executeCode(
     runtime.reportError(errorMsg, trace: s, error: e);
     rethrow;
   }
+}
+
+Object? _publicExecutionResult(Object? result) {
+  final resultValues = luaResultValues(result);
+  if (resultValues != null) {
+    return valueMultiFromLuaResults(resultValues.map(_publicResultSlot));
+  }
+  return _publicResultSlot(result);
+}
+
+Object? _publicResultSlot(Object? result) {
+  if (result is Value) {
+    final raw = result.raw;
+    if (raw == null || raw is bool || raw is num || raw is BigInt) {
+      return raw;
+    }
+    if (raw is LuaString) {
+      return raw.toString();
+    }
+  }
+  if (result is LuaString) {
+    return result.toString();
+  }
+  return result;
 }
