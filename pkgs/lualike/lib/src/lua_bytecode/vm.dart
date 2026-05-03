@@ -8778,9 +8778,7 @@ Value _runtimeValue(LuaRuntime runtime, Object? value) {
     BigInt() => runtime.constantPrimitiveValue(value),
     final LuaString string => runtime.constantStringValue(string.bytes),
     final String string => runtime.constantRawStringValue(string),
-    final Map map =>
-      Value.lookupCanonicalTableWrapper(map) ??
-          Value(map, interpreter: runtime),
+    final Map map => valueFromLuaSlot(runtime, map),
     final LuaFile file => _trackedLuaFileWrapper(file, runtime),
     final LuaBytecodeClosure closure => Value(
       closure,
