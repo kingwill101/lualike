@@ -12,127 +12,14 @@ typedef _SimpleCapturedCounterSelfTailLoopPlan = ({
   num step,
 });
 
-Value _packVarargsTable(List<Object?> varargs) {
-  return Value(_NamedVarargTable(varargs));
-}
-
-final class _NamedVarargTable extends MapBase<dynamic, dynamic>
-    implements VirtualLuaTable {
-  _NamedVarargTable(List<Object?> values)
-    : _values = List<Object?>.from(values, growable: false);
-
-  final List<Object?> _values;
-  final Map<dynamic, dynamic> _extra = <dynamic, dynamic>{};
-
-  int get _count => _values.length;
-
-  static int? _normalizeIndex(Object? key) {
-    final rawKey = switch (key) {
-      final Value wrapped => wrapped.raw,
-      _ => key,
-    };
-    return switch (rawKey) {
-      final int integer when integer > 0 && integer <= NumberLimits.maxInt32 =>
-        integer,
-      final BigInt integer
-          when integer >= BigInt.one &&
-              integer <= BigInt.from(NumberLimits.maxInt32) =>
-        integer.toInt(),
-      final num number
-          when number.isFinite &&
-              number > 0 &&
-              number.toInt() <= NumberLimits.maxInt32 &&
-              number.toInt().toDouble() == number.toDouble() =>
-        number.toInt(),
-      _ => null,
-    };
-  }
-
-  @override
-  dynamic operator [](Object? key) {
-    if (_extra.containsKey(key)) {
-      return _extra[key];
-    }
-    if (key == 'n') {
-      return _count;
-    }
-    final index = _normalizeIndex(key);
-    if (index == null || index > _count) {
-      return null;
-    }
-    return _values[index - 1];
-  }
-
-  @override
-  void operator []=(dynamic key, dynamic value) {
-    if (key == 'n') {
-      if (value == null || (value is Value && value.isNil)) {
-        _extra.remove('n');
-      } else {
-        _extra['n'] = value;
-      }
-      return;
-    }
-
-    final index = _normalizeIndex(key);
-    if (index != null && index <= _count) {
-      _values[index - 1] = value is Value && value.isNil ? null : value;
-      return;
-    }
-
-    if (value == null || (value is Value && value.isNil)) {
-      _extra.remove(key);
-    } else {
-      _extra[key] = value;
-    }
-  }
-
-  @override
-  void clear() {
-    for (var i = 0; i < _values.length; i++) {
-      _values[i] = null;
-    }
-    _extra.clear();
-  }
-
-  @override
-  Iterable<dynamic> get keys sync* {
-    for (var index = 1; index <= _count; index++) {
-      if (_values[index - 1] != null) {
-        yield index;
-      }
-    }
-    yield 'n';
-    for (final key in _extra.keys) {
-      if (key == 'n') {
-        continue;
-      }
-      final index = _normalizeIndex(key);
-      if (index != null && index <= _count) {
-        continue;
-      }
-      yield key;
-    }
-  }
-
-  @override
-  dynamic remove(Object? key) {
-    if (key == 'n') {
-      return _extra.remove('n');
-    }
-    final index = _normalizeIndex(key);
-    if (index != null && index <= _count) {
-      final previous = _values[index - 1];
-      _values[index - 1] = null;
-      return previous;
-    }
-    return _extra.remove(key);
-  }
+Value _packVarargsTable(Interpreter interpreter, List<Object?> varargs) {
+  return packVarargsTable(varargs, runtime: interpreter);
 }
 
 List<Object?> _expandVarargValue(Object? value) {
-  if (value case Value(isMulti: true, raw: final List<Object?> rawValues)) {
-    return List<Object?>.from(rawValues);
+  final resultValues = luaResultValues(value);
+  if (resultValues != null) {
+    return List<Object?>.from(resultValues);
   }
 
   final table = switch (value) {
@@ -341,8 +228,12 @@ bool _hasPendingToBeClosed(Environment? env) {
   return false;
 }
 
-Object? _snapshotReturnPayload(Object? value) {
+Object? _snapshotReturnPayload(Object? value, LuaRuntime runtime) {
   Value cloneValue(Value original) {
+    if (original.isSharedPrimitive) {
+      return original;
+    }
+
     // Table-backed wrappers and values carrying an explicit metatable
     // reference are identity-sensitive. Returning a fresh wrapper for them
     // can detach metamethod lookups from the live table object, which breaks
@@ -378,21 +269,25 @@ Object? _snapshotReturnPayload(Object? value) {
     return clone;
   }
 
-  return switch (value) {
-    Value(isMulti: true, raw: final List rawValues) => Value.multi(
-      rawValues.map((entry) {
+  final resultValues = luaResultValues(value);
+  if (resultValues != null) {
+    return LuaResults(
+      resultValues.map((entry) {
         if (entry is Value) {
           return cloneValue(entry);
         }
-        return Value(entry);
-      }).toList(),
-    ),
+        return valueFromLuaSlot(runtime, entry);
+      }),
+    );
+  }
+
+  return switch (value) {
     final Value scalar => cloneValue(scalar),
     final List values => values.map((entry) {
       if (entry is Value) {
         return cloneValue(entry);
       }
-      return Value(entry);
+      return valueFromLuaSlot(runtime, entry);
     }).toList(),
     _ => value,
   };
@@ -493,6 +388,7 @@ _SimpleNumericSelfTailLoopPlan? _matchSimpleNumericSelfTailLoopPlan(
 List<Object?> _applySimpleNumericSelfTailLoopPlan(
   _SimpleNumericSelfTailLoopPlan plan,
   List<Object?> args,
+  Interpreter interpreter,
 ) {
   if (plan.paramIndex >= args.length) {
     return args;
@@ -520,7 +416,7 @@ List<Object?> _applySimpleNumericSelfTailLoopPlan(
   }
 
   final nextArgs = List<Object?>.from(args, growable: false);
-  nextArgs[plan.paramIndex] = Value(reduced);
+  nextArgs[plan.paramIndex] = cachedPrimitiveOrValue(interpreter, reduced);
   return nextArgs;
 }
 
@@ -642,7 +538,7 @@ void _applySimpleCapturedCounterSelfTailLoopPlan(
     reduced = raw.toDouble() - (steps * step);
   }
 
-  upvalue.setValue(Value(reduced));
+  upvalue.setValue(cachedPrimitiveOrValue(functionValue.interpreter, reduced));
 }
 
 mixin InterpreterFunctionMixin on AstVisitor<Object?> {
@@ -702,9 +598,7 @@ mixin InterpreterFunctionMixin on AstVisitor<Object?> {
 
       Value requireTable(Object? candidate, String sourceLabel) {
         final lineNumber = node.span == null ? null : node.span!.start.line + 1;
-        final wrapped = candidate is Value
-            ? candidate
-            : interpreter.wrapRuntimeValue(candidate);
+        final wrapped = valueFromLuaSlot(interpreter, candidate);
         if (wrapped.raw is Map) {
           return wrapped;
         }
@@ -915,7 +809,8 @@ mixin InterpreterFunctionMixin on AstVisitor<Object?> {
       category: 'Interpreter',
     );
 
-    globals.declare(node.name.name, Value(null));
+    final interpreter = this as Interpreter;
+    globals.declare(node.name.name, interpreter.constantPrimitiveValue(null));
     final localBox = globals.values[node.name.name];
 
     // Create function closure
@@ -1059,13 +954,14 @@ mixin InterpreterFunctionMixin on AstVisitor<Object?> {
       if (simpleCapturedCounterPlan case final plan?) {
         _applySimpleCapturedCounterSelfTailLoopPlan(plan, self);
       }
+      final interpreter = this as Interpreter;
 
       Environment execEnv;
       if (hasJoinedUpvalues) {
         final joinedUpvalueNames = joinedUpvalues.map((u) => u.name!).toSet();
         execEnv = Environment(
           parent: _createFilteredEnvironment(closureEnv, joinedUpvalueNames),
-          interpreter: this as Interpreter,
+          interpreter: interpreter,
           isClosure: false,
         );
         Logger.debugLazy(
@@ -1076,7 +972,7 @@ mixin InterpreterFunctionMixin on AstVisitor<Object?> {
       } else {
         execEnv = Environment(
           parent: closureEnv,
-          interpreter: this as Interpreter,
+          interpreter: interpreter,
           isClosure: false,
         );
       }
@@ -1091,8 +987,10 @@ mixin InterpreterFunctionMixin on AstVisitor<Object?> {
 
       for (var i = 0; i < regularParamCount; i++) {
         final paramName = parameterNames[i];
-        final arg = i < args.length ? args[i] : Value(null);
-        final stored = arg is Value ? arg : Value(arg);
+        final arg = i < args.length
+            ? args[i]
+            : interpreter.constantPrimitiveValue(null);
+        final stored = valueFromLuaSlot(interpreter, arg);
         execEnv.declare(paramName, stored);
         final box = execEnv.values[paramName];
         if (box != null) {
@@ -1104,14 +1002,14 @@ mixin InterpreterFunctionMixin on AstVisitor<Object?> {
         final varargs = args.length > regularParamCount
             ? args.sublist(regularParamCount)
             : <Object?>[];
-        final varargValue = Value.multi(varargs);
+        final varargValue = LuaResults(varargs);
         execEnv.declare('...', varargValue);
         final varargBox = execEnv.values['...'];
         if (varargBox != null) {
           fastLocals['...'] = varargBox;
         }
         if (namedVararg != null) {
-          final packedVarargs = _packVarargsTable(varargs);
+          final packedVarargs = _packVarargsTable(interpreter, varargs);
           execEnv.declare(namedVararg, packedVarargs);
           final namedVarargBox = execEnv.values[namedVararg];
           if (namedVarargBox != null) {
@@ -1120,7 +1018,6 @@ mixin InterpreterFunctionMixin on AstVisitor<Object?> {
         }
       }
 
-      final interpreter = this as Interpreter;
       final savedEnv = interpreter.getCurrentEnv();
       final savedFunction = interpreter.getCurrentFunction();
       final prevFastLocals = interpreter.getCurrentFastLocals();
@@ -1183,7 +1080,7 @@ mixin InterpreterFunctionMixin on AstVisitor<Object?> {
         result = await interpreter._executeStatements(node.body);
         await execEnv.closeVariables();
       } on ReturnException catch (e) {
-        result = _snapshotReturnPayload(e.value);
+        result = _snapshotReturnPayload(e.value, interpreter);
         await execEnv.closeVariables();
         hadExplicitReturn = true;
       } catch (e, s) {
@@ -1219,7 +1116,7 @@ mixin InterpreterFunctionMixin on AstVisitor<Object?> {
       if (hadExplicitReturn) {
         return result;
       }
-      return Value(null);
+      return interpreter.constantPrimitiveValue(null);
     }
 
     Future<Object?> optimizedSelfTailLoop(List<Object?> initialArgs) async {
@@ -1264,7 +1161,7 @@ mixin InterpreterFunctionMixin on AstVisitor<Object?> {
       try {
         while (true) {
           if (simpleNumericSelfTailLoopPlan case final plan?) {
-            args = _applySimpleNumericSelfTailLoopPlan(plan, args);
+            args = _applySimpleNumericSelfTailLoopPlan(plan, args, interpreter);
           }
 
           final bool reuse = reusableEnv != null;
@@ -1290,9 +1187,11 @@ mixin InterpreterFunctionMixin on AstVisitor<Object?> {
           }
 
           for (var i = 0; i < regularParamCount; i++) {
-            final arg = i < args.length ? args[i] : Value(null);
+            final arg = i < args.length
+                ? args[i]
+                : interpreter.constantPrimitiveValue(null);
             if (!reuse || paramBoxes[i] == null) {
-              final stored = arg is Value ? arg : Value(arg);
+              final stored = valueFromLuaSlot(interpreter, arg);
               execEnv.declare(parameterNames[i], stored);
               paramBoxes[i] = execEnv.values[parameterNames[i]];
               final box = paramBoxes[i];
@@ -1305,10 +1204,10 @@ mixin InterpreterFunctionMixin on AstVisitor<Object?> {
                 box.value = arg;
               } else {
                 final current = box.value;
-                if (current is Value) {
+                if (current is Value && !current.isSharedPrimitive) {
                   current.raw = arg;
                 } else {
-                  box.value = Value(arg);
+                  box.value = valueFromLuaSlot(interpreter, arg);
                 }
               }
             }
@@ -1319,7 +1218,7 @@ mixin InterpreterFunctionMixin on AstVisitor<Object?> {
                 ? args.sublist(regularParamCount)
                 : <Object?>[];
             if (!reuse || varargBox == null) {
-              final stored = Value.multi(varargs);
+              final stored = LuaResults(varargs);
               execEnv.declare('...', stored);
               varargBox = execEnv.values['...'];
               if (varargBox != null) {
@@ -1327,15 +1226,10 @@ mixin InterpreterFunctionMixin on AstVisitor<Object?> {
               }
             } else {
               final box = varargBox;
-              final current = box.value;
-              if (current is Value && current.isMulti) {
-                current.raw = varargs;
-              } else {
-                box.value = Value.multi(varargs);
-              }
+              box.value = LuaResults(varargs);
             }
             if (namedVararg != null) {
-              final packedVarargs = _packVarargsTable(varargs);
+              final packedVarargs = _packVarargsTable(interpreter, varargs);
               if (!reuse || namedVarargBox == null) {
                 execEnv.declare(namedVararg, packedVarargs);
                 namedVarargBox = execEnv.values[namedVararg];
@@ -1407,7 +1301,7 @@ mixin InterpreterFunctionMixin on AstVisitor<Object?> {
             }
             await execEnv.closeVariables();
           } on ReturnException catch (e) {
-            result = _snapshotReturnPayload(e.value);
+            result = _snapshotReturnPayload(e.value, interpreter);
             await execEnv.closeVariables();
             hadExplicitReturn = true;
           } on TailCallException catch (t) {
@@ -1454,7 +1348,7 @@ mixin InterpreterFunctionMixin on AstVisitor<Object?> {
           if (hadExplicitReturn) {
             return result;
           }
-          return Value(null);
+          return interpreter.constantPrimitiveValue(null);
         }
       } finally {
         interpreter.setCurrentFastLocals(prevFastLocals);
@@ -1578,16 +1472,16 @@ mixin InterpreterFunctionMixin on AstVisitor<Object?> {
       return null;
     }
 
+    final interpreter = this as Interpreter;
     final literalValue = _sharedLiteralLuaString(expression.bytes);
     final functionValue = Value(
-      (List<Object?> _) async => Value(literalValue),
+      (List<Object?> _) async => literalValue,
       functionBody: node,
       closureEnvironment: closureEnv,
       strippedDebugInfo:
-          (this as Interpreter).getCurrentFunction()?.strippedDebugInfo ??
-          false,
+          interpreter.getCurrentFunction()?.strippedDebugInfo ?? false,
     );
-    functionValue.interpreter = this as Interpreter;
+    functionValue.interpreter = interpreter;
     functionValue.upvalues = const <Upvalue>[];
     return functionValue;
   }
@@ -1679,13 +1573,8 @@ mixin InterpreterFunctionMixin on AstVisitor<Object?> {
     // Evaluate the function (callee). If it yields multiple values, use only
     // the first value as the function to call (Lua semantics).
     dynamic func = await node.name.accept(this);
-    if (func is Value && func.isMulti) {
-      final multi = func.raw as List;
-      func = multi.isNotEmpty
-          ? multi.first
-          : interpreter.wrapRuntimeValue(null);
-    } else if (func is List && func.isNotEmpty) {
-      func = func.first;
+    if (luaResultValues(func) != null || func is List) {
+      func = _firstLuaResultOrNil(func, interpreter: interpreter);
     }
     Logger.debugLazy(
       () => 'Function evaluated to: $func (${func.runtimeType})',
@@ -1697,15 +1586,9 @@ mixin InterpreterFunctionMixin on AstVisitor<Object?> {
       final fastArgs = <Object?>[];
       for (int i = 0; i < node.args.length && fastArgs.length < 2; i++) {
         final v = await node.args[i].accept(this);
-        Object? first;
-        if (v is Value && v.isMulti) {
-          final list = v.raw as List<Object?>;
-          first = list.isNotEmpty ? list.first : null;
-        } else if (v is List && v.isNotEmpty) {
-          first = v.first;
-        } else {
-          first = v;
-        }
+        final first = luaResultValues(v) != null || v is List
+            ? _firstLuaResultOrNil(v, interpreter: interpreter)
+            : v;
         // Use raw when possible to skip temporary Value wrappers
         fastArgs.add(first is Value ? first.raw : first);
       }
@@ -1728,7 +1611,7 @@ mixin InterpreterFunctionMixin on AstVisitor<Object?> {
         // Evaluate each argument; discard value
         await argNode.accept(this);
       }
-      return interpreter.wrapRuntimeValue(null);
+      return valueFromLuaSlot(interpreter, null);
     }
 
     // Fast path: reversed simple comparator `function(x, y) return y < x end`.
@@ -1738,21 +1621,13 @@ mixin InterpreterFunctionMixin on AstVisitor<Object?> {
       final fastArgs = <Object?>[];
       for (int i = 0; i < node.args.length && fastArgs.length < 2; i++) {
         final v = await node.args[i].accept(this);
-        Object? first;
-        if (v is Value && v.isMulti) {
-          final list = v.raw as List<Object?>;
-          first = list.isNotEmpty ? list.first : null;
-        } else if (v is List && v.isNotEmpty) {
-          first = v.first;
-        } else {
-          first = v;
-        }
-        fastArgs.add(
-          first is Value ? first : interpreter.wrapRuntimeValue(first),
-        );
+        final first = luaResultValues(v) != null || v is List
+            ? _firstLuaResultOrNil(v, interpreter: interpreter)
+            : v;
+        fastArgs.add(valueFromLuaSlot(interpreter, first));
       }
       while (fastArgs.length < 2) {
-        fastArgs.add(interpreter.wrapRuntimeValue(null));
+        fastArgs.add(valueFromLuaSlot(interpreter, null));
       }
       final a0 = fastArgs[0] as Value;
       final a1 = fastArgs[1] as Value;
@@ -1763,14 +1638,14 @@ mixin InterpreterFunctionMixin on AstVisitor<Object?> {
       if (safeA && safeB) {
         // Numbers
         if (rawA is num && rawB is num) {
-          return interpreter.wrapRuntimeValue(rawB < rawA);
+          return valueFromLuaSlot(interpreter, rawB < rawA);
         }
         // Strings / LuaStrings
         if ((rawA is String || rawA is LuaString) &&
             (rawB is String || rawB is LuaString)) {
           final sa = rawA.toString();
           final sb = rawB.toString();
-          return interpreter.wrapRuntimeValue(sb.compareTo(sa) < 0);
+          return valueFromLuaSlot(interpreter, sb.compareTo(sa) < 0);
         }
       }
       // Fallback to normal path when not safe
@@ -1839,7 +1714,7 @@ mixin InterpreterFunctionMixin on AstVisitor<Object?> {
             final sb = rawB.toString();
             res = sa.compareTo(sb) < 0;
           }
-          return interpreter.wrapRuntimeValue(res);
+          return valueFromLuaSlot(interpreter, res);
         }
       }
 
@@ -1865,39 +1740,12 @@ mixin InterpreterFunctionMixin on AstVisitor<Object?> {
     return result;
   }
 
-  Object? _firstCallResult(Object? value, Interpreter interpreter) {
-    return switch (value) {
-      Value(isMulti: true, raw: final List multiValues) =>
-        multiValues.isNotEmpty
-            ? multiValues.first
-            : interpreter.wrapRuntimeValue(null),
-      final List values =>
-        values.isNotEmpty
-            ? (values.first is Value
-                  ? values.first
-                  : interpreter.wrapRuntimeValue(values.first))
-            : interpreter.wrapRuntimeValue(null),
-      _ => value is Value ? value : interpreter.wrapRuntimeValue(value),
-    };
-  }
-
   void _appendExpandedCallResults(
     List<Object?> out,
     Object? value,
     Interpreter interpreter,
   ) {
-    switch (value) {
-      case Value(isMulti: true, raw: final List multiValues):
-        out.addAll(multiValues.cast<Object?>());
-      case final List values:
-        for (final entry in values) {
-          out.add(entry is Value ? entry : interpreter.wrapRuntimeValue(entry));
-        }
-      case final Value wrapped:
-        out.add(wrapped);
-      default:
-        out.add(interpreter.wrapRuntimeValue(value));
-    }
+    appendExpandedLuaResults(out, interpreter, value);
   }
 
   void _appendFirstCallResult(
@@ -1905,7 +1753,7 @@ mixin InterpreterFunctionMixin on AstVisitor<Object?> {
     Object? value,
     Interpreter interpreter,
   ) {
-    out.add(_firstCallResult(value, interpreter));
+    appendFirstLuaResult(out, interpreter, value);
   }
 
   /// Evaluates a method call.
@@ -1926,7 +1774,7 @@ mixin InterpreterFunctionMixin on AstVisitor<Object?> {
 
     // Get object
     var obj = await node.prefix.accept(this);
-    final objVal = obj is Value ? obj : interpreter.wrapRuntimeValue(obj);
+    final objVal = valueFromLuaSlot(interpreter, obj);
     Logger.debugLazy(
       () => '[MethodCall] Receiver (prefix) value: $obj',
       category: 'Interpreter',
@@ -1976,9 +1824,7 @@ mixin InterpreterFunctionMixin on AstVisitor<Object?> {
           category: 'Interpreter',
         );
         // Route through unified call path to support tail calls, yields, etc.
-        final fnValue = aFunc is Value
-            ? aFunc
-            : interpreter.wrapRuntimeValue(aFunc);
+        final fnValue = valueFromLuaSlot(interpreter, aFunc);
         return await _callFunction(
           fnValue,
           args,
@@ -2011,7 +1857,7 @@ mixin InterpreterFunctionMixin on AstVisitor<Object?> {
     }
 
     // Make sure func is a Value
-    func = func is Value ? func : interpreter.wrapRuntimeValue(func);
+    func = valueFromLuaSlot(interpreter, func);
     Logger.debugLazy(
       () => '[MethodCall] Function to call: $func',
       category: 'Interpreter',
@@ -2044,7 +1890,7 @@ mixin InterpreterFunctionMixin on AstVisitor<Object?> {
 
     if (node.expr.isEmpty) {
       // No return values: in Lua this is zero results, not a single nil.
-      throw ReturnException(Value.multi([]));
+      throw ReturnException(const LuaResults.empty());
     }
 
     // Tail-call optimization: if returning a single function/method call,
@@ -2054,25 +1900,19 @@ mixin InterpreterFunctionMixin on AstVisitor<Object?> {
       final e = node.expr[0];
       if (e is! FunctionCall && e is! MethodCall) {
         final value = await e.accept(this);
-        if (value is Value && value.isMulti) {
-          final multi = value.raw as List<Object?>;
-          throw ReturnException(Value.multi(multi));
+        final multi = luaResultValues(value);
+        if (multi != null) {
+          throw ReturnException(LuaResults(multi));
         }
         if (value is List) {
           final normalized = value
-              .map(
-                (entry) => entry is Value
-                    ? entry
-                    : interpreter.wrapRuntimeValue(entry),
-              )
+              .map((entry) => valueFromLuaSlot(interpreter, entry))
               .toList(growable: false);
           throw ReturnException(
-            normalized.length == 1 ? normalized.first : Value.multi(normalized),
+            normalized.length == 1 ? normalized.first : LuaResults(normalized),
           );
         }
-        throw ReturnException(
-          value is Value ? value : interpreter.wrapRuntimeValue(value),
-        );
+        throw ReturnException(valueFromLuaSlot(interpreter, value));
       }
 
       final currentEnv = interpreter.getCurrentEnv();
@@ -2121,13 +1961,8 @@ mixin InterpreterFunctionMixin on AstVisitor<Object?> {
         if (e is FunctionCall) {
           // Evaluate callee without invoking
           dynamic func = await e.name.accept(this);
-          if (func is Value && func.isMulti) {
-            final multi = func.raw as List;
-            func = multi.isNotEmpty
-                ? multi.first
-                : interpreter.wrapRuntimeValue(null);
-          } else if (func is List && func.isNotEmpty) {
-            func = func.first;
+          if (luaResultValues(func) != null || func is List) {
+            func = _firstLuaResultOrNil(func, interpreter: interpreter);
           }
 
           final args = await evalArgs(e.args);
@@ -2147,7 +1982,7 @@ mixin InterpreterFunctionMixin on AstVisitor<Object?> {
         } else if (e is MethodCall) {
           // Prepare method call as a tail call
           final recv = await e.prefix.accept(this);
-          final obj = recv is Value ? recv : interpreter.wrapRuntimeValue(recv);
+          final obj = valueFromLuaSlot(interpreter, recv);
           var args = await evalArgs(e.args);
           if (e.implicitSelf) {
             args = [obj, ...args];
@@ -2175,9 +2010,7 @@ mixin InterpreterFunctionMixin on AstVisitor<Object?> {
             }
           }
 
-          final callable = func is Value
-              ? func
-              : interpreter.wrapRuntimeValue(func);
+          final callable = valueFromLuaSlot(interpreter, func);
           if (!callable.isCallable()) {
             throw LuaError.typeError(
               tailCallTypeError(callable, e),
@@ -2188,9 +2021,7 @@ mixin InterpreterFunctionMixin on AstVisitor<Object?> {
           final callArgs = e.implicitSelf ? args : [obj, ...args];
           return TailCallSignal(
             callable,
-            callArgs
-                .map((x) => x is Value ? x : interpreter.wrapRuntimeValue(x))
-                .toList(),
+            callArgs.map((x) => valueFromLuaSlot(interpreter, x)).toList(),
             callNode: e,
             callName: methodName,
             callEnv: currentEnv,
@@ -2219,15 +2050,14 @@ mixin InterpreterFunctionMixin on AstVisitor<Object?> {
     // If there's only one value, return it directly
     if (values.length == 1) {
       // If the single value is a multi-value, expand it (for print and assignment)
-      if (values[0] is Value && (values[0] as Value).isMulti) {
-        final multi = (values[0] as Value).raw as List<Object?>;
-        throw ReturnException(Value.multi(multi));
+      final multi = luaResultValues(values[0]);
+      if (multi != null) {
+        throw ReturnException(LuaResults(multi));
       }
       throw ReturnException(values[0]);
     }
 
-    // For multiple values, use Value.multi
-    throw ReturnException(Value.multi(values));
+    throw ReturnException(LuaResults(values));
   }
 
   /// Helper method to call a function
@@ -2395,27 +2225,35 @@ mixin InterpreterFunctionMixin on AstVisitor<Object?> {
       final end = limit < args.length ? limit : args.length;
       for (var i = 0; i < end; i++) {
         final value = args[i];
-        normalized.add(
-          value is Value ? value : interpreter.wrapRuntimeValue(value),
-        );
+        normalized.add(valueFromLuaSlot(interpreter, value));
       }
       return normalized;
     }
 
     List<Value> resultTransferValues(Object? result) {
+      final directResultValues = luaResultValues(result);
+      if (directResultValues != null) {
+        return [
+          for (final value in directResultValues)
+            valueFromLuaSlot(interpreter, value),
+        ];
+      }
+
       final normalized = _normalizeReturnValue(result);
+      final resultValues = luaResultValues(normalized);
+      if (resultValues != null) {
+        return [
+          for (final value in resultValues)
+            valueFromLuaSlot(interpreter, value),
+        ];
+      }
       return switch (normalized) {
-        Value(isMulti: true, raw: final List values) => [
-          for (final value in values)
-            value is Value ? value : interpreter.wrapRuntimeValue(value),
-        ],
         final Value value => <Value>[value],
         final List values => [
-          for (final value in values)
-            value is Value ? value : interpreter.wrapRuntimeValue(value),
+          for (final value in values) valueFromLuaSlot(interpreter, value),
         ],
         null => const <Value>[],
-        final Object? value => <Value>[interpreter.wrapRuntimeValue(value)],
+        final Object? value => <Value>[valueFromLuaSlot(interpreter, value)],
       };
     }
 
@@ -2723,10 +2561,7 @@ mixin InterpreterFunctionMixin on AstVisitor<Object?> {
               final LuaRuntime runtime =
                   func.interpreter ?? (this as LuaRuntime);
               final normalizedArgs = args
-                  .map(
-                    (arg) =>
-                        arg is Value ? arg : interpreter.wrapRuntimeValue(arg),
-                  )
+                  .map((arg) => valueFromLuaSlot(interpreter, arg))
                   .toList(growable: false);
               for (final arg in normalizedArgs) {
                 if (!identical(arg.interpreter, runtime)) {
@@ -3072,25 +2907,27 @@ mixin InterpreterFunctionMixin on AstVisitor<Object?> {
   Object? _normalizeReturnValue(Object? result) {
     final interpreter = this as Interpreter;
     if (result == null) {
-      return interpreter.wrapRuntimeValue(null);
+      return valueFromLuaSlot(interpreter, null);
     }
 
     if (result is Value) {
       return result;
     }
 
+    if (result is LuaResults) {
+      return result;
+    }
+
     if (result is List) {
       if (result.isEmpty) {
-        return interpreter.wrapRuntimeValue(null);
+        return valueFromLuaSlot(interpreter, null);
       } else if (result.length == 1) {
-        return result[0] is Value
-            ? result[0]
-            : interpreter.wrapRuntimeValue(result[0]);
+        return valueFromLuaSlot(interpreter, result[0]);
       } else {
-        return Value.multi(result);
+        return LuaResults(result);
       }
     }
 
-    return interpreter.wrapRuntimeValue(result);
+    return valueFromLuaSlot(interpreter, result);
   }
 }
