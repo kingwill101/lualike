@@ -45,5 +45,19 @@ void main() {
       final actual = result is Value ? result.raw : result;
       expect(actual, equals(42));
     });
+
+    test('method definitions bind implicit self parameter', () async {
+      final result = await executeCode('''
+        local receiver = {value = 41}
+        local self = 100
+        function receiver:inc(delta)
+          return self.value + delta
+        end
+        return receiver:inc(1)
+      ''', mode: EngineMode.ir);
+
+      final actual = result is Value ? result.raw : result;
+      expect(actual, equals(42));
+    });
   });
 }

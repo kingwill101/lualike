@@ -227,6 +227,21 @@ void main() {
       expect(_unwrap(result), equals(35));
     });
 
+    test(
+      'keeps ipairs numeric control live before first iterator call',
+      () async {
+        final result = await executeCode('''
+        local count = 0
+        for _, value in ipairs({0.1, -0.1, 1 / 3}) do
+          assert(type(value) == "number")
+          count = count + 1
+        end
+        return count
+      ''', mode: EngineMode.ir);
+        expect(_unwrap(result), equals(3));
+      },
+    );
+
     test('closes explicit fourth iterator value on break', () async {
       final counter = _CloseCounter();
       final result = await executeCode(
