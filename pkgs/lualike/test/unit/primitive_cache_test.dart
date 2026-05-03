@@ -1219,4 +1219,28 @@ void main() {
       true,
     );
   });
+
+  test('Value arithmetic avoids wrapping raw primitive operands', () {
+    final interpreter = Interpreter();
+    final left = Value(10, interpreter: interpreter);
+    final shift = Value(0x0F, interpreter: interpreter);
+
+    final sum = left + 5;
+    final difference = left - 3;
+    final product = left * 4;
+    final quotient = left / 2;
+    final remainder = left % 4;
+    final floored = left ~/ 3;
+    final shifted = shift << 4;
+    final sharedPrimitiveSum = interpreter.constantPrimitiveValue(10) + 5;
+
+    expect(identical(sum, interpreter.constantPrimitiveValue(15)), true);
+    expect(identical(difference, interpreter.constantPrimitiveValue(7)), true);
+    expect(identical(product, interpreter.constantPrimitiveValue(40)), true);
+    expect(identical(quotient, interpreter.constantPrimitiveValue(5.0)), true);
+    expect(identical(remainder, interpreter.constantPrimitiveValue(2)), true);
+    expect(identical(floored, interpreter.constantPrimitiveValue(3)), true);
+    expect(identical(shifted, interpreter.constantPrimitiveValue(0xF0)), true);
+    expect(sharedPrimitiveSum.raw, 15);
+  });
 }

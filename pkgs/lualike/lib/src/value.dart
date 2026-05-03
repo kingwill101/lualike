@@ -3249,13 +3249,13 @@ class Value extends Object implements Map<String, dynamic>, GCObject {
 
 extension OperatorExtension on Value {
   // Overload the bitwise XOR operator
-  Value operator ^(dynamic other) => _arith('bxor', Value.wrap(other));
+  Value operator ^(dynamic other) => _arith('bxor', other);
 
   // Overload the bitwise OR operator
-  Value operator |(dynamic other) => _arith('|', Value.wrap(other));
+  Value operator |(dynamic other) => _arith('|', other);
 
   // Overload the bitwise AND operator
-  Value operator &(dynamic other) => _arith('&', Value.wrap(other));
+  Value operator &(dynamic other) => _arith('&', other);
 
   // Logical OR method (Lua-style)
   Value or(dynamic other) {
@@ -3356,28 +3356,30 @@ extension OperatorExtension on Value {
   }
 
   @pragma('vm:prefer-inline')
-  Value _arith(String op, Value other) {
-    final result = NumberUtils.performArithmetic(op, raw, other.raw);
-    return (_resolveInterpreter() ?? other._resolveInterpreter())
+  Value _arith(String op, dynamic other) {
+    final otherRaw = other is Value ? other.raw : other;
+    final result = NumberUtils.performArithmetic(op, raw, otherRaw);
+    return (_resolveInterpreter() ??
+                (other is Value ? other._resolveInterpreter() : null))
             ?.constantPrimitiveValue(result) ??
         Value.primitive(result);
   }
 
   /// Overload the addition operator
   @pragma('vm:prefer-inline')
-  Value operator +(dynamic other) => _arith('+', Value.wrap(other));
+  Value operator +(dynamic other) => _arith('+', other);
 
   // Overload the subtraction operator
   @pragma('vm:prefer-inline')
-  Value operator -(dynamic other) => _arith('-', Value.wrap(other));
+  Value operator -(dynamic other) => _arith('-', other);
 
   // Overload the multiplication operator
   @pragma('vm:prefer-inline')
-  Value operator *(dynamic other) => _arith('*', Value.wrap(other));
+  Value operator *(dynamic other) => _arith('*', other);
 
   // Overload the division operator
   @pragma('vm:prefer-inline')
-  Value operator /(dynamic other) => _arith('/', Value.wrap(other));
+  Value operator /(dynamic other) => _arith('/', other);
 
   // Overload the bitwise NOT operator
   Value operator ~() {
@@ -3388,23 +3390,23 @@ extension OperatorExtension on Value {
 
   // Overload the left shift operator
   @pragma('vm:prefer-inline')
-  Value operator <<(dynamic other) => _arith('<<', Value.wrap(other));
+  Value operator <<(dynamic other) => _arith('<<', other);
 
   // Overload the right shift operator
   @pragma('vm:prefer-inline')
-  Value operator >>(dynamic other) => _arith('>>', Value.wrap(other));
+  Value operator >>(dynamic other) => _arith('>>', other);
 
   // Overload the modulo operator
   @pragma('vm:prefer-inline')
-  Value operator %(dynamic other) => _arith('%', Value.wrap(other));
+  Value operator %(dynamic other) => _arith('%', other);
 
   // Overload the floor division operator
   @pragma('vm:prefer-inline')
-  Value operator ~/(dynamic other) => _arith('//', Value.wrap(other));
+  Value operator ~/(dynamic other) => _arith('//', other);
 
   // Overload the exponentiation operator
   @pragma('vm:prefer-inline')
-  Value exp(dynamic other) => _arith('^', Value.wrap(other));
+  Value exp(dynamic other) => _arith('^', other);
 
   // Overload the negation operator
   Value operator -() {
