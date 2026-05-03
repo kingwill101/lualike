@@ -72,6 +72,18 @@ return pack(10, nil, 30)
       expect(_unwrap(result), equals(<dynamic>[3, 10, null, 30]));
     });
 
+    test('named vararg tables do not coerce string indexes', () async {
+      final bridge = LuaLike(runtime: LualikeIrRuntime());
+      final result = await bridge.execute('''
+local function pack(...t)
+  return t[1], t["1"], t.n
+end
+
+return pack(10, 20)
+''');
+      expect(_unwrap(result), equals(<dynamic>[10, null, 2]));
+    });
+
     test('evaluates tail recursive factorial', () async {
       const source = '''
 function fact(n, acc)
