@@ -3,6 +3,7 @@ library;
 
 import 'package:lualike/src/config.dart';
 import 'package:lualike/src/executor.dart';
+import 'package:lualike/src/lua_string.dart';
 import 'package:lualike/src/value.dart';
 import 'package:test/test.dart';
 
@@ -84,9 +85,13 @@ local value = func2close(marker)
 local mt = getmetatable(value)
 return type(mt), mt.__close == marker
 ''';
-      final result = await executeCode(source, mode: EngineMode.ir) as Value;
-      final normalized = (result.raw as List<Object?>)
-          .map((value) => value is Value ? value.raw : value)
+      final result = await executeCode(source, mode: EngineMode.ir);
+      final values = result is Value ? result.raw as List<Object?> : result;
+      final normalized = (values as List<Object?>)
+          .map((value) {
+            final raw = value is Value ? value.raw : value;
+            return raw is LuaString ? raw.toString() : raw;
+          })
           .toList(growable: false);
 
       expect(normalized, equals(<Object?>['table', true]));
