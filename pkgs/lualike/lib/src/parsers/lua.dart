@@ -850,31 +850,11 @@ class LuaGrammarDefinition extends GrammarDefinition {
 
   // Parses a chain of '^' operators with right associativity. The right-hand
   // operand is a full unary expression, matching Lua’s grammar.
-  Parser _powerExpression() {
-    final tail = (_binaryOperatorToken(_token('^')) & ref0(_unaryExpression))
-        .star();
-
-    return (ref0(_primaryExpression) & tail).map((vals) {
-      AstNode node = vals[0] as AstNode;
-      final rest = vals[1] as List;
-
-      // Build right-associative: process from right to left.
-      for (var i = rest.length - 1; i >= 0; i--) {
-        final op = rest[i][0];
-        final rhs = rest[i][1] as AstNode;
-        node = _makeBinaryExpression(node, op, rhs);
-      }
-      return node;
-    });
-  }
-
-  Parser _binaryOperatorToken(Parser tokenParser) {
-    return (position() & tokenParser).map((vals) {
-      final offset = vals[0] as int;
-      final op = vals[1] as String;
-      return (op: op, offset: offset);
-    });
-  }
+  Parser _powerExpression() => _PowerExpressionParser(
+    definition: this,
+    primaryExpression: ref0(_primaryExpression),
+    unaryExpression: ref0(_unaryExpression),
+  );
 
   int? _binaryOperatorLine(dynamic opSpec) => switch (opSpec) {
     ({String op, int line}) value => value.line,
@@ -1746,6 +1726,85 @@ class _PrimaryExpressionParser extends Parser<AstNode> {
     }
     if (tableConstructor == source) {
       tableConstructor = target;
+    }
+  }
+}
+
+class _PowerExpressionParser extends Parser<AstNode> {
+  _PowerExpressionParser({
+    required this.definition,
+    required this.primaryExpression,
+    required this.unaryExpression,
+  });
+
+  final LuaGrammarDefinition definition;
+  Parser primaryExpression;
+  Parser unaryExpression;
+
+  @override
+  Result<AstNode> parseOn(Context context) {
+    final firstResult = primaryExpression.parseOn(context);
+    if (firstResult is Failure) {
+      return firstResult;
+    }
+
+    final buffer = context.buffer;
+    var node = firstResult.value as AstNode;
+    var current = firstResult.position;
+    List<({int offset, AstNode rhs})>? tails;
+
+    while (true) {
+      final operatorStart = _skipLuaTrivia(buffer, current);
+      if (operatorStart >= buffer.length ||
+          buffer.codeUnitAt(operatorStart) != 0x5E) {
+        break;
+      }
+
+      final rhsResult = unaryExpression.parseOn(
+        Context(buffer, _skipLuaTrivia(buffer, operatorStart + 1)),
+      );
+      if (rhsResult is Failure) {
+        return rhsResult;
+      }
+      (tails ??= <({int offset, AstNode rhs})>[]).add((
+        offset: operatorStart,
+        rhs: rhsResult.value as AstNode,
+      ));
+      current = rhsResult.position;
+    }
+
+    final parsedTails = tails;
+    if (parsedTails != null) {
+      for (var i = parsedTails.length - 1; i >= 0; i--) {
+        final tail = parsedTails[i];
+        node = definition._makeBinaryExpression(node, (
+          op: '^',
+          offset: tail.offset,
+        ), tail.rhs);
+      }
+    }
+
+    return context.success(node, current);
+  }
+
+  @override
+  _PowerExpressionParser copy() => _PowerExpressionParser(
+    definition: definition,
+    primaryExpression: primaryExpression,
+    unaryExpression: unaryExpression,
+  );
+
+  @override
+  List<Parser> get children => [primaryExpression, unaryExpression];
+
+  @override
+  void replace(Parser source, Parser target) {
+    super.replace(source, target);
+    if (primaryExpression == source) {
+      primaryExpression = target;
+    }
+    if (unaryExpression == source) {
+      unaryExpression = target;
     }
   }
 }
