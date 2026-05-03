@@ -1606,6 +1606,11 @@ class _PrefixExpressionParser extends Parser<AstNode> {
     var expression = baseResult.value as AstNode;
     var current = baseResult.position;
     while (true) {
+      final suffixStart = _skipLuaTrivia(buffer, current);
+      if (!_couldStartSuffix(buffer, suffixStart)) {
+        break;
+      }
+
       final suffixResult = suffix.parseOn(Context(buffer, current));
       if (suffixResult is Failure) {
         break;
@@ -1618,6 +1623,24 @@ class _PrefixExpressionParser extends Parser<AstNode> {
     }
 
     return context.success(expression, current);
+  }
+
+  bool _couldStartSuffix(String buffer, int start) {
+    if (start >= buffer.length) {
+      return false;
+    }
+
+    switch (buffer.codeUnitAt(start)) {
+      case 0x5B: // [
+      case 0x2E: // .
+      case 0x3A: // :
+      case 0x28: // (
+      case 0x7B: // {
+      case 0x22: // "
+      case 0x27: // '
+        return true;
+    }
+    return false;
   }
 
   AstNode _applySuffix(AstNode expression, _PrefixSuffix suffix) {
