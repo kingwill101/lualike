@@ -596,6 +596,18 @@ void main() {
     expect(identical(wrapped.interpreter, runtime), true);
   });
 
+  test('lua_bytecode runtime raw strings reuse the byte-string cache', () {
+    final runtime = LuaBytecodeRuntime();
+    final raw = 'bytecode-\u00e9';
+
+    final wrapped = runtime.constantRawStringValue(raw);
+    final cached = runtime.debugInterpreter.constantStringValue(raw.codeUnits);
+
+    expect(identical(wrapped, cached), true);
+    expect(identical(wrapped.interpreter, runtime), true);
+    expect((wrapped.raw as LuaString).bytes, orderedEquals(raw.codeUnits));
+  });
+
   test('runtime Dart string values reuse the runtime string cache', () {
     final interpreter = Interpreter();
 
