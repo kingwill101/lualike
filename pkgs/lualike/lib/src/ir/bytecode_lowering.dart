@@ -195,6 +195,15 @@ LuaBytecodeInstructionWord _lowerAbcInstruction(
       k: instruction.k,
     );
   }
+  if (instruction.opcode == LualikeIrOpcode.varArg) {
+    return LuaBytecodeInstructionWord.abc(
+      opcode: opcode,
+      a: instruction.a,
+      b: 0,
+      c: instruction.b,
+      k: instruction.k,
+    );
+  }
   return LuaBytecodeInstructionWord.abc(
     opcode: opcode,
     a: instruction.a,
@@ -320,7 +329,10 @@ List<LuaBytecodeInstructionWord> _lowerInstructionSequence(
   LualikeIrInstruction instruction, {
   required int tempBase,
 }) {
-  final arithmetic = _lowerArithmeticMetamethodSequence(instruction);
+  final arithmetic = _lowerArithmeticMetamethodSequence(
+    instruction,
+    tempBase: tempBase,
+  );
   if (arithmetic != null) {
     return arithmetic;
   }
@@ -345,8 +357,9 @@ List<LuaBytecodeInstructionWord> _lowerInstructionSequence(
 }
 
 List<LuaBytecodeInstructionWord>? _lowerArithmeticMetamethodSequence(
-  LualikeIrInstruction instruction,
-) {
+  LualikeIrInstruction instruction, {
+  required int tempBase,
+}) {
   if (instruction is! ABCInstruction) {
     return null;
   }
@@ -354,6 +367,51 @@ List<LuaBytecodeInstructionWord>? _lowerArithmeticMetamethodSequence(
   final event = _binaryMetamethodEvent(instruction.opcode);
   if (event == null) {
     return null;
+  }
+
+  if (instruction.opcode == LualikeIrOpcode.shlI) {
+    final immediate = _signExtend(instruction.c, 9);
+    return <LuaBytecodeInstructionWord>[
+      LuaBytecodeInstructionWord.asBx(
+        opcode: LuaBytecodeOpcodes.byName('LOADI').code,
+        a: tempBase,
+        sBx: immediate,
+      ),
+      LuaBytecodeInstructionWord.abc(
+        opcode: LuaBytecodeOpcodes.byName('SHL').code,
+        a: instruction.a,
+        b: instruction.b,
+        c: tempBase,
+      ),
+      LuaBytecodeInstructionWord.abc(
+        opcode: LuaBytecodeOpcodes.byName('MMBIN').code,
+        a: instruction.b,
+        b: tempBase,
+        c: event,
+        k: instruction.k,
+      ),
+    ];
+  }
+
+  final registerOpcode = _registerArithmeticOpcode(instruction.opcode);
+  if (registerOpcode != null &&
+      instruction.c > LuaBytecodeInstructionLayout.maxArgC) {
+    return <LuaBytecodeInstructionWord>[
+      ..._loadConstantToRegisterSequence(tempBase, instruction.c),
+      LuaBytecodeInstructionWord.abc(
+        opcode: LuaBytecodeOpcodes.byName(registerOpcode).code,
+        a: instruction.a,
+        b: instruction.b,
+        c: tempBase,
+      ),
+      LuaBytecodeInstructionWord.abc(
+        opcode: LuaBytecodeOpcodes.byName('MMBIN').code,
+        a: instruction.b,
+        b: tempBase,
+        c: event,
+        k: instruction.k,
+      ),
+    ];
   }
 
   final primary = _lowerInstruction(instruction);
@@ -392,6 +450,29 @@ List<LuaBytecodeInstructionWord>? _lowerArithmeticMetamethodSequence(
     ),
   };
   return <LuaBytecodeInstructionWord>[primary, followup];
+}
+
+String? _registerArithmeticOpcode(LualikeIrOpcode opcode) {
+  return switch (opcode) {
+    LualikeIrOpcode.addK => 'ADD',
+    LualikeIrOpcode.subK => 'SUB',
+    LualikeIrOpcode.mulK => 'MUL',
+    LualikeIrOpcode.modK => 'MOD',
+    LualikeIrOpcode.powK => 'POW',
+    LualikeIrOpcode.divK => 'DIV',
+    LualikeIrOpcode.idivK => 'IDIV',
+    LualikeIrOpcode.bandK => 'BAND',
+    LualikeIrOpcode.borK => 'BOR',
+    LualikeIrOpcode.bxorK => 'BXOR',
+    _ => null,
+  };
+}
+
+int _signExtend(int value, int bitCount) {
+  final limit = 1 << (bitCount - 1);
+  final mask = (1 << bitCount) - 1;
+  final unsigned = value & mask;
+  return unsigned >= limit ? unsigned - (1 << bitCount) : unsigned;
 }
 
 int? _binaryMetamethodEvent(LualikeIrOpcode opcode) {

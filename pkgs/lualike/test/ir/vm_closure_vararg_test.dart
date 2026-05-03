@@ -42,6 +42,24 @@ return outer(5)
       expect(_unwrap(result), equals(<dynamic>[4, 5]));
     });
 
+    test('empty varargs do not leak stale open-call registers', () async {
+      final bridge = LuaLike(runtime: LualikeIrRuntime());
+      final result = await bridge.execute('''
+local function drop(_, ...) return ... end
+
+local function f(n, a, ...)
+  if n == 0 then
+    local b, c, d = ...
+    return a, b, c, d, drop(drop(drop(...)))
+  end
+  return f(n - 1, ...)
+end
+
+return f(2)
+''');
+      expect(_unwrap(result), equals(<dynamic>[null, null, null, null]));
+    });
+
     test('packs named vararg tables for lualike IR functions', () async {
       final bridge = LuaLike(runtime: LualikeIrRuntime());
       final result = await bridge.execute('''
