@@ -1066,51 +1066,7 @@ class LuaGrammarDefinition extends GrammarDefinition {
             );
           });
 
-  Parser _parlist() {
-    final namedVararg = (_token('...') & ref0(_identifier)).map((values) {
-      final name = values[1] as Identifier;
-      return {'params': <Identifier>[], 'vararg': true, 'varargName': name};
-    });
-
-    final varargOnly = _token('...').map(
-      (_) => {'params': <Identifier>[], 'vararg': true, 'varargName': null},
-    );
-
-    final namesWithNamedVararg =
-        (_namelist() & _token(',') & _token('...') & ref0(_identifier)).map((
-          vals,
-        ) {
-          final ids = vals[0] as List<Identifier>;
-          final name = vals[3] as Identifier;
-          return {'params': ids, 'vararg': true, 'varargName': name};
-        });
-
-    // names followed by ',', '...'
-    final namesWithVararg = (_namelist() & _token(',') & _token('...')).map((
-      vals,
-    ) {
-      final ids = vals[0] as List<Identifier>;
-      return {'params': ids, 'vararg': true, 'varargName': null};
-    });
-
-    // names only (no vararg) — but *must not* be immediately followed by
-    // an ellipsis. This prevents accepting the invalid Lua pattern
-    // "function f(a, b ...)" (missing comma before `...`). We add a
-    // negative look-ahead (`not()`) for the ellipsis.
-    final namesOnly = (_namelist() & _token('...').not()).map(
-      (vals) => {
-        'params': (vals[0] as List<Identifier>),
-        'vararg': false,
-        'varargName': null,
-      },
-    );
-
-    return namesWithNamedVararg |
-        namesWithVararg |
-        namedVararg |
-        namesOnly |
-        varargOnly;
-  }
+  Parser _parlist() => _ParameterListParser(_identifier());
 
   // Utility to annotate a literal node with span
   T _annotate<T extends AstNode>(T node, int start, int end) {
@@ -2147,6 +2103,118 @@ class _IdentifierParser extends Parser<Identifier> {
 
   @override
   _IdentifierParser copy() => _IdentifierParser(definition);
+}
+
+class _ParameterListParser extends Parser<Map<String, Object?>> {
+  _ParameterListParser(this.identifier);
+
+  Parser identifier;
+
+  @override
+  Result<Map<String, Object?>> parseOn(Context context) {
+    final buffer = context.buffer;
+    var current = _skipLuaTrivia(buffer, context.position);
+    if (current >= buffer.length) {
+      return context.failure('parameter list expected', current);
+    }
+
+    final params = <Identifier>[];
+    var hasVararg = false;
+    Identifier? varargName;
+
+    if (_matchesLexeme(buffer, current, '...')) {
+      current = _skipLuaTrivia(buffer, current + 3);
+      hasVararg = true;
+      final nameResult = _parseOptionalIdentifier(buffer, current);
+      if (nameResult != null) {
+        varargName = nameResult.value;
+        current = nameResult.position;
+      }
+      return context.success({
+        'params': params,
+        'vararg': hasVararg,
+        'varargName': varargName,
+      }, current);
+    }
+
+    final first = identifier.parseOn(Context(buffer, current));
+    if (first is Failure) {
+      return first;
+    }
+    params.add(first.value as Identifier);
+    current = first.position;
+
+    while (true) {
+      current = _skipLuaTrivia(buffer, current);
+      if (current >= buffer.length || buffer.codeUnitAt(current) != 0x2C) {
+        break;
+      }
+
+      current = _skipLuaTrivia(buffer, current + 1);
+      if (_matchesLexeme(buffer, current, '...')) {
+        current = _skipLuaTrivia(buffer, current + 3);
+        hasVararg = true;
+        final nameResult = _parseOptionalIdentifier(buffer, current);
+        if (nameResult != null) {
+          varargName = nameResult.value;
+          current = nameResult.position;
+        }
+        return context.success({
+          'params': params,
+          'vararg': hasVararg,
+          'varargName': varargName,
+        }, current);
+      }
+
+      final next = identifier.parseOn(Context(buffer, current));
+      if (next is Failure) {
+        return next;
+      }
+      params.add(next.value as Identifier);
+      current = next.position;
+    }
+
+    if (_matchesLexeme(buffer, _skipLuaTrivia(buffer, current), '...')) {
+      return context.failure('"," expected', current);
+    }
+
+    return context.success({
+      'params': params,
+      'vararg': hasVararg,
+      'varargName': varargName,
+    }, current);
+  }
+
+  ({Identifier value, int position})? _parseOptionalIdentifier(
+    String buffer,
+    int position,
+  ) {
+    final start = _skipLuaTrivia(buffer, position);
+    if (start >= buffer.length ||
+        !_isIdentifierStartCodeUnit(buffer.codeUnitAt(start))) {
+      return null;
+    }
+
+    final result = identifier.parseOn(Context(buffer, start));
+    if (result is Failure) {
+      return null;
+    }
+    return (value: result.value as Identifier, position: result.position);
+  }
+
+  @override
+  _ParameterListParser copy() => _ParameterListParser(identifier);
+
+  @override
+  List<Parser> get children => [identifier];
+
+  @override
+  void replace(Parser source, Parser target) {
+    super.replace(source, target);
+    if (identifier == source) {
+      identifier = target;
+    }
+  }
 }
 
 int _skipLuaTrivia(String buffer, int position) {
