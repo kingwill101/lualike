@@ -447,7 +447,9 @@ LoveApiImplementation _bindGraphicsDraw(LibraryRegistrationContext context) {
         return null;
       }
 
-      return _snapshotDrawableImageForVideo(runtime, video).then((resolvedImage) {
+      return _snapshotDrawableImageForVideo(runtime, video).then((
+        resolvedImage,
+      ) {
         if (resolvedImage == null) {
           return null;
         }

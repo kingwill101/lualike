@@ -14,7 +14,10 @@ typedef LoveRecordingDeviceStartHandler =
 typedef LoveRecordingDeviceDataHandler =
     LoveSoundData? Function(LoveRecordingDevice device);
 
-bool _loveRecordingFormatSupported({required int bitDepth, required int channels}) {
+bool _loveRecordingFormatSupported({
+  required int bitDepth,
+  required int channels,
+}) {
   if (bitDepth != 8 && bitDepth != 16) {
     return false;
   }
@@ -88,7 +91,10 @@ class LoveRecordingDevice {
     required int bitDepth,
     required int channels,
   }) {
-    if (!_loveRecordingFormatSupported(bitDepth: bitDepth, channels: channels)) {
+    if (!_loveRecordingFormatSupported(
+      bitDepth: bitDepth,
+      channels: channels,
+    )) {
       throw ArgumentError(
         'Recording $channels channels with $bitDepth bits per sample is not supported.',
       );

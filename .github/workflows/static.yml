@@ -26,9 +26,11 @@ jobs:
         working-directory: pkgs/lualike
     steps:
       - uses: actions/checkout@v4
-      - uses: dart-lang/setup-dart@v1
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
       - run: dart pub global activate webdev
-      - run: dart pub get
+      - run: flutter pub get
       - name: Build web app
         run: webdev build
       - name: Setup Pages

@@ -26,8 +26,7 @@ bool _canUseLiveVideoCommand(
   // binds ui.Image samplers, not external video textures.
   return runtime.graphics.shader == null &&
       ((blendMode == LoveGraphicsBlendMode.alpha &&
-              (blendAlphaMode ==
-                      LoveGraphicsBlendAlphaMode.alphaMultiply ||
+              (blendAlphaMode == LoveGraphicsBlendAlphaMode.alphaMultiply ||
                   blendAlphaMode ==
                       LoveGraphicsBlendAlphaMode.premultiplied)) ||
           ((blendMode == LoveGraphicsBlendMode.replace ||

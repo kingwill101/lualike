@@ -205,11 +205,14 @@ Future<String?> _resolveResourceAssetKeyIfPresent(
   }
 
   final filesystem = _filesystemStateForResource(context, symbol);
-  final normalizedFilename = path.posix.normalize(filename.replaceAll('\\', '/'));
+  final normalizedFilename = path.posix.normalize(
+    filename.replaceAll('\\', '/'),
+  );
   final candidates = <String>{normalizedFilename};
-  final sourceBaseDirectory = filesystem
-      .getSourceBaseDirectory()
-      .replaceAll('\\', '/');
+  final sourceBaseDirectory = filesystem.getSourceBaseDirectory().replaceAll(
+    '\\',
+    '/',
+  );
   if (sourceBaseDirectory.isNotEmpty) {
     candidates.add(
       path.posix.normalize(
