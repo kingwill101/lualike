@@ -67,6 +67,28 @@ Parser<String> _classFor(String letter) {
 
 Parser<String> _negate(Parser<String> p) => p.neg();
 
+bool _isAsciiLetter(int codeUnit) =>
+    (codeUnit >= 0x41 && codeUnit <= 0x5A) ||
+    (codeUnit >= 0x61 && codeUnit <= 0x7A);
+
+bool _isAsciiUpper(int codeUnit) => codeUnit >= 0x41 && codeUnit <= 0x5A;
+
+String _asciiLowerChar(int codeUnit) =>
+    String.fromCharCode(_isAsciiUpper(codeUnit) ? codeUnit + 0x20 : codeUnit);
+
+bool _isAsciiOneToNine(int codeUnit) => codeUnit >= 0x31 && codeUnit <= 0x39;
+
+bool _isRepetitionOperator(int codeUnit) {
+  switch (codeUnit) {
+    case 0x2A: // *
+    case 0x2B: // +
+    case 0x2D: // -
+    case 0x3F: // ?
+      return true;
+  }
+  return false;
+}
+
 /// Parser that matches a balanced pair like `%bxy` in Lua.
 class _BalancedParser extends Parser<String> {
   final String open;
@@ -274,9 +296,10 @@ Parser<String> _bracketClass(String spec, {required bool negate}) {
         throw FormatException('Malformed set: \$spec');
       }
       final letter = spec[index + 1];
-      if (RegExp(r'[a-zA-Z]').hasMatch(letter)) {
-        final base = _classFor(letter.toLowerCase());
-        final cls = letter == letter.toUpperCase() ? _negate(base) : base;
+      final letterCode = letter.codeUnitAt(0);
+      if (_isAsciiLetter(letterCode)) {
+        final base = _classFor(_asciiLowerChar(letterCode));
+        final cls = _isAsciiUpper(letterCode) ? _negate(base) : base;
         return (parser: cls, nextIndex: index + 2, literalCodeUnit: null);
       }
       return (
@@ -478,10 +501,14 @@ class LuaPatternCompiler {
     }
 
     if (_pos < _pattern.length) {
-      final rep = _pattern[_pos];
-      if ('*+-?'.contains(rep)) {
+      final repCode = _pattern.codeUnitAt(_pos);
+      if (_isRepetitionOperator(repCode)) {
         _pos++; // consume repetition operator
-        item = _applyRepetition(item, rep, stopOnRightParen);
+        item = _applyRepetition(
+          item,
+          String.fromCharCode(repCode),
+          stopOnRightParen,
+        );
       }
     }
     return item;
@@ -590,8 +617,9 @@ class LuaPatternCompiler {
     if (next == '0') {
       throw FormatException('invalid capture index %0');
     }
-    if ('123456789'.contains(next)) {
-      final index = int.parse(next) - 1;
+    final nextCode = next.codeUnitAt(0);
+    if (_isAsciiOneToNine(nextCode)) {
+      final index = nextCode - 0x31;
       if (index >= _captures.length || _openCaptures.contains(index)) {
         throw FormatException('invalid capture index %$next');
       }
@@ -622,10 +650,10 @@ class LuaPatternCompiler {
       _pos = _findBracketEndFrom(_pos) + 1;
       return _FrontierParser(set);
     }
-    if (RegExp(r'[a-zA-Z]').hasMatch(next)) {
+    if (_isAsciiLetter(nextCode)) {
       _pos++;
-      final base = _classFor(next.toLowerCase());
-      final parser = next == next.toUpperCase() ? _negate(base) : base;
+      final base = _classFor(_asciiLowerChar(nextCode));
+      final parser = _isAsciiUpper(nextCode) ? _negate(base) : base;
       return parser;
     }
     _pos++;
@@ -713,15 +741,27 @@ class LuaPattern {
     this._captures,
     this._positionCaptureIndexes,
     this._captureCount,
-  );
+  ) : _literalPattern = null;
 
-  final _LuaPatternParser _parser;
+  LuaPattern._literal(this._literalPattern)
+    : _parser = null,
+      _captures = const <String?>[],
+      _positionCaptureIndexes = const <int>{},
+      _captureCount = 0;
+
+  final _LuaPatternParser? _parser;
+  final String? _literalPattern;
   final List<String?> _captures;
   final Set<int> _positionCaptureIndexes;
   final int _captureCount;
 
   /// Compile [pattern] into a [LuaPattern].
   factory LuaPattern.compile(String pattern) {
+    final literalPattern = _plainLiteralPattern(pattern);
+    if (literalPattern != null) {
+      return LuaPattern._literal(literalPattern);
+    }
+
     final compiler = LuaPatternCompiler(pattern);
     final parser = compiler.compile() as _LuaPatternParser;
     return LuaPattern._(
@@ -734,8 +774,24 @@ class LuaPattern {
 
   /// Find the first match in [input] starting from [start].
   LuaMatch? firstMatch(String input, [int start = 0]) {
+    final literalPattern = _literalPattern;
+    if (literalPattern != null) {
+      final matchStart = input.indexOf(literalPattern, start);
+      if (matchStart < 0) {
+        return null;
+      }
+      return LuaMatch(
+        matchStart,
+        matchStart + literalPattern.length,
+        literalPattern,
+        const <String?>[],
+        const <int>{},
+      );
+    }
+
+    final parser = _parser!;
     for (var pos = start; pos <= input.length; pos++) {
-      final result = _parser.parseOn(Context(input, pos));
+      final result = parser.parseOn(Context(input, pos));
       if (result is Success) {
         final captures = List<String?>.from(_captures.take(_captureCount));
         return LuaMatch(
@@ -752,9 +808,30 @@ class LuaPattern {
 
   /// Iterate over all matches in [input] starting from [start].
   Iterable<LuaMatch> allMatches(String input, [int start = 0]) sync* {
+    final literalPattern = _literalPattern;
+    if (literalPattern != null) {
+      var pos = start;
+      while (pos <= input.length) {
+        final matchStart = input.indexOf(literalPattern, pos);
+        if (matchStart < 0) {
+          break;
+        }
+        yield LuaMatch(
+          matchStart,
+          matchStart + literalPattern.length,
+          literalPattern,
+          const <String?>[],
+          const <int>{},
+        );
+        pos = matchStart + literalPattern.length;
+      }
+      return;
+    }
+
+    final parser = _parser!;
     var pos = start;
     while (pos <= input.length) {
-      final result = _parser.parseOn(Context(input, pos));
+      final result = parser.parseOn(Context(input, pos));
       if (result is Success) {
         final captures = List<String?>.from(_captures.take(_captureCount));
         yield LuaMatch(
@@ -770,4 +847,35 @@ class LuaPattern {
       }
     }
   }
+}
+
+String? _plainLiteralPattern(String pattern) {
+  if (pattern.isEmpty) {
+    return null;
+  }
+  for (var index = 0; index < pattern.length; index++) {
+    if (_isMagicPatternCodeUnit(pattern.codeUnitAt(index))) {
+      return null;
+    }
+  }
+  return pattern;
+}
+
+bool _isMagicPatternCodeUnit(int codeUnit) {
+  switch (codeUnit) {
+    case 0x25: // %
+    case 0x5E: // ^
+    case 0x24: // $
+    case 0x28: // (
+    case 0x29: // )
+    case 0x2E: // .
+    case 0x5B: // [
+    case 0x5D: // ]
+    case 0x2A: // *
+    case 0x2B: // +
+    case 0x2D: // -
+    case 0x3F: // ?
+      return true;
+  }
+  return false;
 }
