@@ -116,6 +116,33 @@ Value valueFromOptionalLuaSlot(LuaRuntime? runtime, LuaSlot slot) {
   return Value(slot);
 }
 
+/// Converts [slot] into a fresh [Value] facade without using runtime caches.
+///
+/// This is for short-lived wrappers that carry per-wrapper flags, such as
+/// temporary table keys. Primitive-like payloads still use the lighter
+/// [Value.primitive] constructor while preserving the fresh-wrapper semantics.
+Value freshValueFromLuaSlot(
+  LuaRuntime? runtime,
+  LuaSlot slot, {
+  bool isTempKey = false,
+}) {
+  if (slot is Value) {
+    slot.interpreter ??= runtime;
+    return slot;
+  }
+
+  if (slot == null ||
+      slot is bool ||
+      slot is num ||
+      slot is BigInt ||
+      slot is String ||
+      slot is LuaString) {
+    return Value.primitive(slot, isTempKey: isTempKey, interpreter: runtime);
+  }
+
+  return Value(slot, isTempKey: isTempKey, interpreter: runtime);
+}
+
 /// Returns the runtime-cached wrapper for lightweight scalar values.
 ///
 /// For non-primitive values this falls back to [valueFromOptionalLuaSlot].

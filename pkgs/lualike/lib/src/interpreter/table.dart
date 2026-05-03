@@ -110,7 +110,8 @@ mixin InterpreterTableMixin on AstVisitor<Object?> {
     // Mark simple string/number indices as temporary keys to avoid GC tracking overhead
     final indexVal = indexResult is Value
         ? indexResult
-        : Value(
+        : freshValueFromLuaSlot(
+            interpreter,
             indexResult,
             isTempKey: indexResult is String || indexResult is num,
           );
@@ -204,7 +205,11 @@ mixin InterpreterTableMixin on AstVisitor<Object?> {
       final sourceLabel = _sourceLabelForAst(globals, node.table);
       final type = getLuaType(tableVal);
       if (hasIndexMetamethod) {
-        final indexVal = Value(fieldKey, isTempKey: true);
+        final indexVal = freshValueFromLuaSlot(
+          interpreter,
+          fieldKey,
+          isTempKey: true,
+        );
         final result = await tableVal.callMetamethodAsync('__index', [
           tableVal,
           indexVal,
@@ -305,7 +310,11 @@ mixin InterpreterTableMixin on AstVisitor<Object?> {
 
     // Key doesn't exist, check for __index metamethod
     if (hasIndexMetamethod) {
-      final indexVal = Value(fieldKey, isTempKey: true);
+      final indexVal = freshValueFromLuaSlot(
+        interpreter,
+        fieldKey,
+        isTempKey: true,
+      );
       Logger.debugLazy(
         () => 'Key not found, calling __index metamethod',
         category: 'TableAccess',
