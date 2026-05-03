@@ -562,17 +562,21 @@ void definePackageLibrary({required Environment env, LuaRuntime? vm}) {
         ]);
 
         if (filename is Value && filename.raw != null) {
-          final source = packageLib.fileManager.loadSource(
-            filename.raw.toString(),
-          );
+          final modulePath = filename.raw.toString();
           // Return loader function
           return [
-            Value((loaderArgs) {
+            Value((loaderArgs) async {
               // Module loading will be handled by require
-              return Value(source, interpreter: packageLib.vm);
+              final source = await packageLib.fileManager.loadSource(
+                modulePath,
+              );
+              if (source == null) {
+                throw LuaError("cannot load module '$name': file not found");
+              }
+              return packageLib.vm.constantDartStringValue(source);
             }, interpreter: packageLib.vm),
             packageLib.vm.constantDartStringValue(
-              path_lib.normalize(filename.raw.toString()),
+              path_lib.normalize(modulePath),
             ),
           ];
         }
