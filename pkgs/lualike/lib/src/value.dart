@@ -456,7 +456,10 @@ class Value extends Object implements Map<String, dynamic>, GCObject {
     final type = switch (raw) {
       null => 'nil',
       bool() => 'boolean',
-      _ => 'number',
+      int() || double() || BigInt() => 'number',
+      String() => 'string',
+      LuaString() => 'string',
+      _ => 'number', // keep existing fallback for any other numeric-like types
     };
     if (MetaTable().isDefaultMetatableActive(type)) {
       MetaTable().applyDefaultMetatable(this);

@@ -1,3 +1,5 @@
+import 'dart:math' as math;
+
 import 'package:lualike/src/ast.dart';
 import 'package:lualike/src/lua_bytecode/instruction.dart';
 
@@ -330,20 +332,6 @@ class _PrototypeContext {
         scope.clear();
       }
     }
-    return true;
-  }
-
-  bool _emitCloseForActiveImplicitToBeClosed() {
-    if (_activeImplicitToBeClosedRegisters.isEmpty) {
-      return false;
-    }
-    var minReg = _activeImplicitToBeClosedRegisters.first;
-    for (final reg in _activeImplicitToBeClosedRegisters.skip(1)) {
-      if (reg < minReg) {
-        minReg = reg;
-      }
-    }
-    emitter.emitABC(opcode: LualikeIrOpcode.close, a: minReg, b: 0, c: 0);
     return true;
   }
 
@@ -3304,21 +3292,31 @@ class _PrototypeContext {
           b: 0,
           c: 0,
         );
-      } else {
-        _emitCloseForActiveImplicitToBeClosed();
       }
       final offset = target - _currentInstructionIndex - 1;
       emitter.emitAsJ(opcode: LualikeIrOpcode.jmp, sJ: offset);
       return;
     }
 
-    _emitCloseForActiveImplicitToBeClosed();
+    // Only emit an implicit CLOSE if there are active implicit TBC registers.
+    // The close instruction index is recorded so _resolveGoto can replace it
+    // with a no-op if the goto turns out to stay within the same TBC scope.
+    int? closeIndex;
+    if (_activeImplicitToBeClosedRegisters.isNotEmpty) {
+      closeIndex = emitter.emitABC(
+        opcode: LualikeIrOpcode.close,
+        a: _activeImplicitToBeClosedRegisters.reduce(math.min),
+        b: 0,
+        c: 0,
+      );
+    }
     final jumpIndex = emitter.emitAsJ(opcode: LualikeIrOpcode.jmp, sJ: 0);
     _pendingGotos.add(
       _PendingGoto(
         label: node.label.name,
         jumpIndex: jumpIndex,
         visibleScopeIds: List<int>.unmodifiable(List<int>.from(_scopeIdStack)),
+        closeIndex: closeIndex,
       ),
     );
     _resolveGoto(node.label.name);
@@ -3338,6 +3336,7 @@ class _PrototypeContext {
   void _resolveGoto(String label, {int? targetScopeId}) {
     int? resolvedTarget;
     int? resolvedScopeId;
+    int? resolvedScopeIndex;
     if (targetScopeId != null) {
       final scopeIndex = _scopeIdStack.indexOf(targetScopeId);
       if (scopeIndex != -1) {
@@ -3345,6 +3344,7 @@ class _PrototypeContext {
         if (target != null) {
           resolvedTarget = target;
           resolvedScopeId = targetScopeId;
+          resolvedScopeIndex = scopeIndex;
         }
       }
     } else {
@@ -3353,6 +3353,7 @@ class _PrototypeContext {
         if (target != null) {
           resolvedTarget = target;
           resolvedScopeId = _scopeIdStack[i];
+          resolvedScopeIndex = i;
           break;
         }
       }
@@ -3367,6 +3368,22 @@ class _PrototypeContext {
           !entry.visibleScopeIds.contains(resolvedScopeId)) {
         i += 1;
         continue;
+      }
+      // If we emitted an implicit CLOSE before the JMP, check whether it was
+      // actually needed. When the goto stays within the same TBC scope (i.e.,
+      // no explicit close local is hidden), replace the CLOSE with a no-op JMP
+      // (sJ=0 = fall through to the next instruction).
+      if (entry.closeIndex case final closeIdx?) {
+        final closeNeeded = _lowestLocalRegisterHiddenByGoto(
+          target,
+          resolvedScopeIndex!,
+        );
+        if (closeNeeded == null) {
+          builder.replaceInstruction(
+            closeIdx,
+            AsJInstruction(opcode: LualikeIrOpcode.jmp, sJ: 0),
+          );
+        }
       }
       final instruction =
           builder.instructions[entry.jumpIndex] as AsJInstruction;
@@ -3488,11 +3505,16 @@ class _PendingGoto {
     required this.label,
     required this.jumpIndex,
     required this.visibleScopeIds,
+    this.closeIndex,
   });
 
   final String label;
   final int jumpIndex;
   final List<int> visibleScopeIds;
+
+  /// Index of a CLOSE instruction emitted just before the JMP, or null if
+  /// no implicit-TBC close was emitted for this goto.
+  final int? closeIndex;
 }
 
 class _LoopContext {

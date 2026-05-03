@@ -639,11 +639,11 @@ class LuaBytecodeRuntime implements LuaRuntime {
     if (gc.needsAsyncFinalizerDrain) {
       return true;
     }
+    final threshold = gc.autoTriggerDebtThreshold;
     final debt = gc.allocationDebt;
-    if (debt > 0) {
+    if (debt >= threshold) {
       return true;
     }
-    final threshold = gc.autoTriggerDebtThreshold;
     return gc.shouldForceAsyncLoopRescue(loopCounter, debt, threshold) ||
         gc.shouldAdvanceIncrementalLoopCycle(loopCounter);
   }

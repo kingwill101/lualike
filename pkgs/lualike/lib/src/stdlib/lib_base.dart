@@ -2679,7 +2679,7 @@ class RequireFunction extends BuiltinFunction {
 
     for (var index = 0; index < searchersRaw.length; index++) {
       final searcher = searchersRaw[index];
-      if (searcher is! Value || searcher.raw is! Function) {
+      if (searcher is! Value || !searcher.isCallable()) {
         continue;
       }
 
@@ -2690,7 +2690,9 @@ class RequireFunction extends BuiltinFunction {
 
       late final Object? result;
       try {
-        result = await (searcher.raw as Function)([Value(moduleName)]);
+        result = await interpreter!.callFunction(searcher, <Object?>[
+          Value(moduleName),
+        ]);
       } catch (error) {
         errors.add("searcher #$index error: $error");
         continue;
@@ -2699,7 +2701,7 @@ class RequireFunction extends BuiltinFunction {
       if (result is List &&
           result.isNotEmpty &&
           result[0] is Value &&
-          result[0].raw is Function) {
+          (result[0] as Value).isCallable()) {
         final loader = result[0] as Value;
         final loaderData = result.length > 1 ? result[1] : Value(null);
 
@@ -2711,7 +2713,7 @@ class RequireFunction extends BuiltinFunction {
 
         // Loader failures should stop require() immediately rather than being
         // treated like another missing-module searcher diagnostic.
-        final moduleResult = await (loader.raw as Function)([
+        final moduleResult = await interpreter!.callFunction(loader, <Object?>[
           Value(moduleName),
           loaderData,
         ]);

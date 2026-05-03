@@ -148,8 +148,8 @@ class Interpreter extends AstVisitor<Object?>
       return cached;
     }
 
-    final luaString = literalStringInternPool[key] ??= LuaString.fromBytes(
-      value.codeUnits,
+    final luaString = literalStringInternPool[key] ??= LuaString.fromDartString(
+      value,
     );
     final wrapped = Value(luaString)..interpreter = this;
     _syncCachedTypeMetatable(wrapped, type: 'string');
@@ -878,11 +878,11 @@ class Interpreter extends AstVisitor<Object?>
     if (gc.needsAsyncFinalizerDrain) {
       return true;
     }
+    final threshold = gc.autoTriggerDebtThreshold;
     final debt = gc.allocationDebt;
-    if (debt > 0) {
+    if (debt >= threshold) {
       return true;
     }
-    final threshold = gc.autoTriggerDebtThreshold;
     return gc.shouldForceAsyncLoopRescue(loopCounter, debt, threshold) ||
         gc.shouldAdvanceIncrementalLoopCycle(loopCounter);
   }

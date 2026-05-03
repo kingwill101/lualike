@@ -34,6 +34,10 @@ FunctionBody? _requireFunctionBody(Value functionValue, String functionName) {
   }
 
   final raw = functionValue.raw;
+  // Bytecode-backed Lua callables (LuaCallableArtifact) are produced by the
+  // bytecode VM and must be treated as callable for coroutine creation, even
+  // though they don't carry an AST FunctionBody. Narrowing this check would
+  // silently break coroutines over bytecode closures.
   if (raw is LuaCallableArtifact ||
       raw is Function ||
       raw is BuiltinFunction ||

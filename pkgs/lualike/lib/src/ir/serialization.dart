@@ -9,7 +9,7 @@ import 'prototype.dart';
 
 const List<int> _lualikeIrMagic = <int>[0x1B, 0x4C, 0x49, 0x52];
 const int _formatMajorVersion = 1;
-const int _formatMinorVersion = 0;
+const int _formatMinorVersion = 1;
 
 const int _instructionModeAbc = 0;
 const int _instructionModeAbx = 1;

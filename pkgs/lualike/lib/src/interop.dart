@@ -190,7 +190,31 @@ class LuaLike {
   /// If [runtime] is omitted, [engineMode] selects the runtime implementation.
   /// When [engineMode] is omitted, [LuaLikeConfig.defaultEngineMode] is used.
   factory LuaLike({LuaRuntime? runtime, EngineMode? engineMode}) {
-    final selectedMode = engineMode ?? LuaLikeConfig().defaultEngineMode;
+    final EngineMode selectedMode;
+    if (engineMode != null) {
+      selectedMode = engineMode;
+    } else if (runtime != null) {
+      selectedMode = switch (runtime) {
+        LualikeIrRuntime() => EngineMode.ir,
+        LuaBytecodeRuntime() => EngineMode.luaBytecode,
+        Interpreter() => EngineMode.ast,
+        _ => LuaLikeConfig().defaultEngineMode,
+      };
+    } else {
+      selectedMode = LuaLikeConfig().defaultEngineMode;
+    }
+
+    assert(
+      runtime == null ||
+          switch ((runtime, selectedMode)) {
+            (LualikeIrRuntime(), EngineMode.ir) => true,
+            (LuaBytecodeRuntime(), EngineMode.luaBytecode) => true,
+            (Interpreter(), EngineMode.ast) => true,
+            _ => false,
+          },
+      'runtime type does not match engineMode',
+    );
+
     runtime ??= switch (selectedMode) {
       EngineMode.ir => LualikeIrRuntime(),
       EngineMode.luaBytecode => LuaBytecodeRuntime(),

@@ -71,9 +71,14 @@ return outer(10, 23)
         ),
       );
 
-      final runtime = LualikeIrRuntime();
-      final originalResult = await _executeLoweredChunk(runtime, originalChunk);
-      final decodedResult = await _executeLoweredChunk(runtime, decodedChunk);
+      final originalResult = await _executeLoweredChunk(
+        LualikeIrRuntime(),
+        originalChunk,
+      );
+      final decodedResult = await _executeLoweredChunk(
+        LualikeIrRuntime(),
+        decodedChunk,
+      );
 
       expect(_unwrap(decodedResult), equals(_unwrap(originalResult)));
     });
