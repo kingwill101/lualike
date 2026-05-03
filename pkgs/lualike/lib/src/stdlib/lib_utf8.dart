@@ -120,7 +120,7 @@ class UTF8Lib {
     'codepoint': _UTF8CodePoint(),
     'len': _UTF8Len(),
     'offset': _UTF8Offset(),
-    'charpattern': Value(charpattern),
+    'charpattern': Value.primitive(charpattern),
   };
 }
 
