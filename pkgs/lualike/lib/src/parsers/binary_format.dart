@@ -21,6 +21,11 @@ class BinaryFormatOption {
 /// Parser that turns a Lua 5.4 binary-format string into a list of
 /// [BinaryFormatOption]s, performing the same validation that the Lua VM does.
 class BinaryFormatParser {
+  static final String _maxIntegerDigits = NumberLimits.maxInteger.toString();
+  static final String _minIntegerMagnitudeDigits = NumberLimits.minInteger
+      .toString()
+      .substring(1);
+
   static final Parser<String> space = char(' ');
   static final Parser<String> digits = digit().plus().flatten();
   static final Parser<String> signedDigits = (char('-').optional() & digits)
@@ -208,14 +213,14 @@ class BinaryFormatParser {
       return digitStart;
     }
 
-    final digits = input.substring(digitStart, digitEnd);
-    final n = int.parse(digits);
+    final n = _parseSmallPositiveSize(input, digitStart, digitEnd);
     if (n < 1 || n > 16) {
       throw LuaError("integral size ($n) out of limits [1,16]");
     }
     if ((n & (n - 1)) != 0) {
       throw LuaError("format asks for alignment not power of 2");
     }
+    final digits = input.substring(digitStart, digitEnd);
     raw.add(BinaryFormatOption('!', align: n, raw: '!$digits'));
     return digitEnd;
   }
@@ -231,12 +236,9 @@ class BinaryFormatParser {
       throw LuaError('missing size');
     }
 
+    final n = _parseBoundedUnsignedInteger(input, digitStart, digitEnd);
     final digits = input.substring(digitStart, digitEnd);
-    final bigN = BigInt.parse(digits);
-    if (bigN > BigInt.from(NumberLimits.maxInteger)) {
-      throw LuaError('invalid format');
-    }
-    raw.add(BinaryFormatOption('c', size: bigN.toInt(), raw: 'c$digits'));
+    raw.add(BinaryFormatOption('c', size: n, raw: 'c$digits'));
     return digitEnd;
   }
 
@@ -254,14 +256,7 @@ class BinaryFormatParser {
 
     final digitEnd = _scanDigits(input, digitStart);
     final numberStart = position + 1;
-    final numberText = input.substring(numberStart, digitEnd);
-    final bigN = BigInt.parse(numberText);
-    if (bigN > BigInt.from(NumberLimits.maxInteger) ||
-        bigN < BigInt.from(NumberLimits.minInteger)) {
-      throw LuaError('invalid format');
-    }
-
-    final n = bigN.toInt();
+    final n = _parseBoundedSignedInteger(input, numberStart, digitEnd);
     if ((type == 'i' || type == 'I' || type == 'j' || type == 'J') &&
         (n < 1 || n > 16)) {
       throw LuaError("integral size ($n) out of limits [1,16]");
@@ -270,8 +265,64 @@ class BinaryFormatParser {
       throw LuaError("invalid size for format option 's'");
     }
 
+    final numberText = input.substring(numberStart, digitEnd);
     raw.add(BinaryFormatOption(type, size: n, raw: '$type$numberText'));
     return digitEnd;
+  }
+
+  static int _parseSmallPositiveSize(String input, int start, int end) {
+    final significantStart = _skipLeadingZeroDigits(input, start, end);
+    if (end - significantStart > 2) {
+      return 17;
+    }
+    return int.parse(input.substring(start, end));
+  }
+
+  static int _parseBoundedUnsignedInteger(String input, int start, int end) {
+    if (_digitsExceed(input, start, end, _maxIntegerDigits)) {
+      throw LuaError('invalid format');
+    }
+    return int.parse(input.substring(start, end));
+  }
+
+  static int _parseBoundedSignedInteger(String input, int start, int end) {
+    final isNegative = input.codeUnitAt(start) == 0x2D;
+    final digitStart = isNegative ? start + 1 : start;
+    final limit = isNegative ? _minIntegerMagnitudeDigits : _maxIntegerDigits;
+    if (_digitsExceed(input, digitStart, end, limit)) {
+      throw LuaError('invalid format');
+    }
+    return int.parse(input.substring(start, end));
+  }
+
+  static bool _digitsExceed(
+    String input,
+    int start,
+    int end,
+    String limitDigits,
+  ) {
+    final significantStart = _skipLeadingZeroDigits(input, start, end);
+    final length = end - significantStart;
+    if (length != limitDigits.length) {
+      return length > limitDigits.length;
+    }
+
+    for (var i = 0; i < length; i++) {
+      final digit = input.codeUnitAt(significantStart + i);
+      final limit = limitDigits.codeUnitAt(i);
+      if (digit != limit) {
+        return digit > limit;
+      }
+    }
+    return false;
+  }
+
+  static int _skipLeadingZeroDigits(String input, int start, int end) {
+    var current = start;
+    while (current + 1 < end && input.codeUnitAt(current) == 0x30) {
+      current++;
+    }
+    return current;
   }
 
   static int? _signedDigitsStart(String input, int position) {
