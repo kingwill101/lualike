@@ -3832,11 +3832,7 @@ final class LuaBytecodeVm {
   Value _normalizeInlineAssertSuccessValue(Value value) {
     if (luaResultValues(value) == null) {
       final raw = value.raw;
-      if (raw == null ||
-          raw is num ||
-          raw is bool ||
-          raw is String ||
-          raw is LuaString) {
+      if (isLuaPrimitiveSlot(raw)) {
         return switch (raw) {
           null ||
           bool() ||
@@ -5671,19 +5667,9 @@ final class LuaBytecodeVm {
   }
 
   bool _isPlainPrimitiveKey(Object? raw) =>
-      raw is num ||
-      raw is String ||
-      raw is LuaString ||
-      raw is bool ||
-      raw is BigInt;
+      raw != null && isLuaPrimitiveSlot(raw);
 
-  bool _isPlainPrimitiveValue(Object? raw) =>
-      raw == null ||
-      raw is num ||
-      raw is String ||
-      raw is LuaString ||
-      raw is bool ||
-      raw is BigInt;
+  bool _isPlainPrimitiveValue(Object? raw) => isLuaPrimitiveSlot(raw);
 
   LuaBytecodeInstructionWord _consumeExtraArg(_LuaBytecodeFrame frame) {
     if (frame.pc >= frame.closure.prototype.code.length) {
@@ -8865,10 +8851,7 @@ Value _cloneBytecodeValue(Value source) {
 }
 
 bool _isBookkeepingNeutralClone(Value source) {
-  return switch (source.raw) {
-    null || bool() || num() || BigInt() || String() || LuaString() => true,
-    _ => false,
-  };
+  return isLuaPrimitiveSlot(source.raw);
 }
 
 bool _isGcTrackingNeutralClone(Value source) {
