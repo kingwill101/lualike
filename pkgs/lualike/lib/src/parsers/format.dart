@@ -91,12 +91,74 @@ class FormatStringParser {
 
   /// Parses a format string into a list of FormatPart (literals and specifiers).
   static List<FormatPart> parse(String input) {
-    final result = formatStringParser.parse(input);
-    if (result is Success) {
-      return List<FormatPart>.from(result.value);
-    } else {
-      throw FormatException('Invalid format string: ${result.message}');
+    final parts = <FormatPart>[];
+    var current = 0;
+    var literalStart = 0;
+
+    while (current < input.length) {
+      if (input.codeUnitAt(current) != 0x25) {
+        current++;
+        continue;
+      }
+
+      if (literalStart < current) {
+        parts.add(LiteralPart(input.substring(literalStart, current)));
+      }
+
+      final specifierStart = current;
+      current++;
+
+      final flagsStart = current;
+      while (current < input.length &&
+          _isFormatFlag(input.codeUnitAt(current))) {
+        current++;
+      }
+      final flags = input.substring(flagsStart, current);
+
+      String? width;
+      final widthStart = current;
+      while (current < input.length && _isDigit(input.codeUnitAt(current))) {
+        current++;
+      }
+      if (current > widthStart) {
+        width = input.substring(widthStart, current);
+      }
+
+      String? precision;
+      if (current < input.length && input.codeUnitAt(current) == 0x2E) {
+        final precisionStart = current;
+        current++;
+        while (current < input.length && _isDigit(input.codeUnitAt(current))) {
+          current++;
+        }
+        precision = input.substring(precisionStart, current);
+      }
+
+      if (current >= input.length ||
+          !_isFormatSpecifier(input.codeUnitAt(current))) {
+        throw const FormatException(
+          'Invalid format string: end of input expected',
+        );
+      }
+
+      final specifier = input[current];
+      current++;
+      parts.add(
+        SpecifierPart(
+          full: input.substring(specifierStart, current),
+          flags: flags,
+          width: width,
+          precision: precision,
+          specifier: specifier,
+        ),
+      );
+      literalStart = current;
     }
+
+    if (literalStart < input.length) {
+      parts.add(LiteralPart(input.substring(literalStart)));
+    }
+    return parts;
   }
 
   /// Parses and caches format strings, which are often reused in tight loops.
@@ -113,6 +175,46 @@ class FormatStringParser {
       _parseCache.remove(_parseCache.keys.first);
     }
     return parsed;
+  }
+
+  static bool _isFormatFlag(int codeUnit) {
+    switch (codeUnit) {
+      case 0x2D: // -
+      case 0x2B: // +
+      case 0x20: // space
+      case 0x30: // 0
+      case 0x23: // #
+        return true;
+    }
+    return false;
+  }
+
+  static bool _isDigit(int codeUnit) => codeUnit >= 0x30 && codeUnit <= 0x39;
+
+  static bool _isFormatSpecifier(int codeUnit) {
+    switch (codeUnit) {
+      case 0x63: // c
+      case 0x64: // d
+      case 0x69: // i
+      case 0x6F: // o
+      case 0x75: // u
+      case 0x78: // x
+      case 0x58: // X
+      case 0x65: // e
+      case 0x45: // E
+      case 0x66: // f
+      case 0x67: // g
+      case 0x47: // G
+      case 0x71: // q
+      case 0x51: // Q
+      case 0x73: // s
+      case 0x25: // %
+      case 0x61: // a
+      case 0x41: // A
+      case 0x70: // p
+        return true;
+    }
+    return false;
   }
 
   /// Escapes a byte list according to Lua's %q format rules.

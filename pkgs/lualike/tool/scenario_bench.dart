@@ -52,6 +52,11 @@ const _groupScenarios = <String, List<String>>{
     'binary-format-unpack',
     'binary-format-mixed',
   ],
+  'format-string-all': <String>[
+    'format-string-simple',
+    'format-string-complex',
+    'format-string-mixed',
+  ],
 };
 
 final _leafScenarios = <String>{
@@ -75,6 +80,9 @@ final _leafScenarios = <String>{
   'binary-format-pack',
   'binary-format-unpack',
   'binary-format-mixed',
+  'format-string-simple',
+  'format-string-complex',
+  'format-string-mixed',
 };
 
 final List<String> _scenarioNames = (<String>{
@@ -491,6 +499,17 @@ assert(n > 0)
       format: '<!8I2I4I8c32zxxXf',
       workUnits: 40000,
     ),
+    'format-string-simple' => _formatStringScenario(
+      name: 'format-string-simple',
+      format: 'value=%d',
+      workUnits: 40000,
+    ),
+    'format-string-complex' => _formatStringScenario(
+      name: 'format-string-complex',
+      format: 'id=%08X name=%-20.12s score=%+10.3f raw=%q %% done',
+      workUnits: 40000,
+    ),
+    'format-string-mixed' => _formatStringMixedScenario(),
     _ => throw ArgumentError.value(name, 'scenario', 'Unknown benchmark'),
   };
 }
@@ -614,6 +633,52 @@ _BenchScenario _binaryFormatScenario({
       var total = 0;
       for (var i = 0; i < workUnits; i++) {
         total += BinaryFormatParser.parse(format).length;
+      }
+      if (total == 0) {
+        throw StateError('unexpected zero total');
+      }
+    },
+  );
+}
+
+_BenchScenario _formatStringScenario({
+  required String name,
+  required String format,
+  required int workUnits,
+}) {
+  return _BenchScenario(
+    name: name,
+    workUnits: workUnits,
+    workLabel: 'format parses',
+    run: (_) async {
+      var total = 0;
+      for (var i = 0; i < workUnits; i++) {
+        total += FormatStringParser.parse(format).length;
+      }
+      if (total == 0) {
+        throw StateError('unexpected zero total');
+      }
+    },
+  );
+}
+
+_BenchScenario _formatStringMixedScenario() {
+  const formats = <String>[
+    '%d',
+    'literal only',
+    'name=%s age=%03d',
+    'x=%#08x y=%-10.4f z=%q',
+    '%% %c %i %u %o %a %A %p',
+  ];
+  const workUnits = 50000;
+  return _BenchScenario(
+    name: 'format-string-mixed',
+    workUnits: workUnits,
+    workLabel: 'format parses',
+    run: (_) async {
+      var total = 0;
+      for (var i = 0; i < workUnits; i++) {
+        total += FormatStringParser.parse(formats[i % formats.length]).length;
       }
       if (total == 0) {
         throw StateError('unexpected zero total');
