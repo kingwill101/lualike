@@ -1066,7 +1066,12 @@ class Value extends Object implements Map<String, dynamic>, GCObject {
     if (existing != null) {
       return existing;
     }
-    if (value == null || value is bool || value is num || value is BigInt) {
+    if (value == null ||
+        value is bool ||
+        value is num ||
+        value is BigInt ||
+        value is String ||
+        value is LuaString) {
       return Value.primitive(value);
     }
     final wrapped = Value(value);
@@ -1158,6 +1163,28 @@ class Value extends Object implements Map<String, dynamic>, GCObject {
     }
   }
 
+  static Value _copyLooseValue(Object? value) {
+    if (value is Value) {
+      return value.copy();
+    }
+    if (value is Map) {
+      final newMap = <dynamic, dynamic>{};
+      value.forEach((key, entry) {
+        newMap[key] = _copyLooseValue(entry);
+      });
+      return Value(newMap);
+    }
+    if (value == null ||
+        value is bool ||
+        value is num ||
+        value is BigInt ||
+        value is String ||
+        value is LuaString) {
+      return Value.primitive(value);
+    }
+    return Value(value);
+  }
+
   /// Creates a deep copy of this Value and its metatable.
   ///
   /// For table values, recursively copies all nested values.
@@ -1167,7 +1194,7 @@ class Value extends Object implements Map<String, dynamic>, GCObject {
       // Deep copy for tables
       final newMap = <dynamic, dynamic>{};
       (raw as Map).forEach((key, value) {
-        newMap[key] = value is Value ? value.copy() : Value(value).copy();
+        newMap[key] = _copyLooseValue(value);
       });
       return Value(
         newMap,
@@ -1409,37 +1436,39 @@ class Value extends Object implements Map<String, dynamic>, GCObject {
     return Value(value);
   }
 
+  static dynamic _unwrapRawValue(Object? value) {
+    if (value is Value) {
+      return value.unwrap();
+    }
+    if (value is Map) {
+      final unwrapped = <dynamic, dynamic>{};
+      value.forEach((key, entry) {
+        final realKey = key is LuaString ? key.toString() : key;
+        unwrapped[realKey] = _unwrapRawValue(entry);
+      });
+      return unwrapped;
+    }
+    if (value is List) {
+      return value.map(_unwrapRawValue).toList();
+    }
+    if (value is LuaString) {
+      return value.toString();
+    }
+    return value;
+  }
+
   /// Unwraps a Value to get its raw value, recursively for tables and lists.
   dynamic unwrap() {
     if (raw is Map) {
       final unwrapped = <dynamic, dynamic>{};
       (raw as Map).forEach((key, value) {
         final realKey = key is LuaString ? key.toString() : key;
-        dynamic out;
-        if (value is Value) {
-          out = value.unwrap();
-        } else if (value is Map || value is List) {
-          out = Value(value).completeUnwrap();
-        } else if (value is LuaString) {
-          out = value.toString();
-        } else {
-          out = value;
-        }
-        unwrapped[realKey] = out;
+        unwrapped[realKey] = _unwrapRawValue(value);
       });
       return unwrapped;
     }
     if (raw is List) {
-      return (raw as List).map((e) {
-        if (e is Value) {
-          return e.unwrap();
-        } else if (e is Map || e is List) {
-          return Value(e).unwrap();
-        } else if (e is LuaString) {
-          return e.toString();
-        }
-        return e;
-      }).toList();
+      return (raw as List).map(_unwrapRawValue).toList();
     }
     if (raw is LuaString) {
       // Decode using UTF-8 so multi-byte characters (e.g. Chinese) are
