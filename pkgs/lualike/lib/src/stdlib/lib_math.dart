@@ -1,6 +1,8 @@
 import 'dart:math' as math;
 
 import 'package:lualike/lualike.dart';
+import 'package:lualike/src/runtime/lua_results.dart';
+import 'package:lualike/src/runtime/lua_slot.dart';
 import 'library.dart';
 
 import '../number_limits.dart' as limits;
@@ -14,6 +16,10 @@ class MathLibrary extends Library {
   @override
   void registerFunctions(LibraryRegistrationContext context) {
     final interpreter = context.vm;
+    Value primitiveConstant(Object? raw) {
+      return cachedPrimitiveOrValue(interpreter, raw);
+    }
+
     final atanFunc = _MathAtan(interpreter);
 
     // Register all math functions directly
@@ -34,7 +40,7 @@ class MathLibrary extends Library {
     context.define("max", _MathMax(interpreter));
     context.define("min", _MathMin(interpreter));
     context.define("modf", _MathModf(interpreter));
-    context.define("pi", Value(math.pi));
+    context.define("pi", primitiveConstant(math.pi));
     context.define("pow", _MathPow(interpreter));
     context.define("rad", _MathRad(interpreter));
     final randomFunc = _MathRandom(interpreter);
@@ -46,9 +52,15 @@ class MathLibrary extends Library {
     context.define("tointeger", _MathTointeger(interpreter));
     context.define("ult", _MathUlt(interpreter));
     context.define("type", _MathType(interpreter));
-    context.define("huge", Value(double.infinity));
-    context.define("maxinteger", Value(limits.NumberLimits.maxInteger));
-    context.define("mininteger", Value(limits.NumberLimits.minInteger));
+    context.define("huge", primitiveConstant(double.infinity));
+    context.define(
+      "maxinteger",
+      primitiveConstant(limits.NumberLimits.maxInteger),
+    );
+    context.define(
+      "mininteger",
+      primitiveConstant(limits.NumberLimits.minInteger),
+    );
   }
 }
 
@@ -61,11 +73,11 @@ dynamic _getFastNumber(Object? value, String funcName, int argNum) {
   if (value is int || value is double || value is BigInt) {
     return value;
   }
-  if (value case Value(
-    isMulti: false,
-    raw: final rawNumber,
-  ) when rawNumber is int || rawNumber is double || rawNumber is BigInt) {
-    return rawNumber;
+  if (value is Value && luaResultValues(value) == null) {
+    final rawNumber = value.raw;
+    if (rawNumber is int || rawNumber is double || rawNumber is BigInt) {
+      return rawNumber;
+    }
   }
   return _getNumber(value is Value ? value : Value(value), funcName, argNum);
 }
@@ -75,8 +87,10 @@ Object? _tryFastMinMaxNumericResult(
   Object? arg1, {
   required bool wantMax,
 }) {
-  if (arg0 case Value(isMulti: false, raw: final leftRaw)) {
-    if (arg1 case Value(isMulti: false, raw: final rightRaw)) {
+  if (arg0 is Value && luaResultValues(arg0) == null) {
+    final leftRaw = arg0.raw;
+    if (arg1 is Value && luaResultValues(arg1) == null) {
+      final rightRaw = arg1.raw;
       if (leftRaw is num && rightRaw is num) {
         if (leftRaw is double && leftRaw.isNaN) return leftRaw;
         if (rightRaw is double && rightRaw.isNaN) return rightRaw;
@@ -300,7 +314,7 @@ class _MathFrexp extends _MathBuiltin {
 
     final number = _getNumber(args[0] as Value, "frexp", 1);
     final (mantissa, exponent) = NumberUtils.frexp(number);
-    return Value.multi([primitiveValue(mantissa), primitiveValue(exponent)]);
+    return LuaResults([mantissa, exponent]);
   }
 }
 
@@ -440,7 +454,7 @@ class _MathModf extends _MathBuiltin {
 
     final number = _getNumber(args[0] as Value, "modf", 1);
     final (intPart, fracPart) = NumberUtils.modf(number);
-    return Value.multi([primitiveValue(intPart), primitiveValue(fracPart)]);
+    return LuaResults([intPart, fracPart]);
   }
 }
 
@@ -650,7 +664,7 @@ class _MathRandomseed extends _MathBuiltin {
     }
     _randomFunc._random = rng;
 
-    return Value.multi([primitiveValue(n1), primitiveValue(n2)]);
+    return LuaResults([n1, n2]);
   }
 }
 
@@ -719,9 +733,9 @@ class _MathType extends _MathBuiltin {
 
     final value = args[0] as Value;
     if (value.raw is int || value.raw is BigInt) {
-      return Value("integer");
+      return dartStringValue("integer");
     } else if (value.raw is double) {
-      return Value("float");
+      return dartStringValue("float");
     } else {
       return primitiveValue(null);
     }

@@ -8,6 +8,8 @@ import 'package:lualike/src/logging/logger.dart';
 import 'package:lualike/src/lua_error.dart';
 import 'package:lualike/src/lua_string.dart';
 import 'package:lualike/src/parsers/string.dart';
+import 'package:lualike/src/runtime/lua_results.dart';
+import 'package:lualike/src/runtime/lua_slot.dart';
 import 'package:lualike/src/value.dart' show Value;
 
 import '../../lualike.dart' show Value;
@@ -25,7 +27,9 @@ class UTF8Library extends Library {
       if (str.raw is! String && str.raw is! LuaString) {
         throw LuaError("utf8 operation on non-string value");
       }
-      return Value(str.raw.toString().characters.length);
+      return interpreter.constantPrimitiveValue(
+        str.raw.toString().characters.length,
+      );
     },
     "__index": (List<Object?> args) {
       final _ = args[0] as Value;
@@ -37,32 +41,36 @@ class UTF8Library extends Library {
       // Return the function from our registry if it exists
       switch (keyStr) {
         case 'char':
-          return _UTF8Char();
+          return _UTF8Char(interpreter);
         case 'codes':
-          return _UTF8Codes();
+          return _UTF8Codes(interpreter);
         case 'codepoint':
-          return _UTF8CodePoint();
+          return _UTF8CodePoint(interpreter);
         case 'len':
-          return _UTF8Len();
+          return _UTF8Len(interpreter);
         case 'offset':
-          return _UTF8Offset();
+          return _UTF8Offset(interpreter);
         case 'charpattern':
-          return Value(UTF8Lib.charpattern);
+          return interpreter.constantStringValue(UTF8Lib.charpattern.bytes);
         default:
-          return Value(null);
+          return interpreter.constantPrimitiveValue(null);
       }
     },
   };
 
   @override
   void registerFunctions(LibraryRegistrationContext context) {
+    final interpreter = context.vm;
     // Register all UTF8 functions directly
-    context.define('char', _UTF8Char());
-    context.define('codes', _UTF8Codes());
-    context.define('codepoint', _UTF8CodePoint());
-    context.define('len', _UTF8Len());
-    context.define('offset', _UTF8Offset());
-    context.define('charpattern', Value(UTF8Lib.charpattern));
+    context.define('char', _UTF8Char(interpreter));
+    context.define('codes', _UTF8Codes(interpreter));
+    context.define('codepoint', _UTF8CodePoint(interpreter));
+    context.define('len', _UTF8Len(interpreter));
+    context.define('offset', _UTF8Offset(interpreter));
+    context.define(
+      'charpattern',
+      valueFromOptionalLuaSlot(interpreter, UTF8Lib.charpattern),
+    );
   }
 }
 
@@ -117,12 +125,16 @@ class UTF8Lib {
 }
 
 class _UTF8Char extends BuiltinFunction {
-  _UTF8Char() : super();
+  _UTF8Char([super.interpreter]);
+
   @override
   Object? call(List<Object?> args) {
     // Return empty string when no arguments provided (like standard Lua)
     if (args.isEmpty) {
-      return Value(LuaString.fromBytes(Uint8List(0)));
+      return valueFromOptionalLuaSlot(
+        interpreter,
+        LuaString.fromBytes(Uint8List(0)),
+      );
     }
 
     final codePoints = <int>[];
@@ -154,7 +166,10 @@ class _UTF8Char extends BuiltinFunction {
         final encoded = LuaStringParser.encodeCodePoint(codePoint);
         bytes.addAll(encoded);
       }
-      return Value(LuaString.fromBytes(Uint8List.fromList(bytes)));
+      return valueFromOptionalLuaSlot(
+        interpreter,
+        LuaString.fromBytes(Uint8List.fromList(bytes)),
+      );
     } catch (e) {
       throw LuaError("value out of range");
     }
@@ -162,7 +177,8 @@ class _UTF8Char extends BuiltinFunction {
 }
 
 class _UTF8Codes extends BuiltinFunction {
-  _UTF8Codes() : super();
+  _UTF8Codes([super.interpreter]);
+
   @override
   Object? call(List<Object?> args) {
     if (args.isEmpty) {
@@ -238,7 +254,7 @@ class _UTF8Codes extends BuiltinFunction {
     return Value((List<Object?> iterArgs) {
       // Check if we're beyond the end
       if (currentPos >= j) {
-        return Value(null);
+        return primitiveValue(null);
       }
 
       try {
@@ -272,16 +288,20 @@ class _UTF8Codes extends BuiltinFunction {
 
         currentPos += advance;
 
-        return Value.multi([Value(bytePosition), Value(codePoint)]);
+        return LuaResults([
+          primitiveValue(bytePosition),
+          primitiveValue(codePoint),
+        ]);
       } catch (e) {
         throw LuaError("invalid UTF-8 code");
       }
-    });
+    }, interpreter: interpreter);
   }
 }
 
 class _UTF8CodePoint extends BuiltinFunction {
-  _UTF8CodePoint() : super();
+  _UTF8CodePoint([super.interpreter]);
+
   @override
   Object? call(List<Object?> args) {
     if (args.isEmpty) {
@@ -338,7 +358,7 @@ class _UTF8CodePoint extends BuiltinFunction {
 
     // If start > end, return no values (like Lua)
     if (i > j) {
-      return Value.multi([]);
+      return const LuaResults.empty();
     }
 
     // Validate bounds (byte positions)
@@ -367,13 +387,13 @@ class _UTF8CodePoint extends BuiltinFunction {
             throw LuaError("invalid UTF-8 code");
           }
           // Lax mode: use raw byte value
-          codePoints.add(Value(bytes[bytePos]));
+          codePoints.add(primitiveValue(bytes[bytePos]));
           bytePos += 1;
           if (i == j) break;
           continue;
         }
 
-        codePoints.add(Value(result.codePoint));
+        codePoints.add(primitiveValue(result.codePoint));
 
         // If we only need one codepoint and this completes a character
         if (i == j || bytePos + result.sequenceLength - 1 >= endPos) {
@@ -386,12 +406,13 @@ class _UTF8CodePoint extends BuiltinFunction {
       }
     }
 
-    return codePoints.length == 1 ? codePoints[0] : Value.multi(codePoints);
+    return codePoints.length == 1 ? codePoints[0] : LuaResults(codePoints);
   }
 }
 
 class _UTF8Len extends BuiltinFunction {
-  _UTF8Len() : super();
+  _UTF8Len([super.interpreter]);
+
   @override
   Object? call(List<Object?> args) {
     if (args.isEmpty) {
@@ -480,7 +501,7 @@ class _UTF8Len extends BuiltinFunction {
             // Strict mode: error tuple (nil, bytePosition)
             // Lua expects the position in *bytes* (1-indexed) where the
             // invalid UTF-8 sequence starts.
-            return Value.multi([Value(null), Value(pos + 1)]);
+            return LuaResults([primitiveValue(null), primitiveValue(pos + 1)]);
           }
           // Lax mode: treat single byte as one character
           count++;
@@ -493,19 +514,19 @@ class _UTF8Len extends BuiltinFunction {
       } catch (e) {
         // FormatException indicates invalid UTF-8 at current position. We
         // follow the same rule as above and report the *byte* index.
-        return Value.multi([Value(null), Value(pos + 1)]);
+        return LuaResults([primitiveValue(null), primitiveValue(pos + 1)]);
       }
     }
 
-    return Value(count);
+    return primitiveValue(count);
   }
 }
 
 class _UTF8Offset extends BuiltinFunction {
-  _UTF8Offset() : super();
+  _UTF8Offset([super.interpreter]);
 
-  Value _offsetResult(int start, int end) =>
-      Value.multi([Value(start), Value(end)]);
+  Object? _offsetResult(int start, int end) =>
+      LuaResults([primitiveValue(start), primitiveValue(end)]);
 
   int? _scanCharacterLength(Uint8List bytes, int start) {
     final decoded = LuaStringParser.decodeUtf8Character(
@@ -611,7 +632,7 @@ class _UTF8Offset extends BuiltinFunction {
         }
         final length = _scanCharacterLength(bytes, pos);
         if (length == null) {
-          return Value(null);
+          return primitiveValue(null);
         }
         return _offsetResult(pos + 1, pos + length);
       }
@@ -642,7 +663,7 @@ class _UTF8Offset extends BuiltinFunction {
           // and ignores code-point validity.
           final length = _scanCharacterLength(bytes, pos);
           if (length == null) {
-            return Value(null); // Invalid UTF-8
+            return primitiveValue(null); // Invalid UTF-8
           }
           charCount++;
           if (charCount == n) {
@@ -658,7 +679,7 @@ class _UTF8Offset extends BuiltinFunction {
         }
 
         // Otherwise, we don't have enough characters
-        return Value(null);
+        return primitiveValue(null);
       } else {
         // Find the nth character backward from position i
         final targetCount = -n;
@@ -683,7 +704,7 @@ class _UTF8Offset extends BuiltinFunction {
           positions.add(pos + 1); // Store 1-based positions
           final length = _scanCharacterLength(bytes, pos);
           if (length == null) {
-            return Value(null); // Invalid UTF-8
+            return primitiveValue(null); // Invalid UTF-8
           }
           ends.add(pos + length);
           pos += length;
@@ -710,12 +731,12 @@ class _UTF8Offset extends BuiltinFunction {
           return _offsetResult(positions[targetIndex], ends[targetIndex]);
         }
 
-        return Value(null); // Not enough characters to go backward
+        return primitiveValue(null); // Not enough characters to go backward
       }
     } on LuaError {
       rethrow;
     } catch (e) {
-      return Value(null);
+      return primitiveValue(null);
     }
   }
 }

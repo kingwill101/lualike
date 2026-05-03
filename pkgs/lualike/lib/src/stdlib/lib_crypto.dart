@@ -8,6 +8,7 @@ import 'package:convert/convert.dart' show hex;
 import 'package:lualike/src/builtin_function.dart';
 
 import 'package:lualike/src/lua_error.dart';
+import 'package:lualike/src/runtime/lua_slot.dart';
 import 'package:lualike/src/value.dart';
 import 'package:lualike/src/lua_string.dart';
 import 'library.dart';
@@ -65,7 +66,7 @@ class _HashFunction extends BuiltinFunction {
     }
     final input = _toBytes(args[0] as Value);
     final digest = _hash.convert(input);
-    return Value(digest.toString());
+    return dartStringValue(digest.toString());
   }
 }
 
@@ -87,7 +88,7 @@ class HmacFunction extends BuiltinFunction {
       final hmac = pc.Mac('$digestName/HMAC');
       hmac.init(pc.KeyParameter(key));
       final result = hmac.process(message);
-      return Value(hex.encode(result));
+      return dartStringValue(hex.encode(result));
     } catch (e) {
       throw LuaError('Failed to compute HMAC: $e');
     }
@@ -111,7 +112,7 @@ class RandomBytesFunction extends BuiltinFunction {
     for (var i = 0; i < count; i++) {
       bytes[i] = _secureRandom.nextInt(256);
     }
-    return Value(bytes);
+    return valueFromOptionalLuaSlot(interpreter, bytes);
   }
 }
 
@@ -149,7 +150,7 @@ class _AesCbcFunction extends BuiltinFunction {
 
     try {
       final result = cipher.process(data);
-      return Value(result);
+      return valueFromOptionalLuaSlot(interpreter, result);
     } catch (e) {
       throw LuaError('Failed to ${_encrypt ? 'encrypt' : 'decrypt'} data: $e');
     }

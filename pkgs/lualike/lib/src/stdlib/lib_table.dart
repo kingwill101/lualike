@@ -2,6 +2,8 @@ import 'dart:typed_data';
 
 import 'package:lualike/lualike.dart';
 
+import 'package:lualike/src/runtime/lua_results.dart';
+import 'package:lualike/src/runtime/lua_slot.dart';
 import 'package:lualike/src/runtime/runtime_hints.dart';
 import 'package:lualike/src/table_storage.dart';
 import 'package:lualike/src/utils/type.dart';
@@ -26,38 +28,39 @@ class TableLibrary extends Library {
       // Return the function from our registry if it exists
       switch (keyStr) {
         case "concat":
-          return _TableConcat();
+          return _TableConcat(interpreter);
         case "create":
-          return _TableCreate();
+          return _TableCreate(interpreter);
         case "insert":
-          return _TableInsert();
+          return _TableInsert(interpreter);
         case "move":
-          return _TableMove();
+          return _TableMove(interpreter);
         case "pack":
-          return _TablePack();
+          return _TablePack(interpreter);
         case "remove":
-          return _TableRemove();
+          return _TableRemove(interpreter);
         case "sort":
-          return _TableSort();
+          return _TableSort(interpreter);
         case "unpack":
-          return _TableUnpack();
+          return _TableUnpack(interpreter);
         default:
-          return Value(null);
+          return interpreter.constantPrimitiveValue(null);
       }
     },
   };
 
   @override
   void registerFunctions(LibraryRegistrationContext context) {
+    final interpreter = context.vm;
     // Register all table functions directly
-    context.define("insert", _TableInsert());
-    context.define("remove", _TableRemove());
-    context.define("concat", _TableConcat());
-    context.define("create", _TableCreate());
-    context.define("move", _TableMove());
-    context.define("pack", _TablePack());
-    context.define("sort", _TableSort(context.vm));
-    context.define("unpack", _TableUnpack());
+    context.define("insert", _TableInsert(interpreter));
+    context.define("remove", _TableRemove(interpreter));
+    context.define("concat", _TableConcat(interpreter));
+    context.define("create", _TableCreate(interpreter));
+    context.define("move", _TableMove(interpreter));
+    context.define("pack", _TablePack(interpreter));
+    context.define("sort", _TableSort(interpreter));
+    context.define("unpack", _TableUnpack(interpreter));
   }
 }
 
@@ -169,18 +172,26 @@ int _getTableLength(Map map) {
   return luaTableLengthFromMap(map.cast<dynamic, dynamic>());
 }
 
-Value _wrapSequenceValue(Object? value) => switch (value) {
-  final Value wrapped => wrapped,
-  _ => Value(value),
-};
-
-Future<Value> _tableSequenceReadAsync(Value table, int index) async {
-  final value = await table.getValueAsync(index);
-  return _wrapSequenceValue(value);
+Value _wrapTableLibraryValue(LuaRuntime? runtime, Object? value) {
+  return cachedPrimitiveOrValue(runtime, value);
 }
 
-Future<void> _tableSequenceWriteAsync(Value table, int index, Object? value) {
-  final wrapped = value is Value ? value : Value(value);
+Future<Value> _tableSequenceReadAsync(
+  Value table,
+  int index, {
+  LuaRuntime? runtime,
+}) async {
+  final value = await table.getValueAsync(index);
+  return _wrapTableLibraryValue(table.interpreter ?? runtime, value);
+}
+
+Future<void> _tableSequenceWriteAsync(
+  Value table,
+  int index,
+  Object? value, {
+  LuaRuntime? runtime,
+}) {
+  final wrapped = _wrapTableLibraryValue(table.interpreter ?? runtime, value);
   return table.setValueAsync(index, wrapped);
 }
 
@@ -198,7 +209,7 @@ class TableLib {
 }
 
 class _TableCreate extends BuiltinFunction {
-  _TableCreate() : super();
+  _TableCreate([super.interpreter]);
 
   @override
   Object? call(List<Object?> args) {
@@ -241,12 +252,12 @@ class _TableCreate extends BuiltinFunction {
     if (hashSize > 0) {
       table.reserveHashCapacity(hashSize);
     }
-    return ValueClass.table(table);
+    return ValueClass.table(table)..interpreter = interpreter;
   }
 }
 
 class _TableInsert extends BuiltinFunction {
-  _TableInsert() : super();
+  _TableInsert([super.interpreter]);
   @override
   Object? call(List<Object?> args) async {
     // Lua: table.insert(table, [pos,] value)
@@ -254,7 +265,7 @@ class _TableInsert extends BuiltinFunction {
     if (nArgs != 2 && nArgs != 3) {
       throw LuaError("wrong number of arguments to 'insert'");
     }
-    final table = args[0] is Value ? args[0] as Value : Value(args[0]);
+    final table = _wrapTableLibraryValue(interpreter, args[0]);
     checktab(
       table,
       TablePermission.read | TablePermission.write | TablePermission.length,
@@ -270,7 +281,7 @@ class _TableInsert extends BuiltinFunction {
       value = args[1];
     } else {
       // table, pos, value
-      pos = (args[1] as Value).raw as int;
+      pos = _wrapTableLibraryValue(interpreter, args[1]).raw as int;
       value = args[2];
       // Check bounds: 1 <= pos <= firstEmpty
       if (pos < 1 || pos > firstEmpty) {
@@ -278,77 +289,107 @@ class _TableInsert extends BuiltinFunction {
       }
       // Move up elements: for (i = firstEmpty; i > pos; i--) t[i] = t[i-1]
       for (var i = firstEmpty; i > pos; i--) {
-        final shifted = await _tableSequenceReadAsync(table, i - 1);
-        await _tableSequenceWriteAsync(table, i, shifted);
+        final shifted = await _tableSequenceReadAsync(
+          table,
+          i - 1,
+          runtime: interpreter,
+        );
+        await _tableSequenceWriteAsync(table, i, shifted, runtime: interpreter);
       }
     }
-    await _tableSequenceWriteAsync(table, pos, value);
-    return Value(null);
+    await _tableSequenceWriteAsync(table, pos, value, runtime: interpreter);
+    return primitiveValue(null);
   }
 }
 
 class _TableRemove extends BuiltinFunction {
-  _TableRemove() : super();
+  _TableRemove([super.interpreter]);
   @override
   Future<Object?> call(List<Object?> args) async {
     if (args.isEmpty) {
       throw LuaError.typeError("table.remove requires a table argument");
     }
-    final table = args[0] is Value ? args[0] as Value : Value(args[0]);
+    final table = _wrapTableLibraryValue(interpreter, args[0]);
     checktab(table, TablePermission.read | TablePermission.write);
 
     final size = await getTableLength(table);
-    final pos = args.length > 1 ? (args[1] as Value).raw as int : size;
+    final pos = args.length > 1
+        ? _wrapTableLibraryValue(interpreter, args[1]).raw as int
+        : size;
 
     if (pos == 0 && size > 0) {
       throw LuaError("bad argument #2 to 'remove' (position out of bounds)");
     }
 
     if (pos < 0 || pos > size) {
-      return Value(null);
+      return primitiveValue(null);
     }
 
-    final removed = await _tableSequenceReadAsync(table, pos);
+    final removed = await _tableSequenceReadAsync(
+      table,
+      pos,
+      runtime: interpreter,
+    );
 
     // Shift elements
     for (var i = pos; i < size; i++) {
-      final shifted = await _tableSequenceReadAsync(table, i + 1);
-      await _tableSequenceWriteAsync(table, i, shifted);
+      final shifted = await _tableSequenceReadAsync(
+        table,
+        i + 1,
+        runtime: interpreter,
+      );
+      await _tableSequenceWriteAsync(table, i, shifted, runtime: interpreter);
     }
-    await _tableSequenceWriteAsync(table, size, Value(null));
+    await _tableSequenceWriteAsync(
+      table,
+      size,
+      primitiveValue(null),
+      runtime: interpreter,
+    );
 
     return removed;
   }
 }
 
 class _TableConcat extends BuiltinFunction {
-  _TableConcat() : super();
+  _TableConcat([super.interpreter]);
   @override
   Future<Object?> call(List<Object?> args) async {
     if (args.isEmpty) {
       throw LuaError.typeError("table expected");
     }
-    final table = args[0] is Value ? args[0] as Value : Value(args[0]);
+    final table = _wrapTableLibraryValue(interpreter, args[0]);
     checktab(table, TablePermission.read);
 
-    final separatorValue = args.length > 1 ? (args[1] as Value).raw : "";
-    final start = args.length > 2 ? (args[2] as Value).raw as int : 1;
+    final separatorValue = args.length > 1
+        ? _wrapTableLibraryValue(interpreter, args[1]).raw
+        : "";
+    final start = args.length > 2
+        ? _wrapTableLibraryValue(interpreter, args[2]).raw as int
+        : 1;
     final end = args.length > 3
-        ? (args[3] as Value).raw as int
+        ? _wrapTableLibraryValue(interpreter, args[3]).raw as int
         : await getTableLength(table);
 
     // Empty ranges return an empty LuaString when the separator is byte-backed
     // so table.concat preserves byte-string semantics.
     if (start > end) {
       return separatorValue is LuaString
-          ? Value(LuaString.fromBytes(const <int>[]))
-          : Value("");
+          ? valueFromOptionalLuaSlot(
+              interpreter,
+              LuaString.fromBytes(const <int>[]),
+            )
+          : dartStringValue("");
     }
 
     final parts = <Object?>[];
     var i = start;
     while (NumberUtils.compare(i, end) <= 0) {
-      final value = await _tableSequenceReadAsync(table, i);
+      final value = await _tableSequenceReadAsync(
+        table,
+        i,
+        runtime: interpreter,
+      );
       if (value.raw == null) {
         // Lua throws an error when encountering nil values in the range
         throw LuaError("invalid value (nil) at index $i in table for 'concat'");
@@ -376,7 +417,7 @@ class _TableConcat extends BuiltinFunction {
         }
         buffer.write(parts[index].toString());
       }
-      return Value(buffer.toString());
+      return dartStringValue(buffer.toString());
     }
 
     List<int> toBytes(Object? value) => switch (value) {
@@ -400,12 +441,15 @@ class _TableConcat extends BuiltinFunction {
       }
       builder.add(toBytes(parts[index]));
     }
-    return Value(LuaString.fromBytes(builder.takeBytes()));
+    return valueFromOptionalLuaSlot(
+      interpreter,
+      LuaString.fromBytes(builder.takeBytes()),
+    );
   }
 }
 
 class _TableMove extends BuiltinFunction {
-  _TableMove() : super();
+  _TableMove([super.interpreter]);
   @override
   Future<Object?> call(List<Object?> args) async {
     Logger.debugLazy(() => "_TableMove: Starting with ${args.length} args");
@@ -415,22 +459,22 @@ class _TableMove extends BuiltinFunction {
     }
 
     // Ensure all arguments are Value objects
-    final a1 = args[0] is Value ? args[0] as Value : Value(args[0]);
+    final a1 = _wrapTableLibraryValue(interpreter, args[0]);
     Logger.debugLazy(
       () => "_TableMove: a1 = $a1, type = ${a1.raw.runtimeType}",
     );
 
     final f = NumberUtils.toInt(
-      (args[1] is Value ? args[1] as Value : Value(args[1])).raw,
+      _wrapTableLibraryValue(interpreter, args[1]).raw,
     );
     final e = NumberUtils.toInt(
-      (args[2] is Value ? args[2] as Value : Value(args[2])).raw,
+      _wrapTableLibraryValue(interpreter, args[2]).raw,
     );
     final t = NumberUtils.toInt(
-      (args[3] is Value ? args[3] as Value : Value(args[3])).raw,
+      _wrapTableLibraryValue(interpreter, args[3]).raw,
     );
     final a2 = args.length > 4
-        ? (args[4] is Value ? args[4] as Value : Value(args[4]))
+        ? _wrapTableLibraryValue(interpreter, args[4])
         : a1;
 
     Logger.debugLazy(() => "_TableMove: f=$f, e=$e, t=$t, a2=$a2");
@@ -479,15 +523,18 @@ class _TableMove extends BuiltinFunction {
             () => "_TableMove: i=$i, srcIndex=$srcIndex, destIndex=$destIndex",
           );
           // Use proper table access that respects metamethods and awaits Future results
-          var value = await a1.getValueAsync(Value(srcIndex));
-          // Handle null values properly - convert to Value(null)
-          final valueToStore = value is Value ? value : Value(value);
+          var value = await a1.getValueAsync(primitiveValue(srcIndex));
+          // Handle null values properly.
+          final valueToStore = _wrapTableLibraryValue(
+            a2.interpreter ?? a1.interpreter ?? interpreter,
+            value,
+          );
           Logger.debugLazy(
             () =>
                 "_TableMove: writing value=$valueToStore to destIndex=$destIndex",
           );
           // Use proper table assignment that respects __newindex metamethod and awaits Future results
-          await a2.setValueAsync(Value(destIndex), valueToStore);
+          await a2.setValueAsync(primitiveValue(destIndex), valueToStore);
         }
       } else {
         // Move in decreasing order (right to left) to avoid overwriting
@@ -499,11 +546,14 @@ class _TableMove extends BuiltinFunction {
           final srcIndex = NumberUtils.add(f, i);
           final destIndex = NumberUtils.add(t, i);
           // Use proper table access that respects metamethods and awaits Future results
-          var value = await a1.getValueAsync(Value(srcIndex));
-          // Handle null values properly - convert to Value(null)
-          final valueToStore = value is Value ? value : Value(value);
+          var value = await a1.getValueAsync(primitiveValue(srcIndex));
+          // Handle null values properly.
+          final valueToStore = _wrapTableLibraryValue(
+            a2.interpreter ?? a1.interpreter ?? interpreter,
+            value,
+          );
           // Use proper table assignment that respects __newindex metamethod and awaits Future results
-          await a2.setValueAsync(Value(destIndex), valueToStore);
+          await a2.setValueAsync(primitiveValue(destIndex), valueToStore);
         }
       }
     }
@@ -521,7 +571,7 @@ class _TableSort extends BuiltinFunction {
     }
 
     final arg0 = args[0];
-    final table = arg0 is Value ? arg0 : Value(arg0);
+    final table = _wrapTableLibraryValue(interpreter, arg0);
     try {
       checktab(table, TablePermission.read | TablePermission.write);
     } on LuaError catch (error) {
@@ -560,7 +610,7 @@ class _TableSort extends BuiltinFunction {
       throw LuaError("bad argument #1 to 'table.sort' (array too big)");
     }
     if (n <= 1) {
-      return Value(null);
+      return primitiveValue(null);
     }
 
     // Validate the order function if provided
@@ -572,13 +622,13 @@ class _TableSort extends BuiltinFunction {
     if (primitiveSortDirection != 0 &&
         map != null &&
         _trySortPrimitiveArray(map, n, primitiveSortDirection)) {
-      return Value(null);
+      return primitiveValue(null);
     }
 
     // Perform in-place quicksort using Lua's algorithm
     await _auxSort(table, 1, n, comp, 0);
 
-    return Value(null);
+    return primitiveValue(null);
   }
 
   int _primitiveSortDirection(Object? comp) => switch (comp) {
@@ -656,11 +706,11 @@ class _TableSort extends BuiltinFunction {
           ? values[i - 1]
           : values[values.length - i];
       final original = map[i];
-      if (original is Value) {
+      if (original is Value && !original.isSharedPrimitive) {
         original.raw = sortedValue;
         map[i] = original;
       } else {
-        map[i] = sortedValue;
+        map[i] = original is Value ? primitiveValue(sortedValue) : sortedValue;
       }
     }
   }
@@ -932,18 +982,32 @@ class _TableSort extends BuiltinFunction {
 
     final current = counterBox.value;
     switch (current) {
+      case Value(raw: final int value) when !current.isSharedPrimitive:
+        current.raw = value + 1;
       case Value(raw: final int value):
+        counterBox.value = primitiveValue(value + 1);
+      case Value(raw: final double value) when !current.isSharedPrimitive:
         current.raw = value + 1;
       case Value(raw: final double value):
-        current.raw = value + 1;
-      case Value(raw: final BigInt value):
+        counterBox.value = primitiveValue(value + 1);
+      case Value(raw: final BigInt value) when !current.isSharedPrimitive:
         current.raw = value + BigInt.one;
+      case Value(raw: final BigInt value):
+        counterBox.value = primitiveValue(value + BigInt.one);
       case final Value wrapped:
         final raw = wrapped.raw;
         if (raw is num) {
-          wrapped.raw = raw + 1;
+          if (wrapped.isSharedPrimitive) {
+            counterBox.value = primitiveValue(raw + 1);
+          } else {
+            wrapped.raw = raw + 1;
+          }
         } else if (raw is BigInt) {
-          wrapped.raw = raw + BigInt.one;
+          if (wrapped.isSharedPrimitive) {
+            counterBox.value = primitiveValue(raw + BigInt.one);
+          } else {
+            wrapped.raw = raw + BigInt.one;
+          }
         }
       case final int value:
         counterBox.value = value + 1;
@@ -1070,8 +1134,8 @@ class _TableSort extends BuiltinFunction {
       return aStr.compareTo(bStr);
     } else {
       // Check for metamethods using the unified Value API
-      final aValue = a is Value ? a : Value(a);
-      final bValue = b is Value ? b : Value(b);
+      final aValue = cachedPrimitiveOrValue(interpreter, a);
+      final bValue = cachedPrimitiveOrValue(interpreter, b);
 
       // Prefer __lt from 'a'
       if (aValue.hasMetamethod('__lt')) {
@@ -1122,17 +1186,17 @@ class _TableSort extends BuiltinFunction {
       () => "_set2: swapping elements at indices $i and $j",
       category: 'TableSort',
     );
-    final temp = await _tableSequenceReadAsync(table, i);
-    final other = await _tableSequenceReadAsync(table, j);
-    await _tableSequenceWriteAsync(table, i, other);
-    await _tableSequenceWriteAsync(table, j, temp);
+    final temp = await _tableSequenceReadAsync(table, i, runtime: interpreter);
+    final other = await _tableSequenceReadAsync(table, j, runtime: interpreter);
+    await _tableSequenceWriteAsync(table, i, other, runtime: interpreter);
+    await _tableSequenceWriteAsync(table, j, temp, runtime: interpreter);
   }
 
   // Partition function (similar to C implementation)
 }
 
 class _TablePack extends BuiltinFunction {
-  _TablePack() : super();
+  _TablePack([super.interpreter]);
   @override
   Object? call(List<Object?> args) {
     final table = TableStorage();
@@ -1141,15 +1205,15 @@ class _TablePack extends BuiltinFunction {
       if (isLuaNilValue(value)) {
         continue;
       }
-      table.setDense(i + 1, value is Value ? value : Value(value));
+      table.setDense(i + 1, _wrapTableLibraryValue(interpreter, value));
     }
-    table['n'] = Value(args.length);
-    return ValueClass.table(table);
+    table['n'] = primitiveValue(args.length);
+    return ValueClass.table(table)..interpreter = interpreter;
   }
 }
 
 class _TableUnpack extends BuiltinFunction {
-  _TableUnpack() : super();
+  _TableUnpack([super.interpreter]);
   @override
   Object? call(List<Object?> args) async {
     final bool log = Logger.enabled;
@@ -1163,7 +1227,7 @@ class _TableUnpack extends BuiltinFunction {
       throw LuaError.typeError("table.unpack requires a table argument");
     }
 
-    final table = args[0] is Value ? args[0] as Value : Value(args[0]);
+    final table = _wrapTableLibraryValue(interpreter, args[0]);
     checktab(table, TablePermission.read);
     if (log) {
       Logger.debugLazy(
@@ -1272,7 +1336,7 @@ class _TableUnpack extends BuiltinFunction {
           () => "_TableUnpack: Empty range (i > j), returning zero values",
         );
       }
-      return Value.multi(<dynamic>[]);
+      return const LuaResults.empty();
     }
 
     final BigInt startBig = NumberUtils.toBigInt(start);
@@ -1294,11 +1358,11 @@ class _TableUnpack extends BuiltinFunction {
     }
 
     if (count == 0) {
-      return Value.multi(<dynamic>[]);
+      return const LuaResults.empty();
     }
     if (count == 1) {
       return result[0]!;
     }
-    return Value.multi(result.cast<Value>());
+    return LuaResults(result.cast<Value>());
   }
 }

@@ -6,6 +6,7 @@ import 'package:lualike/src/logging/logger.dart';
 import 'package:lualike/src/lua_error.dart';
 import 'package:lualike/src/lua_string.dart';
 import 'package:lualike/src/number_utils.dart';
+import 'package:lualike/src/runtime/lua_results.dart';
 import 'package:lualike/src/utils/io_abstractions.dart' as io_abs;
 import 'package:lualike/src/utils/platform_utils.dart' as platform;
 import 'package:lualike/src/utils/type.dart' show getLuaType;
@@ -326,7 +327,7 @@ class IOClose extends BuiltinFunction {
       if (result.isNotEmpty && result[0] == true) {
         IOLib.unregisterOpenFileForLuaFile(luaFile);
       }
-      return Value.multi(result);
+      return LuaResults(result);
     }
 
     final file = args[0];
@@ -335,7 +336,7 @@ class IOClose extends BuiltinFunction {
         () => 'Attempt to close non-file object',
         category: 'IO',
       );
-      return Value.multi([null, "attempt to close a non-file object"]);
+      return LuaResults([null, "attempt to close a non-file object"]);
     }
 
     Logger.debugLazy(() => 'Closing file', category: 'IO');
@@ -344,7 +345,7 @@ class IOClose extends BuiltinFunction {
     // Check if this is a standard file (stdin, stdout, stderr)
     if (luaFile.isStandardFile) {
       Logger.debugLazy(() => 'Cannot close standard file', category: 'IO');
-      return Value(false); // Standard files cannot be closed
+      return primitiveValue(false); // Standard files cannot be closed
     }
 
     // Check if file is already closed
@@ -362,7 +363,7 @@ class IOClose extends BuiltinFunction {
           () => 'Default input/output file already closed, returning success',
           category: 'IO',
         );
-        return Value.multi([true]);
+        return LuaResults([true]);
       }
 
       // For other files, throw an error as expected
@@ -387,7 +388,7 @@ class IOClose extends BuiltinFunction {
 
     // Note: We don't reset _defaultInput to null here because we want
     // subsequent io.read calls to detect the closed file and throw an error
-    return Value.multi(result);
+    return LuaResults(result);
   }
 }
 
@@ -400,7 +401,7 @@ class IOFlush extends BuiltinFunction {
     final defaultOutput = IOLib.defaultOutput;
     final luaFile = defaultOutput.raw as LuaFile;
     final result = await luaFile.flush();
-    return Value.multi(result);
+    return LuaResults(result);
   }
 }
 
@@ -522,7 +523,12 @@ class IOLines extends BuiltinFunction {
           true,
           toClose,
         ); // closeOnEof = true for io.lines(filename)
-        return Value.multi([iterator, Value(null), Value(null), toClose]);
+        return LuaResults([
+          iterator,
+          primitiveValue(null),
+          primitiveValue(null),
+          toClose,
+        ]);
       } catch (e) {
         Logger.debugLazy(() => 'Error opening file: $e', category: 'IO');
         throw LuaError(e.toString());
@@ -563,7 +569,7 @@ class IOOpen extends BuiltinFunction {
     Logger.debugLazy(() => 'Executing IO open', category: 'IO');
     if (args.isEmpty) {
       Logger.debugLazy(() => 'Missing filename', category: 'IO');
-      return Value.multi([null, "missing filename"]);
+      return LuaResults([null, "missing filename"]);
     }
 
     final filename = (args[0] as Value).raw.toString();
@@ -586,7 +592,7 @@ class IOOpen extends BuiltinFunction {
 
       // File system errors should return tuple
       final errno = io_abs.extractOsErrorCode(e);
-      return Value.multi([null, e.toString(), errno]);
+      return LuaResults([null, e.toString(), errno]);
     }
   }
 }
@@ -710,13 +716,13 @@ class IOPopen extends BuiltinFunction {
       final device = await ProcessIODevice.start(cmd, mode);
 
       final file = PopenLuaFile(device);
-      return wrapLuaFileValue(file);
+      return wrapLuaFileValue(file, interpreter: interpreter);
     } catch (e) {
       Logger.debugLazy(
         () => 'Error starting popen process: $e',
         category: 'IO',
       );
-      return Value.multi([null, e.toString()]);
+      return LuaResults([null, e.toString()]);
     }
   }
 }
@@ -771,7 +777,7 @@ class IORead extends BuiltinFunction {
             () => 'Error reading format: ${result[1]}',
             category: 'IO',
           );
-          return Value.multi(result);
+          return LuaResults(result);
         }
 
         if (result[0] == null) {
@@ -800,7 +806,7 @@ class IORead extends BuiltinFunction {
       }
     }
 
-    return Value.multi(results);
+    return LuaResults(results);
   }
 }
 
@@ -818,7 +824,7 @@ class IOTmpfile extends BuiltinFunction {
         () => 'Error creating temporary file: $e',
         category: 'IO',
       );
-      return Value.multi([null, e.toString()]);
+      return LuaResults([null, e.toString()]);
     }
   }
 }
@@ -829,15 +835,15 @@ class IOType extends BuiltinFunction {
   @override
   Future<Object?> call(List<Object?> args) async {
     Logger.debugLazy(() => 'Executing IO type', category: 'IO');
-    if (args.isEmpty) return Value(null);
+    if (args.isEmpty) return primitiveValue(null);
 
     final obj = args[0];
-    if (!isLuaFile(obj)) return Value(null);
+    if (!isLuaFile(obj)) return primitiveValue(null);
 
     final file = extractLuaFile(obj)!;
     final type = file.isClosed ? "closed file" : "file";
     Logger.debugLazy(() => 'File type: $type', category: 'IO');
-    return Value(type);
+    return dartStringValue(type);
   }
 }
 
@@ -864,7 +870,7 @@ class IOWrite extends BuiltinFunction {
 
     if (args.isEmpty) {
       Logger.debugLazy(() => 'No arguments to write', category: 'IO');
-      return Value.multi([true]);
+      return LuaResults([true]);
     }
 
     for (final arg in args) {
@@ -884,7 +890,7 @@ class IOWrite extends BuiltinFunction {
               () => 'Error writing raw bytes: ${result[1]}',
               category: 'IO',
             );
-            return Value.multi(result);
+            return LuaResults(result);
           }
         } else if (val.raw is String || val.raw is num || val.raw is BigInt) {
           final str = val.raw.toString();
@@ -895,7 +901,7 @@ class IOWrite extends BuiltinFunction {
               () => 'Error writing: ${result[1]}',
               category: 'IO',
             );
-            return Value.multi(result);
+            return LuaResults(result);
           }
         } else {
           throw LuaError.typeError(
@@ -956,7 +962,7 @@ class FileClose extends BuiltinFunction {
     // Check if this is a standard file (stdin, stdout, stderr)
     if (luaFile.isStandardFile) {
       Logger.debugLazy(() => 'Cannot close standard file', category: 'IO');
-      return Value(false); // Standard files cannot be closed
+      return primitiveValue(false); // Standard files cannot be closed
     }
 
     final result = await luaFile.close();
@@ -980,7 +986,7 @@ class FileClose extends BuiltinFunction {
       IOLib._defaultInput = null;
     }
 
-    return Value.multi(result);
+    return LuaResults(result);
   }
 }
 
@@ -995,7 +1001,7 @@ class FileFlush extends BuiltinFunction {
       throw LuaError.typeError("file expected");
     }
     final result = await extractLuaFile(file)!.flush();
-    return Value.multi(result);
+    return LuaResults(result);
   }
 }
 
@@ -1030,7 +1036,7 @@ class FileRead extends BuiltinFunction {
       final result = await luaFile.read(format);
       if (result[0] == null && result.length > 1 && result[1] != null) {
         // This is an error (not just EOF), return the error immediately
-        return Value.multi(result);
+        return LuaResults(result);
       }
 
       if (result[0] == null) {
@@ -1041,7 +1047,7 @@ class FileRead extends BuiltinFunction {
       results.add(result[0]);
     }
 
-    return Value.multi(results);
+    return LuaResults(results);
   }
 }
 
@@ -1081,7 +1087,7 @@ class FileWrite extends BuiltinFunction {
       }
       if (result[0] == null) {
         // On failure, propagate the (nil, errmsg[, errno]) tuple.
-        return Value.multi(result);
+        return LuaResults(result);
       }
     }
     // Success: return the file handle (self) for chaining.
@@ -1110,7 +1116,7 @@ class FileSeek extends BuiltinFunction {
         : 0;
 
     final result = await extractLuaFile(file)!.seek(whence, offset);
-    return Value.multi(result);
+    return LuaResults(result);
   }
 }
 
@@ -1162,7 +1168,7 @@ class FileSetvbuf extends BuiltinFunction {
         : null;
 
     final result = await extractLuaFile(file)!.setvbuf(mode, size);
-    return Value.multi(result);
+    return LuaResults(result);
   }
 }
 

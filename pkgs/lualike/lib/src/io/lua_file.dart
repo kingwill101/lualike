@@ -5,7 +5,9 @@ import 'package:lualike/src/environment.dart';
 import 'package:lualike/src/logging/logger.dart';
 import 'package:lualike/src/lua_error.dart';
 import 'package:lualike/src/lua_string.dart';
+import 'package:lualike/src/runtime/lua_results.dart';
 import 'package:lualike/src/runtime/lua_runtime.dart';
+import 'package:lualike/src/runtime/lua_slot.dart';
 import 'package:lualike/src/upvalue.dart';
 import 'package:lualike/src/utils/type.dart' show getLuaType;
 import 'package:lualike/src/value.dart';
@@ -13,6 +15,10 @@ import 'package:lualike/src/gc/gc.dart';
 
 import '../stdlib/lib_io.dart';
 import 'io_device.dart';
+
+Value _ioPrimitiveValue(Object? raw, [Value? owner]) {
+  return cachedPrimitiveOrValue(owner?.interpreter, raw);
+}
 
 final fileMetamethods = {
   "__name": "FILE*",
@@ -51,7 +57,7 @@ final fileMetamethods = {
         category: 'IO',
       );
       IOLib.unregisterOpenFile(args[0] as Value);
-      return Value(null);
+      return _ioPrimitiveValue(null, fileValue);
     }
 
     final trackedWrapper = IOLib.trackedOpenFileWrapper(luaFile);
@@ -60,7 +66,7 @@ final fileMetamethods = {
         () => 'GC: Skipping close for non-canonical file wrapper',
         category: 'IO',
       );
-      return Value(null);
+      return _ioPrimitiveValue(null, fileValue);
     }
 
     // For default files that are being GC'd, we need to be more careful
@@ -73,7 +79,7 @@ final fileMetamethods = {
           () => 'GC: Skipping close of standard device',
           category: 'IO',
         );
-        return Value(null);
+        return _ioPrimitiveValue(null, fileValue);
       }
 
       // For non-standard default files, reset the default but don't close yet
@@ -82,14 +88,14 @@ final fileMetamethods = {
         () => 'GC: Default file being collected, but keeping it alive',
         category: 'IO',
       );
-      return Value(null);
+      return _ioPrimitiveValue(null, fileValue);
     }
 
     // Not a default file and not closed, safe to close
     await luaFile.close();
     IOLib.unregisterOpenFile(args[0] as Value);
     Logger.debugLazy(() => 'GC: File closed successfully', category: 'IO');
-    return Value(null);
+    return _ioPrimitiveValue(null, fileValue);
   },
   "__close": (List<Object?> args) async {
     Logger.debugLazy(() => 'Closing file', category: 'IO');
@@ -100,7 +106,7 @@ final fileMetamethods = {
       if (result.isNotEmpty && result[0] == true) {
         IOLib.unregisterOpenFile(fileValue);
       }
-      return Value.multi(result);
+      return LuaResults(result);
     } else {
       throw LuaError.typeError("file expected");
     }
@@ -110,7 +116,7 @@ final fileMetamethods = {
     final fileValue = args[0];
     if (fileValue is Value && fileValue.raw is LuaFile) {
       final file = fileValue.raw as LuaFile;
-      return Value(file.toString());
+      return _ioPrimitiveValue(file.toString(), fileValue);
     } else {
       throw LuaError.typeError("file expected");
     }
@@ -133,7 +139,10 @@ final fileMetamethods = {
       final method = LuaFile.fileMethods[keyStr];
       if (method != null) {
         Logger.debugLazy(() => 'Found file method: $keyStr', category: 'IO');
-        return Value(method);
+        return Value(
+          method,
+          interpreter: fileValue is Value ? fileValue.interpreter : null,
+        );
       }
 
       // Handle file properties
@@ -146,19 +155,19 @@ final fileMetamethods = {
               () => 'Returning file mode: ${luaFile.mode}',
               category: 'IO',
             );
-            return Value(luaFile.mode);
+            return _ioPrimitiveValue(luaFile.mode, fileValue);
           case 'isClosed':
             Logger.debugLazy(
               () => 'Returning file isClosed: ${luaFile.isClosed}',
               category: 'IO',
             );
-            return Value(luaFile.isClosed);
+            return _ioPrimitiveValue(luaFile.isClosed, fileValue);
           case 'isStandardFile':
             Logger.debugLazy(
               () => 'Returning file isStandardFile: ${luaFile.isStandardFile}',
               category: 'IO',
             );
-            return Value(luaFile.isStandardFile);
+            return _ioPrimitiveValue(luaFile.isStandardFile, fileValue);
         }
       }
     }
@@ -167,7 +176,7 @@ final fileMetamethods = {
       () => 'File property/method not found: ${key.raw}',
       category: 'IO',
     );
-    return Value(null);
+    return _ioPrimitiveValue(null, fileValue is Value ? fileValue : null);
   },
 };
 
@@ -404,7 +413,7 @@ class LuaFile {
       );
       return Value((List<Object?> args) async {
         throw LuaError("Cannot read from write-only file");
-      });
+      }, interpreter: owner?.interpreter);
     }
     final iteratorValue = Value(
       _LuaFileLineIterator(
@@ -437,7 +446,7 @@ final class _LuaFileLineIterator extends BuiltinFunction implements GCObject {
     required this.formats,
     required this.closeOnEof,
     required this.owner,
-  });
+  }) : super(owner?.interpreter);
 
   final LuaFile file;
   final List<String> formats;
@@ -520,7 +529,7 @@ final class _LuaFileLineIterator extends BuiltinFunction implements GCObject {
           category: 'IO',
         );
       }
-      return Value(null);
+      return primitiveValue(null);
     }
 
     final results = <Object?>[];
@@ -575,7 +584,7 @@ final class _LuaFileLineIterator extends BuiltinFunction implements GCObject {
             category: 'IO',
           );
         }
-        return Value(null);
+        return primitiveValue(null);
       }
 
       results.add(result.value);
@@ -593,14 +602,14 @@ final class _LuaFileLineIterator extends BuiltinFunction implements GCObject {
             "Returning single value: ${results[0]} (iteration #$iterationCount)",
         category: 'IO',
       );
-      return Value(results[0]);
+      return cachedPrimitiveOrValue(interpreter, results[0]);
     }
 
     Logger.debugLazy(
       () => "Returning multi values: $results (iteration #$iterationCount)",
       category: 'IO',
     );
-    return Value.multi(results);
+    return LuaResults(results);
   }
 }
 

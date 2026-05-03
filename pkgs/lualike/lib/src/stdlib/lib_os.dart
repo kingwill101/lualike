@@ -1,5 +1,7 @@
 import 'package:lualike/lualike.dart';
 
+import 'package:lualike/src/runtime/lua_results.dart';
+import 'package:lualike/src/runtime/lua_slot.dart';
 import 'package:lualike/src/utils/file_system_utils.dart';
 import 'package:lualike/src/number_limits.dart';
 import 'package:lualike/src/utils/io_abstractions.dart';
@@ -16,17 +18,18 @@ class OSLibraryNew extends Library {
   @override
   void registerFunctions(LibraryRegistrationContext context) {
     // Register all OS functions directly
-    context.define('clock', _OSClock());
-    context.define('date', _OSDate());
-    context.define('difftime', _OSDiffTime());
-    context.define('execute', _OSExecute());
-    context.define('exit', _OSExit());
-    context.define('getenv', _OSGetEnv());
-    context.define('remove', _OSRemove());
-    context.define('rename', _OSRename());
-    context.define('setlocale', _OSSetLocale());
-    context.define('time', _OSTime());
-    context.define('tmpname', _OSTmpName());
+    final runtime = context.vm;
+    context.define('clock', _OSClock(runtime));
+    context.define('date', _OSDate(runtime));
+    context.define('difftime', _OSDiffTime(runtime));
+    context.define('execute', _OSExecute(runtime));
+    context.define('exit', _OSExit(runtime));
+    context.define('getenv', _OSGetEnv(runtime));
+    context.define('remove', _OSRemove(runtime));
+    context.define('rename', _OSRename(runtime));
+    context.define('setlocale', _OSSetLocale(runtime));
+    context.define('time', _OSTime(runtime));
+    context.define('tmpname', _OSTmpName(runtime));
   }
 }
 
@@ -50,19 +53,19 @@ class OSLibrary {
 }
 
 class _OSClock extends BuiltinFunction {
-  _OSClock() : super();
+  _OSClock([super.interpreter]);
   static final _start = DateTime.now();
 
   @override
   Object? call(List<Object?> args) {
     // Return CPU time in seconds
     final elapsed = DateTime.now().difference(_start);
-    return Value(elapsed.inMicroseconds / 1000000.0);
+    return primitiveValue(elapsed.inMicroseconds / 1000000.0);
   }
 }
 
 class _OSDate extends BuiltinFunction {
-  _OSDate() : super();
+  _OSDate([super.interpreter]);
   @override
   Object? call(List<Object?> args) {
     String format = args.isNotEmpty ? (args[0] as Value).raw.toString() : "%c";
@@ -105,7 +108,7 @@ class _OSDate extends BuiltinFunction {
         if (value > maxInt - delta) {
           throw LuaError("field '$key' is out-of-bound");
         }
-        table[key] = Value(value + delta);
+        table[key] = primitiveValue(value + delta);
       }
 
       setField("year", time.year - 1900, 1900); // year = tm_year + 1900
@@ -120,12 +123,12 @@ class _OSDate extends BuiltinFunction {
         1,
       ); // yday = tm_yday + 1
       setField("wday", (time.weekday % 7), 1); // wday = tm_wday + 1
-      table["isdst"] = Value(false); // No DST info
+      table["isdst"] = primitiveValue(false); // No DST info
 
-      return Value(table);
+      return valueFromOptionalLuaSlot(interpreter, table);
     } else {
       // Format the date according to the format string
-      return Value(_formatDate(time, format));
+      return dartStringValue(_formatDate(time, format));
     }
   }
 
@@ -257,7 +260,7 @@ class _OSDate extends BuiltinFunction {
 }
 
 class _OSDiffTime extends BuiltinFunction {
-  _OSDiffTime() : super();
+  _OSDiffTime([super.interpreter]);
   @override
   Object? call(List<Object?> args) {
     if (args.length < 2) {
@@ -267,17 +270,19 @@ class _OSDiffTime extends BuiltinFunction {
     final t2 = (args[0] as Value).raw as int;
     final t1 = (args[1] as Value).raw as int;
 
-    return Value(t2 - t1);
+    return primitiveValue(t2 - t1);
   }
 }
 
 class _OSExecute extends BuiltinFunction {
-  _OSExecute() : super();
+  _OSExecute([super.interpreter]);
   @override
   Object? call(List<Object?> args) {
     if (args.isEmpty) {
       // Check if shell is available
-      return Value(platform.isWindows || platform.isLinux || platform.isMacOS);
+      return primitiveValue(
+        platform.isWindows || platform.isLinux || platform.isMacOS,
+      );
     }
 
     String command = (args[0] as Value).raw.toString();
@@ -311,20 +316,40 @@ class _OSExecute extends BuiltinFunction {
       // Lua test-suite is expected to return an 'exit' status.
       final code = result.exitCode;
       if (code == 0) {
-        return [Value(true), Value('exit'), Value(0)];
+        return [
+          primitiveValue(true),
+          dartStringValue('exit'),
+          primitiveValue(0),
+        ];
       }
       if (!platform.isWindows && code < 0) {
         final isWrappedKill = RegExp(
           r"^\s*sh\s+-c\s+'kill\s+-s\s+[^']+\s+\$\$'\s*",
         ).hasMatch(command);
         if (!isWrappedKill) {
-          return [Value(false), Value('signal'), Value(-code)];
+          return [
+            primitiveValue(false),
+            dartStringValue('signal'),
+            primitiveValue(-code),
+          ];
         }
-        return [Value(false), Value('exit'), Value(-code)];
+        return [
+          primitiveValue(false),
+          dartStringValue('exit'),
+          primitiveValue(-code),
+        ];
       }
-      return [Value(false), Value('exit'), Value(code)];
+      return [
+        primitiveValue(false),
+        dartStringValue('exit'),
+        primitiveValue(code),
+      ];
     } catch (e) {
-      return [Value(false), Value('error'), Value(e.toString())];
+      return [
+        primitiveValue(false),
+        dartStringValue('error'),
+        dartStringValue(e.toString()),
+      ];
     }
   }
 }
@@ -353,7 +378,7 @@ String _maybePrefixLocalLualike(String command) {
 }
 
 class _OSExit extends BuiltinFunction {
-  _OSExit() : super();
+  _OSExit([super.interpreter]);
   @override
   Object? call(List<Object?> args) {
     final code = args.isNotEmpty ? (args[0] as Value).raw as int : 0;
@@ -363,7 +388,7 @@ class _OSExit extends BuiltinFunction {
 }
 
 class _OSGetEnv extends BuiltinFunction {
-  _OSGetEnv() : super();
+  _OSGetEnv([super.interpreter]);
   @override
   Object? call(List<Object?> args) {
     if (args.isEmpty) {
@@ -373,12 +398,12 @@ class _OSGetEnv extends BuiltinFunction {
     final name = (args[0] as Value).raw.toString();
     final value = platform.getEnvironmentVariable(name);
 
-    return Value(value);
+    return primitiveValue(value);
   }
 }
 
 class _OSRemove extends BuiltinFunction {
-  _OSRemove() : super();
+  _OSRemove([super.interpreter]);
   @override
   Object? call(List<Object?> args) async {
     if (args.isEmpty) {
@@ -390,18 +415,21 @@ class _OSRemove extends BuiltinFunction {
     try {
       if (await fileExists(filename)) {
         await deleteFile(filename);
-        return Value.multi([Value(true)]);
+        return LuaResults([primitiveValue(true)]);
       } else {
-        return Value.multi([Value(null), Value("No such file or directory")]);
+        return LuaResults([
+          primitiveValue(null),
+          dartStringValue("No such file or directory"),
+        ]);
       }
     } catch (e) {
-      return Value.multi([Value(null), Value(e.toString())]);
+      return LuaResults([primitiveValue(null), dartStringValue(e.toString())]);
     }
   }
 }
 
 class _OSRename extends BuiltinFunction {
-  _OSRename() : super();
+  _OSRename([super.interpreter]);
   @override
   Object? call(List<Object?> args) async {
     if (args.length < 2) {
@@ -414,24 +442,27 @@ class _OSRename extends BuiltinFunction {
     try {
       if (await fileExists(oldName)) {
         await renameFile(oldName, newName);
-        return Value.multi([Value(true)]);
+        return LuaResults([primitiveValue(true)]);
       } else {
-        return Value.multi([Value(null), Value("No such file or directory")]);
+        return LuaResults([
+          primitiveValue(null),
+          dartStringValue("No such file or directory"),
+        ]);
       }
     } catch (e) {
-      return Value.multi([Value(null), Value(e.toString())]);
+      return LuaResults([primitiveValue(null), dartStringValue(e.toString())]);
     }
   }
 }
 
 class _OSSetLocale extends BuiltinFunction {
-  _OSSetLocale() : super();
+  _OSSetLocale([super.interpreter]);
   static String? _currentLocale;
 
   @override
   Object? call(List<Object?> args) {
     if (args.isEmpty) {
-      return Value(_currentLocale ?? 'C');
+      return dartStringValue(_currentLocale ?? 'C');
     }
 
     final localeArg = args[0] as Value;
@@ -440,7 +471,7 @@ class _OSSetLocale extends BuiltinFunction {
 
     // If locale argument is nil, return current locale
     if (localeArg.raw == null) {
-      return Value(_currentLocale ?? 'C');
+      return dartStringValue(_currentLocale ?? 'C');
     }
 
     final locale = localeArg.raw.toString();
@@ -453,19 +484,21 @@ class _OSSetLocale extends BuiltinFunction {
       _currentLocale = 'C';
     } else {
       // For any other locale, return nil since we don't support it
-      return Value(null);
+      return primitiveValue(null);
     }
-    return Value(_currentLocale);
+    return dartStringValue(_currentLocale ?? 'C');
   }
 }
 
 class _OSTime extends BuiltinFunction {
-  _OSTime() : super();
+  _OSTime([super.interpreter]);
   @override
   Object? call(List<Object?> args) {
     if (args.isEmpty) {
       // Return current time
-      return Value((DateTime.now().millisecondsSinceEpoch / 1000).floor());
+      return primitiveValue(
+        (DateTime.now().millisecondsSinceEpoch / 1000).floor(),
+      );
     } else {
       // Convert table to timestamp
       final arg = args[0] as Value;
@@ -559,7 +592,7 @@ class _OSTime extends BuiltinFunction {
           }
         }
 
-        return Value(epochSeconds);
+        return primitiveValue(epochSeconds);
       } catch (e) {
         // Preserve explicit LuaErrors
         if (e is LuaError) {
@@ -576,7 +609,7 @@ class _OSTime extends BuiltinFunction {
           if (sec >= 60) {
             throw LuaError("cannot be represented");
           }
-          return Value(0);
+          return primitiveValue(0);
         }
         throw LuaError("field 'year' is out-of-bound");
       }
@@ -620,12 +653,12 @@ class _OSTime extends BuiltinFunction {
     if (value > maxInt || value < minInt) {
       throw LuaError("field '$key' is out-of-bound");
     }
-    table[key] = Value(value);
+    table[key] = primitiveValue(value);
   }
 }
 
 class _OSTmpName extends BuiltinFunction {
-  _OSTmpName() : super();
+  _OSTmpName([super.interpreter]);
   static int _counter = 0;
 
   @override
@@ -633,7 +666,7 @@ class _OSTmpName extends BuiltinFunction {
     final tmpdir = getSystemTempDirectory();
     final timestamp = DateTime.now().millisecondsSinceEpoch;
     _counter++;
-    return Value('$tmpdir/lua_${timestamp}_$_counter.tmp');
+    return dartStringValue('$tmpdir/lua_${timestamp}_$_counter.tmp');
   }
 }
 

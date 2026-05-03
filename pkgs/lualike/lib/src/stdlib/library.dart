@@ -96,7 +96,7 @@ class BuiltinFunctionBuilder {
 class _BuiltinFunctionImpl extends BuiltinFunction {
   final Object? Function(List<Object?> args) _implementation;
 
-  _BuiltinFunctionImpl(LuaRuntime interpreter, this._implementation);
+  _BuiltinFunctionImpl(super.interpreter, this._implementation);
 
   @override
   Object? call(List<Object?> args) {
@@ -210,8 +210,12 @@ class LibraryRegistry {
         ? library.getMetamethods(context.interpreter!)
         : null;
     final libraryValue = metamethods != null
-        ? Value(libraryTable, metatable: metamethods)
-        : Value(libraryTable);
+        ? Value(
+            libraryTable,
+            metatable: metamethods,
+            interpreter: context.interpreter,
+          )
+        : Value(libraryTable, interpreter: context.interpreter);
 
     final existing = context.environment.get(library.name);
     if (existing is Value && existing.raw is LazyLibraryMap) {
@@ -222,6 +226,7 @@ class LibraryRegistry {
       existing.metatable = libraryValue.metatable;
       existing.metatableRef = libraryValue.metatableRef;
       existing.functionName = libraryValue.functionName;
+      existing.interpreter ??= context.interpreter;
       context.environment.define(library.name, existing);
       _updatePackageLoaded(context.environment, library.name, existing);
       return existing;
@@ -345,7 +350,11 @@ class LibraryRegistrationContext extends LibraryContext {
     // This prevents temporary Value allocations that affect collectgarbage("count").
     if ((function is BuiltinFunction || function is Function) &&
         function is! Value) {
-      _functionMap[name] = Value(function, functionName: name);
+      _functionMap[name] = Value(
+        function,
+        functionName: name,
+        interpreter: interpreter,
+      );
     } else {
       _functionMap[name] = function;
     }
