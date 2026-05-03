@@ -11,6 +11,7 @@ typedef _PrototypeUpdate = void Function(_ParsedPrototypeBuilder builder);
 typedef _DebugUpdate = void Function(_ParsedDebugInfoBuilder builder);
 
 final Parser<String> _irTriviaParser = _IrTriviaParser();
+final Parser<int> _irIntLiteralParser = _IrIntLiteralParser();
 
 /// Parses a textual `lualike_ir` description into executable IR objects.
 ///
@@ -356,12 +357,7 @@ class _LualikeIrReaderDefinition extends GrammarDefinition {
   Parser _boolLiteral() =>
       _token('true').map((_) => true) | _token('false').map((_) => false);
 
-  Parser _intLiteral() {
-    return (pattern('+-').optional() & digit().plus())
-        .flatten()
-        .trim(ref0(_whitespaceAndComments))
-        .map(int.parse);
-  }
+  Parser _intLiteral() => _irIntLiteralParser;
 
   Parser _doubleLiteral() {
     final exponent = (pattern('eE') & pattern('+-').optional() & digit().plus())
@@ -414,17 +410,108 @@ class _LualikeIrReaderDefinition extends GrammarDefinition {
       inner = parser;
     } else {
       final lexeme = parser as String;
-      final endsWithIdentifier = RegExp(
-        r'[A-Za-z0-9_]',
-      ).hasMatch(lexeme.substring(lexeme.length - 1));
-      if (endsWithIdentifier) {
-        inner = (string(lexeme) & pattern('A-Za-z0-9_').not()).pick(0);
-      } else {
-        inner = string(lexeme);
-      }
+      return _IrTokenParser(
+        lexeme,
+        needsIdentifierBoundary: _isIrIdentifierCodeUnit(
+          lexeme.codeUnitAt(lexeme.length - 1),
+        ),
+      );
     }
     return inner.trim(ref0(_whitespaceAndComments));
   }
+}
+
+class _IrTokenParser extends Parser<String> {
+  _IrTokenParser(this.lexeme, {required this.needsIdentifierBoundary});
+
+  final String lexeme;
+  final bool needsIdentifierBoundary;
+
+  @override
+  Result<String> parseOn(Context context) {
+    final start = _scanIrTrivia(context.buffer, context.position);
+    if (!context.buffer.startsWith(lexeme, start)) {
+      return context.failure('$lexeme expected', start);
+    }
+
+    final end = start + lexeme.length;
+    if (needsIdentifierBoundary &&
+        end < context.buffer.length &&
+        _isIrIdentifierCodeUnit(context.buffer.codeUnitAt(end))) {
+      return context.failure('$lexeme expected', start);
+    }
+
+    return context.success(lexeme, _scanIrTrivia(context.buffer, end));
+  }
+
+  @override
+  int fastParseOn(String buffer, int position) {
+    final start = _scanIrTrivia(buffer, position);
+    if (!buffer.startsWith(lexeme, start)) {
+      return -1;
+    }
+
+    final end = start + lexeme.length;
+    if (needsIdentifierBoundary &&
+        end < buffer.length &&
+        _isIrIdentifierCodeUnit(buffer.codeUnitAt(end))) {
+      return -1;
+    }
+    return _scanIrTrivia(buffer, end);
+  }
+
+  @override
+  _IrTokenParser copy() =>
+      _IrTokenParser(lexeme, needsIdentifierBoundary: needsIdentifierBoundary);
+}
+
+class _IrIntLiteralParser extends Parser<int> {
+  @override
+  Result<int> parseOn(Context context) {
+    final buffer = context.buffer;
+    final start = _scanIrTrivia(buffer, context.position);
+    var current = start;
+
+    if (current < buffer.length) {
+      final sign = buffer.codeUnitAt(current);
+      if (sign == 0x2B || sign == 0x2D) {
+        current++;
+      }
+    }
+
+    final digitStart = current;
+    while (current < buffer.length && _isIrDigit(buffer.codeUnitAt(current))) {
+      current++;
+    }
+    if (current == digitStart) {
+      return context.failure('integer expected', start);
+    }
+
+    final value = int.parse(buffer.substring(start, current));
+    return context.success(value, _scanIrTrivia(buffer, current));
+  }
+
+  @override
+  int fastParseOn(String buffer, int position) {
+    final start = _scanIrTrivia(buffer, position);
+    var current = start;
+
+    if (current < buffer.length) {
+      final sign = buffer.codeUnitAt(current);
+      if (sign == 0x2B || sign == 0x2D) {
+        current++;
+      }
+    }
+
+    final digitStart = current;
+    while (current < buffer.length && _isIrDigit(buffer.codeUnitAt(current))) {
+      current++;
+    }
+    return current == digitStart ? -1 : _scanIrTrivia(buffer, current);
+  }
+
+  @override
+  _IrIntLiteralParser copy() => _IrIntLiteralParser();
 }
 
 class _IrTriviaParser extends Parser<String> {
@@ -507,6 +594,14 @@ bool _isIrWhitespace(int codeUnit) {
   }
   return false;
 }
+
+bool _isIrDigit(int codeUnit) => codeUnit >= 0x30 && codeUnit <= 0x39;
+
+bool _isIrIdentifierCodeUnit(int codeUnit) =>
+    (codeUnit >= 0x41 && codeUnit <= 0x5A) ||
+    (codeUnit >= 0x61 && codeUnit <= 0x7A) ||
+    (codeUnit >= 0x30 && codeUnit <= 0x39) ||
+    codeUnit == 0x5F;
 
 String _decodeString(String content) {
   final bytes = LuaStringParser.parseStringContent(content);
