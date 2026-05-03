@@ -47,9 +47,9 @@ void main() {
         LualikeIrCompiler().compile(program).mainPrototype,
       );
 
-      final getTable = instructions
-          .whereType<ABCInstruction>()
-          .firstWhere((instr) => instr.opcode == LualikeIrOpcode.getTable);
+      final getTable = instructions.whereType<ABCInstruction>().firstWhere(
+        (instr) => instr.opcode == LualikeIrOpcode.getTable,
+      );
       expect(getTable.opcode, LualikeIrOpcode.getTable);
       expect(getTable.c, isNot(equals(getTable.b)));
     });

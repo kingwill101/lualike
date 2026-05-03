@@ -88,9 +88,11 @@ end
 ''';
       final chunk = LualikeIrCompiler().compile(parse(source));
       print(disassembleChunk(chunk));
-      print(const LuaBytecodeDisassembler().render(
-        lowerIrChunkToLuaBytecodeChunk(chunk),
-      ));
+      print(
+        const LuaBytecodeDisassembler().render(
+          lowerIrChunkToLuaBytecodeChunk(chunk),
+        ),
+      );
       print(
         const LuaBytecodeDisassembler().render(
           const LuaBytecodeEmitter().compileSource(source).chunk,

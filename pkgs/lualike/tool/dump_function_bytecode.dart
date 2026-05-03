@@ -21,11 +21,7 @@ void main(List<String> args) {
   );
   final disassembler = const LuaBytecodeDisassembler();
   final chunk = disassembler.disassemble(emitted.chunk);
-  _dumpPrototype(
-    chunk.mainPrototype,
-    nameFilter: nameFilter,
-    depth: 0,
-  );
+  _dumpPrototype(chunk.mainPrototype, nameFilter: nameFilter, depth: 0);
 }
 
 void _dumpPrototype(
@@ -43,7 +39,8 @@ void _dumpPrototype(
     'lastline=${prototype.prototype.lastLineDefined}',
   ].join(' ');
 
-  final matches = nameFilter == null ||
+  final matches =
+      nameFilter == null ||
       prototype.label.contains(nameFilter) ||
       prototype.instructions.any(
         (instruction) =>
@@ -64,10 +61,6 @@ void _dumpPrototype(
   }
 
   for (final child in prototype.children) {
-    _dumpPrototype(
-      child,
-      nameFilter: nameFilter,
-      depth: depth + 1,
-    );
+    _dumpPrototype(child, nameFilter: nameFilter, depth: depth + 1);
   }
 }

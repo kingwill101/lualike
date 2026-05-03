@@ -279,11 +279,12 @@ class _LualikeIrReaderDefinition extends GrammarDefinition {
   }
 
   Parser _toBeClosedDebugEntry() {
-    return (_token('tbc') &
-            _propertyEntries(ref0(_toBeClosedDebugProperty))).map((values) {
-      final properties = (values[1] as List).cast<MapEntry<String, Object?>>();
-      return _buildToBeClosedDebugEntry(properties);
-    });
+    return (_token('tbc') & _propertyEntries(ref0(_toBeClosedDebugProperty)))
+        .map((values) {
+          final properties = (values[1] as List)
+              .cast<MapEntry<String, Object?>>();
+          return _buildToBeClosedDebugEntry(properties);
+        });
   }
 
   Parser _toBeClosedDebugProperty() {

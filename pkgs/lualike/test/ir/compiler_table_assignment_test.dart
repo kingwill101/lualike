@@ -71,21 +71,24 @@ void main() {
       expect(setTable.c, isNot(anyOf(equals(setTable.a), equals(setTable.b))));
     });
 
-    test('compiles large integer literal assignment with SETTABLE fallback', () {
-      final program = parse('arr[999] = value');
-      final instructions = _stripVarArgPrep(
-        LualikeIrCompiler().compile(program).mainPrototype,
-      );
+    test(
+      'compiles large integer literal assignment with SETTABLE fallback',
+      () {
+        final program = parse('arr[999] = value');
+        final instructions = _stripVarArgPrep(
+          LualikeIrCompiler().compile(program).mainPrototype,
+        );
 
-      expect(
-        instructions.any((instr) => instr.opcode == LualikeIrOpcode.setI),
-        isFalse,
-      );
-      expect(
-        instructions.any((instr) => instr.opcode == LualikeIrOpcode.setTable),
-        isTrue,
-      );
-    });
+        expect(
+          instructions.any((instr) => instr.opcode == LualikeIrOpcode.setI),
+          isFalse,
+        );
+        expect(
+          instructions.any((instr) => instr.opcode == LualikeIrOpcode.setTable),
+          isTrue,
+        );
+      },
+    );
 
     test('compiles multi-target table field assignment', () {
       final program = parse('tbl.alpha, tbl.beta = 1, 2');
