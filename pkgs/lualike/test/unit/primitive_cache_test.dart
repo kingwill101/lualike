@@ -1243,4 +1243,25 @@ void main() {
     expect(identical(shifted, interpreter.constantPrimitiveValue(0xF0)), true);
     expect(sharedPrimitiveSum.raw, 15);
   });
+
+  test('Value logical operators reuse runtime caches for raw operands', () {
+    final interpreter = Interpreter();
+    final truthy = Value(true, interpreter: interpreter);
+    final falsey = Value(false, interpreter: interpreter);
+    final existing = Value('existing');
+
+    final andResult = truthy.and(42);
+    final orResult = falsey.or('fallback');
+    final existingResult = falsey.or(existing);
+
+    expect(identical(andResult, interpreter.constantPrimitiveValue(42)), true);
+    expect(
+      identical(orResult, interpreter.constantDartStringValue('fallback')),
+      true,
+    );
+    expect(identical(existingResult, existing), true);
+    expect(identical(existing.interpreter, interpreter), true);
+    expect(identical(truthy.or(0), truthy), true);
+    expect(identical(falsey.and(0), falsey), true);
+  });
 }

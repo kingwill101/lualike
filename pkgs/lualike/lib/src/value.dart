@@ -3263,8 +3263,7 @@ extension OperatorExtension on Value {
     if (raw != null && raw != false) {
       return this;
     }
-    final wrappedOther = other is Value ? other : Value.wrap(other);
-    return wrappedOther;
+    return _wrapLogicalOperand(other);
   }
 
   // Logical AND method (Lua-style)
@@ -3273,8 +3272,16 @@ extension OperatorExtension on Value {
     if (raw == null || raw == false) {
       return this;
     }
-    final wrappedOther = other is Value ? other : Value.wrap(other);
-    return wrappedOther;
+    return _wrapLogicalOperand(other);
+  }
+
+  Value _wrapLogicalOperand(dynamic other) {
+    final runtime = _resolveInterpreter();
+    if (other is Value) {
+      other.interpreter ??= runtime;
+      return other;
+    }
+    return runtime?.wrapRuntimeValue(other) ?? Value.wrap(other);
   }
 
   // Helper method for Lua truthiness evaluation
