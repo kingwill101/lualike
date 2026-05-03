@@ -62,6 +62,11 @@ const _groupScenarios = <String, List<String>>{
     'lua-string-parser-escaped',
     'lua-string-parser-byte',
   ],
+  'lua-pattern-all': <String>[
+    'lua-pattern-compile-literal',
+    'lua-pattern-compile-class',
+    'lua-pattern-match-literal',
+  ],
 };
 
 final _leafScenarios = <String>{
@@ -91,6 +96,9 @@ final _leafScenarios = <String>{
   'lua-string-parser-simple',
   'lua-string-parser-escaped',
   'lua-string-parser-byte',
+  'lua-pattern-compile-literal',
+  'lua-pattern-compile-class',
+  'lua-pattern-match-literal',
 };
 
 final List<String> _scenarioNames = (<String>{
@@ -548,6 +556,29 @@ assert(n > 0)
       sourceCodeUnitsAreBytes: true,
       workUnits: 40000,
     ),
+    'lua-pattern-compile-literal' => _luaPatternCompileScenario(
+      name: 'lua-pattern-compile-literal',
+      patterns: const <String>[
+        'needle',
+        'status',
+        'function',
+        'return',
+        'table',
+      ],
+      workUnits: 50000,
+    ),
+    'lua-pattern-compile-class' => _luaPatternCompileScenario(
+      name: 'lua-pattern-compile-class',
+      patterns: const <String>[
+        r'%w+',
+        r'(%a+)%s+(%d+)',
+        r'^%s*(.-)%s*$',
+        r'%f[%a]%w+',
+        r'[%w_]+',
+      ],
+      workUnits: 20000,
+    ),
+    'lua-pattern-match-literal' => _luaPatternMatchLiteralScenario(),
     _ => throw ArgumentError.value(name, 'scenario', 'Unknown benchmark'),
   };
 }
@@ -742,6 +773,49 @@ _BenchScenario _luaStringParserScenario({
           content,
           sourceCodeUnitsAreBytes: sourceCodeUnitsAreBytes,
         ).length;
+      }
+      if (total == 0) {
+        throw StateError('unexpected zero total');
+      }
+    },
+  );
+}
+
+_BenchScenario _luaPatternCompileScenario({
+  required String name,
+  required List<String> patterns,
+  required int workUnits,
+}) {
+  return _BenchScenario(
+    name: name,
+    workUnits: workUnits,
+    workLabel: 'pattern compiles',
+    run: (_) async {
+      var total = 0;
+      for (var i = 0; i < workUnits; i++) {
+        final pattern = LuaPattern.compile(patterns[i % patterns.length]);
+        final match = pattern.firstMatch(patterns[i % patterns.length]);
+        total += match?.end ?? 0;
+      }
+      if (total == 0) {
+        throw StateError('unexpected zero total');
+      }
+    },
+  );
+}
+
+_BenchScenario _luaPatternMatchLiteralScenario() {
+  const workUnits = 60000;
+  final subject = '${'abcd '.padRight(1024, 'x')} needle tail';
+  final pattern = LuaPattern.compile('needle');
+  return _BenchScenario(
+    name: 'lua-pattern-match-literal',
+    workUnits: workUnits,
+    workLabel: 'pattern matches',
+    run: (_) async {
+      var total = 0;
+      for (var i = 0; i < workUnits; i++) {
+        total += pattern.firstMatch(subject)?.start ?? 0;
       }
       if (total == 0) {
         throw StateError('unexpected zero total');
