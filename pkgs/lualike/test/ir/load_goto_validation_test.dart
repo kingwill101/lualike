@@ -17,8 +17,8 @@ void main() {
         f, err = load("goto l1; do ::l1:: end")
       ''');
 
-      final f = lua.getGlobal('f') as Value?;
-      expect(f, isNull);
+      final f = lua.getGlobal('f') as Value;
+      expect(f.unwrap(), isNull);
       final err = lua.getGlobal('err') as Value;
 
       expect(err.unwrap(), contains("label 'l1'"));
@@ -29,8 +29,8 @@ void main() {
         f, err = load("goto l1; local aa ::l1:: print(3)")
       ''');
 
-      final f = lua.getGlobal('f') as Value?;
-      expect(f, isNull);
+      final f = lua.getGlobal('f') as Value;
+      expect(f.unwrap(), isNull);
       final err = lua.getGlobal('err') as Value;
 
       expect(err.unwrap(), contains("scope of 'aa'"));

@@ -1119,12 +1119,15 @@ final class LuaBytecodeVm {
             }
           case 'NEWTABLE':
             {
-              final extra = _consumeExtraArg(frame);
+              final extra = word.kFlag
+                  ? _consumeExtraArg(frame)
+                  : _consumeOptionalZeroExtraArg(frame);
+              final extraAx = extra?.ax ?? 0;
               final tableStorage = TableStorage();
               final arraySize =
                   word.vc +
                   (word.kFlag
-                      ? extra.ax * (LuaBytecodeInstructionLayout.maxArgVC + 1)
+                      ? extraAx * (LuaBytecodeInstructionLayout.maxArgVC + 1)
                       : 0);
               if (arraySize > 0) {
                 tableStorage.ensureArrayCapacity(arraySize);
@@ -5617,6 +5620,21 @@ final class LuaBytecodeVm {
     return extra;
   }
 
+  LuaBytecodeInstructionWord? _consumeOptionalZeroExtraArg(
+    _LuaBytecodeFrame frame,
+  ) {
+    if (frame.pc >= frame.closure.prototype.code.length) {
+      return null;
+    }
+    final next = frame.closure.prototype.code[frame.pc];
+    if (LuaBytecodeOpcodes.byCode(next.opcodeValue).name == 'EXTRAARG' &&
+        next.ax == 0) {
+      frame.pc++;
+      return next;
+    }
+    return null;
+  }
+
   List<Value> _normalizeResults(Object? result) {
     if (result == null) {
       return const <Value>[];
@@ -8558,8 +8576,8 @@ Value _constantValue(
     LuaBytecodeFloatConstant(:final value) => runtime.constantPrimitiveValue(
       value,
     ),
-    LuaBytecodeStringConstant(:final value) => runtime.constantRawStringValue(
-      value,
+    LuaBytecodeStringConstant(:final value) => runtime.constantStringValue(
+      value.codeUnits,
     ),
   };
   cache[index] = value;

@@ -356,13 +356,13 @@ class _LuaLoader extends BuiltinFunction {
               );
               runtime.setCurrentEnv(moduleEnv);
               runtime.currentScriptPath = absoluteModulePath;
-              await runtime.runAst(ast.statements);
+              result = await runtime.runAst(ast.statements);
               Logger.debugLazy(
                 () => "Module code executed successfully",
                 category: 'Package',
               );
-              // If no explicit return, the result is nil
-              result = Value(null);
+              // If no explicit return, the result is nil.
+              result ??= Value(null);
             } on ReturnException catch (e) {
               // Handle explicit return from module
               Logger.debugLazy(
