@@ -2020,17 +2020,19 @@ bool _startsLongBracket(String buffer, int position) {
 bool _isDigitCodeUnit(int codeUnit) => codeUnit >= 0x30 && codeUnit <= 0x39;
 
 class _TokenParser extends Parser<String> {
-  _TokenParser(this.lexeme, {required this.needsIdentifierBoundary});
+  _TokenParser(this.lexeme, {required this.needsIdentifierBoundary})
+    : failureMessage = '"$lexeme" expected';
 
   final String lexeme;
   final bool needsIdentifierBoundary;
+  final String failureMessage;
 
   @override
   Result<String> parseOn(Context context) {
     final start = _skipLuaTrivia(context.buffer, context.position);
     final end = _matchEnd(context.buffer, start);
     if (end < 0) {
-      return context.failure('"$lexeme" expected', start);
+      return context.failure(failureMessage, start);
     }
     return context.success(lexeme, _skipLuaTrivia(context.buffer, end));
   }
@@ -2071,7 +2073,7 @@ class _TokenParser extends Parser<String> {
       needsIdentifierBoundary == other.needsIdentifierBoundary;
 
   @override
-  String toString() => '"$lexeme" expected';
+  String toString() => failureMessage;
 }
 
 class _TriviaParser extends Parser<void> {
