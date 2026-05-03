@@ -8,6 +8,7 @@ import 'package:lualike/src/runtime/lua_slot.dart';
 import 'package:lualike/src/runtime/vararg_table.dart';
 import 'package:lualike/src/stdlib/lib_base.dart';
 import 'package:lualike/src/stdlib/metatables.dart';
+import 'package:lualike/src/stdlib/test_lib.dart';
 import 'package:lualike/src/table_storage.dart';
 import 'package:path/path.dart' as path_lib;
 import 'package:test/test.dart';
@@ -839,6 +840,27 @@ void main() {
     expect(binaryFromDartString.raw, isA<Uint8List>());
     expect(splitParts.raw, isA<List>());
     expect(dateParts.raw, isA<Map>());
+  });
+
+  test('test library object results attach the runtime', () {
+    final interpreter = Interpreter();
+    final table = Value(<Object?, Object?>{}, interpreter: interpreter);
+
+    final userdata = TestLib.newuserdata([1, 2], runtime: interpreter);
+    final lightUserdata = TestLib.pushuserdata([3], runtime: interpreter);
+    final tableInfo = TestLib.querytab([table], runtime: interpreter);
+    final stringInfo = TestLib.querystr([
+      interpreter.constantDartStringValue('abc'),
+    ], runtime: interpreter);
+
+    expect(userdata.interpreter, same(interpreter));
+    expect(lightUserdata.interpreter, same(interpreter));
+    expect(tableInfo.interpreter, same(interpreter));
+    expect(stringInfo.interpreter, same(interpreter));
+    expect(userdata.raw, isA<Map>());
+    expect(lightUserdata.raw, isA<Map>());
+    expect(tableInfo.raw, isA<Map>());
+    expect(stringInfo.raw, isA<Map>());
   });
 
   test('stdlib registration wrappers attach the runtime', () async {
