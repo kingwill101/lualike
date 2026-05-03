@@ -35,8 +35,9 @@ The example browser sources are cloned from
 `love2d-community/LOVE-Example-Browser` into
 [`assets/love_example_browser/`](./assets/love_example_browser/).
 
-Pocket Bomber is cloned from `chongdashu/love2d-pocket-bomber-game` into
-[`assets/pocket_bomber/`](./assets/pocket_bomber/).
+Pocket Bomber is cloned from
+[chongdashu/love2d-pocket-bomber-game](https://github.com/chongdashu/love2d-pocket-bomber-game)
+into [`assets/pocket_bomber/`](./assets/pocket_bomber/).
 
 Modern Pong is cloned from
 [GwyrddGlas/Modern-Pong](https://github.com/GwyrddGlas/Modern-Pong) into
