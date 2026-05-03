@@ -3,6 +3,7 @@ library;
 
 import 'package:lualike/src/config.dart';
 import 'package:lualike/src/executor.dart';
+import 'package:lualike/src/lua_string.dart';
 import 'package:lualike/src/value.dart';
 import 'package:test/test.dart';
 
@@ -58,6 +59,38 @@ void main() {
 
       final actual = result is Value ? result.raw : result;
       expect(actual, equals(42));
+    });
+
+    test(
+      'pcall reports too-long __call chains from lowered bytecode',
+      () async {
+        final result = await executeCode('''
+        local target = {}
+        for _ = 1, 16 do
+          target = setmetatable({}, {__call = target})
+        end
+        local ok, message = pcall(target)
+        return ok, string.find(message, "too long", 1, true) ~= nil
+      ''', mode: EngineMode.ir);
+
+        final actual = result is Value ? result.raw : result;
+        expect(actual, equals(<dynamic>[false, true]));
+      },
+    );
+
+    test('pcall expands lowered bytecode return vectors', () async {
+      final result = await executeCode('''
+        local ok, first, second = pcall(function()
+          return "a", "b"
+        end)
+        return ok, first, second
+      ''', mode: EngineMode.ir);
+
+      final actual = result is Value ? result.raw : result;
+      final values = (actual as List)
+          .map((value) => value is LuaString ? value.toString() : value)
+          .toList();
+      expect(values, equals(<dynamic>[true, 'a', 'b']));
     });
   });
 }

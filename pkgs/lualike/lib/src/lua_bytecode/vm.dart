@@ -4085,8 +4085,8 @@ final class LuaBytecodeVm {
         throw LuaError.typeError('attempt to call a ${getLuaType(func)} value');
       }
 
-      final callResult = await runtime.callFunction(func, callArgs);
-      return _packBytecodeProtectedCallSuccess(callResult);
+      final callResults = await _invokeValueWithName(func, callArgs);
+      return <Value>[_runtimeValue(runtime, true), ...callResults];
     } on TailCallException catch (tail) {
       final callee = tail.functionValue is Value
           ? tail.functionValue as Value
