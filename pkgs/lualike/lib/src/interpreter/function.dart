@@ -244,8 +244,33 @@ Object? _snapshotReturnPayload(Object? value, LuaRuntime runtime) {
       return original;
     }
 
+    final raw = original.raw;
+    if (raw == null ||
+        raw is bool ||
+        raw is num ||
+        raw is BigInt ||
+        raw is String ||
+        raw is LuaString) {
+      final clone = Value.primitive(
+        raw,
+        isConst: original.isConst,
+        isToBeClose: original.isToBeClose,
+        skipAllocationDebt: original.skipAllocationDebt,
+        skipGcRegistration: original.skipGcRegistration,
+        upvalues: original.upvalues,
+        interpreter: original.interpreter,
+        functionBody: original.functionBody,
+        closureEnvironment: original.closureEnvironment,
+        functionName: original.functionName,
+        debugLineDefined: original.debugLineDefined,
+        strippedDebugInfo: original.strippedDebugInfo,
+      );
+      clone.globalProxyEnvironment = original.globalProxyEnvironment;
+      return clone;
+    }
+
     final clone = Value(
-      original.raw,
+      raw,
       metatable: original.metatable != null
           ? Map.from(original.metatable!)
           : null,
