@@ -1291,4 +1291,40 @@ void main() {
       );
     },
   );
+
+  test('Value concat reuses the runtime string cache', () {
+    final interpreter = Interpreter();
+    final left = Value(
+      LuaString.fromDartString('hello '),
+      interpreter: interpreter,
+    );
+
+    final result = left.concat('world');
+    final cached = interpreter.constantStringValue(
+      LuaString.fromDartString('hello world').bytes,
+    );
+
+    expect(identical(result, cached), true);
+    expect((result.raw as LuaString).toString(), 'hello world');
+  });
+
+  test('Value concat keeps long runtime strings fresh', () {
+    final interpreter = Interpreter();
+    const prefix = '0123456789';
+    const suffix = '0123456789012345678901234567890123456789';
+    const combined = '$prefix$suffix';
+    final left = Value(
+      LuaString.fromDartString(prefix),
+      interpreter: interpreter,
+    );
+
+    final result = left.concat(suffix);
+    final cachedLiteral = interpreter.constantStringValue(
+      LuaString.fromDartString(combined).bytes,
+    );
+
+    expect((result.raw as LuaString).toString(), combined);
+    expect(identical(result, cachedLiteral), false);
+    expect(identical(result.raw, cachedLiteral.raw), false);
+  });
 }
