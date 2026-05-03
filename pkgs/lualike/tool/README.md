@@ -95,6 +95,61 @@ dart run tool/compare.dart script.lua
 
 This tool runs the same code in both Lualike and reference Lua, showing any differences in output.
 
+## Parser Profile Tool (`parser_profile.dart`)
+
+Focused harness for profiling the PetitParser Lua grammar against small Lua
+source files in `luascripts/parser_profiles`.
+
+PetitParser's README recommends small reproducible grammar inputs, the
+reflection linter for common inefficient or invalid parser graphs, `trace()`
+for parser entry/exit flow, `profile()` for activation counts and inclusive
+time, and `progress()` for spotting parser movement and backtracking. This tool
+wraps those hooks around Lualike's real `LuaGrammarDefinition`.
+
+### Basic Usage
+
+```bash
+# Time the whole parser-profile corpus
+dart run tool/parser_profile.dart
+
+# Add PetitParser profile rows for every corpus script
+dart run tool/parser_profile.dart --profile --top=20
+
+# Inspect one small case with trace output
+dart run tool/parser_profile.dart --case table_shapes --trace --trace-limit=80
+
+# Summarize parser movement and backtracking for one case
+dart run tool/parser_profile.dart --case branches_and_loops --progress
+
+# Run the PetitParser grammar linter before timing the corpus
+dart run tool/parser_profile.dart --lint
+
+# Include extra Lua files or directories
+dart run tool/parser_profile.dart --path luascripts/test/math.lua
+
+# Save a timing snapshot as JSON
+dart run tool/parser_profile.dart --label current --json-out benchmarks/parser_profiles/current-small.json
+
+# Compare two saved snapshots and generate Markdown
+dart run tool/parser_profile_compare.dart \
+  --baseline benchmarks/parser_profiles/baseline-small.json \
+  --latest benchmarks/parser_profiles/current-small.json \
+  --markdown-out benchmarks/parser_profiles/current-small-summary.md
+
+# Generate baseline/current snapshots and comparison reports automatically
+dart run tool/parser_profile_snapshot.dart --baseline-ref origin/ir
+```
+
+The default corpus is intentionally small and grammar-shaped rather than a
+runtime benchmark. Add new `.lua` files under `luascripts/parser_profiles`
+whenever a parser change needs a targeted repro.
+
+`parser_profile_snapshot.dart` creates a temporary detached worktree for the
+baseline ref, copies the profiling harness into it, runs the small parser corpus
+and hot Lua suite in both trees, then writes JSON and Markdown reports under
+`benchmarks/parser_profiles`. That directory is ignored by git, so these
+snapshots stay local unless explicitly moved or unignored.
+
 
 ## Examples
 
