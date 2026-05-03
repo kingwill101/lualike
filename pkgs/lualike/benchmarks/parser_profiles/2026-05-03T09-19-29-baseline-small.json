@@ -1,0 +1,200 @@
+{
+  "schemaVersion": 1,
+  "generatedBy": "tool/parser_profile.dart",
+  "capturedAt": "2026-05-03T09:19:35.586857",
+  "label": "origin/ir small-parser-corpus",
+  "packageRoot": "/tmp/lualike-parser-baseline.CDSBTL/pkgs/lualike",
+  "git": {
+    "revision": "ae3c7fc3eef66bd317eb7c637d3add0d53bf96eb",
+    "branch": null,
+    "dirty": true,
+    "statusShort": [
+      "M ../../pubspec.lock",
+      "?? luascripts/parser_profiles/",
+      "?? tool/parser_profile.dart",
+      "?? tool/parser_profile_compare.dart"
+    ]
+  },
+  "corpus": {
+    "directory": "/tmp/lualike-parser-baseline.CDSBTL/pkgs/lualike/luascripts/parser_profiles",
+    "relativeDirectory": "luascripts/parser_profiles"
+  },
+  "config": {
+    "warmup": 5,
+    "repeat": 10,
+    "profile": false,
+    "trace": false,
+    "progress": false,
+    "lint": false,
+    "failFast": false
+  },
+  "arguments": [
+    "--warmup=5",
+    "--repeat=10",
+    "--label=origin/ir small-parser-corpus",
+    "--json-out=/run/media/kingwill101/disk2/code/code/dart_packages/lualike.worktrees/parser-profiling/pkgs/lualike/benchmarks/parser_profiles/2026-05-03T09-19-29-baseline-small.json",
+    "--no-fail-fast"
+  ],
+  "rows": [
+    {
+      "case": "attributes_and_labels",
+      "path": "luascripts/parser_profiles/attributes_and_labels.lua",
+      "source": {
+        "characters": 122,
+        "lines": 11,
+        "encoding": "utf8"
+      },
+      "samplesMicros": [
+        3241,
+        3210,
+        3659,
+        2849,
+        3101,
+        3930,
+        2661,
+        2778,
+        3285,
+        2671
+      ],
+      "minMicros": 2661,
+      "meanMicros": 3138.5,
+      "medianMicros": 3155.5,
+      "maxMicros": 3930,
+      "charsPerSecond": 38872.072646168555
+    },
+    {
+      "case": "branches_and_loops",
+      "path": "luascripts/parser_profiles/branches_and_loops.lua",
+      "source": {
+        "characters": 263,
+        "lines": 22,
+        "encoding": "utf8"
+      },
+      "samplesMicros": [
+        1271,
+        1470,
+        1232,
+        1496,
+        1160,
+        1117,
+        1147,
+        1482,
+        1160,
+        1971
+      ],
+      "minMicros": 1117,
+      "meanMicros": 1350.6,
+      "medianMicros": 1251.5,
+      "maxMicros": 1971,
+      "charsPerSecond": 194728.26891751814
+    },
+    {
+      "case": "functions_and_calls",
+      "path": "luascripts/parser_profiles/functions_and_calls.lua",
+      "source": {
+        "characters": 261,
+        "lines": 15,
+        "encoding": "utf8"
+      },
+      "samplesMicros": [
+        1008,
+        1554,
+        1241,
+        1369,
+        1410,
+        1310,
+        1419,
+        1426,
+        1464,
+        1223
+      ],
+      "minMicros": 1008,
+      "meanMicros": 1342.4,
+      "medianMicros": 1389.5,
+      "maxMicros": 1554,
+      "charsPerSecond": 194427.89034564956
+    },
+    {
+      "case": "literals_and_expressions",
+      "path": "luascripts/parser_profiles/literals_and_expressions.lua",
+      "source": {
+        "characters": 152,
+        "lines": 6,
+        "encoding": "utf8"
+      },
+      "samplesMicros": [
+        1030,
+        1142,
+        1332,
+        963,
+        1001,
+        991,
+        1065,
+        959,
+        949,
+        931
+      ],
+      "minMicros": 931,
+      "meanMicros": 1036.3,
+      "medianMicros": 996.0,
+      "maxMicros": 1332,
+      "charsPerSecond": 146675.6730676445
+    },
+    {
+      "case": "strings_and_comments",
+      "path": "luascripts/parser_profiles/strings_and_comments.lua",
+      "source": {
+        "characters": 254,
+        "lines": 13,
+        "encoding": "utf8"
+      },
+      "samplesMicros": [
+        3654,
+        3335,
+        2357,
+        3043,
+        3031,
+        2276,
+        2012,
+        2489,
+        2695,
+        2278
+      ],
+      "minMicros": 2012,
+      "meanMicros": 2717.0,
+      "medianMicros": 2592.0,
+      "maxMicros": 3654,
+      "charsPerSecond": 93485.46190651454
+    },
+    {
+      "case": "table_shapes",
+      "path": "luascripts/parser_profiles/table_shapes.lua",
+      "source": {
+        "characters": 233,
+        "lines": 12,
+        "encoding": "utf8"
+      },
+      "samplesMicros": [
+        3676,
+        4130,
+        2785,
+        2808,
+        2240,
+        3287,
+        2203,
+        3134,
+        2084,
+        2509
+      ],
+      "minMicros": 2084,
+      "meanMicros": 2885.6,
+      "medianMicros": 2796.5,
+      "maxMicros": 4130,
+      "charsPerSecond": 80745.77210978653
+    }
+  ],
+  "total": {
+    "meanMicros": 12470.4,
+    "meanMs": 12.4704
+  }
+}

@@ -31,3 +31,9 @@ bin/lualike_dbg2
 benchmarks/*
 !benchmarks/tt_after_env_cache.log
 !benchmarks/tt_before_env_cache.log
+!benchmarks/parser_profiles/
+benchmarks/parser_profiles/*
+!benchmarks/parser_profiles/*-baseline-*.json
+!benchmarks/parser_profiles/*-latest-*.json
+!benchmarks/parser_profiles/*-comparison-*.json
+!benchmarks/parser_profiles/*-comparison-*.md

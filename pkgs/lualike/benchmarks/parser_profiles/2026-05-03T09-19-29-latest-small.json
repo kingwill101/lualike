@@ -1,0 +1,195 @@
+{
+  "schemaVersion": 1,
+  "generatedBy": "tool/parser_profile.dart",
+  "capturedAt": "2026-05-03T09:19:40.305093",
+  "label": "current small-parser-corpus",
+  "packageRoot": "/run/media/kingwill101/disk2/code/code/dart_packages/lualike.worktrees/parser-profiling/pkgs/lualike",
+  "git": {
+    "revision": "a85d083aee335b3963edc70da5de78296c0a7caa",
+    "branch": "profiling/parser-performance",
+    "dirty": false,
+    "statusShort": []
+  },
+  "corpus": {
+    "directory": "/run/media/kingwill101/disk2/code/code/dart_packages/lualike.worktrees/parser-profiling/pkgs/lualike/luascripts/parser_profiles",
+    "relativeDirectory": "luascripts/parser_profiles"
+  },
+  "config": {
+    "warmup": 5,
+    "repeat": 10,
+    "profile": false,
+    "trace": false,
+    "progress": false,
+    "lint": false,
+    "failFast": false
+  },
+  "arguments": [
+    "--warmup=5",
+    "--repeat=10",
+    "--label=current small-parser-corpus",
+    "--json-out=/run/media/kingwill101/disk2/code/code/dart_packages/lualike.worktrees/parser-profiling/pkgs/lualike/benchmarks/parser_profiles/2026-05-03T09-19-29-latest-small.json",
+    "--no-fail-fast"
+  ],
+  "rows": [
+    {
+      "case": "attributes_and_labels",
+      "path": "luascripts/parser_profiles/attributes_and_labels.lua",
+      "source": {
+        "characters": 122,
+        "lines": 11,
+        "encoding": "utf8"
+      },
+      "samplesMicros": [
+        1037,
+        910,
+        1259,
+        888,
+        813,
+        1403,
+        902,
+        1074,
+        931,
+        801
+      ],
+      "minMicros": 801,
+      "meanMicros": 1001.8,
+      "medianMicros": 920.5,
+      "maxMicros": 1403,
+      "charsPerSecond": 121780.79456977441
+    },
+    {
+      "case": "branches_and_loops",
+      "path": "luascripts/parser_profiles/branches_and_loops.lua",
+      "source": {
+        "characters": 263,
+        "lines": 22,
+        "encoding": "utf8"
+      },
+      "samplesMicros": [
+        1095,
+        1065,
+        1192,
+        1406,
+        876,
+        809,
+        780,
+        782,
+        1453,
+        870
+      ],
+      "minMicros": 780,
+      "meanMicros": 1032.8,
+      "medianMicros": 970.5,
+      "maxMicros": 1453,
+      "charsPerSecond": 254647.56003098373
+    },
+    {
+      "case": "functions_and_calls",
+      "path": "luascripts/parser_profiles/functions_and_calls.lua",
+      "source": {
+        "characters": 261,
+        "lines": 15,
+        "encoding": "utf8"
+      },
+      "samplesMicros": [
+        681,
+        1087,
+        825,
+        769,
+        692,
+        732,
+        432,
+        458,
+        428,
+        450
+      ],
+      "minMicros": 428,
+      "meanMicros": 655.4,
+      "medianMicros": 686.5,
+      "maxMicros": 1087,
+      "charsPerSecond": 398230.08849557524
+    },
+    {
+      "case": "literals_and_expressions",
+      "path": "luascripts/parser_profiles/literals_and_expressions.lua",
+      "source": {
+        "characters": 152,
+        "lines": 6,
+        "encoding": "utf8"
+      },
+      "samplesMicros": [
+        378,
+        629,
+        417,
+        497,
+        414,
+        418,
+        543,
+        449,
+        524,
+        493
+      ],
+      "minMicros": 378,
+      "meanMicros": 476.2,
+      "medianMicros": 471.0,
+      "maxMicros": 629,
+      "charsPerSecond": 319193.61612767744
+    },
+    {
+      "case": "strings_and_comments",
+      "path": "luascripts/parser_profiles/strings_and_comments.lua",
+      "source": {
+        "characters": 254,
+        "lines": 13,
+        "encoding": "utf8"
+      },
+      "samplesMicros": [
+        318,
+        297,
+        282,
+        196,
+        241,
+        207,
+        210,
+        219,
+        212,
+        210
+      ],
+      "minMicros": 196,
+      "meanMicros": 239.2,
+      "medianMicros": 215.5,
+      "maxMicros": 318,
+      "charsPerSecond": 1061872.9096989967
+    },
+    {
+      "case": "table_shapes",
+      "path": "luascripts/parser_profiles/table_shapes.lua",
+      "source": {
+        "characters": 233,
+        "lines": 12,
+        "encoding": "utf8"
+      },
+      "samplesMicros": [
+        590,
+        804,
+        581,
+        483,
+        738,
+        479,
+        790,
+        682,
+        682,
+        642
+      ],
+      "minMicros": 479,
+      "meanMicros": 647.1,
+      "medianMicros": 662.0,
+      "maxMicros": 804,
+      "charsPerSecond": 360067.9956730026
+    }
+  ],
+  "total": {
+    "meanMicros": 4052.4999999999995,
+    "meanMs": 4.052499999999999
+  }
+}
