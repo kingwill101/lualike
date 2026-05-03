@@ -202,6 +202,17 @@ mixin InterpreterAssignmentMixin on AstVisitor<Object?> {
     );
   }
 
+  Value _globalConstDeclarationValue(Value value) {
+    final raw = value.raw;
+    if (value.metatable == null &&
+        value.metatableRef == null &&
+        isLuaPrimitiveSlot(raw)) {
+      return Value.primitive(raw, isConst: true);
+    }
+
+    return Value(raw, metatable: value.metatable, isConst: true);
+  }
+
   bool _updateActiveFunctionLocal(
     String name,
     dynamic value,
@@ -1483,11 +1494,7 @@ mixin InterpreterAssignmentMixin on AstVisitor<Object?> {
 
       final baseValue = valueFromLuaSlot(this as Interpreter, rawValue);
       final valueWithAttributes = switch (attribute) {
-        'const' => Value(
-          baseValue.raw,
-          metatable: baseValue.metatable,
-          isConst: true,
-        ),
+        'const' => _globalConstDeclarationValue(baseValue),
         'close' => throw UnsupportedError(
           'global variables cannot be to-be-closed',
         ),
