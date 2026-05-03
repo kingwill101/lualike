@@ -1856,6 +1856,13 @@ class _PrototypeContext {
       a: base,
       sBx: 0,
     );
+    for (var i = 0; i < node.names.length; i++) {
+      _extendRecentLocalDebugLifetime(
+        node.names[i].name,
+        register: loopVarRegs[i],
+        endPc: tforLoopIndex + 1,
+      );
+    }
 
     final patchedTforPrep = AsBxInstruction(
       opcode: LualikeIrOpcode.tForPrep,
@@ -1923,6 +1930,7 @@ class _PrototypeContext {
       debugName: debugName,
       debugNameWhat: debugNameWhat,
       declaredGlobals: declaresSimpleGlobal ? <String>{simpleName} : const {},
+      implicitSelf: node.implicitSelf,
     );
     emitter.emitABx(
       opcode: LualikeIrOpcode.closure,
@@ -2069,12 +2077,13 @@ class _PrototypeContext {
     String? debugName,
     String debugNameWhat = '',
     Set<String> declaredGlobals = const <String>{},
+    bool implicitSelf = false,
   }) {
     final positionalParams = <String>[
       for (final param in body.parameters ?? const <Identifier>[]) param.name,
     ];
 
-    if (body.implicitSelf) {
+    if (implicitSelf || body.implicitSelf) {
       if (positionalParams.isEmpty || positionalParams.first != 'self') {
         positionalParams.insert(0, 'self');
       }
