@@ -12,6 +12,12 @@ class Utf8DecodeResult {
 
 /// A PetitParser-based parser for Lua string literals that handles escape sequences correctly
 class LuaStringParser {
+  static final RegExp _hexEscapePattern = RegExp(r'\\x([0-9A-Fa-f]{2})');
+  static final Parser<List<int>> _stringContentParser = build().end();
+  static final Parser<List<int>> _byteStringContentParser = build(
+    sourceCodeUnitsAreBytes: true,
+  ).end();
+
   /// Encode an invalid Unicode code point as raw bytes that will be detected as invalid UTF-8
   static List<int> _encodeInvalidCodePoint(int codePoint) {
     // For invalid code points, we need to create the UTF-8 byte sequence
@@ -356,15 +362,17 @@ class LuaStringParser {
   }) {
     // Normalize \xHH (hex escapes) to decimal escapes (\ddd) so that
     // downstream parsing always sees a single uniform form for byte escapes.
-    final hexRe = RegExp(r'\\x([0-9A-Fa-f]{2})');
-    final normalized = content.replaceAllMapped(hexRe, (m) {
-      final v = int.parse(m.group(1)!, radix: 16);
-      return '\\$v';
-    });
+    final normalized = content.contains(r'\x')
+        ? content.replaceAllMapped(_hexEscapePattern, (m) {
+            final v = int.parse(m.group(1)!, radix: 16);
+            return '\\$v';
+          })
+        : content;
 
-    final result = build(
-      sourceCodeUnitsAreBytes: sourceCodeUnitsAreBytes,
-    ).end().parse(normalized);
+    final parser = sourceCodeUnitsAreBytes
+        ? _byteStringContentParser
+        : _stringContentParser;
+    final result = parser.parse(normalized);
 
     if (result is Success) {
       return result.value;
