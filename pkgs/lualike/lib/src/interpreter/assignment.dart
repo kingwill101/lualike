@@ -85,7 +85,7 @@ mixin InterpreterAssignmentMixin on AstVisitor<Object?> {
   Value _detachPrimitiveValue(Value value) {
     final raw = value.raw;
     if (_isPlainDetachedPrimitive(value)) {
-      return Value(raw, interpreter: value.interpreter);
+      return Value.primitive(raw, interpreter: value.interpreter);
     }
     return value;
   }
@@ -135,7 +135,7 @@ mixin InterpreterAssignmentMixin on AstVisitor<Object?> {
     bool isToBeClose = false,
   }) {
     if (_isPlainDetachedPrimitive(value)) {
-      return Value(
+      return Value.primitive(
         value.raw,
         isConst: isConst,
         isToBeClose: isToBeClose,
