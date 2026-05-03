@@ -60,6 +60,10 @@ flutter:
     - assets/modern_pong/sounds/
     - assets/modern_pong/sprites/
     - assets/modern_pong/states/
+    - assets/pocket_bomber/conf.lua
+    - assets/pocket_bomber/main.lua
+    - assets/pocket_bomber/src/
+    - assets/pocket_bomber/src/states/
     - assets/scripts/conf.lua
     - assets/relic_breach/conf.lua
     - assets/relic_breach/main.lua
