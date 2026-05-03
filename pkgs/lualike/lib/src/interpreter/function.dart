@@ -245,12 +245,7 @@ Object? _snapshotReturnPayload(Object? value, LuaRuntime runtime) {
     }
 
     final raw = original.raw;
-    if (raw == null ||
-        raw is bool ||
-        raw is num ||
-        raw is BigInt ||
-        raw is String ||
-        raw is LuaString) {
+    if (isLuaPrimitiveSlot(raw)) {
       final clone = Value.primitive(
         raw,
         isConst: original.isConst,

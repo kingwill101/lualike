@@ -58,13 +58,7 @@ Value? _resolveActiveGlobalValue(Interpreter interpreter) {
 
 Value _detachTemporaryValue(Value value) {
   final raw = value.raw;
-  if (value.metatable == null &&
-      (raw == null ||
-          raw is bool ||
-          raw is num ||
-          raw is BigInt ||
-          raw is String ||
-          raw is LuaString)) {
+  if (value.metatable == null && isLuaPrimitiveSlot(raw)) {
     return Value.primitive(
       raw,
       isMulti: value.isMulti,
