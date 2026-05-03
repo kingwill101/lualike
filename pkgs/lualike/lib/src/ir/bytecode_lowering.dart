@@ -80,7 +80,11 @@ LuaBytecodePrototype lowerIrPrototypeToLuaBytecodePrototype(
       ),
     ),
   );
-  final debugLines = _lowerDebugLines(debugInfo?.lineInfo, instructions.length);
+  final debugLines = _lowerDebugLines(
+    debugInfo?.lineInfo,
+    instructions.length,
+    pcMap,
+  );
   final locals = List<LuaBytecodeLocalVariableDebugInfo>.unmodifiable(
     (debugInfo?.localNames ?? const <LocalDebugEntry>[]).map(
       (entry) => LuaBytecodeLocalVariableDebugInfo(
@@ -822,10 +826,11 @@ List<LuaBytecodeInstructionWord> _lowerNewTableSequence({
       c: inlineArraySize,
       k: extraArg != 0,
     ),
-    LuaBytecodeInstructionWord.ax(
-      opcode: LuaBytecodeOpcodes.byName('EXTRAARG').code,
-      ax: extraArg,
-    ),
+    if (extraArg != 0)
+      LuaBytecodeInstructionWord.ax(
+        opcode: LuaBytecodeOpcodes.byName('EXTRAARG').code,
+        ax: extraArg,
+      ),
   ];
 }
 
@@ -900,7 +905,7 @@ int _remapPc(int oldPc, List<int> pcMap) {
 }
 
 ({List<int> lineInfo, List<LuaBytecodeAbsLineInfo> absoluteLineInfo})
-_lowerDebugLines(List<int>? lines, int instructionCount) {
+_lowerDebugLines(List<int>? lines, int instructionCount, List<int> pcMap) {
   if (lines == null || lines.isEmpty || !lines.any((line) => line > 0)) {
     return (
       lineInfo: const <int>[],
@@ -909,10 +914,19 @@ _lowerDebugLines(List<int>? lines, int instructionCount) {
   }
 
   final normalized = List<int>.filled(instructionCount, 0, growable: false);
-  for (var i = 0; i < instructionCount; i++) {
-    if (i < lines.length) {
-      normalized[i] = lines[i];
-    } else if (i > 0) {
+  for (var oldPc = 0; oldPc < lines.length; oldPc++) {
+    if (lines[oldPc] == 0) continue;
+    final start = pcMap[oldPc];
+    final end = (oldPc + 1 < pcMap.length)
+        ? pcMap[oldPc + 1]
+        : instructionCount;
+    for (var newPc = start; newPc < end && newPc < instructionCount; newPc++) {
+      normalized[newPc] = lines[oldPc];
+    }
+  }
+  // forward-fill any zeros from the previous non-zero
+  for (var i = 1; i < instructionCount; i++) {
+    if (normalized[i] == 0 && normalized[i - 1] > 0) {
       normalized[i] = normalized[i - 1];
     }
   }

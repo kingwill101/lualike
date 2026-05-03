@@ -2,6 +2,7 @@ import 'package:lualike/lualike.dart';
 import 'package:test/test.dart';
 
 void main() {
+  Logger.setEnabled(false);
   group('AST function call string argument regressions', () {
     test(
       'preserves multiple string literal arguments for Dart-exposed calls',

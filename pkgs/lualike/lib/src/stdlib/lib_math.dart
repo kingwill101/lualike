@@ -58,6 +58,9 @@ dynamic _getNumber(Value value, String funcName, int argNum) {
 }
 
 dynamic _getFastNumber(Object? value, String funcName, int argNum) {
+  if (value is int || value is double || value is BigInt) {
+    return value;
+  }
   if (value case Value(
     isMulti: false,
     raw: final rawNumber,
@@ -75,6 +78,8 @@ Object? _tryFastMinMaxNumericResult(
   if (arg0 case Value(isMulti: false, raw: final leftRaw)) {
     if (arg1 case Value(isMulti: false, raw: final rightRaw)) {
       if (leftRaw is num && rightRaw is num) {
+        if (leftRaw is double && leftRaw.isNaN) return leftRaw;
+        if (rightRaw is double && rightRaw.isNaN) return rightRaw;
         return wantMax
             ? (leftRaw >= rightRaw ? leftRaw : rightRaw)
             : (leftRaw <= rightRaw ? leftRaw : rightRaw);

@@ -5,12 +5,14 @@ import 'package:lualike/src/ir/compiler.dart';
 import 'package:lualike/src/ir/bytecode_lowering.dart';
 import 'package:lualike/src/ir/disassembler.dart';
 import 'package:lualike/src/ir/opcode.dart';
+import 'package:lualike/src/logging/logging.dart';
 import 'package:lualike/src/lua_bytecode/disassembler.dart';
 import 'package:lualike/src/lua_bytecode/emitter.dart';
 import 'package:lualike/src/parse.dart';
 import 'package:test/test.dart';
 
 void main() {
+  Logger.setEnabled(false);
   group('LualikeIrCompiler to-be-closed locals', () {
     test('marks <close> locals without a premature close before return', () {
       final source = '''

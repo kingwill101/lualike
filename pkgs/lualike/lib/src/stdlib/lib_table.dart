@@ -387,7 +387,8 @@ class _TableConcat extends BuiltinFunction {
       final BigInt integerValue => LuaString.fromDartString(
         integerValue.toString(),
       ).bytes,
-      _ => Uint8List(0),
+      null => Uint8List(0),
+      _ => LuaString.fromDartString(value.toString()).bytes,
     };
 
     final builder = BytesBuilder(copy: false);

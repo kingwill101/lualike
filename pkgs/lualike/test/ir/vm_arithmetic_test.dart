@@ -3,11 +3,13 @@ library;
 
 import 'package:lualike/src/config.dart';
 import 'package:lualike/src/executor.dart';
+import 'package:lualike/src/logging/logging.dart';
 import 'package:lualike/src/lua_string.dart';
 import 'package:lualike/src/value.dart';
 import 'package:test/test.dart';
 
 void main() {
+  Logger.setEnabled(false);
   group('Lualike IR lowered arithmetic', () {
     Object? unwrap(Object? candidate) => switch (candidate) {
       Value(:final raw) when raw is LuaString => raw.toString(),
