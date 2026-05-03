@@ -35,6 +35,7 @@ dependencies:
     path: ../../lualike
   love2d:
     path: ../
+  devtools_region_profiler: ^0.1.0
 
 dependency_overrides:
   lualike:
@@ -75,6 +76,62 @@ flutter:
     - assets/pocket_bomber/main.lua
     - assets/pocket_bomber/src/
     - assets/pocket_bomber/src/states/
+    - assets/relic_breach/conf.lua
+    - assets/relic_breach/main.lua
+    - assets/relic_breach/ASSET_MANIFEST.md
+    - assets/relic_breach/art/
+    - assets/relic_breach/art/kenney_roguelike_characters/
+    - assets/relic_breach/art/kenney_roguelike_characters/Spritesheet/
+    - assets/relic_breach/art/kenney_roguelike_rpg_pack/
+    - assets/relic_breach/art/kenney_roguelike_rpg_pack/Map/
+    - assets/relic_breach/art/kenney_roguelike_rpg_pack/Spritesheet/
+    - assets/relic_breach/art/kenney_ui_pack_pixel_adventure/
+    - assets/relic_breach/art/kenney_ui_pack_pixel_adventure/Tiles/
+    - assets/relic_breach/art/kenney_ui_pack_pixel_adventure/Tiles/Large tiles/
+    - assets/relic_breach/art/kenney_ui_pack_pixel_adventure/Tiles/Small tiles/
+    - assets/relic_breach/art/kenney_ui_pack_pixel_adventure/Tilesheets/
+    - assets/relic_breach/art/kenney_ui_pack_pixel_adventure/Tilesheets/Large tiles/
+    - assets/relic_breach/art/kenney_ui_pack_pixel_adventure/Tilesheets/Small tiles/
+    - assets/relic_breach/art/kenney_input_prompts_pixel/
+    - assets/relic_breach/art/kenney_input_prompts_pixel/Tilemap/
+    - assets/relic_breach/art/kenney_input_prompts_pixel/Tiles/
+    - assets/relic_breach/art/kenney_minimap_pack/
+    - assets/relic_breach/art/kenney_minimap_pack/Tilemap/
+    - assets/relic_breach/art/kenney_minimap_pack/Tilemap/Style A/
+    - assets/relic_breach/art/kenney_minimap_pack/Tilemap/Style B/
+    - assets/relic_breach/art/kenney_minimap_pack/Tilemap/Style C/
+    - assets/relic_breach/art/kenney_minimap_pack/Tilemap/Style D/
+    - assets/relic_breach/art/kenney_minimap_pack/Tilemap/Style E/
+    - assets/relic_breach/art/kenney_minimap_pack/Tilemap/Style F/
+    - assets/relic_breach/art/kenney_minimap_pack/Tiles/
+    - assets/relic_breach/art/kenney_minimap_pack/Tiles/Style A/
+    - assets/relic_breach/art/kenney_minimap_pack/Tiles/Style B/
+    - assets/relic_breach/art/kenney_minimap_pack/Tiles/Style C/
+    - assets/relic_breach/art/kenney_minimap_pack/Tiles/Style D/
+    - assets/relic_breach/art/kenney_minimap_pack/Tiles/Style E/
+    - assets/relic_breach/art/kenney_minimap_pack/Tiles/Style F/
+    - assets/relic_breach/art/kenney_light_masks/
+    - assets/relic_breach/art/kenney_light_masks/Default/
+    - assets/relic_breach/art/kenney_light_masks/Inverted/
+    - assets/relic_breach/art/kenney_light_masks/Transparent/
+    - assets/relic_breach/audio/
+    - assets/relic_breach/audio/kenney_impact_sounds/
+    - assets/relic_breach/audio/kenney_impact_sounds/Audio/
+    - assets/relic_breach/audio/kenney_ui_audio/
+    - assets/relic_breach/audio/kenney_ui_audio/Audio/
+    - assets/relic_breach/audio/kenney_music_jingles/
+    - assets/relic_breach/audio/kenney_music_jingles/Audio/
+    - assets/relic_breach/audio/kenney_music_jingles/Audio/8-Bit jingles/
+    - assets/relic_breach/audio/kenney_music_jingles/Audio/Hit jingles/
+    - assets/relic_breach/audio/kenney_music_jingles/Audio/Pizzicato jingles/
+    - assets/relic_breach/audio/kenney_music_jingles/Audio/Sax jingles/
+    - assets/relic_breach/audio/kenney_music_jingles/Audio/Steel jingles/
+    - assets/relic_breach/fonts/
+    - assets/relic_breach/fonts/kenney_fonts/
+    - assets/relic_breach/fonts/kenney_fonts/Fonts/
+    - assets/relic_breach/maps/
+    - assets/relic_breach/shaders/
+    - assets/relic_breach/src/
     - assets/shader_explorer/conf.lua
     - assets/shader_explorer/main.lua
     - assets/shader_explorer/src/

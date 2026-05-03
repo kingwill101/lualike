@@ -140,21 +140,26 @@ LoveFlamePresentationGeometry loveFlamePresentationGeometry({
   }
 
   if (camera != null) {
-    final topLeft = camera.viewport.localToGlobal(Vector2.zero());
-    final bottomRight = camera.viewport.localToGlobal(
-      Vector2(logicalSize.width, logicalSize.height),
-    );
-    return LoveFlamePresentationGeometry(
-      viewportSize: viewportSize,
-      logicalSize: logicalSize,
-      destinationRect: Rect.fromLTRB(
-        math.min(topLeft.x, bottomRight.x),
-        math.min(topLeft.y, bottomRight.y),
-        math.max(topLeft.x, bottomRight.x),
-        math.max(topLeft.y, bottomRight.y),
-      ),
-      camera: camera,
-    );
+    try {
+      final topLeft = camera.viewport.localToGlobal(Vector2.zero());
+      final bottomRight = camera.viewport.localToGlobal(
+        Vector2(logicalSize.width, logicalSize.height),
+      );
+      return LoveFlamePresentationGeometry(
+        viewportSize: viewportSize,
+        logicalSize: logicalSize,
+        destinationRect: Rect.fromLTRB(
+          math.min(topLeft.x, bottomRight.x),
+          math.min(topLeft.y, bottomRight.y),
+          math.max(topLeft.x, bottomRight.x),
+          math.max(topLeft.y, bottomRight.y),
+        ),
+        camera: camera,
+      );
+    } on AssertionError {
+      // Flame camera/viewport size can be unavailable during startup and hot
+      // restart. Fall back to centered letterboxing until the camera is ready.
+    }
   }
 
   final fitted = applyBoxFit(BoxFit.contain, logicalSize, viewportSize);

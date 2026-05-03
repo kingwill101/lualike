@@ -237,9 +237,133 @@ Value bindLoveApiFunction(
     throw StateError('Missing LOVE API implementation stub for $symbol');
   }
 
+  if (_bytecodeInlineLoveApiSymbols.contains(symbol)) {
+    return Value(
+      _InlineableLoveApiBuiltin(context.vm, implementation),
+      functionName: publicName,
+    );
+  }
+
   final builder = BuiltinFunctionBuilder(context);
   return Value(
     builder.create((args) => implementation(args)),
     functionName: publicName,
   );
 }
+
+final class _InlineableLoveApiBuiltin extends BuiltinFunction {
+  _InlineableLoveApiBuiltin(super.interpreter, this._implementation);
+
+  final LoveApiImplementation _implementation;
+
+  @override
+  bool get canBytecodeInlineWithoutManagedFrame => true;
+
+  @override
+  FutureOr<Object?> call(List<Object?> args) => _implementation(args);
+}
+
+const Set<String> _bytecodeInlineLoveApiSymbols = <String>{
+  'love.graphics.applyTransform',
+  'love.graphics.arc',
+  'love.graphics.circle',
+  'love.graphics.clear',
+  'love.graphics.discard',
+  'love.graphics.draw',
+  'love.graphics.drawInstanced',
+  'love.graphics.drawLayer',
+  'love.graphics.ellipse',
+  'love.graphics.flushBatch',
+  'love.graphics.getBackgroundColor',
+  'love.graphics.getBlendMode',
+  'love.graphics.getCanvas',
+  'love.graphics.getColor',
+  'love.graphics.getColorMask',
+  'love.graphics.getDefaultFilter',
+  'love.graphics.getDefaultMipmapFilter',
+  'love.graphics.getDimensions',
+  'love.graphics.getDPIScale',
+  'love.graphics.getFont',
+  'love.graphics.getHeight',
+  'love.graphics.getLineJoin',
+  'love.graphics.getLineStyle',
+  'love.graphics.getLineWidth',
+  'love.graphics.getPointSize',
+  'love.graphics.getScissor',
+  'love.graphics.getStackDepth',
+  'love.graphics.getWidth',
+  'love.graphics.intersectScissor',
+  'love.graphics.inverseTransformPoint',
+  'love.graphics.isActive',
+  'love.graphics.isCreated',
+  'love.graphics.isGammaCorrect',
+  'love.graphics.isWireframe',
+  'love.graphics.line',
+  'love.graphics.origin',
+  'love.graphics.points',
+  'love.graphics.polygon',
+  'love.graphics.pop',
+  'love.graphics.present',
+  'love.graphics.print',
+  'love.graphics.printf',
+  'love.graphics.push',
+  'love.graphics.rectangle',
+  'love.graphics.replaceTransform',
+  'love.graphics.reset',
+  'love.graphics.rotate',
+  'love.graphics.scale',
+  'love.graphics.setBackgroundColor',
+  'love.graphics.setBlendMode',
+  'love.graphics.setCanvas',
+  'love.graphics.setColor',
+  'love.graphics.setColorMask',
+  'love.graphics.setDefaultFilter',
+  'love.graphics.setDefaultMipmapFilter',
+  'love.graphics.setFont',
+  'love.graphics.setLineJoin',
+  'love.graphics.setLineStyle',
+  'love.graphics.setLineWidth',
+  'love.graphics.setPointSize',
+  'love.graphics.setScissor',
+  'love.graphics.setWireframe',
+  'love.graphics.shear',
+  'love.graphics.transformPoint',
+  'love.graphics.translate',
+  'love.joystick.getJoysticks',
+  'love.keyboard.hasKeyRepeat',
+  'love.keyboard.hasScreenKeyboard',
+  'love.keyboard.hasTextInput',
+  'love.keyboard.isDown',
+  'love.math.colorFromBytes',
+  'love.math.colorToBytes',
+  'love.math.gammaToLinear',
+  'love.math.getRandomSeed',
+  'love.math.getRandomState',
+  'love.math.isConvex',
+  'love.math.linearToGamma',
+  'love.math.noise',
+  'love.math.random',
+  'love.math.randomNormal',
+  'love.math.setRandomSeed',
+  'love.math.setRandomState',
+  'love.math.triangulate',
+  'love.mouse.getPosition',
+  'love.mouse.getRelativeMode',
+  'love.mouse.getX',
+  'love.mouse.getY',
+  'love.mouse.isDown',
+  'love.mouse.isGrabbed',
+  'love.mouse.isVisible',
+  'love.mouse.setGrabbed',
+  'love.mouse.setPosition',
+  'love.mouse.setRelativeMode',
+  'love.mouse.setVisible',
+  'love.mouse.setX',
+  'love.mouse.setY',
+  'love.timer.getAverageDelta',
+  'love.timer.getDelta',
+  'love.timer.getFPS',
+  'love.timer.getTime',
+  'love.timer.sleep',
+  'love.timer.step',
+};

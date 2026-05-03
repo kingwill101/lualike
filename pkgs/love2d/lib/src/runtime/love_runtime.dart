@@ -949,11 +949,21 @@ class LoveImageData {
     required this.height,
     this.format = 'rgba8',
     LoveColor? fill,
-  }) : _pixels = List<LoveColor>.filled(
-         width * height,
-         (fill ?? const LoveColor(0, 0, 0, 0)).clamped(),
-         growable: false,
-       );
+  }) : _pixels = _filledRgbaPixels(
+         width,
+         height,
+         fill ?? const LoveColor(0, 0, 0, 0),
+       ),
+       _exactPixels = null;
+
+  LoveImageData._fromPixels({
+    required this.width,
+    required this.height,
+    required this.format,
+    required Uint8List pixels,
+    Map<int, LoveColor>? exactPixels,
+  }) : _pixels = pixels,
+       _exactPixels = exactPixels;
 
   /// Creates image data from raw RGBA bytes.
   factory LoveImageData.fromRgbaBytes({
@@ -971,21 +981,14 @@ class LoveImageData {
       );
     }
 
-    final imageData = LoveImageData(
+    final pixels = Uint8List(expectedLength);
+    pixels.setRange(0, expectedLength, bytes);
+    return LoveImageData._fromPixels(
       width: width,
       height: height,
       format: format,
+      pixels: pixels,
     );
-    for (var index = 0; index < width * height; index++) {
-      final offset = index * 4;
-      imageData._pixels[index] = LoveColor(
-        bytes[offset] / 255,
-        bytes[offset + 1] / 255,
-        bytes[offset + 2] / 255,
-        bytes[offset + 3] / 255,
-      );
-    }
-    return imageData;
   }
 
   /// Creates image data from a `package:image` bitmap.
@@ -993,25 +996,25 @@ class LoveImageData {
     package_image.Image image, {
     String format = 'rgba8',
   }) {
-    final imageData = LoveImageData(
-      width: image.width,
-      height: image.height,
-      format: format,
-    );
+    final pixels = Uint8List(image.width * image.height * 4);
 
     for (var y = 0; y < image.height; y++) {
       for (var x = 0; x < image.width; x++) {
         final pixel = image.getPixel(x, y);
-        imageData._pixels[(y * image.width) + x] = LoveColor(
-          pixel.rNormalized.toDouble(),
-          pixel.gNormalized.toDouble(),
-          pixel.bNormalized.toDouble(),
-          pixel.aNormalized.toDouble(),
-        );
+        final offset = ((y * image.width) + x) * 4;
+        pixels[offset] = _normalizedColorByte(pixel.rNormalized.toDouble());
+        pixels[offset + 1] = _normalizedColorByte(pixel.gNormalized.toDouble());
+        pixels[offset + 2] = _normalizedColorByte(pixel.bNormalized.toDouble());
+        pixels[offset + 3] = _normalizedColorByte(pixel.aNormalized.toDouble());
       }
     }
 
-    return imageData;
+    return LoveImageData._fromPixels(
+      width: image.width,
+      height: image.height,
+      format: format,
+      pixels: pixels,
+    );
   }
 
   /// Decodes an encoded image payload such as PNG, JPG, BMP, or TGA bytes.
@@ -1036,21 +1039,54 @@ class LoveImageData {
   final int width;
   final int height;
   final String format;
-  final List<LoveColor> _pixels;
+  final Uint8List _pixels;
+  Map<int, LoveColor>? _exactPixels;
 
   /// The total number of stored pixels.
-  int get length => _pixels.length;
+  int get length => width * height;
 
   /// Returns the color stored at pixel coordinate `[x, y]`.
   LoveColor getPixel(int x, int y) {
     _validateCoordinates(x, y);
-    return _pixels[(y * width) + x];
+    final index = (y * width) + x;
+    final exactPixel = _exactPixels?[index];
+    if (exactPixel != null) {
+      return exactPixel;
+    }
+    final offset = index * 4;
+    return LoveColor(
+      _pixels[offset] / 255,
+      _pixels[offset + 1] / 255,
+      _pixels[offset + 2] / 255,
+      _pixels[offset + 3] / 255,
+    );
   }
 
   /// Writes [color] to pixel coordinate `[x, y]`.
   void setPixel(int x, int y, LoveColor color) {
     _validateCoordinates(x, y);
-    _pixels[(y * width) + x] = color.clamped();
+    final clamped = color.clamped();
+    final index = (y * width) + x;
+    final offset = index * 4;
+    final r = _colorComponentByte(clamped.r);
+    final g = _colorComponentByte(clamped.g);
+    final b = _colorComponentByte(clamped.b);
+    final a = _colorComponentByte(clamped.a);
+    _pixels[offset] = r;
+    _pixels[offset + 1] = g;
+    _pixels[offset + 2] = b;
+    _pixels[offset + 3] = a;
+    if (_byteExactlyRepresents(clamped.r, r) &&
+        _byteExactlyRepresents(clamped.g, g) &&
+        _byteExactlyRepresents(clamped.b, b) &&
+        _byteExactlyRepresents(clamped.a, a)) {
+      _exactPixels?.remove(index);
+      if (_exactPixels?.isEmpty ?? false) {
+        _exactPixels = null;
+      }
+    } else {
+      (_exactPixels ??= <int, LoveColor>{})[index] = clamped;
+    }
   }
 
   /// Returns a full copy of this image data.
@@ -1066,14 +1102,14 @@ class LoveImageData {
 
     for (var y = 0; y < height; y++) {
       for (var x = 0; x < width; x++) {
-        final pixel = getPixel(x, y);
+        final offset = ((y * width) + x) * 4;
         image.setPixelRgba(
           x,
           y,
-          (pixel.r * 255).round(),
-          (pixel.g * 255).round(),
-          (pixel.b * 255).round(),
-          (pixel.a * 255).round(),
+          _pixels[offset],
+          _pixels[offset + 1],
+          _pixels[offset + 2],
+          _pixels[offset + 3],
         );
       }
     }
@@ -1134,14 +1170,68 @@ class LoveImageData {
       height: height,
       format: format,
     );
+    final rowByteCount = width * 4;
 
     for (var row = 0; row < height; row++) {
-      for (var column = 0; column < width; column++) {
-        imageData.setPixel(column, row, getPixel(x + column, y + row));
+      final sourceStart = (((y + row) * this.width) + x) * 4;
+      final targetStart = row * rowByteCount;
+      imageData._pixels.setRange(
+        targetStart,
+        targetStart + rowByteCount,
+        _pixels,
+        sourceStart,
+      );
+    }
+    if (_exactPixels case final exactPixels?) {
+      final copiedExactPixels = <int, LoveColor>{};
+      for (final entry in exactPixels.entries) {
+        final sourceX = entry.key % this.width;
+        final sourceY = entry.key ~/ this.width;
+        if (sourceX >= x &&
+            sourceX < x + width &&
+            sourceY >= y &&
+            sourceY < y + height) {
+          final targetX = sourceX - x;
+          final targetY = sourceY - y;
+          copiedExactPixels[(targetY * width) + targetX] = entry.value;
+        }
+      }
+      if (copiedExactPixels.isNotEmpty) {
+        imageData._exactPixels = copiedExactPixels;
       }
     }
 
     return imageData;
+  }
+
+  static Uint8List _filledRgbaPixels(int width, int height, LoveColor color) {
+    final pixels = Uint8List(width * height * 4);
+    final r = _colorComponentByte(color.r);
+    final g = _colorComponentByte(color.g);
+    final b = _colorComponentByte(color.b);
+    final a = _colorComponentByte(color.a);
+    if (r == 0 && g == 0 && b == 0 && a == 0) {
+      return pixels;
+    }
+    for (var offset = 0; offset < pixels.length; offset += 4) {
+      pixels[offset] = r;
+      pixels[offset + 1] = g;
+      pixels[offset + 2] = b;
+      pixels[offset + 3] = a;
+    }
+    return pixels;
+  }
+
+  static int _normalizedColorByte(double value) {
+    return (_clampColor(value) * 255).round();
+  }
+
+  static int _colorComponentByte(double value) {
+    return (_clampColor(value) * 255).round();
+  }
+
+  static bool _byteExactlyRepresents(double value, int byte) {
+    return value == byte / 255;
   }
 
   void _validateCoordinates(int x, int y) {
