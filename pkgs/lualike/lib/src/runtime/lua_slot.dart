@@ -104,7 +104,12 @@ Value valueFromOptionalLuaSlot(LuaRuntime? runtime, LuaSlot slot) {
     }
   }
 
-  if (slot == null || slot is bool || slot is num || slot is BigInt) {
+  if (slot == null ||
+      slot is bool ||
+      slot is num ||
+      slot is BigInt ||
+      slot is String ||
+      slot is LuaString) {
     return Value.primitive(slot);
   }
 
@@ -121,7 +126,10 @@ Value cachedPrimitiveOrValue(LuaRuntime? runtime, LuaSlot slot) {
     return runtime?.constantPrimitiveValue(slot) ?? Value.primitive(slot);
   }
   if (slot is String) {
-    return runtime?.constantDartStringValue(slot) ?? Value(slot);
+    return runtime?.constantDartStringValue(slot) ?? Value.primitive(slot);
+  }
+  if (slot is LuaString) {
+    return runtime?.constantStringValue(slot.bytes) ?? Value.primitive(slot);
   }
   return valueFromOptionalLuaSlot(runtime, slot);
 }
