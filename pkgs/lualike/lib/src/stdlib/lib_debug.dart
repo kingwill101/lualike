@@ -1432,13 +1432,17 @@ class _Traceback extends BuiltinFunction {
     }
     if (source.startsWith('@')) {
       final raw = source.substring(1);
-      if (raw.contains('\n') ||
-          raw.length > 120 ||
-          raw.contains('%0A') ||
-          raw.contains('%20')) {
+      final basename = raw.split(RegExp(r'[/\\]')).last;
+      if (raw.contains('\n') || raw.contains('%0A') || raw.contains('%20')) {
         return _tracebackStringChunk(raw);
       }
-      return raw.split('/').last;
+      if (basename.isNotEmpty) {
+        return basename;
+      }
+      if (raw.length > 120) {
+        return _tracebackStringChunk(raw);
+      }
+      return raw;
     }
     if (source.startsWith('[string')) {
       return source;
