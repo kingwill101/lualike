@@ -200,36 +200,79 @@ class LuaGrammarDefinition extends GrammarDefinition {
           });
 
   // stat ::= empty ';' or assignment or expression statement
-  Parser _stat() =>
-      _token(';').map((_) => null) |
-      ref0(_globalStat) |
-      ref0(_localFunctionDefStat) |
-      ref0(_functionDefStat) |
-      ref0(_localDeclaration) |
-      ref0(_forNumericStat) |
-      ref0(_forGenericStat) |
-      ref0(_doBlockStat) |
-      ref0(_whileStat) |
-      ref0(_repeatStat) |
-      ref0(_ifStat) |
-      ref0(_breakStat) |
-      ref0(_labelStat) |
-      ref0(_gotoStat) |
-      ref0(_returnlessExprStatement) |
-      ref0(_assignment) |
-      // Error case: Detect bare string literals and report appropriate error
-      _stringLiteral().map((literal) {
-        final errorText =
-            literal.span?.text ??
-            (literal.isLongString
-                ? '[[${literal.value}]]'
-                : '"${literal.value}"');
+  Parser _stat() {
+    final semicolon = _token(';').map((_) => null);
+    final globalStat = ref0(_globalStat);
+    final localFunctionDefStat = ref0(_localFunctionDefStat);
+    final functionDefStat = ref0(_functionDefStat);
+    final localDeclaration = ref0(_localDeclaration);
+    final forNumericStat = ref0(_forNumericStat);
+    final forGenericStat = ref0(_forGenericStat);
+    final doBlockStat = ref0(_doBlockStat);
+    final whileStat = ref0(_whileStat);
+    final repeatStat = ref0(_repeatStat);
+    final ifStat = ref0(_ifStat);
+    final breakStat = ref0(_breakStat);
+    final labelStat = ref0(_labelStat);
+    final gotoStat = ref0(_gotoStat);
+    final returnlessExprStatement = ref0(_returnlessExprStatement);
+    final assignment = ref0(_assignment);
+    final stringStatementError = _stringLiteral().map(
+      (literal) => _throwBareStringStatement(literal as StringLiteral),
+    );
 
-        throw _createPositionedException(
-          literal,
-          'unexpected symbol near \'$errorText\'',
-        );
-      });
+    final fallback =
+        semicolon |
+        globalStat |
+        localFunctionDefStat |
+        functionDefStat |
+        localDeclaration |
+        forNumericStat |
+        forGenericStat |
+        doBlockStat |
+        whileStat |
+        repeatStat |
+        ifStat |
+        breakStat |
+        labelStat |
+        gotoStat |
+        returnlessExprStatement |
+        assignment |
+        stringStatementError;
+
+    return _StatementParser(
+      semicolon: semicolon,
+      globalStat: globalStat,
+      localFunctionDefStat: localFunctionDefStat,
+      functionDefStat: functionDefStat,
+      localDeclaration: localDeclaration,
+      forNumericStat: forNumericStat,
+      forGenericStat: forGenericStat,
+      doBlockStat: doBlockStat,
+      whileStat: whileStat,
+      repeatStat: repeatStat,
+      ifStat: ifStat,
+      breakStat: breakStat,
+      labelStat: labelStat,
+      gotoStat: gotoStat,
+      returnlessExprStatement: returnlessExprStatement,
+      assignment: assignment,
+      stringStatementError: stringStatementError,
+      fallback: fallback,
+    );
+  }
+
+  // Error case: Detect bare string literals and report appropriate error
+  Never _throwBareStringStatement(StringLiteral literal) {
+    final errorText =
+        literal.span?.text ??
+        (literal.isLongString ? '[[${literal.value}]]' : '"${literal.value}"');
+
+    throw _createPositionedException(
+      literal,
+      'unexpected symbol near \'$errorText\'',
+    );
+  }
 
   // retstat ::= return [explist] [';']
   Parser _retstat() => _span(
@@ -1002,6 +1045,204 @@ class LuaGrammarDefinition extends GrammarDefinition {
   T _annotate<T extends AstNode>(T node, int start, int end) {
     node.setSpan(_sourceFile.span(start, end));
     return node;
+  }
+}
+
+class _StatementParser extends Parser<dynamic> {
+  _StatementParser({
+    required this.semicolon,
+    required this.globalStat,
+    required this.localFunctionDefStat,
+    required this.functionDefStat,
+    required this.localDeclaration,
+    required this.forNumericStat,
+    required this.forGenericStat,
+    required this.doBlockStat,
+    required this.whileStat,
+    required this.repeatStat,
+    required this.ifStat,
+    required this.breakStat,
+    required this.labelStat,
+    required this.gotoStat,
+    required this.returnlessExprStatement,
+    required this.assignment,
+    required this.stringStatementError,
+    required this.fallback,
+  });
+
+  Parser semicolon;
+  Parser globalStat;
+  Parser localFunctionDefStat;
+  Parser functionDefStat;
+  Parser localDeclaration;
+  Parser forNumericStat;
+  Parser forGenericStat;
+  Parser doBlockStat;
+  Parser whileStat;
+  Parser repeatStat;
+  Parser ifStat;
+  Parser breakStat;
+  Parser labelStat;
+  Parser gotoStat;
+  Parser returnlessExprStatement;
+  Parser assignment;
+  Parser stringStatementError;
+  Parser fallback;
+
+  @override
+  Result parseOn(Context context) {
+    final buffer = context.buffer;
+    final start = _skipLuaTrivia(buffer, context.position);
+    if (start >= buffer.length) {
+      return fallback.parseOn(context);
+    }
+
+    switch (buffer.codeUnitAt(start)) {
+      case 0x3B: // ;
+        return semicolon.parseOn(context);
+      case 0x67: // g
+        if (_matchesKeywordLexeme(buffer, start, 'global')) {
+          final result = globalStat.parseOn(context);
+          return result is Failure ? _parseCallOrAssignment(context) : result;
+        }
+        if (_matchesKeywordLexeme(buffer, start, 'goto')) {
+          return gotoStat.parseOn(context);
+        }
+        break;
+      case 0x6C: // l
+        if (_matchesKeywordLexeme(buffer, start, 'local')) {
+          final functionResult = localFunctionDefStat.parseOn(context);
+          return functionResult is Failure
+              ? localDeclaration.parseOn(context)
+              : functionResult;
+        }
+        break;
+      case 0x66: // f
+        if (_matchesKeywordLexeme(buffer, start, 'function')) {
+          return functionDefStat.parseOn(context);
+        }
+        if (_matchesKeywordLexeme(buffer, start, 'for')) {
+          final numericResult = forNumericStat.parseOn(context);
+          return numericResult is Failure
+              ? forGenericStat.parseOn(context)
+              : numericResult;
+        }
+        break;
+      case 0x64: // d
+        if (_matchesKeywordLexeme(buffer, start, 'do')) {
+          return doBlockStat.parseOn(context);
+        }
+        break;
+      case 0x77: // w
+        if (_matchesKeywordLexeme(buffer, start, 'while')) {
+          return whileStat.parseOn(context);
+        }
+        break;
+      case 0x72: // r
+        if (_matchesKeywordLexeme(buffer, start, 'repeat')) {
+          return repeatStat.parseOn(context);
+        }
+        break;
+      case 0x69: // i
+        if (_matchesKeywordLexeme(buffer, start, 'if')) {
+          return ifStat.parseOn(context);
+        }
+        break;
+      case 0x62: // b
+        if (_matchesKeywordLexeme(buffer, start, 'break')) {
+          return breakStat.parseOn(context);
+        }
+        break;
+      case 0x3A: // :
+        return labelStat.parseOn(context);
+      case 0x22: // "
+      case 0x27: // '
+        return stringStatementError.parseOn(context);
+      case 0x5B: // [
+        if (_startsLongBracket(buffer, start)) {
+          return stringStatementError.parseOn(context);
+        }
+        break;
+    }
+
+    if (_isIdentifierStartCodeUnit(buffer.codeUnitAt(start)) ||
+        buffer.codeUnitAt(start) == 0x28) {
+      return _parseCallOrAssignment(context);
+    }
+
+    return fallback.parseOn(context);
+  }
+
+  Result _parseCallOrAssignment(Context context) {
+    final callResult = returnlessExprStatement.parseOn(context);
+    return callResult is Failure ? assignment.parseOn(context) : callResult;
+  }
+
+  @override
+  _StatementParser copy() => _StatementParser(
+    semicolon: semicolon,
+    globalStat: globalStat,
+    localFunctionDefStat: localFunctionDefStat,
+    functionDefStat: functionDefStat,
+    localDeclaration: localDeclaration,
+    forNumericStat: forNumericStat,
+    forGenericStat: forGenericStat,
+    doBlockStat: doBlockStat,
+    whileStat: whileStat,
+    repeatStat: repeatStat,
+    ifStat: ifStat,
+    breakStat: breakStat,
+    labelStat: labelStat,
+    gotoStat: gotoStat,
+    returnlessExprStatement: returnlessExprStatement,
+    assignment: assignment,
+    stringStatementError: stringStatementError,
+    fallback: fallback,
+  );
+
+  @override
+  List<Parser> get children => [
+    semicolon,
+    globalStat,
+    localFunctionDefStat,
+    functionDefStat,
+    localDeclaration,
+    forNumericStat,
+    forGenericStat,
+    doBlockStat,
+    whileStat,
+    repeatStat,
+    ifStat,
+    breakStat,
+    labelStat,
+    gotoStat,
+    returnlessExprStatement,
+    assignment,
+    stringStatementError,
+    fallback,
+  ];
+
+  @override
+  void replace(Parser source, Parser target) {
+    super.replace(source, target);
+    if (semicolon == source) semicolon = target;
+    if (globalStat == source) globalStat = target;
+    if (localFunctionDefStat == source) localFunctionDefStat = target;
+    if (functionDefStat == source) functionDefStat = target;
+    if (localDeclaration == source) localDeclaration = target;
+    if (forNumericStat == source) forNumericStat = target;
+    if (forGenericStat == source) forGenericStat = target;
+    if (doBlockStat == source) doBlockStat = target;
+    if (whileStat == source) whileStat = target;
+    if (repeatStat == source) repeatStat = target;
+    if (ifStat == source) ifStat = target;
+    if (breakStat == source) breakStat = target;
+    if (labelStat == source) labelStat = target;
+    if (gotoStat == source) gotoStat = target;
+    if (returnlessExprStatement == source) returnlessExprStatement = target;
+    if (assignment == source) assignment = target;
+    if (stringStatementError == source) stringStatementError = target;
+    if (fallback == source) fallback = target;
   }
 }
 
