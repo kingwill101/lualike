@@ -565,41 +565,12 @@ class LuaGrammarDefinition extends GrammarDefinition {
       _FieldParser(expression: ref0(_expression), identifier: _identifier());
 
   // prefixexp ::= var | functioncall | '(' exp ')'
-  Parser _prefixExp() {
-    final base = (_identifier() | ref0(_groupedExpression));
-
-    final suffix = ref0(_suffix).star();
-
-    return (base & suffix).map((values) {
-      AstNode expr = values[0] as AstNode;
-      final sufs = (values[1] as List).cast<_PrefixSuffix>();
-      for (final s in sufs) {
-        if (s is _IndexSuffix) {
-          final access = TableIndexAccess(expr, s.expression);
-          access.setSpan(expr.span ?? _sourceFile.span(0, 0));
-          expr = access;
-        } else if (s is _FieldSuffix) {
-          final access = TableFieldAccess(expr, s.identifier);
-          access.setSpan(expr.span ?? _sourceFile.span(0, 0));
-          expr = access;
-        } else if (s is _CallSuffix) {
-          final call = FunctionCall(expr, s.args);
-          call.setSpan(expr.span ?? _sourceFile.span(0, 0));
-          expr = call;
-        } else if (s is _MethodSuffix) {
-          final mcall = MethodCall(
-            expr,
-            s.identifier,
-            s.args,
-            implicitSelf: true,
-          );
-          mcall.setSpan(expr.span ?? _sourceFile.span(0, 0));
-          expr = mcall;
-        }
-      }
-      return expr;
-    });
-  }
+  Parser _prefixExp() => _PrefixExpressionParser(
+    definition: this,
+    identifier: _identifier(),
+    groupedExpression: ref0(_groupedExpression),
+    suffix: ref0(_suffix),
+  );
 
   Parser _suffix() => _SuffixParser(
     expression: ref0(_expression),
@@ -1597,6 +1568,111 @@ final class _MethodSuffix extends _PrefixSuffix {
 
   final Identifier identifier;
   final List<AstNode> args;
+}
+
+class _PrefixExpressionParser extends Parser<AstNode> {
+  _PrefixExpressionParser({
+    required this.definition,
+    required this.identifier,
+    required this.groupedExpression,
+    required this.suffix,
+  });
+
+  final LuaGrammarDefinition definition;
+  Parser identifier;
+  Parser groupedExpression;
+  Parser suffix;
+
+  @override
+  Result<AstNode> parseOn(Context context) {
+    final buffer = context.buffer;
+    final start = _skipLuaTrivia(buffer, context.position);
+    if (start >= buffer.length) {
+      return context.failure('prefix expression expected', start);
+    }
+
+    Result baseResult;
+    if (buffer.codeUnitAt(start) == 0x28) {
+      baseResult = groupedExpression.parseOn(Context(buffer, start));
+    } else if (_isIdentifierStartCodeUnit(buffer.codeUnitAt(start))) {
+      baseResult = identifier.parseOn(Context(buffer, start));
+    } else {
+      return context.failure('prefix expression expected', start);
+    }
+    if (baseResult is Failure) {
+      return baseResult;
+    }
+
+    var expression = baseResult.value as AstNode;
+    var current = baseResult.position;
+    while (true) {
+      final suffixResult = suffix.parseOn(Context(buffer, current));
+      if (suffixResult is Failure) {
+        break;
+      }
+      expression = _applySuffix(
+        expression,
+        suffixResult.value as _PrefixSuffix,
+      );
+      current = suffixResult.position;
+    }
+
+    return context.success(expression, current);
+  }
+
+  AstNode _applySuffix(AstNode expression, _PrefixSuffix suffix) {
+    if (suffix is _IndexSuffix) {
+      final access = TableIndexAccess(expression, suffix.expression);
+      access.setSpan(expression.span ?? definition._sourceFile.span(0, 0));
+      return access;
+    }
+    if (suffix is _FieldSuffix) {
+      final access = TableFieldAccess(expression, suffix.identifier);
+      access.setSpan(expression.span ?? definition._sourceFile.span(0, 0));
+      return access;
+    }
+    if (suffix is _CallSuffix) {
+      final call = FunctionCall(expression, suffix.args);
+      call.setSpan(expression.span ?? definition._sourceFile.span(0, 0));
+      return call;
+    }
+    if (suffix is _MethodSuffix) {
+      final call = MethodCall(
+        expression,
+        suffix.identifier,
+        suffix.args,
+        implicitSelf: true,
+      );
+      call.setSpan(expression.span ?? definition._sourceFile.span(0, 0));
+      return call;
+    }
+    return expression;
+  }
+
+  @override
+  _PrefixExpressionParser copy() => _PrefixExpressionParser(
+    definition: definition,
+    identifier: identifier,
+    groupedExpression: groupedExpression,
+    suffix: suffix,
+  );
+
+  @override
+  List<Parser> get children => [identifier, groupedExpression, suffix];
+
+  @override
+  void replace(Parser source, Parser target) {
+    super.replace(source, target);
+    if (identifier == source) {
+      identifier = target;
+    }
+    if (groupedExpression == source) {
+      groupedExpression = target;
+    }
+    if (suffix == source) {
+      suffix = target;
+    }
+  }
 }
 
 class _SuffixParser extends Parser<_PrefixSuffix> {
