@@ -608,14 +608,11 @@ class LuaGrammarDefinition extends GrammarDefinition {
   );
 
   // args ::= '(' [explist] ')' | tableconstructor | LiteralString
-  Parser _args() {
-    final paren = (_token('(') & ref0(_explist).optional() & _token(')')).map(
-      (vals) => vals[1] as List<AstNode>? ?? <AstNode>[],
-    );
-    return paren |
-        ref0(_tableConstructor).map((tc) => [tc]) |
-        _stringLiteral().map((s) => [s]);
-  }
+  Parser _args() => _ArgsParser(
+    expressionList: ref0(_explist),
+    tableConstructor: ref0(_tableConstructor),
+    stringLiteral: _stringLiteral(),
+  );
 
   // ----------------- Simple Control Statements ---------------------------
 
@@ -1729,6 +1726,110 @@ class _SuffixParser extends Parser<_PrefixSuffix> {
     }
     if (args == source) {
       args = target;
+    }
+  }
+}
+
+class _ArgsParser extends Parser<List<AstNode>> {
+  _ArgsParser({
+    required this.expressionList,
+    required this.tableConstructor,
+    required this.stringLiteral,
+  });
+
+  Parser expressionList;
+  Parser tableConstructor;
+  Parser stringLiteral;
+
+  @override
+  Result<List<AstNode>> parseOn(Context context) {
+    final buffer = context.buffer;
+    final start = _skipLuaTrivia(buffer, context.position);
+    if (start >= buffer.length) {
+      return context.failure('arguments expected', start);
+    }
+
+    switch (buffer.codeUnitAt(start)) {
+      case 0x28: // (
+        return _parseParenthesized(context, buffer, start);
+      case 0x7B: // {
+        return _parseSingle(context, tableConstructor, buffer, start);
+      case 0x22: // "
+      case 0x27: // '
+        return _parseSingle(context, stringLiteral, buffer, start);
+      case 0x5B: // [
+        if (_startsLongBracket(buffer, start)) {
+          return _parseSingle(context, stringLiteral, buffer, start);
+        }
+    }
+
+    return context.failure('arguments expected', start);
+  }
+
+  Result<List<AstNode>> _parseParenthesized(
+    Context context,
+    String buffer,
+    int start,
+  ) {
+    var current = _skipLuaTrivia(buffer, start + 1);
+    if (current < buffer.length && buffer.codeUnitAt(current) == 0x29) {
+      return context.success(<AstNode>[], _skipLuaTrivia(buffer, current + 1));
+    }
+
+    final argsResult = expressionList.parseOn(Context(buffer, current));
+    if (argsResult is Failure) {
+      return argsResult;
+    }
+
+    current = _skipLuaTrivia(buffer, argsResult.position);
+    if (current >= buffer.length || buffer.codeUnitAt(current) != 0x29) {
+      return context.failure('")" expected', current);
+    }
+
+    return context.success(
+      (argsResult.value as List).cast<AstNode>(),
+      _skipLuaTrivia(buffer, current + 1),
+    );
+  }
+
+  Result<List<AstNode>> _parseSingle(
+    Context context,
+    Parser parser,
+    String buffer,
+    int start,
+  ) {
+    final result = parser.parseOn(Context(buffer, start));
+    if (result is Failure) {
+      return result;
+    }
+    return context.success([result.value as AstNode], result.position);
+  }
+
+  @override
+  _ArgsParser copy() => _ArgsParser(
+    expressionList: expressionList,
+    tableConstructor: tableConstructor,
+    stringLiteral: stringLiteral,
+  );
+
+  @override
+  List<Parser> get children => [
+    expressionList,
+    tableConstructor,
+    stringLiteral,
+  ];
+
+  @override
+  void replace(Parser source, Parser target) {
+    super.replace(source, target);
+    if (expressionList == source) {
+      expressionList = target;
+    }
+    if (tableConstructor == source) {
+      tableConstructor = target;
+    }
+    if (stringLiteral == source) {
+      stringLiteral = target;
     }
   }
 }
