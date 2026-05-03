@@ -1656,7 +1656,7 @@ class NextFunction extends BuiltinFunction {
       interpreter!.constantPrimitiveValue(value);
 
   Value _runtimeNextValue(Object? value) =>
-      Value(value)..interpreter = interpreter;
+      valueFromLuaSlot(interpreter!, value);
 
   bool _shouldSkipWeakKey(Value table, Value nextKey) {
     if (table.tableWeakMode == null ||

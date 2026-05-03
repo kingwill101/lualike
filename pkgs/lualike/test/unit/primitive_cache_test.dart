@@ -5,6 +5,7 @@ import 'package:lualike/src/coroutine.dart';
 import 'package:lualike/src/runtime/lua_results.dart';
 import 'package:lualike/src/runtime/lua_slot.dart';
 import 'package:lualike/src/runtime/vararg_table.dart';
+import 'package:lualike/src/stdlib/lib_base.dart';
 import 'package:lualike/src/stdlib/metatables.dart';
 import 'package:lualike/src/table_storage.dart';
 import 'package:path/path.dart' as path_lib;
@@ -309,6 +310,26 @@ void main() {
 
     expect(identical(result[0], runtime.constantPrimitiveValue(1)), true);
     expect(identical(result[1], runtime.constantPrimitiveValue(42)), true);
+  });
+
+  test('next raw table results reuse canonical runtime wrappers', () {
+    final interpreter = Interpreter();
+    final nested = <Object?, Object?>{'value': 42};
+    final storage = TableStorage()..['nested'] = nested;
+    final table = Value(storage, interpreter: interpreter);
+    final next = NextFunction(interpreter);
+
+    final first = next.call([table]) as LuaResults;
+    final second = next.call([table]) as LuaResults;
+    final firstValue = first.values[1] as Value;
+    final secondValue = second.values[1] as Value;
+
+    expect(identical(firstValue, secondValue), true);
+    expect(
+      identical(firstValue, Value.lookupCanonicalTableWrapper(nested)),
+      true,
+    );
+    expect(identical(firstValue.interpreter, interpreter), true);
   });
 
   test('packed vararg table writes reuse the runtime cache', () {
