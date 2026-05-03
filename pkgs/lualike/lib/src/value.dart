@@ -1120,6 +1120,9 @@ class Value extends Object implements Map<String, dynamic>, GCObject {
       value.isToBeClose = true;
       return value;
     }
+    if (metatable == null && (value == null || value == false)) {
+      return Value.primitive(value, isToBeClose: true);
+    }
     return Value(value, metatable: metatable, isToBeClose: true);
   }
 
