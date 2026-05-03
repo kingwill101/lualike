@@ -8,6 +8,8 @@ import 'package:lualike/command/lualike_command_runner.dart';
 import 'package:lualike/src/lua_bytecode/runtime.dart';
 import 'package:test/test.dart';
 
+import '../helpers/package_paths.dart';
+
 void main() {
   final luacBinary = _resolveLuacBinary();
   final skipReason = luacBinary == null
@@ -1412,7 +1414,7 @@ return a[2], b, c == print, a[1].alo == assert
             Platform.resolvedExecutable,
             <String>[
               'run',
-              'pkgs/lualike/bin/main.dart',
+              packagePath('bin/main.dart'),
               '--lua-bytecode',
               chunkFile.path,
             ],
