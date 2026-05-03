@@ -5,21 +5,26 @@ import 'package:lualike/lualike.dart';
 import 'package:lualike/src/ir/runtime.dart';
 import 'package:test/test.dart';
 
-Future<void> _executeSuiteFile(String path) async {
+import '../helpers/package_paths.dart';
+
+Future<void> _executeSuiteFile(String relativePath) async {
   final runtime = LualikeIrRuntime();
   runtime.globals
     ..define('_port', Value(true))
     ..define('_soft', Value(true));
 
+  final packagePattern = luaPathLiteral(
+    '${packagePath('luascripts/test/?.lua')};',
+  );
+  final suitePath = luaPathLiteral(packagePath(relativePath));
   final lua = LuaLike(runtime: runtime);
   await lua.execute(
-    "package.path = 'pkgs/lualike/luascripts/test/?.lua;' .. package.path; "
-    "return dofile('$path')",
+    'package.path = $packagePattern .. package.path; return dofile($suitePath)',
   );
 }
 
 void main() {
   test('executes bitwise.lua through lowered IR runtime', () async {
-    await _executeSuiteFile('pkgs/lualike/luascripts/test/bitwise.lua');
+    await _executeSuiteFile('luascripts/test/bitwise.lua');
   });
 }
