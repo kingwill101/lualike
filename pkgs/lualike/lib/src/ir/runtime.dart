@@ -10,14 +10,12 @@ import 'package:lualike/src/coroutine.dart';
 import 'package:lualike/src/environment.dart';
 import 'package:lualike/src/file_manager.dart';
 import 'package:lualike/src/gc/generational_gc.dart';
-import 'package:lualike/src/goto_validator.dart';
 import 'package:lualike/src/interpreter/interpreter.dart';
 import 'package:lualike/src/lua_bytecode/runtime.dart';
 import 'package:lualike/src/lua_bytecode/chunk.dart';
 import 'package:lualike/src/lua_bytecode/serializer.dart';
 import 'package:lualike/src/lua_bytecode/vm.dart';
 import 'package:lualike/src/lua_string.dart';
-import 'package:lualike/src/parse.dart';
 import 'package:lualike/src/runtime/compiled_artifact_support.dart';
 import 'package:lualike/src/runtime/chunk_loading_support.dart';
 import 'package:lualike/src/runtime/lua_runtime.dart';
@@ -34,6 +32,7 @@ class LualikeIrRuntime implements LuaRuntime {
     : _interpreter = Interpreter(fileManager: fileManager) {
     _libraryRegistry = LibraryRegistry(this);
     final runtimeEnv = Environment(interpreter: this);
+    _globalEnvironment = runtimeEnv;
     _interpreter.setCurrentEnv(runtimeEnv);
     gc.register(runtimeEnv);
     initializeStandardLibrary(vm: this);
@@ -42,15 +41,14 @@ class LualikeIrRuntime implements LuaRuntime {
   }
 
   final Interpreter _interpreter;
+  late final Environment _globalEnvironment;
   late final LibraryRegistry _libraryRegistry;
 
   Interpreter get debugInterpreter => _interpreter;
 
-  Environment get _globals => _interpreter.globals;
-
   @override
   Environment get globals {
-    final env = _globals;
+    final env = _globalEnvironment;
     _ensureEnvironmentBinding(env);
     return env;
   }
@@ -139,24 +137,6 @@ class LualikeIrRuntime implements LuaRuntime {
     }
 
     final normalizedRequest = normalized.request;
-    final textSource = switch (normalizedRequest.source.raw) {
-      final String text => text,
-      final LuaString luaString => luaString.toLatin1String(),
-      _ => null,
-    };
-    if (textSource != null &&
-        (textSource.contains('goto') || textSource.contains('::'))) {
-      try {
-        final ast = parse(textSource, url: normalizedRequest.chunkName);
-        final gotoError = GotoLabelValidator().checkGotoLabelViolations(ast);
-        if (gotoError != null) {
-          return LuaChunkLoadResult.failure(gotoError);
-        }
-      } on Exception catch (error) {
-        return LuaChunkLoadResult.failure(error.toString());
-      }
-    }
-
     final luaBytecodeResult = tryLoadLuaBytecodeArtifact(
       this,
       normalizedRequest,
@@ -170,7 +150,21 @@ class LualikeIrRuntime implements LuaRuntime {
       return irResult;
     }
 
-    return loadChunkWithLegacyAstSupport(this, normalizedRequest);
+    final sourceBytes = compiledArtifactSourceBytes(normalizedRequest.source);
+    if (sourceBytes != null &&
+        sourceBytes.isNotEmpty &&
+        !looksLikeTrackedLuaBytecodeBytes(sourceBytes) &&
+        sourceBytes.first == 0x1B) {
+      return loadChunkWithLegacyAstSupport(this, normalizedRequest);
+    }
+
+    if (!normalizedRequest.mode.contains('t')) {
+      return LuaChunkLoadResult.failure(
+        "attempt to load a text chunk (mode is '${normalizedRequest.mode}')",
+      );
+    }
+
+    return loadLuaBytecodeSourceChunk(this, normalizedRequest);
   }
 
   @override
@@ -363,7 +357,25 @@ class LualikeIrRuntime implements LuaRuntime {
       chunkName: currentScriptPath ?? '=(lualike_ir)',
       environment: env,
     );
-    return closure.call(const <Object?>[]);
+    return closure.call(const <Object?>[]).then(_finalizeChunkResult);
+  }
+
+  Object? _finalizeChunkResult(Object? result) {
+    if (result is Value && result.isMulti && result.raw is List) {
+      final values = result.raw as List;
+      if (values.isEmpty) {
+        return null;
+      }
+      return List<dynamic>.from(values.map(_finalizeChunkValue));
+    }
+    return _finalizeChunkValue(result);
+  }
+
+  Object? _finalizeChunkValue(Object? value) {
+    if (value is Value && value.isPrimitiveLike) {
+      return value.raw;
+    }
+    return value;
   }
 
   void _dumpDisassemblyIfEnabled(LualikeIrChunk chunk) {
@@ -467,10 +479,10 @@ LuaBytecodePrototype _stripBytecodePrototypeDebugInfo(
     prototypes: List<LuaBytecodePrototype>.unmodifiable(
       prototype.prototypes.map(_stripBytecodePrototypeDebugInfo),
     ),
-    source: prototype.source,
+    source: '=?',
     lineInfo: const <int>[],
     absoluteLineInfo: const <LuaBytecodeAbsLineInfo>[],
     localVariables: const <LuaBytecodeLocalVariableDebugInfo>[],
-    upvalueNames: const <String?>[],
+    upvalueNames: List<String?>.filled(prototype.upvalues.length, null),
   );
 }

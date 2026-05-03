@@ -79,6 +79,17 @@ void main() {
       expect(unwrap(result), equals(7));
     });
 
+    test('loaded chunk can use pairs iterator from globals', () async {
+      final result = await bridge.execute(r'''
+        local chunk = assert(load("for k, v in pairs({10, 20}) do return k, v end"))
+        return chunk()
+      ''');
+
+      expect(result, isA<List>());
+      final values = (result as List).map(unwrap).toList();
+      expect(values, equals(<Object?>[1, 10]));
+    });
+
     test('pcall surfaces math.huge shift error message', () async {
       final result = await bridge.execute(r'''
         local ok, err = pcall(function()
@@ -221,6 +232,8 @@ void main() {
       'goto.lua global declaration block through local foo assertions',
       () async {
         final result = await bridge.execute(r'''
+          global<const> load, string
+
           local function checkerr (code, err)
           local st, msg = load(code)
           _ENV.assert(not st and string.find(msg, err))
@@ -273,6 +286,8 @@ void main() {
       'goto.lua global declaration block trailing const and wildcard cases',
       () async {
         final result = await bridge.execute(r'''
+        global<const> load, string, assert
+
         local function checkerr (code, err)
           local st, msg = load(code)
           assert(not st and string.find(msg, err))
