@@ -197,38 +197,26 @@ class MetaTable {
 
     // Number metatable
     _typeMetatables['number'] = ValueClass.create({
-      '__add': (List<Object?> args) =>
-          Value.wrap(args[0]) + Value.wrap(args[1]),
-      '__sub': (List<Object?> args) =>
-          Value.wrap(args[0]) - Value.wrap(args[1]),
-      '__mul': (List<Object?> args) =>
-          Value.wrap(args[0]) * Value.wrap(args[1]),
-      '__div': (List<Object?> args) =>
-          Value.wrap(args[0]) / Value.wrap(args[1]),
-      '__idiv': (List<Object?> args) =>
-          Value.wrap(args[0]) ~/ Value.wrap(args[1]),
-      '__mod': (List<Object?> args) =>
-          Value.wrap(args[0]) % Value.wrap(args[1]),
-      '__pow': (List<Object?> args) =>
-          Value.wrap(args[0]).exp(Value.wrap(args[1])),
-      '__unm': (List<Object?> args) => -Value.wrap(args[0]),
-      '__bnot': (List<Object?> args) => ~Value.wrap(args[0]),
-      '__band': (List<Object?> args) =>
-          Value.wrap(args[0]) & Value.wrap(args[1]),
-      '__bor': (List<Object?> args) =>
-          Value.wrap(args[0]) | Value.wrap(args[1]),
-      '__bxor': (List<Object?> args) =>
-          Value.wrap(args[0]) ^ Value.wrap(args[1]),
-      '__shl': (List<Object?> args) =>
-          Value.wrap(args[0]) << Value.wrap(args[1]),
-      '__shr': (List<Object?> args) =>
-          Value.wrap(args[0]) >> Value.wrap(args[1]),
+      '__add': (List<Object?> args) => _argumentValue(args[0]) + args[1],
+      '__sub': (List<Object?> args) => _argumentValue(args[0]) - args[1],
+      '__mul': (List<Object?> args) => _argumentValue(args[0]) * args[1],
+      '__div': (List<Object?> args) => _argumentValue(args[0]) / args[1],
+      '__idiv': (List<Object?> args) => _argumentValue(args[0]) ~/ args[1],
+      '__mod': (List<Object?> args) => _argumentValue(args[0]) % args[1],
+      '__pow': (List<Object?> args) => _argumentValue(args[0]).exp(args[1]),
+      '__unm': (List<Object?> args) => -_argumentValue(args[0]),
+      '__bnot': (List<Object?> args) => ~_argumentValue(args[0]),
+      '__band': (List<Object?> args) => _argumentValue(args[0]) & args[1],
+      '__bor': (List<Object?> args) => _argumentValue(args[0]) | args[1],
+      '__bxor': (List<Object?> args) => _argumentValue(args[0]) ^ args[1],
+      '__shl': (List<Object?> args) => _argumentValue(args[0]) << args[1],
+      '__shr': (List<Object?> args) => _argumentValue(args[0]) >> args[1],
       '__eq': (List<Object?> args) =>
-          _primitiveValue(Value.wrap(args[0]) == Value.wrap(args[1])),
+          _primitiveValue(_argumentValue(args[0]) == args[1]),
       '__lt': (List<Object?> args) =>
-          _primitiveValue(Value.wrap(args[0]) < Value.wrap(args[1])),
+          _primitiveValue(_argumentValue(args[0]) < _comparisonArg(args[1])),
       '__le': (List<Object?> args) =>
-          _primitiveValue(Value.wrap(args[0]) <= Value.wrap(args[1])),
+          _primitiveValue(_argumentValue(args[0]) <= _comparisonArg(args[1])),
     });
     Logger.debugLazy(
       () => 'Number metatable initialized',
@@ -514,6 +502,14 @@ class MetaTable {
 
   Value _primitiveValue(Object? raw) {
     return cachedPrimitiveOrValue(_interpreter, raw);
+  }
+
+  Value _argumentValue(Object? raw) {
+    return cachedPrimitiveOrValue(_interpreter, raw);
+  }
+
+  Object _comparisonArg(Object? raw) {
+    return raw ?? _argumentValue(raw);
   }
 
   bool isDefaultMetatableActive(String type) => switch (type) {

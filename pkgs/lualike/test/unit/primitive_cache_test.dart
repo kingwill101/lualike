@@ -5,6 +5,7 @@ import 'package:lualike/src/coroutine.dart';
 import 'package:lualike/src/runtime/lua_results.dart';
 import 'package:lualike/src/runtime/lua_slot.dart';
 import 'package:lualike/src/runtime/vararg_table.dart';
+import 'package:lualike/src/stdlib/metatables.dart';
 import 'package:lualike/src/table_storage.dart';
 import 'package:path/path.dart' as path_lib;
 import 'package:test/test.dart';
@@ -1264,4 +1265,30 @@ void main() {
     expect(identical(truthy.or(0), truthy), true);
     expect(identical(falsey.and(0), falsey), true);
   });
+
+  test(
+    'number metatable operators reuse runtime caches for raw right operands',
+    () {
+      final interpreter = Interpreter();
+      MetaTable.initialize(interpreter);
+      final numberMetatable = MetaTable().getTypeMetatable('number')!;
+      final add = numberMetatable.metamethods['__add'] as dynamic;
+      final eq = numberMetatable.metamethods['__eq'] as dynamic;
+      final left = Value(10, interpreter: interpreter);
+
+      final valueLeftSum = add([left, 5]);
+      final rawLeftSum = add([10, 5]);
+      final equalResult = eq([10, 10]);
+
+      expect(
+        identical(valueLeftSum, interpreter.constantPrimitiveValue(15)),
+        true,
+      );
+      expect((rawLeftSum as Value).raw, 15);
+      expect(
+        identical(equalResult, interpreter.constantPrimitiveValue(true)),
+        true,
+      );
+    },
+  );
 }
