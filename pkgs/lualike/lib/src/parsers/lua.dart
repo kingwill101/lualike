@@ -155,49 +155,7 @@ class LuaGrammarDefinition extends GrammarDefinition {
   // Matches Lua numeric literals:
   //   • Decimal:  123   1.5   .5   1e3   1.5e-2
   //   • Hex:      0xFF  0X1.8p+4  0x1p-1
-  Parser _numberLiteral() {
-    // ---------- helpers ----------
-    final hexDigit = pattern('0-9A-Fa-f');
-    final decDigit = digit();
-
-    // Hex prefix 0x / 0X
-    final hexPrefix = string('0') & pattern('xX');
-
-    // Hex exponent P / p with optional sign and digits
-    final hexExp = pattern('pP') & pattern('+-').optional() & decDigit.plus();
-
-    // Hexadecimal numeral: 0x[hexdigits](.[hexdigits])?(_hexExp)?
-    final hexInt = hexPrefix & hexDigit.plus();
-    final hexFrac = hexPrefix & hexDigit.star() & char('.') & hexDigit.plus();
-    final hexNumber = (hexFrac | hexInt) & hexExp.optional();
-
-    // Decimal parts
-    final decInt = decDigit.plus();
-    final decFrac1 = decDigit.plus() & char('.') & decDigit.star();
-    final decFrac2 = char('.') & decDigit.plus();
-    final decExp = pattern('eE') & pattern('+-').optional() & decDigit.plus();
-
-    final decimalUnsigned = ((decFrac1 | decFrac2 | decInt) & decExp.optional())
-        .flatten();
-
-    // Lua numeric literals do NOT include a leading sign; signs are handled
-    // by the separate unary operator. Keep the literal unsigned.
-    final decimalNumber = decimalUnsigned;
-
-    final hexNumberFlatten = hexNumber.flatten();
-
-    return position()
-        .seq((hexNumberFlatten | decimalNumber))
-        .seq(position())
-        .trim(ref0(_whiteSpaceAndComments))
-        .map((vals) {
-          final start = vals[0] as int;
-          final lexeme = vals[1] as String;
-          final end = vals[2] as int;
-          final node = NumberLiteral(LuaNumberParser.parse(lexeme));
-          return _annotate(node, start, end);
-        });
-  }
+  Parser _numberLiteral() => _NumberLiteralParser(this);
 
   // ---------- Grammar rules -------------------------------------------------
   @override
@@ -1186,6 +1144,37 @@ class _StringLiteralParser extends Parser<StringLiteral> {
   _StringLiteralParser copy() => _StringLiteralParser(definition);
 }
 
+class _NumberLiteralParser extends Parser<NumberLiteral> {
+  _NumberLiteralParser(this.definition);
+
+  final LuaGrammarDefinition definition;
+
+  @override
+  Result<NumberLiteral> parseOn(Context context) {
+    final buffer = context.buffer;
+    final start = _skipLuaTrivia(buffer, context.position);
+    final rawEnd = _scanLuaNumberEnd(buffer, start);
+    if (rawEnd < 0) {
+      return context.failure('number expected', start);
+    }
+
+    final lexeme = buffer.substring(start, rawEnd);
+    final node = NumberLiteral(LuaNumberParser.parse(lexeme));
+    node.setSpan(definition._sourceFile.span(start, rawEnd));
+    return context.success(node, _skipLuaTrivia(buffer, rawEnd));
+  }
+
+  @override
+  int fastParseOn(String buffer, int position) {
+    final start = _skipLuaTrivia(buffer, position);
+    final rawEnd = _scanLuaNumberEnd(buffer, start);
+    return rawEnd < 0 ? -1 : _skipLuaTrivia(buffer, rawEnd);
+  }
+
+  @override
+  _NumberLiteralParser copy() => _NumberLiteralParser(definition);
+}
+
 class _ExpressionListParser extends Parser<List<AstNode>> {
   _ExpressionListParser(this.expression, this.comma);
 
@@ -2018,6 +2007,121 @@ bool _startsLongBracket(String buffer, int position) {
 }
 
 bool _isDigitCodeUnit(int codeUnit) => codeUnit >= 0x30 && codeUnit <= 0x39;
+
+bool _isHexDigitCodeUnit(int codeUnit) =>
+    (codeUnit >= 0x30 && codeUnit <= 0x39) ||
+    (codeUnit >= 0x41 && codeUnit <= 0x46) ||
+    (codeUnit >= 0x61 && codeUnit <= 0x66);
+
+int _scanLuaNumberEnd(String buffer, int start) {
+  if (start >= buffer.length) {
+    return -1;
+  }
+
+  final first = buffer.codeUnitAt(start);
+  if (first == 0x2E) {
+    return _scanDecimalFractionEnd(buffer, start);
+  }
+  if (!_isDigitCodeUnit(first)) {
+    return -1;
+  }
+  if (first == 0x30 &&
+      start + 1 < buffer.length &&
+      _isHexPrefixCodeUnit(buffer.codeUnitAt(start + 1))) {
+    return _scanHexNumberEnd(buffer, start);
+  }
+  return _scanDecimalNumberEnd(buffer, start);
+}
+
+bool _isHexPrefixCodeUnit(int codeUnit) => codeUnit == 0x78 || codeUnit == 0x58;
+
+int _scanDecimalNumberEnd(String buffer, int start) {
+  var current = _scanDecimalDigits(buffer, start);
+  if (current < buffer.length && buffer.codeUnitAt(current) == 0x2E) {
+    current = _scanDecimalDigits(buffer, current + 1);
+  }
+  return _scanExponentEnd(buffer, current, lower: 0x65, upper: 0x45) ?? current;
+}
+
+int _scanDecimalFractionEnd(String buffer, int start) {
+  final digitStart = start + 1;
+  final digitEnd = _scanDecimalDigits(buffer, digitStart);
+  if (digitEnd == digitStart) {
+    return -1;
+  }
+  return _scanExponentEnd(buffer, digitEnd, lower: 0x65, upper: 0x45) ??
+      digitEnd;
+}
+
+int _scanHexNumberEnd(String buffer, int start) {
+  final bodyStart = start + 2;
+  final integerEnd = _scanHexDigits(buffer, bodyStart);
+  late final int current;
+
+  if (integerEnd < buffer.length && buffer.codeUnitAt(integerEnd) == 0x2E) {
+    final fractionStart = integerEnd + 1;
+    final fractionEnd = _scanHexDigits(buffer, fractionStart);
+    if (fractionEnd > fractionStart) {
+      current = fractionEnd;
+    } else if (integerEnd > bodyStart) {
+      current = integerEnd;
+    } else {
+      return -1;
+    }
+  } else {
+    if (integerEnd == bodyStart) {
+      return -1;
+    }
+    current = integerEnd;
+  }
+
+  return _scanExponentEnd(buffer, current, lower: 0x70, upper: 0x50) ?? current;
+}
+
+int _scanDecimalDigits(String buffer, int position) {
+  var current = position;
+  while (current < buffer.length &&
+      _isDigitCodeUnit(buffer.codeUnitAt(current))) {
+    current++;
+  }
+  return current;
+}
+
+int _scanHexDigits(String buffer, int position) {
+  var current = position;
+  while (current < buffer.length &&
+      _isHexDigitCodeUnit(buffer.codeUnitAt(current))) {
+    current++;
+  }
+  return current;
+}
+
+int? _scanExponentEnd(
+  String buffer,
+  int position, {
+  required int lower,
+  required int upper,
+}) {
+  if (position >= buffer.length) {
+    return null;
+  }
+  final marker = buffer.codeUnitAt(position);
+  if (marker != lower && marker != upper) {
+    return null;
+  }
+
+  var current = position + 1;
+  if (current < buffer.length) {
+    final sign = buffer.codeUnitAt(current);
+    if (sign == 0x2B || sign == 0x2D) {
+      current++;
+    }
+  }
+
+  final digitStart = current;
+  current = _scanDecimalDigits(buffer, current);
+  return current == digitStart ? null : current;
+}
 
 class _TokenParser extends Parser<String> {
   _TokenParser(this.lexeme, {required this.needsIdentifierBoundary})
