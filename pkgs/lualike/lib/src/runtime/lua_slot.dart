@@ -63,13 +63,7 @@ Value valueFromLuaSlot(LuaRuntime runtime, LuaSlot slot) {
     }
   }
 
-  if (slot == null) {
-    return runtime.constantPrimitiveValue(null);
-  }
-  if (slot is bool) {
-    return runtime.constantPrimitiveValue(slot);
-  }
-  if (slot is num || slot is BigInt) {
+  if (isLuaScalarPrimitiveSlot(slot)) {
     return runtime.constantPrimitiveValue(slot);
   }
   if (slot is LuaString) {
