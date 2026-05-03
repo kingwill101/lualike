@@ -1,0 +1,42 @@
+name: Flutter (love2d)
+
+on:
+  push:
+    branches: ["master"]
+    paths:
+      - "pkgs/love2d/**"
+      - "pkgs/lualike/**"
+      - ".github/workflows/love2d.yml"
+  pull_request:
+    paths:
+      - "pkgs/love2d/**"
+      - "pkgs/lualike/**"
+      - ".github/workflows/love2d.yml"
+
+defaults:
+  run:
+    working-directory: pkgs/love2d
+
+jobs:
+  flutter-test:
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+        channel: [stable]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: ${{ matrix.channel }}
+
+      - name: Install dependencies
+        run: flutter pub get
+
+      - run: dart format --output=none --set-exit-if-changed .
+
+      - run: flutter analyze
+
+      - name: Run tests
+        run: flutter test
