@@ -1650,7 +1650,7 @@ class NextFunction extends BuiltinFunction {
   }
 
   Value _temporaryNextValue(Object? value) =>
-      Value(value, isTempKey: true)..interpreter = interpreter;
+      freshValueFromLuaSlot(interpreter, value, isTempKey: true);
 
   Value _primitiveNextValue(Object? value) =>
       interpreter!.constantPrimitiveValue(value);
