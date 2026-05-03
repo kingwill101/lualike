@@ -57,6 +57,16 @@ String? getCurrentDirectory() {
   }
 }
 
+/// Platform-safe way to create a directory.
+Future<bool> createDirectory(String path, {bool recursive = true}) async {
+  try {
+    await Directory(path).create(recursive: recursive);
+    return true;
+  } catch (e) {
+    return false;
+  }
+}
+
 /// Platform-safe way to write a file
 Future<void> writeFile(String path, String content) async {
   try {
@@ -77,6 +87,15 @@ Future<List<String>> listDirectory(String path) async {
   }
 }
 
+/// Platform-safe way to get a file's size in bytes.
+Future<int?> fileSize(String path) async {
+  try {
+    return await File(path).length();
+  } catch (e) {
+    return null;
+  }
+}
+
 /// Platform-safe way to delete a file
 Future<void> deleteFile(String path) async {
   try {
@@ -86,6 +105,27 @@ Future<void> deleteFile(String path) async {
     }
   } catch (e) {
     throw Exception('Failed to delete file: $path');
+  }
+}
+
+/// Platform-safe way to delete either a file or a directory.
+Future<bool> deletePath(String path, {bool recursive = true}) async {
+  try {
+    final file = File(path);
+    if (await file.exists()) {
+      await file.delete();
+      return true;
+    }
+
+    final directory = Directory(path);
+    if (await directory.exists()) {
+      await directory.delete(recursive: recursive);
+      return true;
+    }
+
+    return false;
+  } catch (e) {
+    return false;
   }
 }
 

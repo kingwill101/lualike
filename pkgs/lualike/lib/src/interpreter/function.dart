@@ -31,11 +31,21 @@ final class _NamedVarargTable extends MapBase<dynamic, dynamic>
       final Value wrapped => wrapped.raw,
       _ => key,
     };
-    final integer = NumberUtils.tryToInteger(rawKey);
-    if (integer == null || integer < 1 || integer > NumberLimits.maxInt32) {
-      return null;
-    }
-    return integer;
+    return switch (rawKey) {
+      final int integer when integer > 0 && integer <= NumberLimits.maxInt32 =>
+        integer,
+      final BigInt integer
+          when integer >= BigInt.one &&
+              integer <= BigInt.from(NumberLimits.maxInt32) =>
+        integer.toInt(),
+      final num number
+          when number.isFinite &&
+              number > 0 &&
+              number.toInt() <= NumberLimits.maxInt32 &&
+              number.toInt().toDouble() == number.toDouble() =>
+        number.toInt(),
+      _ => null,
+    };
   }
 
   @override
@@ -350,6 +360,8 @@ Object? _snapshotReturnPayload(Object? value) {
           : null,
       isConst: original.isConst,
       isToBeClose: original.isToBeClose,
+      skipAllocationDebt: original.skipAllocationDebt,
+      skipGcRegistration: original.skipGcRegistration,
       upvalues: original.upvalues,
       interpreter: original.interpreter,
       functionBody: original.functionBody,
@@ -1582,7 +1594,7 @@ mixin InterpreterFunctionMixin on AstVisitor<Object?> {
 
   LuaString _sharedLiteralLuaString(List<int> bytes) {
     final interpreter = this as Interpreter;
-    final key = bytes.join(',');
+    final key = luaStringCacheKey(bytes);
     return interpreter.literalStringInternPool.putIfAbsent(
       key,
       () => LuaString.fromBytes(bytes),
@@ -1954,7 +1966,7 @@ mixin InterpreterFunctionMixin on AstVisitor<Object?> {
     if (objVal.hasMetamethod('__index')) {
       final aFunc = await objVal.callMetamethodAsync('__index', [
         objVal,
-        interpreter.constantStringValue(methodName.codeUnits),
+        interpreter.constantRawStringValue(methodName),
       ]);
       if (aFunc != null) {
         Logger.debugLazy(
@@ -2150,7 +2162,7 @@ mixin InterpreterFunctionMixin on AstVisitor<Object?> {
           if (obj.hasMetamethod('__index')) {
             final aFunc = await obj.callMetamethodAsync('__index', [
               obj,
-              interpreter.constantStringValue(methodName.codeUnits),
+              interpreter.constantRawStringValue(methodName),
             ]);
             if (aFunc is Value && aFunc.isCallable()) {
               func = aFunc;
@@ -2957,6 +2969,17 @@ mixin InterpreterFunctionMixin on AstVisitor<Object?> {
           continue;
         }
       }
+    } on LuaError catch (error) {
+      if (error.luaStackTrace == null) {
+        final currentCoroutine = interpreter.getCurrentCoroutine();
+        final baseDepth =
+            currentCoroutine?.callStackBaseDepth ?? callStackBaseDepth;
+        currentCoroutine?.captureCurrentCallStack();
+        error.luaStackTrace = currentCoroutine != null
+            ? callStack.toLuaStackTraceFromDepth(baseDepth)
+            : callStack.toLuaStackTrace();
+      }
+      rethrow;
     } on YieldException catch (ye) {
       // Handle coroutine yield
       if (Logger.enabled) {

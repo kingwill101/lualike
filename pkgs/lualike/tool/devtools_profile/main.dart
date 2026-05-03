@@ -1,40 +1,23 @@
 import 'dart:developer' as developer;
 
 import 'package:artisanal/args.dart';
+import 'package:devtools_region_profiler/devtools_region_profiler.dart';
 import 'package:lualike/lualike.dart';
 import 'package:lualike/src/utils/file_system_utils.dart' as fs;
 import 'package:lualike/src/utils/io_abstractions.dart' as io_abs;
 import 'package:lualike/src/utils/platform_utils.dart' as platform;
 import 'package:path/path.dart' as path;
 
-const _scenarioNames = <String>{
-  'constructs',
-  'constructs-short-circuit',
-  'calls',
-  'cstack',
-  'cstack-close-chain',
-  'cstack-coroutine-deep',
-  'cstack-gsub',
-  'cstack-gsub-metatable',
-  'cstack-message',
-  'cstack-recoverable-errors',
-  'cstack-resume-nesting',
-  'gc',
-  'math',
-  'nextvar',
-  'sort',
-  'all',
-};
-
-const _engineNames = <String>{'ast', 'ir'};
+const _engineNames = <String>{'ast', 'ir', 'bytecode'};
 
 Future<void> main(List<String> args) async {
   final parser = ArgParser()
     ..addOption(
       'scenario',
       abbr: 's',
-      help: 'Scenario to run for profiling.',
-      allowed: _scenarioNames.toList()..sort(),
+      help:
+          'Built-in scenario name, or a relative/absolute Lua file path. '
+          'Examples: math, math.lua, luascripts/test/math.lua, ../foo.lua',
       defaultsTo: 'constructs-short-circuit',
     )
     ..addOption(
@@ -96,6 +79,7 @@ Future<void> main(List<String> args) async {
 
   final packageRoot = await _findPackageRoot();
   final engineMode = switch (engineName) {
+    'bytecode' => EngineMode.luaBytecode,
     'ir' => EngineMode.ir,
     _ => EngineMode.ast,
   };
@@ -126,6 +110,11 @@ Future<void> main(List<String> args) async {
         _makeScriptScenario(packageRoot, 'math', soft: soft, port: port),
         _makeScriptScenario(packageRoot, 'constructs', soft: soft, port: port),
       ],
+      'memory-profiles' => _makeMemoryProfileScenarios(
+        packageRoot,
+        soft: soft,
+        port: port,
+      ),
       'cstack' => _makeCstackScenarios(),
       'constructs-short-circuit' => [
         _constructsShortCircuitScenario(level: constructLevel),
@@ -140,7 +129,12 @@ Future<void> main(List<String> args) async {
         _makeCstackScenario('cstack-recoverable-errors'),
       ],
       _ => [
-        _makeScriptScenario(packageRoot, scenarioName, soft: soft, port: port),
+        await _makeScriptPathScenario(
+          packageRoot,
+          scenarioName,
+          soft: soft,
+          port: port,
+        ),
       ],
     };
 
@@ -218,7 +212,11 @@ Future<void> _runScenarioSet(
     );
     try {
       io_abs.stdout.writeln('  -> ${scenario.name}');
-      await scenario.run();
+      await _runScenarioBody(
+        scenario,
+        iterationLabel: iterationLabel,
+        measured: measured,
+      );
     } finally {
       stopwatch.stop();
       final elapsedMs =
@@ -273,24 +271,103 @@ _ProfileScenario _makeScriptScenario(
   required bool port,
 }) {
   final scriptPath = path.join(packageRoot, 'luascripts', 'test', '$name.lua');
+  return _makeResolvedScriptScenario(
+    name: name,
+    packageRoot: packageRoot,
+    scriptPath: scriptPath,
+    soft: soft,
+    port: port,
+  );
+}
 
+Future<_ProfileScenario> _makeScriptPathScenario(
+  String packageRoot,
+  String scenarioOrPath, {
+  required bool soft,
+  required bool port,
+}) async {
+  final scriptPath = await _resolveScriptPath(packageRoot, scenarioOrPath);
+  final displayName = _displayScriptScenarioName(packageRoot, scriptPath);
+  return _makeResolvedScriptScenario(
+    name: displayName,
+    packageRoot: packageRoot,
+    scriptPath: scriptPath,
+    soft: soft,
+    port: port,
+  );
+}
+
+_ProfileScenario _makeResolvedScriptScenario({
+  required String name,
+  required String packageRoot,
+  required String scriptPath,
+  required bool soft,
+  required bool port,
+}) {
   return _ProfileScenario(name, () async {
-    if (!await fs.fileExists(scriptPath)) {
-      throw ArgumentError.value(name, 'scenario', 'Unknown script scenario');
-    }
     final scriptSource = await fs.readFileAsString(scriptPath);
     if (scriptSource == null) {
       throw StateError('Could not read scenario source at $scriptPath');
     }
+    final escapedPackageRoot = packageRoot
+        .replaceAll(r'\', '/')
+        .replaceAll("'", r"\'");
     final lua = LuaLike();
     _installTimelineHelpers(lua);
     final source = StringBuffer();
     source.writeln(port ? '_port = true' : '_port = false');
     source.writeln(soft ? '_soft = true' : '_soft = false');
-    source.writeln("package.path = 'luascripts/test/?.lua;' .. package.path");
+    source.writeln(
+      "package.path = '$escapedPackageRoot/luascripts/test/?.lua;"
+      "luascripts/test/?.lua;' .. package.path",
+    );
     source.write(scriptSource);
     await lua.execute(source.toString(), scriptPath: scriptPath);
   });
+}
+
+Future<String> _resolveScriptPath(
+  String packageRoot,
+  String scenarioOrPath,
+) async {
+  final normalizedInput = path.normalize(scenarioOrPath);
+  final currentDirectory = fs.getCurrentDirectory() ?? packageRoot;
+  final candidates = <String>{
+    if (path.isAbsolute(normalizedInput)) normalizedInput,
+    if (!path.isAbsolute(normalizedInput))
+      path.normalize(path.join(currentDirectory, normalizedInput)),
+    if (!path.isAbsolute(normalizedInput))
+      path.normalize(path.join(packageRoot, normalizedInput)),
+    if (!path.isAbsolute(normalizedInput))
+      path.normalize(
+        path.join(packageRoot, 'luascripts', 'test', normalizedInput),
+      ),
+    if (!normalizedInput.endsWith('.lua'))
+      path.normalize(
+        path.join(packageRoot, 'luascripts', 'test', '$normalizedInput.lua'),
+      ),
+  };
+
+  for (final candidate in candidates) {
+    if (await fs.fileExists(candidate)) {
+      return candidate;
+    }
+  }
+
+  throw ArgumentError.value(
+    scenarioOrPath,
+    'scenario',
+    'Unknown scenario or Lua file path',
+  );
+}
+
+String _displayScriptScenarioName(String packageRoot, String scriptPath) {
+  final normalizedRoot = path.normalize(packageRoot);
+  final normalizedScript = path.normalize(scriptPath);
+  if (path.isWithin(normalizedRoot, normalizedScript)) {
+    return path.relative(normalizedScript, from: normalizedRoot);
+  }
+  return normalizedScript;
 }
 
 _ProfileScenario _constructsShortCircuitScenario({required int level}) {
@@ -532,6 +609,77 @@ void _installTimelineHelpers(LuaLike lua) {
     );
     return null;
   });
+}
+
+Future<void> _runScenarioBody(
+  _ProfileScenario scenario, {
+  required String iterationLabel,
+  required bool measured,
+}) async {
+  if (!measured) {
+    await scenario.run();
+    return;
+  }
+
+  try {
+    await profileRegion(
+      'lualike:${scenario.name}',
+      attributes: {'scenario': scenario.name, 'iteration': iterationLabel},
+      options: const ProfileRegionOptions(
+        isolateScope: ProfileIsolateScope.current,
+      ),
+      () async {
+        await scenario.run();
+      },
+    );
+  } on ProfileRegionConfigurationException {
+    await scenario.run();
+  }
+}
+
+List<_ProfileScenario> _makeMemoryProfileScenarios(
+  String packageRoot, {
+  required bool soft,
+  required bool port,
+}) {
+  return [
+    _makeScriptScenario(
+      packageRoot,
+      'memory_profiles/short_lived_tables',
+      soft: soft,
+      port: port,
+    ),
+    _makeScriptScenario(
+      packageRoot,
+      'memory_profiles/nested_table_churn',
+      soft: soft,
+      port: port,
+    ),
+    _makeScriptScenario(
+      packageRoot,
+      'memory_profiles/closure_churn',
+      soft: soft,
+      port: port,
+    ),
+    _makeScriptScenario(
+      packageRoot,
+      'memory_profiles/coroutine_churn',
+      soft: soft,
+      port: port,
+    ),
+    _makeScriptScenario(
+      packageRoot,
+      'memory_profiles/weak_table_cleanup',
+      soft: soft,
+      port: port,
+    ),
+    _makeScriptScenario(
+      packageRoot,
+      'memory_profiles/register_write_churn',
+      soft: soft,
+      port: port,
+    ),
+  ];
 }
 
 final class _ProfileScenario {

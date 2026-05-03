@@ -44,6 +44,7 @@ void main() {
         asin = math.asin(1)
         acos = math.acos(0)
         atan = math.atan(1)
+        atan2 = math.atan2(1, 1)
       ''');
 
       var sin = bridge.getGlobal('sin');
@@ -52,6 +53,7 @@ void main() {
       var asin = bridge.getGlobal('asin');
       var acos = bridge.getGlobal('acos');
       var atan = bridge.getGlobal('atan');
+      var atan2 = bridge.getGlobal('atan2');
 
       expect((sin as Value).raw, closeTo(1, 1e-10));
       expect((cos as Value).raw, closeTo(-1, 1e-10));
@@ -59,6 +61,19 @@ void main() {
       expect((asin as Value).raw, closeTo(math.pi / 2, 1e-10));
       expect((acos as Value).raw, closeTo(math.pi / 2, 1e-10));
       expect((atan as Value).raw, closeTo(math.pi / 4, 1e-10));
+      expect((atan2 as Value).raw, closeTo(math.pi / 4, 1e-10));
+    });
+
+    test('atan2 reports errors with atan2 name', () async {
+      await bridge.execute('''
+        ok, err = pcall(math.atan2)
+      ''');
+
+      expect((bridge.getGlobal('ok') as Value).raw, isFalse);
+      expect(
+        (bridge.getGlobal('err') as Value).unwrap(),
+        contains("bad argument #1 to 'atan2'"),
+      );
     });
 
     test('exponential and logarithmic functions', () async {
@@ -66,17 +81,20 @@ void main() {
         exp = math.exp(1)
         log = math.log(math.exp(1))
         log10 = math.log(100, 10)
+        pow = math.pow(2, 8)
         sqrt = math.sqrt(16)
       ''');
 
       var exp = bridge.getGlobal('exp');
       var log = bridge.getGlobal('log');
       var log10 = bridge.getGlobal('log10');
+      var pow = bridge.getGlobal('pow');
       var sqrt = bridge.getGlobal('sqrt');
 
       expect((exp as Value).raw, closeTo(math.e, 1e-10));
       expect((log as Value).raw, closeTo(1, 1e-10));
       expect((log10 as Value).raw, closeTo(2, 1e-10));
+      expect((pow as Value).raw, equals(256.0));
       expect((sqrt as Value).raw, equals(4));
     });
 

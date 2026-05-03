@@ -4,6 +4,33 @@ import 'package:lualike_test/test.dart';
 
 void main() {
   group('Error reporting', () {
+    test(
+      'escaped Lua errors retain their traceback before reporting',
+      () async {
+        final lua = LuaLike();
+
+        try {
+          await lua.execute('''
+local function explode()
+  error("boom")
+end
+
+local function outer()
+  explode()
+end
+
+outer()
+''', scriptPath: 'main.lua');
+          fail('expected error');
+        } on LuaError catch (error) {
+          expect(error.luaStackTrace, isNotNull);
+          expect(error.toString(), contains('stack traceback:'));
+          expect(error.toString(), contains("function 'explode'"));
+          expect(error.toString(), contains("function 'outer'"));
+        }
+      },
+    );
+
     test('reports LuaError only once', () async {
       final interpreter = Interpreter();
       final error = LuaError('boom');

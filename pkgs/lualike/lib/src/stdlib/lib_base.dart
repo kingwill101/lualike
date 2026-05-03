@@ -275,6 +275,12 @@ class RawSetFunction extends BuiltinFunction {
 class AssertFunction extends BuiltinFunction {
   AssertFunction(super.interpreter);
 
+  @override
+  bool get canBytecodeInlineWithoutManagedFrame => true;
+
+  @override
+  bool get isBytecodeAssertBuiltin => true;
+
   Object? _normalizeSuccessfulArg(Object? value) {
     if (value case Value(isMulti: false, raw: final raw)
         when raw == null ||
@@ -1717,6 +1723,9 @@ class PCAllFunction extends BuiltinFunction {
   PCAllFunction(super.interpreter);
 
   @override
+  bool get isBytecodeProtectedCallBuiltin => true;
+
+  @override
   Future<Object?> call(List<Object?> args) async {
     if (Logger.enabled) {
       Logger.debugLazy(
@@ -2408,268 +2417,19 @@ class RequireFunction extends BuiltinFunction {
       }
     }
 
-    // Special case: If the current script is in a special directory like .lua-tests,
-    // and the module name doesn't contain a path separator, try to load it from the same directory first
-    String? modulePath;
-    if (!moduleName.contains('.') &&
-        !moduleName.contains('/') &&
-        interpreter!.currentScriptPath != null) {
-      final scriptDir = path.dirname(interpreter!.currentScriptPath!);
-      final directPath = path.join(scriptDir, '$moduleName.lua');
-      Logger.debugLazy(
-        () => "DEBUG: Trying direct path in script directory: $directPath",
-      );
-
-      if (await fileExists(directPath)) {
-        Logger.debugLazy(
-          () => "DEBUG: Module found in script directory: $directPath",
-        );
-        modulePath = directPath;
-      }
+    final searcherErrors = <String>[];
+    final searcherResult = await _tryPackageSearchers(
+      moduleName,
+      loaded,
+      searcherErrors,
+    );
+    if (searcherResult.found) {
+      return searcherResult.result;
     }
 
-    // If not found in the script directory, use the regular resolution
-    if (modulePath == null) {
-      Logger.debugLazy(
-        () => "Resolving module path for '$moduleName'",
-        category: 'Require',
-      );
-      modulePath = await interpreter!.fileManager.resolveModulePath(moduleName);
-
-      // Print the resolved globs for debugging
-      // interpreter!.fileManager.printResolvedGlobs();
-    }
-
-    final modulePathStr = modulePath;
-    if (modulePathStr != null) {
-      Logger.debugLazy(
-        () =>
-            "(REQUIRE) RequireFunction: Loading module '$moduleName' from path: $modulePathStr",
-        category: 'Require',
-      );
-
-      final source = await interpreter!.fileManager.loadSource(modulePathStr);
-      if (source != null) {
-        try {
-          Logger.debugLazy(
-            () => "REQUIRE: Module source loaded, parsing and executing",
-            category: 'Require',
-          );
-          // Parse the module code
-          final ast = parse(source, url: modulePathStr);
-
-          // Resolve the absolute path for the module
-          String absoluteModulePath;
-          if (path.isAbsolute(modulePathStr)) {
-            absoluteModulePath = modulePathStr;
-          } else {
-            absoluteModulePath = interpreter!.fileManager
-                .resolveAbsoluteModulePath(modulePathStr);
-          }
-
-          // Get the directory part of the script path
-          final moduleDir = path.dirname(absoluteModulePath);
-          final normalizedModulePath = path.url.joinAll(
-            path.split(path.normalize(absoluteModulePath)),
-          );
-          final normalizedModuleDir = path.url.joinAll(
-            path.split(path.normalize(moduleDir)),
-          );
-
-          final prevEnv = interpreter!.getCurrentEnv();
-          final moduleEnv = Environment(
-            parent: prevEnv,
-            interpreter: interpreter!,
-          );
-          final prevPath = interpreter!.currentScriptPath;
-          interpreter!.setCurrentEnv(moduleEnv);
-          interpreter!.currentScriptPath = absoluteModulePath;
-
-          Logger.debugLazy(
-            () =>
-                'Require: setting module env paths _SCRIPT_PATH(norm)=$normalizedModulePath, _SCRIPT_DIR(norm)=$normalizedModuleDir | originals: path=$absoluteModulePath, dir=$moduleDir',
-          );
-          moduleEnv.declare('_SCRIPT_PATH', Value(normalizedModulePath));
-          moduleEnv.declare('_SCRIPT_DIR', Value(normalizedModuleDir));
-
-          moduleEnv.declare('_MODULE_NAME', Value(moduleName));
-          moduleEnv.declare('_MAIN_CHUNK', Value(false));
-
-          moduleEnv.declare(
-            '...',
-            Value.multi([Value(moduleName), Value(modulePathStr)]),
-          );
-
-          Logger.debugLazy(
-            () =>
-                "DEBUG: Module environment set up with _SCRIPT_PATH=$absoluteModulePath, _SCRIPT_DIR=$moduleDir, _MODULE_NAME=$moduleName",
-          );
-
-          Object? result;
-          try {
-            // Run the module code within the current interpreter
-            result = await interpreter!.runAst(ast.statements);
-            // If the script didn't return anything, result will be null
-            result ??= Value(null);
-          } on ReturnException catch (e) {
-            // Handle explicit return from module
-            result = e.value;
-          } on TailCallException catch (t) {
-            final callee = t.functionValue is Value
-                ? t.functionValue as Value
-                : Value(t.functionValue);
-            final normalizedArgs = t.args
-                .map((a) => a is Value ? a : Value(a))
-                .toList();
-            result = await interpreter!.callFunction(callee, normalizedArgs);
-          } finally {
-            interpreter!.setCurrentEnv(prevEnv);
-            interpreter!.currentScriptPath = prevPath;
-          }
-
-          // If the module didn't return anything, Lua stores 'true'
-          if (result is Value && result.raw == null) {
-            result = Value(true);
-          }
-
-          Logger.debugLazy(
-            () =>
-                "(REQUIRE) RequireFunction: Module '$moduleName' loaded successfully",
-            category: 'Require',
-          );
-
-          // If the module modified package.loaded, respect that value
-          if (loaded.containsKey(moduleName)) {
-            final loadedVal = loaded[moduleName];
-            if (loadedVal is Value &&
-                loadedVal.raw != false &&
-                loadedVal.raw != null) {
-              result = loadedVal;
-            } else {
-              loaded[moduleName] = result;
-              Logger.debugLazy(
-                () => "Module '$moduleName' stored in package.loaded",
-                category: 'Require',
-              );
-            }
-          } else {
-            loaded[moduleName] = result;
-            Logger.debugLazy(
-              () => "Module '$moduleName' stored in package.loaded",
-              category: 'Require',
-            );
-          }
-          Logger.debugLazy(
-            () => "Loaded table now contains: ${loaded.keys.join(", ")}",
-            category: 'Require',
-          );
-
-          // Return the loaded module and the path where it was found.
-          // Normalize path separators to forward slashes to keep test
-          // expectations consistent across platforms (e.g., 'libs/B.lua').
-          final normalizedPath = modulePathStr.replaceAll('\\', '/');
-          return Value.multi([result, Value(normalizedPath)]);
-        } catch (e) {
-          throw LuaError("error loading module '$moduleName': $e");
-        }
-      }
-    }
-
-    // Step 3: If direct loading failed, try the searchers
-    {
-      final rawPkg = packageTable.raw as Map;
-      final searchersAny = rawPkg['searchers'];
-      final typeName = searchersAny == null
-          ? 'null'
-          : searchersAny.runtimeType.toString();
-      Logger.debugLazy(
-        () => "package.searchers typeof=$typeName",
-        category: 'Require',
-      );
-    }
-    final pkgMapForSearchers = packageTable.raw as Map;
-    final searchersEntry = pkgMapForSearchers['searchers'];
-    if (searchersEntry is! Value) {
-      throw LuaError("package.searchers must be a table");
-    }
-    final searchersRaw = searchersEntry.raw;
-    if (searchersRaw is! List) {
-      throw LuaError("package.searchers must be a table");
-    }
-    final searchers = searchersRaw;
-
-    // Try each searcher in order
-    final errors = <String>[];
-
-    for (int i = 0; i < searchers.length; i++) {
-      final searcher = searchers[i];
-      if (searcher is! Value || searcher.raw is! Function) {
-        continue;
-      }
-
-      Logger.debugLazy(
-        () => "RequireFunction: Trying searcher #$i for '$moduleName'",
-        category: 'Require',
-      );
-
-      try {
-        // Call the searcher with the module name
-        final result = await (searcher.raw as Function)([Value(moduleName)]);
-
-        // If the searcher returns a loader function
-        if (result is List &&
-            result.isNotEmpty &&
-            result[0] is Value &&
-            result[0].raw is Function) {
-          final loader = result[0] as Value;
-          final loaderData = result.length > 1 ? result[1] : Value(null);
-
-          Logger.debugLazy(
-            () =>
-                "RequireFunction: Found loader for '$moduleName' with data: $loaderData",
-            category: 'Require',
-          );
-
-          // Call the loader with the module name and loader data
-          final moduleResult = await (loader.raw as Function)([
-            Value(moduleName),
-            loaderData,
-          ]);
-
-          // Store the result in package.loaded
-          if (moduleResult != null) {
-            loaded[moduleName] = moduleResult;
-          } else if (!loaded.containsKey(moduleName) ||
-              loaded[moduleName] == false) {
-            // If nothing was returned and nothing was stored, store true
-            loaded[moduleName] = Value(true);
-          }
-
-          // Return the loaded module and the loader data (e.g. path)
-          final ret = loaded[moduleName];
-          if (loaderData is Value && loaderData.raw != null) {
-            // Normalize path to use forward slashes consistently (Lua convention)
-            if (loaderData.raw is String) {
-              final normalizedLoaderData = Value(
-                path.normalize(loaderData.raw as String),
-              );
-              return [ret, normalizedLoaderData];
-            }
-            return [ret, loaderData];
-          }
-          return ret;
-        } else if (result is String) {
-          // If the searcher returns an error message
-          errors.add(result);
-        } else if (result is Value && result.raw is String) {
-          errors.add(result.raw.toString());
-        }
-      } catch (e) {
-        errors.add("searcher #$i error: $e");
-      }
-    }
-
-    // If we get here, no searcher found the module
+    // If we get here, no package.searchers entry found the module. Do not
+    // perform legacy direct filesystem resolution here; the default filesystem
+    // behavior is owned by package.searchers' Lua loader.
     // Format the error message to match Lua's format
     final errorLines = <String>[];
 
@@ -2713,11 +2473,159 @@ class RequireFunction extends BuiltinFunction {
       }
     }
 
-    // Lua does not add the searchers' diagnostic strings here
+    final seenErrorLines = errorLines.toSet();
+    for (final diagnostic in _missingModuleDiagnosticsFromSearchers(
+      searcherErrors,
+    )) {
+      if (seenErrorLines.add(diagnostic)) {
+        errorLines.add(diagnostic);
+      }
+    }
 
     final errorMsg =
         "module '$moduleName' not found:\n\t${errorLines.join('\n\t')}";
     Logger.debugLazy(() => "Error message: $errorMsg", category: 'Require');
     throw LuaError(errorMsg).withProtectedCallLocationSuppressed();
+  }
+
+  Future<({bool found, Object? result})> _tryPackageSearchers(
+    String moduleName,
+    Value loaded,
+    List<String> errors,
+  ) async {
+    final rawPkg = packageTable.raw as Map;
+    final searchersAny = rawPkg['searchers'];
+    final typeName = searchersAny == null
+        ? 'null'
+        : searchersAny.runtimeType.toString();
+    Logger.debugLazy(
+      () => "package.searchers typeof=$typeName",
+      category: 'Require',
+    );
+
+    final searchersEntry = rawPkg['searchers'];
+    if (searchersEntry is! Value) {
+      throw LuaError("package.searchers must be a table");
+    }
+    final searchersRaw = searchersEntry.raw;
+    if (searchersRaw is! List) {
+      throw LuaError("package.searchers must be a table");
+    }
+
+    for (var index = 0; index < searchersRaw.length; index++) {
+      final searcher = searchersRaw[index];
+      if (searcher is! Value || !searcher.isCallable()) {
+        continue;
+      }
+
+      Logger.debugLazy(
+        () => "RequireFunction: Trying searcher #$index for '$moduleName'",
+        category: 'Require',
+      );
+
+      late final Object? result;
+      try {
+        // Use the direct Dart call for plain Dart functions (the common case
+        // for built-in package.searchers) to preserve existing return-value
+        // semantics.  Route Lua closures and bytecode callables through
+        // callFunction so their coroutine/yield semantics are respected.
+        final searcherRaw = searcher.raw;
+        if (searcherRaw is Function) {
+          result = await searcherRaw(<Object?>[Value(moduleName)]);
+        } else {
+          result = await interpreter!.callFunction(searcher, <Object?>[
+            Value(moduleName),
+          ]);
+        }
+      } catch (error) {
+        errors.add("searcher #$index error: $error");
+        continue;
+      }
+
+      final searcherReturns = _returnValues(result);
+      if (searcherReturns != null &&
+          searcherReturns.isNotEmpty &&
+          searcherReturns[0] is Value &&
+          (searcherReturns[0] as Value).isCallable()) {
+        final loader = searcherReturns[0] as Value;
+        final loaderData = searcherReturns.length > 1
+            ? searcherReturns[1]
+            : Value(null);
+
+        Logger.debugLazy(
+          () =>
+              "RequireFunction: Found loader for '$moduleName' with data: $loaderData",
+          category: 'Require',
+        );
+
+        // Same dispatch logic for the loader: direct call for Dart functions,
+        // callFunction for Lua/bytecode callables.
+        final Object? moduleResult;
+        final loaderRaw = loader.raw;
+        if (loaderRaw is Function) {
+          moduleResult = await loaderRaw(<Object?>[
+            Value(moduleName),
+            loaderData,
+          ]);
+        } else {
+          moduleResult = await interpreter!.callFunction(loader, <Object?>[
+            Value(moduleName),
+            loaderData,
+          ]);
+        }
+
+        final loadedEntry = loaded[moduleName];
+        final loadedRaw = loadedEntry is Value ? loadedEntry.raw : loadedEntry;
+        if (loadedRaw == null || loadedRaw == false) {
+          final resultRaw = moduleResult is Value
+              ? moduleResult.raw
+              : moduleResult;
+          loaded[moduleName] = resultRaw == null ? Value(true) : moduleResult;
+        }
+
+        final ret = loaded[moduleName];
+        if (loaderData is Value && loaderData.raw != null) {
+          if (loaderData.raw is String) {
+            final normalizedLoaderData = Value(
+              path.normalize(loaderData.raw as String),
+            );
+            return (found: true, result: [ret, normalizedLoaderData]);
+          }
+          return (found: true, result: [ret, loaderData]);
+        }
+        return (found: true, result: ret);
+      } else if (result is String) {
+        errors.add(result);
+      } else if (result is Value && result.raw is String) {
+        errors.add(result.raw.toString());
+      }
+    }
+
+    return (found: false, result: null);
+  }
+
+  List<Object?>? _returnValues(Object? result) {
+    if (result is List) {
+      return List<Object?>.from(result);
+    }
+    if (result is Value && result.isMulti && result.raw is List) {
+      return List<Object?>.from(result.raw as List);
+    }
+    return null;
+  }
+}
+
+Iterable<String> _missingModuleDiagnosticsFromSearchers(
+  Iterable<String> diagnostics,
+) sync* {
+  for (final diagnostic in diagnostics) {
+    final normalized = diagnostic.startsWith('\n\t')
+        ? diagnostic.substring(2)
+        : diagnostic;
+    for (final line in normalized.split('\n\t')) {
+      if (line.startsWith("no '") || line.startsWith("no file '")) {
+        yield line;
+      }
+    }
   }
 }

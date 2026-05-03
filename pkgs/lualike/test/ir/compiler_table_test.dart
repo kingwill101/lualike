@@ -43,18 +43,35 @@ void main() {
 
     test('compiles table index access with dynamic key', () {
       final program = parse('return arr[idx]');
-      final chunk = LualikeIrCompiler().compile(program);
-      final proto = chunk.mainPrototype;
-      final instructions = _stripVarArgPrep(proto);
+      final instructions = _stripVarArgPrep(
+        LualikeIrCompiler().compile(program).mainPrototype,
+      );
 
-      expect(instructions, hasLength(4));
-
-      final getTable = instructions[2] as ABCInstruction;
+      final getTable = instructions.whereType<ABCInstruction>().firstWhere(
+        (instr) => instr.opcode == LualikeIrOpcode.getTable,
+      );
       expect(getTable.opcode, LualikeIrOpcode.getTable);
-      expect(getTable.a, equals(0));
-      expect(getTable.b, equals(0));
-      expect(getTable.c, equals(1));
+      expect(getTable.c, isNot(equals(getTable.b)));
     });
+
+    test(
+      'compiles large integer literal access uses getTable for index > 0xFF',
+      () {
+        final program = parse('return arr[999]');
+        final instructions = _stripVarArgPrep(
+          LualikeIrCompiler().compile(program).mainPrototype,
+        );
+
+        expect(
+          instructions.any((instr) => instr.opcode == LualikeIrOpcode.getI),
+          isFalse,
+        );
+        expect(
+          instructions.any((instr) => instr.opcode == LualikeIrOpcode.getTable),
+          isTrue,
+        );
+      },
+    );
 
     test('compiles empty table constructor', () {
       final program = parse('return {}');

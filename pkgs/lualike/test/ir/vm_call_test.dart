@@ -1,46 +1,93 @@
 @Tags(['ir'])
 library;
 
-import 'package:lualike/src/ir/compiler.dart';
-import 'package:lualike/src/ir/vm.dart';
-import 'package:lualike/src/environment.dart';
-import 'package:lualike/src/parse.dart';
+import 'package:lualike/src/config.dart';
+import 'package:lualike/src/executor.dart';
+import 'package:lualike/src/lua_string.dart';
 import 'package:lualike/src/value.dart';
 import 'package:test/test.dart';
 
 void main() {
-  group('LualikeIrVm calls', () {
+  group('IR calls', () {
     test('executes direct function call', () async {
-      final chunk = LualikeIrCompiler().compile(parse('return inc(1)'));
-      final env = Environment()
-        ..define(
-          'inc',
-          Value((List<Object?> args) => ((args[0] as Value).raw as int) + 1),
-        );
-      final result = await LualikeIrVm(environment: env).execute(chunk);
+      final result = await executeCode(
+        'return inc(1)',
+        mode: EngineMode.ir,
+        onRuntimeSetup: (runtime) {
+          runtime.globals.define(
+            'inc',
+            Value((List<Object?> args) => ((args[0] as Value).raw as int) + 1),
+          );
+        },
+      );
       final actual = result is Value ? result.raw : result;
       expect(actual, equals(2));
     });
 
     test('executes tailcall and returns result', () async {
-      final chunk = LualikeIrCompiler().compile(
-        parse('return identity(value)'),
+      final result = await executeCode(
+        'return identity(value)',
+        mode: EngineMode.ir,
+        onRuntimeSetup: (runtime) {
+          runtime.globals
+            ..define(
+              'identity',
+              Value((List<Object?> args) {
+                if (args.isEmpty) {
+                  return null;
+                }
+                return args.first;
+              }),
+            )
+            ..define('value', Value(42));
+        },
       );
-      final env = Environment()
-        ..define(
-          'identity',
-          Value((List<Object?> args) {
-            if (args.isEmpty) {
-              return null;
-            }
-            return args.first;
-          }),
-        )
-        ..define('value', Value(42));
 
-      final result = await LualikeIrVm(environment: env).execute(chunk);
       final actual = result is Value ? result.raw : result;
       expect(actual, equals(42));
+    });
+
+    test('method definitions bind implicit self parameter', () async {
+      final result = await executeCode('''
+        local receiver = {value = 41}
+        local self = 100
+        function receiver:inc(delta)
+          return self.value + delta
+        end
+        return receiver:inc(1)
+      ''', mode: EngineMode.ir);
+
+      final actual = result is Value ? result.raw : result;
+      expect(actual, equals(42));
+    });
+
+    test('pcall reports too-long __call chains via IR engine', () async {
+      final result = await executeCode('''
+        local target = {}
+        for _ = 1, 16 do
+          target = setmetatable({}, {__call = target})
+        end
+        local ok, message = pcall(target)
+        return ok, string.find(message, "too long", 1, true) ~= nil
+      ''', mode: EngineMode.ir);
+
+      final actual = result is Value ? result.raw : result;
+      expect(actual, equals(<dynamic>[false, true]));
+    });
+
+    test('pcall expands IR multi-return vectors', () async {
+      final result = await executeCode('''
+        local ok, first, second = pcall(function()
+          return "a", "b"
+        end)
+        return ok, first, second
+      ''', mode: EngineMode.ir);
+
+      final actual = result is Value ? result.raw : result;
+      final values = (actual as List)
+          .map((value) => value is LuaString ? value.toString() : value)
+          .toList();
+      expect(values, equals(<dynamic>[true, 'a', 'b']));
     });
   });
 }

@@ -16,7 +16,6 @@ class NumberUtils {
 
   static const int _frexpMantissaExponent = NumberLimits.doubleExponentBias - 1;
   static const int _subnormalFrexpScale = 54;
-
   static bool _isBitwiseOperator(String op) => switch (op) {
     '&' || '|' || 'bxor' || '<<' || '>>' || '~' => true,
     _ => false,
@@ -661,10 +660,13 @@ class NumberUtils {
 
   /// Perform modulo operation with Lua semantics
   static dynamic modulo(dynamic a, dynamic b) {
-    if (isZero(b)) {
-      throw LuaError("attempt to perform 'n%0'");
-    }
     if ((a is int || a is BigInt) && (b is int || b is BigInt)) {
+      // Lua semantics require integer modulo by zero to raise an error.
+      // Floating-point modulo by zero is intentionally allowed below and
+      // produces NaN (IEEE 754 behaviour). Do not unify the two branches.
+      if (isZero(b)) {
+        throw LuaError("attempt to perform 'n%0'");
+      }
       if (a is BigInt || b is BigInt) {
         // BigInt modulo
         final bigA = toBigInt(a);

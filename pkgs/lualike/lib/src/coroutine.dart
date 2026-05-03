@@ -865,7 +865,8 @@ class Coroutine extends GCObject {
       return;
     }
 
-    if (!rootFrame.isDebugHook) {
+    final managedByBytecodeVm = rootFrame.engineFrameState != null;
+    if (!rootFrame.isDebugHook && !managedByBytecodeVm) {
       await interpreter.fireDebugHook('return');
     }
 

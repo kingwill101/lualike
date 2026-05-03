@@ -210,7 +210,89 @@ class GenerationalGCManager {
 
   bool get hasPendingFinalizers => _toBeFinalized.isNotEmpty;
   bool get hasPendingAsyncFinalizers => _pendingAsyncFinalizers.isNotEmpty;
+  bool get needsAsyncFinalizerDrain =>
+      _currentPhase == GCPhase.finalizing ||
+      hasPendingFinalizers ||
+      hasPendingAsyncFinalizers;
   bool get isManualCollectRunning => _manualCollectRunning;
+
+  /// Whether the tracked heap still contains an object that could require
+  /// `__gc`-driven progress.
+  ///
+  /// Sparse loop rescue paths use this to avoid running major collections for
+  /// hot numeric loops that have no finalizers to unblock.
+  bool get hasTrackedFinalizerCandidates {
+    bool isFinalizerCandidate(Object? object) {
+      if (object is! Value || !object.finalizerEligible) {
+        return false;
+      }
+      try {
+        return !object.metatableOwnerHasWeakValues;
+      } catch (_) {
+        // Candidate scanning must never perturb runtime execution. If the
+        // weak-owner check cannot inspect an unusual table shape, keep the
+        // object eligible so finalizer-sensitive loops still make progress.
+        return true;
+      }
+    }
+
+    bool containsFinalizerCandidate(Iterable<Object?> objects) {
+      for (final object in objects) {
+        if (isFinalizerCandidate(object)) {
+          return true;
+        }
+      }
+      return false;
+    }
+
+    return hasPendingFinalizers ||
+        hasPendingAsyncFinalizers ||
+        containsFinalizerCandidate(youngGen.objects) ||
+        containsFinalizerCandidate(oldGen.objects);
+  }
+
+  /// Long-lived allocation loops can keep debt above zero forever, which means
+  /// a finalizer-sensitive loop may never reach the async finalization path.
+  bool shouldForceAsyncLoopRescue(int loopCounter, int debt, int threshold) {
+    if (loopCounter < 65536 || loopCounter % 65536 != 0) {
+      return false;
+    }
+    if (!hasTrackedFinalizerCandidates) {
+      return false;
+    }
+    return debt >= threshold || isCycleActive;
+  }
+
+  /// Whether an active incremental cycle should receive loop-backedge work.
+  ///
+  /// Finalizer-heavy loops need steady progress through marking/sweeping, but
+  /// ordinary loops should not pay a collector step on every iteration.
+  bool shouldAdvanceIncrementalLoopCycle(int loopCounter) {
+    if (!isCycleActive && !hasPendingFinalizers && !hasPendingAsyncFinalizers) {
+      return false;
+    }
+    final interval = switch (_currentPhase) {
+      GCPhase.idle when hasPendingFinalizers || hasPendingAsyncFinalizers => 64,
+      GCPhase.idle => 0,
+      GCPhase.marking => 64,
+      GCPhase.sweeping => 8,
+      GCPhase.finalizing => 4,
+    };
+    return interval > 0 && loopCounter % interval == 0;
+  }
+
+  /// Finalization work drains the whole pending list in one step, so it can
+  /// use a modestly larger budget. Marking and sweeping stay smaller to avoid
+  /// slowing allocation-heavy loops that do not rely on finalizer latency.
+  int loopIncrementalGcBudget() {
+    return switch (_currentPhase) {
+      GCPhase.idle when hasPendingFinalizers || hasPendingAsyncFinalizers => 32,
+      GCPhase.idle => 0,
+      GCPhase.marking => 16,
+      GCPhase.sweeping => 128,
+      GCPhase.finalizing => 32,
+    };
+  }
 
   bool tryEnterManualCollect() {
     if (_manualCollectRunning) {

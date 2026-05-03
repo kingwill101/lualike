@@ -187,11 +187,15 @@ end
 local co = coroutine.create(numberGenerator)
 
 print("Coroutine values:")
-while coroutine.status(co) ~= "dead" do
+while true do
     local success, value = coroutine.resume(co)
-    if success then
-        print("Yielded: " .. value)
+    if not success then
+        error(value)
     end
+    if coroutine.status(co) == "dead" then
+        break
+    end
+    print("Yielded: " .. value)
 end
 
 -- Producer-consumer pattern
@@ -204,11 +208,15 @@ end
 
 function consumer()
     local co = coroutine.create(producer)
-    while coroutine.status(co) ~= "dead" do
+    while true do
         local success, value = coroutine.resume(co)
-        if success then
-            print("Consuming: " .. value)
+        if not success then
+            error(value)
         end
+        if coroutine.status(co) == "dead" then
+            break
+        end
+        print("Consuming: " .. value)
     end
 end
 

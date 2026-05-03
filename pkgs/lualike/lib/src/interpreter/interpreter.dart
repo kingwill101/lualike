@@ -121,10 +121,11 @@ class Interpreter extends AstVisitor<Object?>
 
   @override
   Value constantStringValue(List<int> bytes) {
-    final key = bytes.join(',');
+    final key = luaStringCacheKey(bytes);
     final cached = literalValueCache[key];
     if (cached != null) {
       cached.interpreter ??= this;
+      _syncCachedTypeMetatable(cached, type: 'string');
       return cached;
     }
 
@@ -132,8 +133,27 @@ class Interpreter extends AstVisitor<Object?>
       bytes,
     );
     final value = Value(luaString)..interpreter = this;
+    _syncCachedTypeMetatable(value, type: 'string');
     literalValueCache[key] = value;
     return value;
+  }
+
+  @override
+  Value constantRawStringValue(String value) {
+    final encoded = LuaString.fromDartString(value);
+    final key = luaStringCacheKey(encoded.bytes);
+    final cached = literalValueCache[key];
+    if (cached != null) {
+      cached.interpreter ??= this;
+      _syncCachedTypeMetatable(cached, type: 'string');
+      return cached;
+    }
+
+    final luaString = literalStringInternPool[key] ??= encoded;
+    final wrapped = Value(luaString)..interpreter = this;
+    _syncCachedTypeMetatable(wrapped, type: 'string');
+    literalValueCache[key] = wrapped;
+    return wrapped;
   }
 
   /// Current environment for variable scope.
@@ -156,6 +176,10 @@ class Interpreter extends AstVisitor<Object?>
 
   /// Fast path cache for local variable boxes in the current function.
   Map<String, Box<dynamic>>? _currentFastLocals;
+
+  /// Counts AST safe points so finalizer-sensitive loops can receive sparse
+  /// incremental GC progress without requiring loop-specific bookkeeping.
+  int _autoGcSafePointCounter = 0;
 
   /// Current script path being executed
   @override
@@ -187,9 +211,9 @@ class Interpreter extends AstVisitor<Object?>
 
   @override
   Value constantPrimitiveValue(Object? raw) {
-    Value create(Object? value) => Value(value)..interpreter = this;
+    Value create(Object? value) => Value.primitive(value, interpreter: this);
 
-    return switch (raw) {
+    final cached = switch (raw) {
       null => _cachedNilValue ??= create(null),
       true => _cachedTrueValue ??= create(true),
       false => _cachedFalseValue ??= create(false),
@@ -207,6 +231,24 @@ class Interpreter extends AstVisitor<Object?>
       ),
       _ => throw ArgumentError.value(raw, 'raw', 'Not a cached primitive'),
     };
+    cached.interpreter ??= this;
+    _syncCachedTypeMetatable(cached, type: _cachedPrimitiveType(raw));
+    return cached;
+  }
+
+  String _cachedPrimitiveType(Object? raw) => switch (raw) {
+    null => 'nil',
+    bool() => 'boolean',
+    _ => 'number',
+  };
+
+  void _syncCachedTypeMetatable(Value value, {required String type}) {
+    if (!MetaTable().isDefaultMetatableActive(type)) {
+      value.metatable = null;
+      value.metatableRef = null;
+      return;
+    }
+    MetaTable().applyDefaultMetatable(value);
   }
 
   /// Wraps a runtime value while reusing stable wrappers for plain primitives
@@ -277,7 +319,7 @@ class Interpreter extends AstVisitor<Object?>
           frame.currentLine = line;
         }
       }
-      final hookArgs = <Object?>[constantStringValue(event.codeUnits)];
+      final hookArgs = <Object?>[constantRawStringValue(event)];
       if (line != null) {
         hookArgs.add(constantPrimitiveValue(line));
       }
@@ -537,6 +579,9 @@ class Interpreter extends AstVisitor<Object?>
   @override
   void setCurrentCoroutine(Coroutine? coroutine) {
     final oldCoroutine = _currentCoroutine;
+    if (identical(oldCoroutine, coroutine)) {
+      return;
+    }
     final oldStatus = oldCoroutine?.status;
     final newStatus = coroutine?.status;
 
@@ -807,7 +852,10 @@ class Interpreter extends AstVisitor<Object?>
 
   @override
   void runAutoGcAtSafePoint() {
-    if (gc.isStopped || !gc.autoTriggerEnabled) {
+    if (gc.isStopped ||
+        !gc.autoTriggerEnabled ||
+        gc.isManualCollectRunning ||
+        gc.isFinalizerActive) {
       return;
     }
     final threshold = gc.autoTriggerDebtThreshold;
@@ -819,15 +867,61 @@ class Interpreter extends AstVisitor<Object?>
   }
 
   @override
+  bool shouldRunLoopGcAtSafePoint(int loopCounter) {
+    if (gc.isStopped || !gc.autoTriggerEnabled) {
+      return false;
+    }
+    if (gc.isManualCollectRunning || gc.isFinalizerActive) {
+      return false;
+    }
+    if (gc.needsAsyncFinalizerDrain) {
+      return true;
+    }
+    final threshold = gc.autoTriggerDebtThreshold;
+    final debt = gc.allocationDebt;
+    if (debt >= threshold) {
+      return true;
+    }
+    return gc.shouldForceAsyncLoopRescue(loopCounter, debt, threshold) ||
+        gc.shouldAdvanceIncrementalLoopCycle(loopCounter);
+  }
+
+  @override
   Future<void> runLoopGcAtSafePoint(int loopCounter) async {
     if (gc.isStopped || !gc.autoTriggerEnabled) {
       return;
     }
-    final debt = gc.allocationDebt;
-    if (debt <= 0) {
+    if (gc.isManualCollectRunning || gc.isFinalizerActive) {
       return;
     }
-    runAutoGcAtSafePoint();
+    if (gc.needsAsyncFinalizerDrain) {
+      await _finishOrDrainAutoFinalizerCycle();
+      return;
+    }
+    final debt = gc.allocationDebt;
+    if (debt > 0) {
+      runAutoGcAtSafePoint();
+      if (gc.needsAsyncFinalizerDrain) {
+        await _finishOrDrainAutoFinalizerCycle();
+        return;
+      }
+    }
+    final threshold = gc.autoTriggerDebtThreshold;
+    if (gc.shouldForceAsyncLoopRescue(loopCounter, debt, threshold)) {
+      await _finishAutoFinalizerCycle();
+      return;
+    }
+    if (!gc.shouldAdvanceIncrementalLoopCycle(loopCounter)) {
+      return;
+    }
+    gc.performIncrementalStep(gc.loopIncrementalGcBudget());
+    if (gc.needsAsyncFinalizerDrain) {
+      await _finishOrDrainAutoFinalizerCycle();
+      return;
+    }
+    if (gc.hasPendingAsyncFinalizers) {
+      await gc.drainPendingAsyncFinalizers();
+    }
   }
 
   int get externalGcRootProviderCount => _externalGcRootProviders.length;
@@ -1684,7 +1778,29 @@ class Interpreter extends AstVisitor<Object?>
     return defaultDebugInfoForFunction(this, function);
   }
 
+  Future<void> _finishAutoFinalizerCycle() async {
+    await gc.majorCollection(getRoots());
+  }
+
+  Future<void> _finishOrDrainAutoFinalizerCycle() async {
+    if (gc.hasPendingAsyncFinalizers &&
+        !gc.hasPendingFinalizers &&
+        !gc.isCycleActive) {
+      await gc.drainPendingAsyncFinalizers();
+      return;
+    }
+    await _finishAutoFinalizerCycle();
+  }
+
   Future<void> _runAutoGCAtSafePoint() async {
+    if (gc.isStopped ||
+        !gc.autoTriggerEnabled ||
+        gc.isManualCollectRunning ||
+        gc.isFinalizerActive) {
+      return;
+    }
+    _autoGcSafePointCounter += 1;
+    final safePointCounter = _autoGcSafePointCounter;
     final threshold = gc.autoTriggerDebtThreshold;
     final debt = gc.allocationDebt;
     if (Logger.enabled) {
@@ -1694,14 +1810,23 @@ class Interpreter extends AstVisitor<Object?>
         contextBuilder: () => {'debt': debt, 'threshold': threshold},
       );
     }
-    if (debt < threshold && !gc.hasPendingAsyncFinalizers) {
+    final hasPendingFinalizerWork =
+        gc.hasPendingFinalizers || gc.hasPendingAsyncFinalizers;
+    if (debt < threshold &&
+        !hasPendingFinalizerWork &&
+        !gc.shouldForceAsyncLoopRescue(safePointCounter, debt, threshold)) {
       return;
     }
     if (debt >= threshold) {
       gc.runPendingAutoTrigger();
     }
-    if (gc.hasPendingAsyncFinalizers) {
-      await gc.drainPendingAsyncFinalizers();
+    if (gc.needsAsyncFinalizerDrain) {
+      await _finishOrDrainAutoFinalizerCycle();
+      return;
+    }
+    if (gc.shouldForceAsyncLoopRescue(safePointCounter, debt, threshold)) {
+      await _finishAutoFinalizerCycle();
+      return;
     }
   }
 }

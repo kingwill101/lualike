@@ -30,11 +30,21 @@ final class PackedVarargTable extends MapBase<dynamic, dynamic>
 
   static int? _normalizeIndex(Object? key) {
     final rawKey = _rawKey(key);
-    final integer = NumberUtils.tryToInteger(rawKey);
-    if (integer == null || integer < 1 || integer > NumberLimits.maxInt32) {
-      return null;
-    }
-    return integer;
+    return switch (rawKey) {
+      final int integer when integer > 0 && integer <= NumberLimits.maxInt32 =>
+        integer,
+      final BigInt integer
+          when integer >= BigInt.one &&
+              integer <= BigInt.from(NumberLimits.maxInt32) =>
+        integer.toInt(),
+      final num number
+          when number.isFinite &&
+              number > 0 &&
+              number.toInt() <= NumberLimits.maxInt32 &&
+              number.toInt().toDouble() == number.toDouble() =>
+        number.toInt(),
+      _ => null,
+    };
   }
 
   @override

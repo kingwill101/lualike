@@ -192,6 +192,36 @@ void main() {
       }
     });
 
+    test('table.concat preserves LuaString byte sequences', () async {
+      final bridge = LuaLike();
+
+      try {
+        await bridge.execute('''
+          local payload = table.concat({
+            string.char(0xAB, 0x4B),
+            string.char(0x54, 0x58),
+            string.char(0x00, 0xFF),
+          }, string.char(0x20))
+          return string.byte(payload, 1, 8)
+        ''');
+      } on ReturnException catch (e) {
+        final results = (e.value as Value).unwrap();
+        expect(
+          results,
+          orderedEquals(<Object?>[
+            0xAB,
+            0x4B,
+            0x20,
+            0x54,
+            0x58,
+            0x20,
+            0x00,
+            0xFF,
+          ]),
+        );
+      }
+    });
+
     test('table.move', () async {
       final bridge = LuaLike();
 
