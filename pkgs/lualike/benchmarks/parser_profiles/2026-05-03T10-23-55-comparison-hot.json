@@ -1,0 +1,89 @@
+{
+  "schemaVersion": 1,
+  "generatedBy": "tool/parser_profile_compare.dart",
+  "title": "Hot Lua Suite",
+  "generatedAt": "2026-05-03T10:25:04.949358",
+  "baseline": {
+    "label": "origin/ir hot-lua-suite",
+    "capturedAt": "2026-05-03T10:24:58.001915",
+    "revision": "9fddd67a706a26d441e360f9a1508744e9cb41fc",
+    "branch": null
+  },
+  "latest": {
+    "label": "current hot-lua-suite",
+    "capturedAt": "2026-05-03T10:25:04.139547",
+    "revision": "2e71bc07415ff9dec381ada038ea246e3eb16d39",
+    "branch": "profiling/parser-performance"
+  },
+  "rows": [
+    {
+      "case": "strings",
+      "baselineMeanMicros": 575204.4,
+      "latestMeanMicros": 13017.0,
+      "timeReductionPercent": 97.73697836803751,
+      "speedup": 44.18870707536299
+    },
+    {
+      "case": "test/api",
+      "baselineMeanMicros": 376839.1,
+      "latestMeanMicros": 18696.8,
+      "timeReductionPercent": 95.03851909210059,
+      "speedup": 20.155272560010268
+    },
+    {
+      "case": "test/code",
+      "baselineMeanMicros": 233847.1,
+      "latestMeanMicros": 6944.0,
+      "timeReductionPercent": 97.03053833038767,
+      "speedup": 33.67613767281106
+    },
+    {
+      "case": "test/db",
+      "baselineMeanMicros": 368517.0,
+      "latestMeanMicros": 9801.8,
+      "timeReductionPercent": 97.34020411541394,
+      "speedup": 37.59686996265992
+    },
+    {
+      "case": "test/files",
+      "baselineMeanMicros": 321481.2,
+      "latestMeanMicros": 13254.6,
+      "timeReductionPercent": 95.87702173564116,
+      "speedup": 24.254311710651397
+    },
+    {
+      "case": "test/locals",
+      "baselineMeanMicros": 164201.2,
+      "latestMeanMicros": 11791.7,
+      "timeReductionPercent": 92.81874919306314,
+      "speedup": 13.925150741623346
+    },
+    {
+      "case": "test/math",
+      "baselineMeanMicros": 268328.8,
+      "latestMeanMicros": 27093.8,
+      "timeReductionPercent": 89.90276109012525,
+      "speedup": 9.903697524894994
+    },
+    {
+      "case": "test/pm",
+      "baselineMeanMicros": 290077.8,
+      "latestMeanMicros": 7348.7,
+      "timeReductionPercent": 97.46664515519629,
+      "speedup": 39.47334902771919
+    },
+    {
+      "case": "test/strings",
+      "baselineMeanMicros": 569801.6,
+      "latestMeanMicros": 8803.8,
+      "timeReductionPercent": 98.45493589347589,
+      "speedup": 64.72223358095368
+    }
+  ],
+  "total": {
+    "baselineMeanMicros": 3168298.1999999997,
+    "latestMeanMicros": 116752.20000000001,
+    "timeReductionPercent": 96.31498701732052,
+    "speedup": 27.13694645582695
+  }
+}
