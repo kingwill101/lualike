@@ -184,6 +184,34 @@ mixin InterpreterAssignmentMixin on AstVisitor<Object?> {
     return cloned;
   }
 
+  Value _rawValueForLocalAttribute(
+    Interpreter interpreter,
+    Object? raw, {
+    bool isConst = false,
+    bool isToBeClose = false,
+  }) {
+    if (raw == null ||
+        raw is bool ||
+        raw is num ||
+        raw is BigInt ||
+        raw is String ||
+        raw is LuaString) {
+      return Value.primitive(
+        raw,
+        isConst: isConst,
+        isToBeClose: isToBeClose,
+        interpreter: interpreter,
+      );
+    }
+
+    return Value(
+      raw,
+      isConst: isConst,
+      isToBeClose: isToBeClose,
+      interpreter: interpreter,
+    );
+  }
+
   bool _updateActiveFunctionLocal(
     String name,
     dynamic value,
@@ -1296,10 +1324,10 @@ mixin InterpreterAssignmentMixin on AstVisitor<Object?> {
               isConst: true,
             );
           } else {
-            valueWithAttributes = Value(
+            valueWithAttributes = _rawValueForLocalAttribute(
+              interpreter,
               rawValue,
               isConst: true,
-              interpreter: interpreter,
             );
           }
         } else if (attribute == 'close') {
@@ -1317,10 +1345,10 @@ mixin InterpreterAssignmentMixin on AstVisitor<Object?> {
               }
             }
           } else {
-            final closableValue = Value(
+            final closableValue = _rawValueForLocalAttribute(
+              interpreter,
               rawValue,
               isToBeClose: true,
-              interpreter: interpreter,
             );
             valueWithAttributes = closableValue;
 
