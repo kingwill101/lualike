@@ -15,6 +15,16 @@ export 'src/love_api_support.dart';
 export 'src/runtime/flame/love_flame_harness.dart' show LoveFlameHarness;
 export 'src/runtime/flame/love_flame_host.dart' show LoveFlameHost;
 export 'src/runtime/flame/love_flame_input.dart' show LoveFlameInputAdapter;
+export 'src/runtime/flame/love_touch_controls.dart'
+    show
+        LoveTouchButtonConfig,
+        LoveTouchButtonVisual,
+        LoveTouchControlSide,
+        LoveTouchControlsConfig,
+        LoveTouchControlsOverlay,
+        LoveTouchDirectionBindings,
+        LoveTouchJoystickConfig,
+        LoveTouchKeyBinding;
 export 'src/runtime/flame/love_flame_harness_renderer.dart'
     show
         LoveFlameFrameTimingSample,

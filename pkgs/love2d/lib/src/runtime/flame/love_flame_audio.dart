@@ -3,6 +3,7 @@ library;
 import 'dart:typed_data' show Uint8List;
 
 import 'package:audioplayers/audioplayers.dart';
+import 'package:flutter/foundation.dart' show debugPrint, kIsWeb;
 
 import '../love_runtime.dart';
 
@@ -25,6 +26,9 @@ class LoveFlutterAudioSourceBackend implements LoveAudioSourceBackend {
   /// Whether [_player] has already been configured with [_bytes].
   bool _prepared = false;
 
+  /// Whether source preparation failed and playback should stay silent.
+  bool _failed = false;
+
   @override
   /// Releases the underlying player resources.
   Future<void> dispose() async {
@@ -34,6 +38,9 @@ class LoveFlutterAudioSourceBackend implements LoveAudioSourceBackend {
   @override
   /// Pauses playback.
   Future<void> pause() async {
+    if (_failed) {
+      return;
+    }
     await _player.pause();
   }
 
@@ -41,6 +48,9 @@ class LoveFlutterAudioSourceBackend implements LoveAudioSourceBackend {
   /// Starts or resumes playback, preparing the byte source on first use.
   Future<void> play() async {
     await _ensurePrepared();
+    if (_failed) {
+      return;
+    }
     await _player.resume();
   }
 
@@ -48,34 +58,57 @@ class LoveFlutterAudioSourceBackend implements LoveAudioSourceBackend {
   /// Seeks playback to [position], preparing the byte source on first use.
   Future<void> seek(Duration position) async {
     await _ensurePrepared();
+    if (_failed) {
+      return;
+    }
     await _player.seek(position);
   }
 
   @override
   /// Enables or disables looping playback.
   Future<void> setLooping(bool looping) async {
+    if (_failed) {
+      return;
+    }
     await _player.setReleaseMode(looping ? ReleaseMode.loop : ReleaseMode.stop);
   }
 
   @override
   /// Sets the output [volume].
   Future<void> setVolume(double volume) async {
+    if (_failed) {
+      return;
+    }
     await _player.setVolume(volume);
   }
 
   @override
   /// Stops playback.
   Future<void> stop() async {
+    if (_failed) {
+      return;
+    }
     await _player.stop();
   }
 
   /// Lazily configures the player with the in-memory byte source.
   Future<void> _ensurePrepared() async {
-    if (_prepared) {
+    if (_prepared || _failed) {
       return;
     }
 
-    await _player.setSource(BytesSource(_bytes, mimeType: _mimeType));
-    _prepared = true;
+    try {
+      await _player.setSource(BytesSource(_bytes, mimeType: _mimeType));
+      _prepared = true;
+    } catch (error, stackTrace) {
+      if (!kIsWeb) {
+        rethrow;
+      }
+      _failed = true;
+      debugPrint(
+        'LoveFlutterAudioSourceBackend falling back to silent web audio '
+        'for bytes source: $error\n$stackTrace',
+      );
+    }
   }
 }

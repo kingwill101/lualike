@@ -1290,10 +1290,15 @@ class _LoveHarnessViewportState extends State<_LoveHarnessViewport> {
           onSizeChanged: _handleViewportSizeChanged,
           child: LayoutBuilder(
             builder: (context, constraints) {
-              final viewportSize = Size(
-                constraints.maxWidth,
-                constraints.maxHeight,
-              );
+              final width = constraints.maxWidth.isFinite
+                  ? constraints.maxWidth
+                  : (widget.controller.game.host.windowMetrics.width
+                        .toDouble());
+              final height = constraints.maxHeight.isFinite
+                  ? constraints.maxHeight
+                  : (widget.controller.game.host.windowMetrics.height
+                        .toDouble());
+              final viewportSize = Size(width, height);
               final presentation = loveFlamePresentationGeometry(
                 windowMetrics: widget.controller.game.host.windowMetrics,
                 viewportSize: viewportSize,

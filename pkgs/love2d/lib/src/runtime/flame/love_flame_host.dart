@@ -437,7 +437,10 @@ class LoveFlameHost<W extends World> implements LoveHost {
   }
 
   int _gameDimension(double rawValue, int fallback) {
-    return rawValue > 0 ? rawValue.round() : fallback;
+    if (!rawValue.isFinite || rawValue <= 0) {
+      return fallback;
+    }
+    return rawValue.round();
   }
 
   ({int width, int height})? _resolvedHostViewportDimensions() {

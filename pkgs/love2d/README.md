@@ -239,7 +239,7 @@ The example app also demonstrates:
 
 - responsive game-center layout
 - small-screen scrolling behavior
-- per-demo touch controls on compact screens
+- shared touch controls on compact screens
 - vendored demo asset registration
 
 See [`example/README.md`](./example/README.md) for demo-specific details.
@@ -391,6 +391,47 @@ Important limitation:
 For normal Flutter keyboard and pointer integration, `LoveFlameHarness` already
 creates and wires the input adapters for you.
 
+For reusable on-screen mobile controls, the package now exports:
+
+- `LoveTouchControlsOverlay`
+- `LoveTouchControlsConfig`
+- `LoveTouchJoystickConfig`
+- `LoveTouchButtonConfig`
+
+The built-in touch-control widget follows the floating-joystick pattern used by
+the Pocket Bomber example:
+
+- left and right floating joystick zones are supported
+- fixed action buttons can be anchored around the screen edges
+- the current implementation drives LOVE keyboard input through
+  `LoveFlameInputAdapter`
+
+Example:
+
+```dart
+LoveTouchControlsOverlay(
+  input: inputAdapter,
+  config: const LoveTouchControlsConfig(
+    leftJoystick: LoveTouchJoystickConfig(
+      side: LoveTouchControlSide.left,
+      directions: LoveTouchDirectionBindings(
+        up: LoveTouchKeyBinding(label: 'Up', key: 'up'),
+        down: LoveTouchKeyBinding(label: 'Down', key: 'down'),
+        left: LoveTouchKeyBinding(label: 'Left', key: 'left'),
+        right: LoveTouchKeyBinding(label: 'Right', key: 'right'),
+      ),
+    ),
+    buttons: <LoveTouchButtonConfig>[
+      LoveTouchButtonConfig(
+        binding: LoveTouchKeyBinding(label: 'Bomb', key: 'space'),
+        alignment: Alignment.bottomRight,
+        visual: LoveTouchButtonVisual.bomb,
+      ),
+    ],
+  ),
+)
+```
+
 If you want custom controller injection, use
 `LoveFlameHarness.onInputAdaptersReady` to access:
 
@@ -401,8 +442,8 @@ Use the virtual-pad approach when the Lua game expects `love.keyboard`.
 
 Use joystick/gamepad registration when the Lua game expects `love.joystick`.
 
-The example app demonstrates both the idea of on-screen controls and the split
-between keyboard-style virtual pads and joystick/gamepad devices.
+The example app demonstrates both the shared touch-control widget and the split
+between keyboard-style touch controls and joystick/gamepad devices.
 
 ### Performance Hooks
 

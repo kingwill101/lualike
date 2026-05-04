@@ -1,6 +1,5 @@
 import 'dart:math' as math;
-import 'package:flame/components.dart';
-import 'package:flame/game.dart';
+import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
 import 'package:love2d/love2d.dart';
 
@@ -24,63 +23,11 @@ class GameEntry {
   final Color accentColor;
   final bool automaticGc;
   final Iterable<String>? imageWarmupAssetKeys;
-  final VirtualPadConfig? virtualPad;
+  final LoveTouchControlsConfig? virtualPad;
 }
 
-class VirtualPadKeyBinding {
-  const VirtualPadKeyBinding({
-    required this.label,
-    required this.key,
-    this.scancode,
-  });
-
-  final String label;
-  final String key;
-  final String? scancode;
-}
-
-class VirtualPadDirectionalBindings {
-  const VirtualPadDirectionalBindings({
-    this.up,
-    this.down,
-    this.left,
-    this.right,
-  });
-
-  final VirtualPadKeyBinding? up;
-  final VirtualPadKeyBinding? down;
-  final VirtualPadKeyBinding? left;
-  final VirtualPadKeyBinding? right;
-}
-
-class VirtualPadSideConfig {
-  const VirtualPadSideConfig({
-    this.directions,
-    this.primaryButtons = const <VirtualPadKeyBinding>[],
-    this.secondaryButtons = const <VirtualPadKeyBinding>[],
-  });
-
-  final VirtualPadDirectionalBindings? directions;
-  final List<VirtualPadKeyBinding> primaryButtons;
-  final List<VirtualPadKeyBinding> secondaryButtons;
-
-  bool get hasContent =>
-      directions != null ||
-      primaryButtons.isNotEmpty ||
-      secondaryButtons.isNotEmpty;
-}
-
-class VirtualPadConfig {
-  const VirtualPadConfig({
-    this.left = const VirtualPadSideConfig(),
-    this.right = const VirtualPadSideConfig(),
-    this.hint,
-  });
-
-  final VirtualPadSideConfig left;
-  final VirtualPadSideConfig right;
-  final String? hint;
-}
+typedef GameLauncherBuilder =
+    Widget Function(BuildContext context, GameEntry entry, VoidCallback onBack);
 
 const modernPongEntryAsset = 'assets/modern_pong/main.lua';
 const loveExampleBrowserEntryAsset = 'assets/love_example_browser/main.lua';
@@ -99,66 +46,115 @@ const _relicBreachWarmupImages = <String>[
   'assets/relic_breach/art/kenney_light_masks/Default/water_caustics_a_runtime.png',
 ];
 
-const _modernPongVirtualPad = VirtualPadConfig(
-  left: VirtualPadSideConfig(
-    directions: VirtualPadDirectionalBindings(
-      up: VirtualPadKeyBinding(label: 'Up', key: 'w'),
-      down: VirtualPadKeyBinding(label: 'Down', key: 's'),
+const _modernPongVirtualPad = LoveTouchControlsConfig(
+  leftJoystick: LoveTouchJoystickConfig(
+    side: LoveTouchControlSide.left,
+    directions: LoveTouchDirectionBindings(
+      up: LoveTouchKeyBinding(label: 'Up', key: 'w'),
+      down: LoveTouchKeyBinding(label: 'Down', key: 's'),
     ),
   ),
-  right: VirtualPadSideConfig(
-    primaryButtons: <VirtualPadKeyBinding>[
-      VirtualPadKeyBinding(label: 'Pause', key: 'escape'),
-    ],
-  ),
+  buttons: <LoveTouchButtonConfig>[
+    LoveTouchButtonConfig(
+      binding: LoveTouchKeyBinding(label: 'Pause', key: 'escape'),
+      alignment: Alignment.topRight,
+      margin: EdgeInsets.only(top: 28, right: 12),
+      visual: LoveTouchButtonVisual.utility,
+      fillColor: Color(0xCC1E3A8A),
+      glowColor: Color(0x332563EB),
+      borderColor: Color(0xFF93C5FD),
+    ),
+  ],
   hint: 'Tap Play, then use the pad for the paddle.',
 );
 
-const _browserVirtualPad = VirtualPadConfig(
-  right: VirtualPadSideConfig(
-    primaryButtons: <VirtualPadKeyBinding>[
-      VirtualPadKeyBinding(label: 'Esc', key: 'escape'),
-    ],
-  ),
+const _browserVirtualPad = LoveTouchControlsConfig(
+  buttons: <LoveTouchButtonConfig>[
+    LoveTouchButtonConfig(
+      binding: LoveTouchKeyBinding(label: 'Esc', key: 'escape'),
+      alignment: Alignment.bottomRight,
+      margin: EdgeInsets.only(right: 12, bottom: 12),
+      visual: LoveTouchButtonVisual.action,
+      fillColor: Color(0xCC2563EB),
+      glowColor: Color(0x332563EB),
+      borderColor: Color(0xFF93C5FD),
+    ),
+  ],
   hint: 'Touch the list directly. Esc returns from a sample.',
 );
 
-const _shaderExplorerVirtualPad = VirtualPadConfig(
-  left: VirtualPadSideConfig(
-    directions: VirtualPadDirectionalBindings(
-      up: VirtualPadKeyBinding(label: 'Up', key: 'up'),
-      down: VirtualPadKeyBinding(label: 'Down', key: 'down'),
-      left: VirtualPadKeyBinding(label: 'Left', key: 'left'),
-      right: VirtualPadKeyBinding(label: 'Right', key: 'right'),
+const _shaderExplorerVirtualPad = LoveTouchControlsConfig(
+  leftJoystick: LoveTouchJoystickConfig(
+    side: LoveTouchControlSide.left,
+    directions: LoveTouchDirectionBindings(
+      up: LoveTouchKeyBinding(label: 'Up', key: 'up'),
+      down: LoveTouchKeyBinding(label: 'Down', key: 'down'),
+      left: LoveTouchKeyBinding(label: 'Left', key: 'left'),
+      right: LoveTouchKeyBinding(label: 'Right', key: 'right'),
     ),
   ),
-  right: VirtualPadSideConfig(
-    primaryButtons: <VirtualPadKeyBinding>[
-      VirtualPadKeyBinding(label: 'Pause', key: 'space'),
-      VirtualPadKeyBinding(label: 'List', key: 'tab'),
-    ],
-    secondaryButtons: <VirtualPadKeyBinding>[
-      VirtualPadKeyBinding(label: 'Restart', key: 'r'),
-    ],
-  ),
+  buttons: <LoveTouchButtonConfig>[
+    LoveTouchButtonConfig(
+      binding: LoveTouchKeyBinding(label: 'Restart', key: 'r'),
+      alignment: Alignment.centerRight,
+      margin: EdgeInsets.only(right: 10, bottom: 120),
+      visual: LoveTouchButtonVisual.capsule,
+      fillColor: Color(0xCC1F3B08),
+      glowColor: Color(0x223B82F6),
+      borderColor: Color(0xFF334155),
+    ),
+    LoveTouchButtonConfig(
+      binding: LoveTouchKeyBinding(label: 'Pause', key: 'space'),
+      alignment: Alignment.bottomRight,
+      margin: EdgeInsets.only(right: 138, bottom: 12),
+      visual: LoveTouchButtonVisual.action,
+      fillColor: Color(0xCC1F3B08),
+      glowColor: Color(0x223B82F6),
+      borderColor: Color(0xFF334155),
+    ),
+    LoveTouchButtonConfig(
+      binding: LoveTouchKeyBinding(label: 'List', key: 'tab'),
+      alignment: Alignment.bottomRight,
+      margin: EdgeInsets.only(right: 0, bottom: 12),
+      visual: LoveTouchButtonVisual.action,
+      fillColor: Color(0xCC1F3B08),
+      glowColor: Color(0x223B82F6),
+      borderColor: Color(0xFF334155),
+    ),
+  ],
   hint: 'Left and right change shaders. Up and down adjust control.',
 );
 
-const _relicBreachVirtualPad = VirtualPadConfig(
-  left: VirtualPadSideConfig(
-    directions: VirtualPadDirectionalBindings(
-      up: VirtualPadKeyBinding(label: 'Up', key: 'up'),
-      down: VirtualPadKeyBinding(label: 'Down', key: 'down'),
-      left: VirtualPadKeyBinding(label: 'Left', key: 'left'),
-      right: VirtualPadKeyBinding(label: 'Right', key: 'right'),
+const _relicBreachVirtualPad = LoveTouchControlsConfig(
+  leftJoystick: LoveTouchJoystickConfig(
+    side: LoveTouchControlSide.left,
+    directions: LoveTouchDirectionBindings(
+      up: LoveTouchKeyBinding(label: 'Up', key: 'up'),
+      down: LoveTouchKeyBinding(label: 'Down', key: 'down'),
+      left: LoveTouchKeyBinding(label: 'Left', key: 'left'),
+      right: LoveTouchKeyBinding(label: 'Right', key: 'right'),
     ),
   ),
-  right: VirtualPadSideConfig(
-    primaryButtons: <VirtualPadKeyBinding>[
-      VirtualPadKeyBinding(label: 'Bomb', key: 'space'),
-      VirtualPadKeyBinding(label: 'Use', key: 'e'),
-    ],
-  ),
+  buttons: <LoveTouchButtonConfig>[
+    LoveTouchButtonConfig(
+      binding: LoveTouchKeyBinding(label: 'Bomb', key: 'space'),
+      alignment: Alignment.bottomRight,
+      margin: EdgeInsets.only(right: 138, bottom: 12),
+      visual: LoveTouchButtonVisual.bomb,
+      fillColor: Color(0xCC1F3B08),
+      glowColor: Color(0x33F43F5E),
+      borderColor: Color(0xFFF43F5E),
+    ),
+    LoveTouchButtonConfig(
+      binding: LoveTouchKeyBinding(label: 'Use', key: 'e'),
+      alignment: Alignment.bottomRight,
+      margin: EdgeInsets.only(right: 0, bottom: 12),
+      visual: LoveTouchButtonVisual.action,
+      fillColor: Color(0xCC1F3B08),
+      glowColor: Color(0x2210B981),
+      borderColor: Color(0xFF93C5FD),
+    ),
+  ],
   hint: 'Move with the pad. Tap the scene to aim or place a bomb.',
 );
 
@@ -202,54 +198,43 @@ const kDemoEntries = <GameEntry>[
   ),
 ];
 
-// ─── Starfield ────────────────────────────────────────────────────────────────
+// ─── Background ────────────────────────────────────────────────────────────────
 
-class _StarfieldComponent extends PositionComponent {
-  _StarfieldComponent() : super(anchor: Anchor.topLeft);
-
-  final _rng = math.Random(42);
-  List<({double x, double y, double radius, double opacity})> _stars = const [];
+class _GameCenterBackground extends StatelessWidget {
+  const _GameCenterBackground();
 
   @override
-  void onGameResize(Vector2 gameSize) {
-    super.onGameResize(gameSize);
-    size = gameSize;
-    _stars = List.generate(180, (_) {
-      return (
-        x: _rng.nextDouble() * gameSize.x,
-        y: _rng.nextDouble() * gameSize.y,
-        radius: _rng.nextDouble() * 1.4 + 0.4,
-        opacity: _rng.nextDouble() * 0.55 + 0.15,
-      );
-    });
-  }
-
-  @override
-  void render(Canvas canvas) {
-    for (final s in _stars) {
-      canvas.drawCircle(
-        Offset(s.x, s.y),
-        s.radius,
-        Paint()
-          ..color = const Color(
-            0xFFFFFFFF,
-          ).withAlpha((s.opacity * 255).round()),
-      );
-    }
+  Widget build(BuildContext context) {
+    return ColoredBox(
+      color: const Color(0xFF060816),
+      child: CustomPaint(
+        painter: const _GameCenterBackgroundPainter(),
+        child: const SizedBox.expand(),
+      ),
+    );
   }
 }
 
-// ─── Flame background ─────────────────────────────────────────────────────────
-
-class GameCenterGame extends FlameGame {
-  @override
-  Color backgroundColor() => const Color(0xFF060816);
+class _GameCenterBackgroundPainter extends CustomPainter {
+  const _GameCenterBackgroundPainter();
 
   @override
-  Future<void> onLoad() async {
-    await super.onLoad();
-    add(_StarfieldComponent());
+  void paint(Canvas canvas, Size size) {
+    final rng = math.Random(42);
+    final paint = Paint();
+    for (var index = 0; index < 180; index++) {
+      final opacity = rng.nextDouble() * 0.55 + 0.15;
+      paint.color = const Color(0xFFFFFFFF).withAlpha((opacity * 255).round());
+      canvas.drawCircle(
+        Offset(rng.nextDouble() * size.width, rng.nextDouble() * size.height),
+        rng.nextDouble() * 1.4 + 0.4,
+        paint,
+      );
+    }
   }
+
+  @override
+  bool shouldRepaint(covariant CustomPainter oldDelegate) => false;
 }
 
 // ─── Menu layout ──────────────────────────────────────────────────────────────
@@ -308,13 +293,18 @@ class _GameCenterMenu extends StatelessWidget {
                         color: Colors.white,
                         fontSize: width < 420 ? 18 : 22,
                         fontWeight: FontWeight.w800,
+                        decoration: TextDecoration.none,
                       ),
                     ),
                     const SizedBox(height: 6),
                     const Text(
                       'Select a demo to play',
                       textAlign: TextAlign.center,
-                      style: TextStyle(color: Color(0xFF94A3B8), fontSize: 13),
+                      style: TextStyle(
+                        color: Color(0xFF94A3B8),
+                        fontSize: 13,
+                        decoration: TextDecoration.none,
+                      ),
                     ),
                     const SizedBox(height: 20),
                     Wrap(
@@ -383,6 +373,7 @@ class _GameCenterMenuCard extends StatelessWidget {
                   child: ConstrainedBox(
                     constraints: const BoxConstraints(minHeight: 102),
                     child: Column(
+                      mainAxisSize: MainAxisSize.min,
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
                         Text(
@@ -391,6 +382,7 @@ class _GameCenterMenuCard extends StatelessWidget {
                             color: Colors.white,
                             fontSize: 17,
                             fontWeight: FontWeight.w800,
+                            decoration: TextDecoration.none,
                           ),
                         ),
                         const SizedBox(height: 8),
@@ -400,9 +392,10 @@ class _GameCenterMenuCard extends StatelessWidget {
                             color: Color(0xFF94A3B8),
                             fontSize: 12.5,
                             height: 1.45,
+                            decoration: TextDecoration.none,
                           ),
                         ),
-                        const Spacer(),
+                        const SizedBox(height: 18),
                         Text(
                           'TAP TO PLAY',
                           style: TextStyle(
@@ -410,6 +403,7 @@ class _GameCenterMenuCard extends StatelessWidget {
                             fontSize: 11,
                             fontWeight: FontWeight.w700,
                             letterSpacing: 1.2,
+                            decoration: TextDecoration.none,
                           ),
                         ),
                       ],
@@ -440,6 +434,15 @@ class _GameLauncherWidget extends StatefulWidget {
 class _GameLauncherWidgetState extends State<_GameLauncherWidget> {
   LoveFlameInputAdapter? _input;
 
+  void _scheduleAfterBuild(VoidCallback action) {
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) {
+        return;
+      }
+      action();
+    });
+  }
+
   bool _shouldShowVirtualPad(BuildContext context) {
     return MediaQuery.sizeOf(context).shortestSide < 900;
   }
@@ -451,9 +454,8 @@ class _GameLauncherWidgetState extends State<_GameLauncherWidget> {
     if (!mounted) {
       return;
     }
-    setState(() {
-      _input = input;
-    });
+    _input = input;
+    _scheduleAfterBuild(() => setState(() {}));
   }
 
   void _releaseVirtualControls() {
@@ -462,7 +464,7 @@ class _GameLauncherWidgetState extends State<_GameLauncherWidget> {
 
   void _handleBack() {
     _releaseVirtualControls();
-    widget.onBack();
+    _scheduleAfterBuild(widget.onBack);
   }
 
   @override
@@ -482,11 +484,12 @@ class _GameLauncherWidgetState extends State<_GameLauncherWidget> {
           entryAsset: widget.entry.entryAsset,
           automaticGc: widget.entry.automaticGc,
           imageWarmupAssetKeys: widget.entry.imageWarmupAssetKeys,
+          engineMode: kIsWeb ? EngineMode.ast : EngineMode.luaBytecode,
           onInputAdaptersReady: _handleInputAdaptersReady,
           onQuitRequested: () async => _handleBack(),
         ),
         if (showVirtualPad)
-          _VirtualPadOverlay(config: virtualPad, input: _input),
+          LoveTouchControlsOverlay(config: virtualPad, input: _input),
         Positioned(
           top: 8,
           left: 8,
@@ -494,347 +497,10 @@ class _GameLauncherWidgetState extends State<_GameLauncherWidget> {
             child: IconButton(
               icon: const Icon(Icons.arrow_back_ios_new, color: Colors.white70),
               onPressed: _handleBack,
-              tooltip: 'Back to Game Center',
             ),
           ),
         ),
       ],
-    );
-  }
-}
-
-class _VirtualPadOverlay extends StatelessWidget {
-  const _VirtualPadOverlay({required this.config, required this.input});
-
-  final VirtualPadConfig config;
-  final LoveFlameInputAdapter? input;
-
-  @override
-  Widget build(BuildContext context) {
-    final hint = config.hint;
-    return SafeArea(
-      child: Padding(
-        padding: const EdgeInsets.fromLTRB(16, 16, 16, 20),
-        child: Stack(
-          children: [
-            if (hint != null && hint.isNotEmpty)
-              Align(
-                alignment: Alignment.bottomCenter,
-                child: Padding(
-                  padding: const EdgeInsets.only(bottom: 120),
-                  child: DecoratedBox(
-                    decoration: BoxDecoration(
-                      color: const Color(0xAA020617),
-                      borderRadius: BorderRadius.circular(999),
-                      border: Border.all(color: const Color(0xFF1E293B)),
-                    ),
-                    child: Padding(
-                      padding: const EdgeInsets.symmetric(
-                        horizontal: 14,
-                        vertical: 8,
-                      ),
-                      child: Text(
-                        hint,
-                        textAlign: TextAlign.center,
-                        style: const TextStyle(
-                          color: Color(0xFFCBD5E1),
-                          fontSize: 12,
-                        ),
-                      ),
-                    ),
-                  ),
-                ),
-              ),
-            if (config.left.hasContent)
-              Align(
-                alignment: Alignment.bottomLeft,
-                child: _VirtualPadSideContents(
-                  side: config.left,
-                  input: input,
-                  alignEnd: false,
-                ),
-              ),
-            if (config.right.hasContent)
-              Align(
-                alignment: Alignment.bottomRight,
-                child: _VirtualPadSideContents(
-                  side: config.right,
-                  input: input,
-                  alignEnd: true,
-                ),
-              ),
-          ],
-        ),
-      ),
-    );
-  }
-}
-
-class _DirectionalPad extends StatelessWidget {
-  const _DirectionalPad({required this.bindings, required this.input});
-
-  final VirtualPadDirectionalBindings bindings;
-  final LoveFlameInputAdapter? input;
-
-  static const _gap = 10.0;
-  static const _buttonSize = 68.0;
-
-  Widget _slot({VirtualPadKeyBinding? binding, IconData? icon}) {
-    if (binding == null) {
-      return const SizedBox.square(dimension: _buttonSize);
-    }
-
-    return _VirtualPadButton(
-      binding: binding,
-      input: input,
-      width: _buttonSize,
-      height: _buttonSize,
-      child: Icon(icon, color: Colors.white70, size: 34),
-    );
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    return Column(
-      mainAxisSize: MainAxisSize.min,
-      children: [
-        Row(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            const SizedBox.square(dimension: _buttonSize),
-            const SizedBox(width: _gap),
-            _slot(binding: bindings.up, icon: Icons.keyboard_arrow_up_rounded),
-            const SizedBox(width: _gap),
-            const SizedBox.square(dimension: _buttonSize),
-          ],
-        ),
-        const SizedBox(height: _gap),
-        Row(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            _slot(
-              binding: bindings.left,
-              icon: Icons.keyboard_arrow_left_rounded,
-            ),
-            const SizedBox(width: _gap),
-            const SizedBox.square(dimension: _buttonSize),
-            const SizedBox(width: _gap),
-            _slot(
-              binding: bindings.right,
-              icon: Icons.keyboard_arrow_right_rounded,
-            ),
-          ],
-        ),
-        const SizedBox(height: _gap),
-        Row(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            const SizedBox.square(dimension: _buttonSize),
-            const SizedBox(width: _gap),
-            _slot(
-              binding: bindings.down,
-              icon: Icons.keyboard_arrow_down_rounded,
-            ),
-            const SizedBox(width: _gap),
-            const SizedBox.square(dimension: _buttonSize),
-          ],
-        ),
-      ],
-    );
-  }
-}
-
-class _VirtualPadSideContents extends StatelessWidget {
-  const _VirtualPadSideContents({
-    required this.side,
-    required this.input,
-    required this.alignEnd,
-  });
-
-  final VirtualPadSideConfig side;
-  final LoveFlameInputAdapter? input;
-  final bool alignEnd;
-
-  @override
-  Widget build(BuildContext context) {
-    final crossAxisAlignment = alignEnd
-        ? CrossAxisAlignment.end
-        : CrossAxisAlignment.start;
-    final wrapAlignment = alignEnd ? WrapAlignment.end : WrapAlignment.start;
-
-    return Column(
-      mainAxisSize: MainAxisSize.min,
-      crossAxisAlignment: crossAxisAlignment,
-      children: [
-        if (side.secondaryButtons.isNotEmpty)
-          _VirtualPadButtonGroup(
-            bindings: side.secondaryButtons,
-            input: input,
-            compact: true,
-            alignment: wrapAlignment,
-          ),
-        if (side.secondaryButtons.isNotEmpty &&
-            (side.primaryButtons.isNotEmpty || side.directions != null))
-          const SizedBox(height: 12),
-        if (side.primaryButtons.isNotEmpty)
-          _VirtualPadButtonGroup(
-            bindings: side.primaryButtons,
-            input: input,
-            compact: false,
-            alignment: wrapAlignment,
-          ),
-        if (side.primaryButtons.isNotEmpty && side.directions != null)
-          const SizedBox(height: 12),
-        if (side.directions case final directions?)
-          _DirectionalPad(bindings: directions, input: input),
-      ],
-    );
-  }
-}
-
-class _VirtualPadButtonGroup extends StatelessWidget {
-  const _VirtualPadButtonGroup({
-    required this.bindings,
-    required this.input,
-    required this.compact,
-    required this.alignment,
-  });
-
-  final List<VirtualPadKeyBinding> bindings;
-  final LoveFlameInputAdapter? input;
-  final bool compact;
-  final WrapAlignment alignment;
-
-  @override
-  Widget build(BuildContext context) {
-    return Wrap(
-      alignment: alignment,
-      spacing: 12,
-      runSpacing: 12,
-      children: [
-        for (final binding in bindings)
-          _VirtualPadButton(
-            binding: binding,
-            input: input,
-            width: compact ? 82 : 86,
-            height: compact ? 54 : 86,
-            borderRadius: compact ? null : BorderRadius.circular(999),
-            child: Text(
-              binding.label,
-              textAlign: TextAlign.center,
-              style: TextStyle(
-                color: Colors.white,
-                fontSize: 13,
-                fontWeight: compact ? FontWeight.w700 : FontWeight.w800,
-              ),
-            ),
-          ),
-      ],
-    );
-  }
-}
-
-class _VirtualPadButton extends StatefulWidget {
-  const _VirtualPadButton({
-    required this.binding,
-    required this.input,
-    required this.child,
-    required this.width,
-    required this.height,
-    this.borderRadius,
-  });
-
-  final VirtualPadKeyBinding binding;
-  final LoveFlameInputAdapter? input;
-  final Widget child;
-  final double width;
-  final double height;
-  final BorderRadius? borderRadius;
-
-  @override
-  State<_VirtualPadButton> createState() => _VirtualPadButtonState();
-}
-
-class _VirtualPadButtonState extends State<_VirtualPadButton> {
-  final Set<int> _activePointers = <int>{};
-
-  bool get _isPressed => _activePointers.isNotEmpty;
-
-  void _setPressed(bool pressed) {
-    widget.input?.setVirtualKeyDown(
-      widget.binding.key,
-      scancode: widget.binding.scancode,
-      down: pressed,
-    );
-  }
-
-  void _handlePointerDown(PointerDownEvent event) {
-    final wasPressed = _isPressed;
-    setState(() {
-      _activePointers.add(event.pointer);
-    });
-    if (!wasPressed) {
-      _setPressed(true);
-    }
-  }
-
-  void _handlePointerRelease(int pointer) {
-    if (!_activePointers.contains(pointer)) {
-      return;
-    }
-
-    setState(() {
-      _activePointers.remove(pointer);
-    });
-    if (!_isPressed) {
-      _setPressed(false);
-    }
-  }
-
-  @override
-  void dispose() {
-    if (_isPressed) {
-      _setPressed(false);
-    }
-    super.dispose();
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    final enabled = widget.input != null;
-    return Listener(
-      behavior: HitTestBehavior.opaque,
-      onPointerDown: enabled ? _handlePointerDown : null,
-      onPointerUp: enabled
-          ? (event) => _handlePointerRelease(event.pointer)
-          : null,
-      onPointerCancel: enabled
-          ? (event) => _handlePointerRelease(event.pointer)
-          : null,
-      child: AnimatedContainer(
-        duration: const Duration(milliseconds: 90),
-        width: widget.width,
-        height: widget.height,
-        decoration: BoxDecoration(
-          color: _isPressed ? const Color(0xCC2563EB) : const Color(0x88111827),
-          borderRadius: widget.borderRadius ?? BorderRadius.circular(20),
-          border: Border.all(
-            color: _isPressed
-                ? const Color(0xFF93C5FD)
-                : const Color(0xFF334155),
-          ),
-          boxShadow: _isPressed
-              ? const <BoxShadow>[
-                  BoxShadow(
-                    color: Color(0x552563EB),
-                    blurRadius: 18,
-                    offset: Offset(0, 8),
-                  ),
-                ]
-              : const <BoxShadow>[],
-        ),
-        child: Center(child: widget.child),
-      ),
     );
   }
 }
@@ -842,30 +508,57 @@ class _VirtualPadButtonState extends State<_VirtualPadButton> {
 // ─── Screen ───────────────────────────────────────────────────────────────────
 
 class GameCenterScreen extends StatefulWidget {
-  const GameCenterScreen({super.key});
+  const GameCenterScreen({super.key, this.launcherBuilder});
+
+  final GameLauncherBuilder? launcherBuilder;
 
   @override
   State<GameCenterScreen> createState() => _GameCenterScreenState();
 }
 
 class _GameCenterScreenState extends State<GameCenterScreen> {
-  late final GameCenterGame _game = GameCenterGame();
   GameEntry? _activeEntry;
 
-  void _launch(GameEntry entry) => setState(() => _activeEntry = entry);
-  void _returnToMenu() => setState(() => _activeEntry = null);
+  void _scheduleAfterBuild(VoidCallback action) {
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) {
+        return;
+      }
+      action();
+    });
+  }
+
+  void _launch(GameEntry entry) {
+    _scheduleAfterBuild(() {
+      setState(() {
+        _activeEntry = entry;
+      });
+    });
+  }
+
+  void _returnToMenu() {
+    _scheduleAfterBuild(() {
+      setState(() {
+        _activeEntry = null;
+      });
+    });
+  }
 
   @override
   Widget build(BuildContext context) {
     final active = _activeEntry;
     if (active != null) {
+      final launcherBuilder = widget.launcherBuilder;
+      if (launcherBuilder != null) {
+        return launcherBuilder(context, active, _returnToMenu);
+      }
       return _GameLauncherWidget(entry: active, onBack: _returnToMenu);
     }
 
     return Stack(
       fit: StackFit.expand,
       children: [
-        GameWidget<GameCenterGame>(game: _game),
+        const _GameCenterBackground(),
         _GameCenterMenu(onLaunch: _launch),
       ],
     );
@@ -875,7 +568,9 @@ class _GameCenterScreenState extends State<GameCenterScreen> {
 // ─── App root ─────────────────────────────────────────────────────────────────
 
 class GameCenterApp extends StatelessWidget {
-  const GameCenterApp({super.key});
+  const GameCenterApp({super.key, this.launcherBuilder});
+
+  final GameLauncherBuilder? launcherBuilder;
 
   @override
   Widget build(BuildContext context) {
@@ -892,7 +587,7 @@ class GameCenterApp extends StatelessWidget {
           surface: Color(0xFF111827),
         ),
       ),
-      home: const Scaffold(body: GameCenterScreen()),
+      home: GameCenterScreen(launcherBuilder: launcherBuilder),
     );
   }
 }
