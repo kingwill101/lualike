@@ -755,7 +755,7 @@ Future<LuaChunkLoadResult> loadChunkWithLegacyAstSupport(
             final firstValue = switch (compiledCondition) {
               final _ConstructsShortCircuitExpr compiled => valueFromLuaSlot(
                 runtime,
-                _unwrapConstructsValue(compiled.evaluate(loadEnv)),
+                _rawCompiledArtifactValue(compiled.evaluate(loadEnv)),
               ),
               _ => await _evaluateConstructsShortCircuitExpression(
                 runtime,
@@ -772,7 +772,7 @@ Future<LuaChunkLoadResult> loadChunkWithLegacyAstSupport(
             final resultValue = switch (compiledCondition) {
               final _ConstructsShortCircuitExpr compiled => valueFromLuaSlot(
                 runtime,
-                _unwrapConstructsValue(compiled.evaluate(loadEnv)),
+                _rawCompiledArtifactValue(compiled.evaluate(loadEnv)),
               ),
               _ => await _evaluateConstructsShortCircuitExpression(
                 runtime,
@@ -993,7 +993,7 @@ Object? dumpFunctionWithLegacyAstTransport(
           .toList();
       upvalueValues = function.upvalues!.map((upvalue) {
         final value = upvalue.getValue();
-        final rawValue = value is Value ? value.raw : value;
+        final rawValue = _rawCompiledArtifactValue(value);
         if (rawValue is String ||
             rawValue is num ||
             rawValue is bool ||
@@ -1533,7 +1533,7 @@ final class _ConstructsIdentifierExpr extends _ConstructsShortCircuitExpr {
   final String name;
 
   @override
-  Object? evaluate(Environment env) => _unwrapConstructsValue(env.get(name));
+  Object? evaluate(Environment env) => _rawCompiledArtifactValue(env.get(name));
 }
 
 final class _ConstructsEnvFieldExpr extends _ConstructsShortCircuitExpr {
@@ -1543,11 +1543,11 @@ final class _ConstructsEnvFieldExpr extends _ConstructsShortCircuitExpr {
 
   @override
   Object? evaluate(Environment env) {
-    final envValue = _unwrapConstructsValue(env.get('_ENV'));
+    final envValue = _rawCompiledArtifactValue(env.get('_ENV'));
     if (envValue is! Map) {
       return null;
     }
-    return _unwrapConstructsValue(envValue[fieldName]);
+    return _rawCompiledArtifactValue(envValue[fieldName]);
   }
 }
 
@@ -1600,17 +1600,17 @@ final class _ConstructsEqualsExpr extends _ConstructsShortCircuitExpr {
 
   @override
   Object? evaluate(Environment env) =>
-      _unwrapConstructsValue(left.evaluate(env)) ==
-      _unwrapConstructsValue(right.evaluate(env));
+      _rawCompiledArtifactValue(left.evaluate(env)) ==
+      _rawCompiledArtifactValue(right.evaluate(env));
 }
 
-Object? _unwrapConstructsValue(Object? value) => switch (value) {
+Object? _rawCompiledArtifactValue(Object? value) => switch (value) {
   Value wrapped => wrapped.raw,
   _ => value,
 };
 
 bool _isConstructsTruthy(Object? value) {
-  final rawValue = _unwrapConstructsValue(value);
+  final rawValue = _rawCompiledArtifactValue(value);
   return rawValue != null && rawValue != false;
 }
 
