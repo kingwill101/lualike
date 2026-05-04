@@ -1012,13 +1012,15 @@ class ToNumberFunction extends BuiltinFunction {
     }
 
     final value = args[0] as Value;
+    final rawValue = _rawBaseValue(value);
     Value? base;
     if (args.length > 1) {
       base = args[1] as Value;
     }
+    final rawBase = _rawBaseValue(base);
 
-    if (value.raw is String || value.raw is LuaString) {
-      var str = value.raw.toString().trim();
+    if (rawValue is String || rawValue is LuaString) {
+      var str = rawValue.toString().trim();
       // Our parser currently does not interpret escape sequences in
       // string literals, so handle common ones here for tonumber with base.
       str = str.replaceAll('\\t', '\t');
@@ -1032,8 +1034,8 @@ class ToNumberFunction extends BuiltinFunction {
         }
       }
 
-      if (base != null && base.raw is int) {
-        final radix = base.raw as int;
+      if (rawBase is int) {
+        final radix = rawBase;
         try {
           final intVal = int.parse(str, radix: radix);
           return primitiveValue(intVal);
@@ -1046,10 +1048,10 @@ class ToNumberFunction extends BuiltinFunction {
       } on FormatException {
         return primitiveValue(null);
       }
-    } else if (value.raw is num) {
+    } else if (rawValue is num) {
       return value;
-    } else if (value.raw is BigInt) {
-      return primitiveValue((value.raw as BigInt).toInt());
+    } else if (rawValue is BigInt) {
+      return primitiveValue(rawValue.toInt());
     }
 
     return primitiveValue(null);
@@ -1083,10 +1085,11 @@ class ToStringFunction extends BuiltinFunction {
         );
 
         // Validate that __tostring returned a string
+        final rawAwaitedResult = _rawBaseValue(awaitedResult);
         if (awaitedResult is Value) {
-          if (awaitedResult.raw is String || awaitedResult.raw is LuaString) {
+          if (rawAwaitedResult is String || rawAwaitedResult is LuaString) {
             Logger.debugLazy(
-              () => 'tostring: returning Value string ${awaitedResult.raw}',
+              () => 'tostring: returning Value string $rawAwaitedResult',
               category: 'Base',
             );
             return awaitedResult;
@@ -1119,33 +1122,34 @@ class ToStringFunction extends BuiltinFunction {
     }
 
     // Handle basic types directly
-    if (value.raw == null) return dartStringValue("nil");
-    if (value.raw is bool) {
-      final boolStr = value.raw.toString();
+    final rawValue = _rawBaseValue(value);
+    if (rawValue == null) return dartStringValue("nil");
+    if (rawValue is bool) {
+      final boolStr = rawValue.toString();
       return dartStringValue(boolStr);
     }
-    if (value.raw is num) return dartStringValue(value.raw.toString());
-    if (value.raw is String || value.raw is LuaString) {
-      return dartStringValue(value.raw.toString());
+    if (rawValue is num) return dartStringValue(rawValue.toString());
+    if (rawValue is String || rawValue is LuaString) {
+      return dartStringValue(rawValue.toString());
     }
     final typeNameMeta = value.getMetamethod('__name');
     final rawTypeName = _rawBaseValue(typeNameMeta);
     switch (rawTypeName) {
       case final String stringName:
-        return dartStringValue("$stringName: ${value.raw.hashCode}");
+        return dartStringValue("$stringName: ${rawValue.hashCode}");
       case final LuaString stringName:
         return dartStringValue(
-          "${stringName.toString()}: ${value.raw.hashCode}",
+          "${stringName.toString()}: ${rawValue.hashCode}",
         );
     }
-    if (value.raw is Map) {
-      return dartStringValue("table: ${value.raw.hashCode}");
+    if (rawValue is Map) {
+      return dartStringValue("table: ${rawValue.hashCode}");
     }
-    if (value.raw is Function || value.raw is BuiltinFunction) {
-      return dartStringValue("function: ${value.raw.hashCode}");
+    if (rawValue is Function || rawValue is BuiltinFunction) {
+      return dartStringValue("function: ${rawValue.hashCode}");
     }
 
-    return dartStringValue(value.raw.toString());
+    return dartStringValue(rawValue.toString());
   }
 }
 
@@ -1171,23 +1175,24 @@ class SelectFunction extends BuiltinFunction {
   Object? call(List<Object?> args) {
     if (args.isEmpty) throw LuaError("select requires at least one argument");
     final index = args[0] as Value;
+    final rawIndex = _rawBaseValue(index);
 
-    if (index.raw is String && index.raw == "#") {
+    if (rawIndex is String && rawIndex == "#") {
       return primitiveValue(args.length - 1);
     }
 
-    if (index.raw is LuaString && (index.raw as LuaString).toString() == "#") {
+    if (rawIndex is LuaString && rawIndex.toString() == "#") {
       return primitiveValue(args.length - 1);
     }
 
     // Handle non-integer indices
-    if (index.raw is! num) {
+    if (rawIndex is! num) {
       throw LuaError(
-        "bad argument #1 to 'select' (number expected, got ${index.raw.runtimeType})",
+        "bad argument #1 to 'select' (number expected, got ${rawIndex.runtimeType})",
       );
     }
 
-    final idx = (index.raw as num).toInt();
+    final idx = rawIndex.toInt();
     final argCount = args.length - 1; // Don't count the index argument
 
     // Handle negative indices: -1 means last argument, -2 means second-to-last, etc.
