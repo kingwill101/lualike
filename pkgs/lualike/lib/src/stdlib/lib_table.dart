@@ -23,8 +23,7 @@ class TableLibrary extends Library {
   @override
   Map<String, Function>? getMetamethods(LuaRuntime interpreter) => {
     "__index": (List<Object?> args) {
-      final _ = args[0] as Value;
-      final key = args[1] as Value;
+      final key = args[1];
 
       // Convert key to string if needed
       final rawKey = rawLuaSlot(key);
