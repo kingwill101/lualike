@@ -375,7 +375,7 @@ class LualikeIrVm {
       return;
     }
     final tableValue = frame.getRegister(registerIndex);
-    final raw = tableValue is Value ? tableValue.raw : tableValue;
+    final raw = _rawValue(tableValue);
     if (raw is! num) {
       return;
     }
@@ -2265,8 +2265,8 @@ class LualikeIrVm {
   }
 
   void _tableSet(dynamic tableRef, dynamic key, dynamic value) {
-    final rawTable = tableRef is Value ? tableRef.raw : tableRef;
-    final rawKey = key is Value ? key.raw : key;
+    final rawTable = _rawValue(tableRef);
+    final rawKey = _rawValue(key);
     if (rawTable is num) {
       throw LuaError.typeError('attempt to index a number value');
     }
@@ -2670,15 +2670,12 @@ class LualikeIrVm {
   }
 
   bool _isTruthy(dynamic value) {
-    final raw = value is Value ? value.raw : value;
+    final raw = _rawValue(value);
     return !(raw == null || raw == false);
   }
 
   bool _isNilControl(dynamic value) {
-    if (value == null) {
-      return true;
-    }
-    if (value is Value && value.raw == null) {
+    if (_rawValue(value) == null) {
       return true;
     }
     final resultValues = luaResultValues(value);
