@@ -28,16 +28,13 @@ Coroutine _expectCoroutine(Object? raw, String functionName, int index) {
 }
 
 FunctionBody? _requireFunctionBody(Value functionValue, String functionName) {
+  final raw = _rawCoroutineValue(functionValue);
   final FunctionBody? body =
-      functionValue.functionBody ??
-      (functionValue.raw is FunctionBody
-          ? functionValue.raw as FunctionBody
-          : null);
+      functionValue.functionBody ?? (raw is FunctionBody ? raw : null);
   if (body != null) {
     return body;
   }
 
-  final raw = functionValue.raw;
   // Bytecode-backed Lua callables (LuaCallableArtifact) are produced by the
   // bytecode VM and must be treated as callable for coroutine creation, even
   // though they don't carry an AST FunctionBody. Narrowing this check would
@@ -121,9 +118,8 @@ class CoroutineLibrary extends Library {
     "__index": (List<Object?> args) {
       final _ = args[0] as Value;
       final keyValue = args[1] as Value;
-      final key = keyValue.raw is String
-          ? keyValue.raw as String
-          : keyValue.toString();
+      final rawKey = _rawCoroutineValue(keyValue);
+      final key = rawKey is String ? rawKey : keyValue.toString();
 
       switch (key) {
         case "running":
@@ -214,7 +210,8 @@ class _CoroutineCreate extends BuiltinFunction {
     if (!functionValue.isCallable()) {
       throw LuaError.typeError(
         "bad argument #1 to 'create' "
-        "(function expected, got ${NumberUtils.typeName(functionValue.raw)})",
+        "(function expected, got "
+        "${NumberUtils.typeName(_rawCoroutineValue(functionValue))})",
       );
     }
 
@@ -301,7 +298,8 @@ class _CoroutineWrap extends BuiltinFunction {
     if (!functionValue.isCallable()) {
       throw LuaError.typeError(
         "bad argument #1 to 'wrap' "
-        "(function expected, got ${NumberUtils.typeName(functionValue.raw)})",
+        "(function expected, got "
+        "${NumberUtils.typeName(_rawCoroutineValue(functionValue))})",
       );
     }
 
