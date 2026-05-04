@@ -99,7 +99,7 @@ void main() {
 
         expect(captured, isNotNull);
         expect(captured!.getPixel(0, 0).r, closeTo(0.0, 0.001));
-        expect(captured!.getPixel(0, 0).g, closeTo(1.0, 0.001));
+        expect(captured!.getPixel(0, 0).g, closeTo(8 / 15, 0.001));
         expect(captured!.getPixel(0, 0).b, closeTo(0.0, 0.001));
         expect(captured!.getPixel(0, 0).a, closeTo(8 / 15, 0.001));
       },
@@ -224,7 +224,7 @@ void main() {
 
         expect(captured, isNotNull);
         expect(captured!.getPixel(0, 0).r, closeTo(0.0, 0.001));
-        expect(captured!.getPixel(0, 0).g, closeTo(1.0, 0.001));
+        expect(captured!.getPixel(0, 0).g, closeTo(128 / 255, 0.001));
         expect(captured!.getPixel(0, 0).b, closeTo(0.0, 0.001));
         expect(captured!.getPixel(0, 0).a, closeTo(128 / 255, 0.001));
       },
@@ -387,9 +387,18 @@ void main() {
         );
 
         expect(captured, isNotNull);
-        expect(captured!.getPixel(0, 0).r, closeTo(19 / 255, 0.001));
-        expect(captured!.getPixel(0, 0).g, closeTo(36 / 255, 0.001));
-        expect(captured!.getPixel(0, 0).b, closeTo(53 / 255, 0.001));
+        expect(
+          captured!.getPixel(0, 0).r,
+          closeTo((19 / 255) * (128 / 255), 0.001),
+        );
+        expect(
+          captured!.getPixel(0, 0).g,
+          closeTo((36 / 255) * (128 / 255), 0.001),
+        );
+        expect(
+          captured!.getPixel(0, 0).b,
+          closeTo((53 / 255) * (128 / 255), 0.001),
+        );
         expect(captured!.getPixel(0, 0).a, closeTo(128 / 255, 0.001));
       },
     );

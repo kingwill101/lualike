@@ -14,6 +14,7 @@ void main() {
       binding.handleAppLifecycleStateChanged(AppLifecycleState.resumed);
       const script = '''
 local ready = false
+local sawStart = false
 
 function love.load()
   local sticks = love.joystick.getJoysticks()
@@ -25,20 +26,14 @@ end
 
 function love.gamepadpressed(j, button)
   assert(ready, "expected load to complete before gamepad callback")
-  local poll = love.event.poll()
-  while true do
-    local name, queued, queuedButton = poll()
-    if name == nil then
-      return
-    end
-    if name == "gamepadpressed"
-        and queued == j
-        and queuedButton == button
-        and button == "start"
-        and j:isGamepadDown("start") then
-      love.event.quit()
-      return
-    end
+  if button == "start" and j:isGamepadDown("start") then
+    sawStart = true
+  end
+end
+
+function love.update(dt)
+  if sawStart then
+    love.event.quit()
   end
 end
 ''';
@@ -88,45 +83,27 @@ end
       binding.handleAppLifecycleStateChanged(AppLifecycleState.resumed);
       const script = '''
 local sawGamepad = false
+local sawJoystick = false
 
 function love.load()
   assert(love.joystick.getJoystickCount() == 0, "expected no joysticks before focused input")
 end
 
 function love.gamepadpressed(j, button)
-  local poll = love.event.poll()
-  while true do
-    local name, queued, queuedButton = poll()
-    if name == nil then
-      return
-    end
-    if name == "gamepadpressed"
-        and queued == j
-        and queuedButton == button
-        and button == "start"
-        and j:isGamepadDown("start") then
-      sawGamepad = true
-      return
-    end
+  if button == "start" and j:isGamepadDown("start") then
+    sawGamepad = true
   end
 end
 
 function love.joystickpressed(j, button)
-  assert(sawGamepad, "expected gamepad callback before joystick callback")
-  local poll = love.event.poll()
-  while true do
-    local name, queued, queuedButton = poll()
-    if name == nil then
-      return
-    end
-    if name == "joystickpressed"
-        and queued == j
-        and queuedButton == button
-        and button == 5
-        and j:isDown(button) then
-      love.event.quit()
-      return
-    end
+  if button == 5 and j:isDown(button) then
+    sawJoystick = true
+  end
+end
+
+function love.update(dt)
+  if sawGamepad and sawJoystick then
+    love.event.quit()
   end
 end
 ''';

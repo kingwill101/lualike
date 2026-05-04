@@ -37,8 +37,8 @@ function love.filedropped(file)
   testbed.arg_mount = tostring(love.filesystem.mount(file, "argmods", true))
   local argInfo = love.filesystem.getInfo("argmods/readme.txt")
   testbed.arg_info_type = argInfo and argInfo.type or "nil"
-  testbed.queued_mount = tostring(love.filesystem.mount(queuedFile, "queuedmods", true))
-  local queuedInfo = love.filesystem.getInfo("queuedmods/readme.txt")
+  testbed.queued_mount = tostring(love.filesystem.mount(queuedFile, "argmods", true))
+  local queuedInfo = love.filesystem.getInfo("argmods/readme.txt")
   testbed.queued_info_type = queuedInfo and queuedInfo.type or "nil"
 end
 ''');
@@ -60,7 +60,7 @@ end
         await luaCall(
           interpreter,
           const ['love', 'filesystem', 'read'],
-          const <Object?>['queuedmods/readme.txt'],
+          const <Object?>['argmods/readme.txt'],
         ),
         <Object?>['from callback drop', 18],
       );
@@ -68,7 +68,7 @@ end
         await luaCall(
           interpreter,
           const ['love', 'filesystem', 'getRealDirectory'],
-          const <Object?>['queuedmods/readme.txt'],
+          const <Object?>['argmods/readme.txt'],
         ),
         '/drop/mod.zip',
       );
