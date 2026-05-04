@@ -14,6 +14,10 @@ export 'package:lualike/src/runtime/lua_primitive.dart'
 /// away from using [Value] for every temporary runtime value.
 typedef LuaSlot = Object?;
 
+/// Returns the raw payload for a public [Value] facade, or [slot] unchanged.
+@pragma('vm:prefer-inline')
+dynamic rawLuaSlot(Object? slot) => slot is Value ? slot.raw : slot;
+
 /// Returns whether [value] is a multi-result carrier in either the new internal
 /// shape or the existing public [Value.multi] shape.
 bool isLuaResults(Object? value) =>

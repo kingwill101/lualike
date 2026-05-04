@@ -19,8 +19,6 @@ import 'package:lualike/src/utils/file_system_utils.dart' as fs;
 import 'package:lualike/src/ir/runtime.dart';
 import 'package:path/path.dart' as path;
 
-Object? _rawInteropValue(Object? value) => value is Value ? value.raw : value;
-
 /// Wrapper for Dart functions to make them callable from LuaLike.
 ///
 /// Provides a bridge between Dart functions and the LuaLike runtime,
@@ -45,7 +43,7 @@ class DartFunction extends BuiltinFunction {
     } catch (_) {
       try {
         // If that fails, try calling with spread arguments
-        final unwrappedArgs = args.map(_rawInteropValue).toList();
+        final unwrappedArgs = args.map(rawLuaSlot).toList();
 
         final result = Function.apply(dartFunction, unwrappedArgs);
         return _wrapResult(result);

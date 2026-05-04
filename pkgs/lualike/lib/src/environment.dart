@@ -7,9 +7,6 @@ import 'package:lualike/src/runtime/lua_slot.dart';
 import 'package:lualike/src/gc/gc_access.dart';
 import 'package:lualike/src/gc/memory_credits.dart';
 
-Object? _rawEnvironmentValue(Object? value) =>
-    value is Value ? value.raw : value;
-
 /// A generic box class that wraps a single value of type T.
 /// Used to create mutable references to values in the environment.
 class Box<T> extends GCObject {
@@ -275,14 +272,14 @@ class Environment extends GCObject {
       return;
     }
     final gValue = gBox.value;
-    final gRaw = _rawEnvironmentValue(gValue);
+    final gRaw = rawLuaSlot(gValue);
     if (gValue is! Value || gRaw is! Map) {
       return;
     }
 
     final map = gRaw;
     final manager = rootEnv.interpreter?.gc ?? GCAccess.defaultManager;
-    if (_rawEnvironmentValue(value) == null) {
+    if (rawLuaSlot(value) == null) {
       map.remove(name);
     } else {
       final wrappedValue = cachedPrimitiveOrValue(rootEnv.interpreter, value);
@@ -417,7 +414,7 @@ class Environment extends GCObject {
       if (Logger.enabled) {
         Logger.debugLazy(
           () =>
-              "Found '$name' = $val (type: ${_rawEnvironmentValue(val).runtimeType}) in env ($hashCode)",
+              "Found '$name' = $val (type: ${rawLuaSlot(val).runtimeType}) in env ($hashCode)",
           category: 'Env',
         );
       }
@@ -859,7 +856,7 @@ class Environment extends GCObject {
       return box.value;
     }
 
-    final rawGlobalTable = _rawEnvironmentValue(rootEnv.values['_G']?.value);
+    final rawGlobalTable = rawLuaSlot(rootEnv.values['_G']?.value);
     if (rawGlobalTable is Map) {
       return rawGlobalTable[name];
     }
@@ -934,7 +931,7 @@ class Environment extends GCObject {
         }
         return luaError.message;
       }
-      final rawError = _rawEnvironmentValue(error);
+      final rawError = rawLuaSlot(error);
       if (error is Value && rawError is LuaError) {
         final luaError = rawError;
         if (luaError.cause != null && luaError.cause is! LuaError) {
@@ -1033,7 +1030,7 @@ class Environment extends GCObject {
     final proxyHandler = <String, Function>{
       '__index': (List<Object?> args) {
         final key = args[1] as Value;
-        final keyStr = _rawEnvironmentValue(key).toString();
+        final keyStr = rawLuaSlot(key).toString();
         Logger.debugLazy(
           () => "Module env __index: looking up '$keyStr'",
           category: 'Env',
@@ -1041,7 +1038,7 @@ class Environment extends GCObject {
         if (envTable.containsKey(keyStr)) {
           return envTable[keyStr];
         }
-        final inheritedRaw = _rawEnvironmentValue(inheritedEnvValue);
+        final inheritedRaw = rawLuaSlot(inheritedEnvValue);
         if (inheritedEnvValue != null && inheritedRaw is Map) {
           final inheritedTable = inheritedRaw;
           if (inheritedTable.containsKey(keyStr)) {
@@ -1053,7 +1050,7 @@ class Environment extends GCObject {
       '__newindex': (List<Object?> args) {
         final key = args[1] as Value;
         final value = args[2] as Value;
-        final keyStr = _rawEnvironmentValue(key).toString();
+        final keyStr = rawLuaSlot(key).toString();
         final gc = rootEnv.interpreter?.gc ?? GCAccess.defaultManager;
         Logger.debugLazy(
           () => "Module env __newindex: setting '$keyStr' to $value",
@@ -1064,7 +1061,7 @@ class Environment extends GCObject {
         gc?.noteReferenceWrite(envValue, keyStr);
         gc?.noteReferenceWrite(envValue, value);
         envValue.markTableModified();
-        final inheritedRaw = _rawEnvironmentValue(inheritedEnvValue);
+        final inheritedRaw = rawLuaSlot(inheritedEnvValue);
         if (inheritedEnvValue != null && inheritedRaw is Map) {
           final inheritedTable = inheritedRaw;
           inheritedTable[keyStr] = value;
@@ -1142,10 +1139,10 @@ bool _tryFastReplaceBoxValue(Box<dynamic> box, dynamic incoming) {
   if (incoming.upvalues != null || existing.upvalues != null) {
     return false;
   }
-  if (!isLuaPrimitiveSlot(_rawEnvironmentValue(existing))) {
+  if (!isLuaPrimitiveSlot(rawLuaSlot(existing))) {
     return false;
   }
-  final raw = _rawEnvironmentValue(incoming);
+  final raw = rawLuaSlot(incoming);
   if (!isLuaPrimitiveSlot(raw)) {
     return false;
   }
