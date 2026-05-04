@@ -64,6 +64,14 @@ class TestLib {
     return valueFromOptionalLuaSlot(runtime, raw);
   }
 
+  static Object? _rawTestValue(Object? value) =>
+      value is Value ? value.raw : value;
+
+  static Map? _rawTestMap(Object? value) {
+    final raw = _rawTestValue(value);
+    return raw is Map ? raw : null;
+  }
+
   /// Simulates the gcage function from the Lua test suite
   /// Returns the age of an object in the garbage collector
   /// Possible values: "new", "survival", "old", "old0", "old1", "touched1", "touched2"
@@ -111,7 +119,7 @@ class TestLib {
     }
 
     // For tables with weak keys or values, we'll return "gray"
-    if (obj is Value && obj.raw is Map) {
+    if (_rawTestMap(obj) != null && obj is Value) {
       if (obj.metatable != null) {
         final metatable = obj.metatable!;
         if (metatable.containsKey('__mode')) {
@@ -193,8 +201,8 @@ class TestLib {
       return _primitiveValue(runtime, 0);
     }
 
-    if (obj is Value && obj.raw is Map) {
-      final map = obj.raw as Map;
+    final map = _rawTestMap(obj);
+    if (map != null) {
       if (map.containsKey('_id')) {
         return _primitiveValue(runtime, map['_id']);
       }
@@ -311,18 +319,20 @@ class TestLib {
     }
 
     final obj = args[0];
-    if (obj is! Value || obj.raw is! Map) {
+    final map = _rawTestMap(obj);
+    if (map == null) {
       return _primitiveValue(runtime, null);
     }
 
-    final map = obj.raw as Map;
     final result = <String, dynamic>{
       'size': map.length,
       'weakkeys':
+          obj is Value &&
           obj.metatable != null &&
           obj.metatable!.containsKey('__mode') &&
           obj.metatable!['__mode'].toString().contains('k'),
       'weakvalues':
+          obj is Value &&
           obj.metatable != null &&
           obj.metatable!.containsKey('__mode') &&
           obj.metatable!['__mode'].toString().contains('v'),
