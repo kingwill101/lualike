@@ -354,31 +354,292 @@ class LuaStringParser {
     String content, {
     bool sourceCodeUnitsAreBytes = false,
   }) {
-    // Normalize \xHH (hex escapes) to decimal escapes (\ddd) so that
-    // downstream parsing always sees a single uniform form for byte escapes.
-    final hexRe = RegExp(r'\\x([0-9A-Fa-f]{2})');
-    final normalized = content.replaceAllMapped(hexRe, (m) {
-      final v = int.parse(m.group(1)!, radix: 16);
-      return '\\$v';
-    });
+    final result = <int>[];
+    var current = 0;
 
-    final result = build(
-      sourceCodeUnitsAreBytes: sourceCodeUnitsAreBytes,
-    ).end().parse(normalized);
-
-    if (result is Success) {
-      return result.value;
-    } else {
-      // If the raw content contains a newline and we failed to parse,
-      // this is most likely an unfinished short string. Report it in
-      // Lua style so higher layers can surface the right message.
-      if (content.contains('\n') || content.contains('\r')) {
+    while (current < content.length) {
+      final codeUnit = content.codeUnitAt(current);
+      if (codeUnit == 0x5C) {
+        current = _parseEscape(content, current, result);
+        continue;
+      }
+      if (codeUnit == 0x0A || codeUnit == 0x0D) {
         throw const FormatException(
           "[string \"\"]:1: unfinished string near '<eof>'",
         );
       }
-      throw FormatException('Failed to parse Lua string: ${result.toString()}');
+
+      final start = current;
+      current++;
+      while (current < content.length) {
+        final next = content.codeUnitAt(current);
+        if (next == 0x5C || next == 0x0A || next == 0x0D) {
+          break;
+        }
+        current++;
+      }
+      _appendRegularBytes(
+        content,
+        start,
+        current,
+        result,
+        sourceCodeUnitsAreBytes: sourceCodeUnitsAreBytes,
+      );
     }
+
+    return result;
+  }
+
+  static int _parseEscape(String content, int position, List<int> result) {
+    final nextIndex = position + 1;
+    if (nextIndex >= content.length) {
+      throw const FormatException('Failed to parse Lua string: unexpected end');
+    }
+
+    final next = content.codeUnitAt(nextIndex);
+    switch (next) {
+      case 0x61: // a
+        result.add(7);
+        return nextIndex + 1;
+      case 0x62: // b
+        result.add(8);
+        return nextIndex + 1;
+      case 0x66: // f
+        result.add(12);
+        return nextIndex + 1;
+      case 0x6E: // n
+        result.add(10);
+        return nextIndex + 1;
+      case 0x72: // r
+        result.add(13);
+        return nextIndex + 1;
+      case 0x74: // t
+        result.add(9);
+        return nextIndex + 1;
+      case 0x76: // v
+        result.add(11);
+        return nextIndex + 1;
+      case 0x22: // "
+        result.add(34);
+        return nextIndex + 1;
+      case 0x27: // '
+        result.add(39);
+        return nextIndex + 1;
+      case 0x5C: // backslash
+        result.add(92);
+        return nextIndex + 1;
+      case 0x0D: // CR
+        result.add(10);
+        if (nextIndex + 1 < content.length &&
+            content.codeUnitAt(nextIndex + 1) == 0x0A) {
+          return nextIndex + 2;
+        }
+        return nextIndex + 1;
+      case 0x0A: // LF
+        result.add(10);
+        if (nextIndex + 1 < content.length &&
+            content.codeUnitAt(nextIndex + 1) == 0x0D) {
+          return nextIndex + 2;
+        }
+        return nextIndex + 1;
+      case 0x7A: // z
+        return _skipStringWhitespace(content, nextIndex + 1);
+      case 0x78: // x
+        return _parseHexEscape(content, position, result);
+      case 0x75: // u
+        return _parseUnicodeEscape(content, position, result);
+    }
+
+    if (_isDigit(next)) {
+      return _parseDecimalEscape(content, nextIndex, result);
+    }
+
+    final escaped = content[nextIndex];
+    throw FormatException('invalid escape sequence near "\\$escaped"');
+  }
+
+  static int _parseDecimalEscape(
+    String content,
+    int digitStart,
+    List<int> result,
+  ) {
+    var current = digitStart;
+    final maxEnd = digitStart + 3 < content.length
+        ? digitStart + 3
+        : content.length;
+    while (current < maxEnd && _isDigit(content.codeUnitAt(current))) {
+      current++;
+    }
+    final value = int.parse(content.substring(digitStart, current));
+    if (value > 255) {
+      throw FormatException('decimal escape too large');
+    }
+    result.add(value);
+    return current;
+  }
+
+  static int _parseHexEscape(String content, int position, List<int> result) {
+    final first = position + 2;
+    if (first >= content.length) {
+      throw FormatException('hexadecimal digit expected|incomplete');
+    }
+    if (!_isHexDigit(content.codeUnitAt(first))) {
+      throw FormatException('hexadecimal digit expected|invalid');
+    }
+
+    final second = first + 1;
+    if (second >= content.length) {
+      throw FormatException('hexadecimal digit expected|incomplete');
+    }
+    if (!_isHexDigit(content.codeUnitAt(second))) {
+      throw FormatException('hexadecimal digit expected|invalid');
+    }
+
+    result.add(int.parse(content.substring(first, second + 1), radix: 16));
+    return second + 1;
+  }
+
+  static int _parseUnicodeEscape(
+    String content,
+    int position,
+    List<int> result,
+  ) {
+    final openBrace = position + 2;
+    if (openBrace >= content.length) {
+      throw FormatException('missing \'{\' near|context:u"');
+    }
+
+    final open = content.codeUnitAt(openBrace);
+    if (open != 0x7B) {
+      if (_isHexDigit(open)) {
+        throw FormatException(
+          "missing '{' near|context:u${content[openBrace]}",
+        );
+      }
+      final followingEnd = _scanUntilUnicodeBraceOrHex(content, openBrace);
+      throw FormatException(
+        "missing '{' near|context:u${content.substring(openBrace, followingEnd)}",
+      );
+    }
+
+    final digitStart = openBrace + 1;
+    var digitEnd = digitStart;
+    while (digitEnd < content.length &&
+        _isHexDigit(content.codeUnitAt(digitEnd))) {
+      digitEnd++;
+    }
+
+    if (digitEnd == digitStart) {
+      if (digitEnd >= content.length) {
+        throw FormatException('missing \'}\' near|context:u{"');
+      }
+      if (content.codeUnitAt(digitEnd) == 0x7D) {
+        throw FormatException('hexadecimal digit expected near|context:u{');
+      }
+      final followingEnd = _scanUntilUnicodeBraceOrHex(content, digitEnd);
+      throw FormatException(
+        "missing '}' near|context:u{${content.substring(digitEnd, followingEnd)}",
+      );
+    }
+
+    if (digitEnd >= content.length) {
+      throw FormatException(
+        'missing \'}\' near|context:u{${content.substring(digitStart)}"',
+      );
+    }
+    if (content.codeUnitAt(digitEnd) != 0x7D) {
+      final followingEnd = _scanUntilUnicodeBraceOrHex(content, digitEnd);
+      throw FormatException(
+        "missing '}' near|context:u{${content.substring(digitStart, followingEnd)}",
+      );
+    }
+
+    final hex = content.substring(digitStart, digitEnd);
+    final codePoint = int.parse(hex, radix: 16);
+    if (codePoint > 0x7FFFFFFF) {
+      throw FormatException('UTF-8 value too large|context:u{$hex');
+    }
+
+    result.addAll(encodeCodePoint(codePoint));
+    return digitEnd + 1;
+  }
+
+  static void _appendRegularBytes(
+    String content,
+    int start,
+    int end,
+    List<int> result, {
+    required bool sourceCodeUnitsAreBytes,
+  }) {
+    var current = start;
+    while (current < end) {
+      final codeUnit = content.codeUnitAt(current);
+      if (codeUnit <= 0x7F) {
+        result.add(codeUnit);
+        current++;
+      } else if (sourceCodeUnitsAreBytes && codeUnit <= 0xFF) {
+        result.add(codeUnit);
+        current++;
+      } else if (_isLeadingSurrogate(codeUnit) &&
+          current + 1 < end &&
+          _isTrailingSurrogate(content.codeUnitAt(current + 1))) {
+        final next = content.codeUnitAt(current + 1);
+        final codePoint =
+            0x10000 + ((codeUnit - 0xD800) << 10) + (next - 0xDC00);
+        result.addAll(convert.utf8.encode(String.fromCharCode(codePoint)));
+        current += 2;
+      } else {
+        result.addAll(convert.utf8.encode(String.fromCharCode(codeUnit)));
+        current++;
+      }
+    }
+  }
+
+  static int _skipStringWhitespace(String content, int position) {
+    var current = position;
+    while (current < content.length &&
+        _isStringWhitespace(content.codeUnitAt(current))) {
+      current++;
+    }
+    return current;
+  }
+
+  static int _scanUntilUnicodeBraceOrHex(String content, int position) {
+    var current = position;
+    while (current < content.length) {
+      final codeUnit = content.codeUnitAt(current);
+      if (codeUnit == 0x7B || codeUnit == 0x7D || _isHexDigit(codeUnit)) {
+        break;
+      }
+      current++;
+    }
+    return current;
+  }
+
+  static bool _isDigit(int codeUnit) => codeUnit >= 0x30 && codeUnit <= 0x39;
+
+  static bool _isHexDigit(int codeUnit) =>
+      (codeUnit >= 0x30 && codeUnit <= 0x39) ||
+      (codeUnit >= 0x41 && codeUnit <= 0x46) ||
+      (codeUnit >= 0x61 && codeUnit <= 0x66);
+
+  static bool _isLeadingSurrogate(int codeUnit) =>
+      codeUnit >= 0xD800 && codeUnit <= 0xDBFF;
+
+  static bool _isTrailingSurrogate(int codeUnit) =>
+      codeUnit >= 0xDC00 && codeUnit <= 0xDFFF;
+
+  static bool _isStringWhitespace(int codeUnit) {
+    switch (codeUnit) {
+      case 0x20: // space
+      case 0x09: // tab
+      case 0x0D: // CR
+      case 0x0A: // LF
+      case 0x0C: // FF
+      case 0x0B: // VT
+        return true;
+    }
+    return false;
   }
 
   // ************************************************************

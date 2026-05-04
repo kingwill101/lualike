@@ -10,6 +10,9 @@ import 'string.dart';
 typedef _PrototypeUpdate = void Function(_ParsedPrototypeBuilder builder);
 typedef _DebugUpdate = void Function(_ParsedDebugInfoBuilder builder);
 
+final Parser<String> _irTriviaParser = _IrTriviaParser();
+final Parser<int> _irIntLiteralParser = _IrIntLiteralParser();
+
 /// Parses a textual `lualike_ir` description into executable IR objects.
 ///
 /// The accepted format is intentionally close to the IR model names so the
@@ -359,12 +362,7 @@ class _LualikeIrReaderDefinition extends GrammarDefinition {
   Parser _boolLiteral() =>
       _token('true').map((_) => true) | _token('false').map((_) => false);
 
-  Parser _intLiteral() {
-    return (pattern('+-').optional() & digit().plus())
-        .flatten()
-        .trim(ref0(_whitespaceAndComments))
-        .map(int.parse);
-  }
+  Parser _intLiteral() => _irIntLiteralParser;
 
   Parser _doubleLiteral() {
     final exponent = (pattern('eE') & pattern('+-').optional() & digit().plus())
@@ -409,14 +407,7 @@ class _LualikeIrReaderDefinition extends GrammarDefinition {
     ).plus().flatten().trim(ref0(_whitespaceAndComments));
   }
 
-  Parser _whitespaceAndComments() => (whitespace().plus() | ref0(_lineComment));
-
-  Parser _lineComment() {
-    final endOfLine = string('\r\n') | string('\n\r') | char('\n') | char('\r');
-    final prefix = string('//') | string('#') | string('--');
-    return (prefix & pattern('\r\n').neg().star() & endOfLine.optional())
-        .flatten();
-  }
+  Parser _whitespaceAndComments() => _irTriviaParser;
 
   Parser _token(Object parser) {
     Parser inner;
@@ -424,18 +415,198 @@ class _LualikeIrReaderDefinition extends GrammarDefinition {
       inner = parser;
     } else {
       final lexeme = parser as String;
-      final endsWithIdentifier = RegExp(
-        r'[A-Za-z0-9_]',
-      ).hasMatch(lexeme.substring(lexeme.length - 1));
-      if (endsWithIdentifier) {
-        inner = (string(lexeme) & pattern('A-Za-z0-9_').not()).pick(0);
-      } else {
-        inner = string(lexeme);
-      }
+      return _IrTokenParser(
+        lexeme,
+        needsIdentifierBoundary: _isIrIdentifierCodeUnit(
+          lexeme.codeUnitAt(lexeme.length - 1),
+        ),
+      );
     }
     return inner.trim(ref0(_whitespaceAndComments));
   }
 }
+
+class _IrTokenParser extends Parser<String> {
+  _IrTokenParser(this.lexeme, {required this.needsIdentifierBoundary});
+
+  final String lexeme;
+  final bool needsIdentifierBoundary;
+
+  @override
+  Result<String> parseOn(Context context) {
+    final start = _scanIrTrivia(context.buffer, context.position);
+    if (!context.buffer.startsWith(lexeme, start)) {
+      return context.failure('$lexeme expected', start);
+    }
+
+    final end = start + lexeme.length;
+    if (needsIdentifierBoundary &&
+        end < context.buffer.length &&
+        _isIrIdentifierCodeUnit(context.buffer.codeUnitAt(end))) {
+      return context.failure('$lexeme expected', start);
+    }
+
+    return context.success(lexeme, _scanIrTrivia(context.buffer, end));
+  }
+
+  @override
+  int fastParseOn(String buffer, int position) {
+    final start = _scanIrTrivia(buffer, position);
+    if (!buffer.startsWith(lexeme, start)) {
+      return -1;
+    }
+
+    final end = start + lexeme.length;
+    if (needsIdentifierBoundary &&
+        end < buffer.length &&
+        _isIrIdentifierCodeUnit(buffer.codeUnitAt(end))) {
+      return -1;
+    }
+    return _scanIrTrivia(buffer, end);
+  }
+
+  @override
+  _IrTokenParser copy() =>
+      _IrTokenParser(lexeme, needsIdentifierBoundary: needsIdentifierBoundary);
+}
+
+class _IrIntLiteralParser extends Parser<int> {
+  @override
+  Result<int> parseOn(Context context) {
+    final buffer = context.buffer;
+    final start = _scanIrTrivia(buffer, context.position);
+    var current = start;
+
+    if (current < buffer.length) {
+      final sign = buffer.codeUnitAt(current);
+      if (sign == 0x2B || sign == 0x2D) {
+        current++;
+      }
+    }
+
+    final digitStart = current;
+    while (current < buffer.length && _isIrDigit(buffer.codeUnitAt(current))) {
+      current++;
+    }
+    if (current == digitStart) {
+      return context.failure('integer expected', start);
+    }
+
+    final value = int.parse(buffer.substring(start, current));
+    return context.success(value, _scanIrTrivia(buffer, current));
+  }
+
+  @override
+  int fastParseOn(String buffer, int position) {
+    final start = _scanIrTrivia(buffer, position);
+    var current = start;
+
+    if (current < buffer.length) {
+      final sign = buffer.codeUnitAt(current);
+      if (sign == 0x2B || sign == 0x2D) {
+        current++;
+      }
+    }
+
+    final digitStart = current;
+    while (current < buffer.length && _isIrDigit(buffer.codeUnitAt(current))) {
+      current++;
+    }
+    return current == digitStart ? -1 : _scanIrTrivia(buffer, current);
+  }
+
+  @override
+  _IrIntLiteralParser copy() => _IrIntLiteralParser();
+}
+
+class _IrTriviaParser extends Parser<String> {
+  @override
+  Result<String> parseOn(Context context) {
+    final next = _scanIrTrivia(context.buffer, context.position);
+    if (next == context.position) {
+      return context.failure('whitespace or comment expected');
+    }
+    return context.success('', next);
+  }
+
+  @override
+  int fastParseOn(String buffer, int position) {
+    final next = _scanIrTrivia(buffer, position);
+    return next == position ? -1 : next;
+  }
+
+  @override
+  _IrTriviaParser copy() => _IrTriviaParser();
+}
+
+int _scanIrTrivia(String buffer, int position) {
+  var current = position;
+  while (current < buffer.length) {
+    final codeUnit = buffer.codeUnitAt(current);
+    if (_isIrWhitespace(codeUnit)) {
+      current++;
+      continue;
+    }
+    if (codeUnit == 0x23) {
+      current = _scanIrLineComment(buffer, current + 1);
+      continue;
+    }
+    if (current + 1 < buffer.length) {
+      final next = buffer.codeUnitAt(current + 1);
+      if (codeUnit == 0x2F && next == 0x2F) {
+        current = _scanIrLineComment(buffer, current + 2);
+        continue;
+      }
+      if (codeUnit == 0x2D && next == 0x2D) {
+        current = _scanIrLineComment(buffer, current + 2);
+        continue;
+      }
+    }
+    break;
+  }
+  return current;
+}
+
+int _scanIrLineComment(String buffer, int position) {
+  var current = position;
+  while (current < buffer.length) {
+    final codeUnit = buffer.codeUnitAt(current);
+    if (codeUnit == 0x0A || codeUnit == 0x0D) {
+      current++;
+      if (current < buffer.length) {
+        final next = buffer.codeUnitAt(current);
+        if ((codeUnit == 0x0A && next == 0x0D) ||
+            (codeUnit == 0x0D && next == 0x0A)) {
+          current++;
+        }
+      }
+      break;
+    }
+    current++;
+  }
+  return current;
+}
+
+bool _isIrWhitespace(int codeUnit) {
+  switch (codeUnit) {
+    case 0x20: // space
+    case 0x09: // tab
+    case 0x0A: // LF
+    case 0x0D: // CR
+    case 0x0C: // FF
+    case 0x0B: // VT
+      return true;
+  }
+  return false;
+}
+
+bool _isIrDigit(int codeUnit) => codeUnit >= 0x30 && codeUnit <= 0x39;
+
+bool _isIrIdentifierCodeUnit(int codeUnit) =>
+    (codeUnit >= 0x41 && codeUnit <= 0x5A) ||
+    (codeUnit >= 0x61 && codeUnit <= 0x7A) ||
+    (codeUnit >= 0x30 && codeUnit <= 0x39) ||
+    codeUnit == 0x5F;
 
 String _decodeString(String content) {
   final bytes = LuaStringParser.parseStringContent(content);
