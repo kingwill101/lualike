@@ -1,3 +1,4 @@
+import 'dart:collection';
 import 'dart:convert';
 import 'dart:typed_data';
 import 'package:source_span/source_span.dart';
@@ -19,6 +20,14 @@ class LegacyAstChunkTransport {
   static const String _sourceMarker = "SRC:";
   static const String _sourceWithNameMarker = "SRCJ:";
   static const String _stripDebugInfoKey = "__stripDebugInfo";
+
+  // LRU cache for deserialized chunks.  Only SRC:/SRCJ: payloads are cached
+  // because AST: payloads produce a mutable FunctionBody that callers may
+  // mutate (upvalue binding, span data, etc.).  Caching those would cause
+  // shared-state corruption across separate load() calls.
+  static const int _deserializeCacheMaxSize = 64;
+  static final LinkedHashMap<_BytesKey, LegacyChunkInfo> _deserializeCache =
+      LinkedHashMap();
   static const int _legacyLua54HeaderSize =
       15 + BinaryTypeSize.j + BinaryTypeSize.n;
   static final List<int> _legacyLua54HeaderPrefix = <int>[
@@ -205,7 +214,36 @@ class LegacyAstChunkTransport {
   ///
   /// Returns a [LegacyChunkInfo] containing the reconstructed source and
   /// metadata about whether this was originally a `string.dump` function.
+  ///
+  /// Results for SRC:/SRCJ: payloads are memoized in an LRU cache (up to
+  /// [_deserializeCacheMaxSize] entries) to avoid repeated JSON parsing on
+  /// frequently-loaded chunks.
   static LegacyChunkInfo deserializeChunkFromLuaString(LuaString binaryChunk) {
+    if (binaryChunk.bytes.isNotEmpty) {
+      final cacheKey = _BytesKey(binaryChunk.bytes);
+      final cached = _deserializeCache[cacheKey];
+      if (cached != null) {
+        // Promote to MRU position.
+        _deserializeCache.remove(cacheKey);
+        _deserializeCache[cacheKey] = cached;
+        return cached;
+      }
+      final result = _deserializeChunkFromLuaStringUncached(binaryChunk);
+      // Only cache SRC:/SRCJ: results — AST: results contain a mutable
+      // FunctionBody that must not be shared across calls.
+      if (result.originalFunctionBody == null) {
+        if (_deserializeCache.length >= _deserializeCacheMaxSize) {
+          _deserializeCache.remove(_deserializeCache.keys.first);
+        }
+        _deserializeCache[cacheKey] = result;
+      }
+      return result;
+    }
+    return _deserializeChunkFromLuaStringUncached(binaryChunk);
+  }
+
+  static LegacyChunkInfo _deserializeChunkFromLuaStringUncached(
+      LuaString binaryChunk) {
     if (binaryChunk.bytes.isEmpty) {
       // Not a binary chunk, return as-is
       return LegacyChunkInfo(
@@ -663,5 +701,41 @@ class LegacyChunkInfo {
     return 'LegacyChunkInfo(source: $source, isStringDumpFunction: $isStringDumpFunction, '
         'upvalueNames: $upvalueNames, upvalueValues: $upvalueValues, '
         'strippedDebugInfo: $strippedDebugInfo)';
+  }
+}
+
+/// Hash key for [Uint8List] used by the deserialization LRU cache.
+///
+/// Uses FNV-1a (32-bit) for a fast, low-collision hash over byte sequences.
+class _BytesKey {
+  final Uint8List bytes;
+  final int _hash;
+
+  _BytesKey(this.bytes) : _hash = _fnv1a32(bytes);
+
+  static int _fnv1a32(Uint8List data) {
+    var hash = 0x811c9dc5;
+    for (final b in data) {
+      hash ^= b;
+      hash = (hash * 0x01000193) & 0xFFFFFFFF;
+    }
+    return hash;
+  }
+
+  @override
+  int get hashCode => _hash;
+
+  @override
+  bool operator ==(Object other) {
+    if (other is! _BytesKey) return false;
+    if (identical(this, other)) return true;
+    if (_hash != other._hash) return false;
+    final a = bytes;
+    final b = other.bytes;
+    if (a.length != b.length) return false;
+    for (var i = 0; i < a.length; i++) {
+      if (a[i] != b[i]) return false;
+    }
+    return true;
   }
 }

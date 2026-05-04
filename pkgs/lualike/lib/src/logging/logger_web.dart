@@ -157,6 +157,7 @@ class Logger {
     AstNode? node,
     LuaStackTrace? luaStackTrace,
   }) {
+    if (!enabled) return;
     if (!_shouldLog(Level.debug, category, categories)) return;
     _log(
       level: Level.debug,
