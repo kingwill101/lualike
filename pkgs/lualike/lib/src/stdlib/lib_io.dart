@@ -73,22 +73,18 @@ class IOLibrary extends Library {
   }
 }
 
+Object? _rawIOValue(Object? value) => value is Value ? value.raw : value;
+
 LuaFile? extractLuaFile(dynamic value) {
-  if (value is LuaFile) {
-    // already a LuaFile
-    return value;
-  }
-  if (value is Value && value.raw is LuaFile) {
-    // wrapped in a Value
-    return value.raw as LuaFile;
-  }
-  return null;
+  final raw = _rawIOValue(value);
+  return raw is LuaFile ? raw : null;
 }
 
 /// Helper function to check if a value represents a LuaFile
-bool isLuaFile(dynamic value) {
-  return value is LuaFile || (value is Value && value.raw is LuaFile);
-}
+bool isLuaFile(dynamic value) => extractLuaFile(value) != null;
+
+bool _isLuaFileWrapperFor(Value? value, LuaFile file) =>
+    identical(extractLuaFile(value), file);
 
 class IOLib {
   // Singleton instances for standard devices
@@ -135,8 +131,8 @@ class IOLib {
   }
 
   static void registerOpenFile(Value fileValue) {
-    if (fileValue.raw is LuaFile) {
-      final luaFile = fileValue.raw as LuaFile;
+    final luaFile = extractLuaFile(fileValue);
+    if (luaFile != null) {
       if (!luaFile.isStandardFile) {
         _openFiles.add(fileValue);
         _debugOpenFileLog(
@@ -150,7 +146,7 @@ class IOLib {
   }
 
   static void unregisterOpenFile(Value fileValue) {
-    if (fileValue.raw case final LuaFile luaFile) {
+    if (extractLuaFile(fileValue) case final LuaFile luaFile) {
       _debugOpenFileLog(
         'unregister fileValue=${identityHashCode(fileValue)} '
         'raw=${identityHashCode(luaFile)} '
@@ -162,12 +158,12 @@ class IOLib {
   }
 
   static void unregisterOpenFileForLuaFile(LuaFile file) {
-    _openFiles.removeWhere((value) => value.raw == file);
+    _openFiles.removeWhere((value) => _isLuaFileWrapperFor(value, file));
   }
 
   static Value? trackedOpenFileWrapper(LuaFile file) {
     for (final value in _openFiles) {
-      if (identical(value.raw, file)) {
+      if (_isLuaFileWrapperFor(value, file)) {
         _debugOpenFileLog(
           'tracked-hit fileValue=${identityHashCode(value)} '
           'raw=${identityHashCode(file)} '
@@ -185,8 +181,8 @@ class IOLib {
   }
 
   static bool isCurrentDefaultFile(LuaFile file) {
-    return identical(_defaultInput?.raw, file) ||
-        identical(_defaultOutput?.raw, file);
+    return _isLuaFileWrapperFor(_defaultInput, file) ||
+        _isLuaFileWrapperFor(_defaultOutput, file);
   }
 
   // Get singleton instances
@@ -284,8 +280,9 @@ class IOLib {
   }
 
   static Future<void> reset() async {
-    if (_defaultInput != null && _defaultInput!.raw is LuaFile) {
-      final luaFile = _defaultInput!.raw as LuaFile;
+    final defaultInputFile = extractLuaFile(_defaultInput);
+    if (defaultInputFile != null) {
+      final luaFile = defaultInputFile;
       if (luaFile.device is! StdinDevice) {
         await luaFile.close();
         IOLib.unregisterOpenFileForLuaFile(luaFile);
@@ -293,8 +290,9 @@ class IOLib {
     }
     _defaultInput = null;
 
-    if (_defaultOutput != null && _defaultOutput!.raw is LuaFile) {
-      final luaFile = _defaultOutput!.raw as LuaFile;
+    final defaultOutputFile = extractLuaFile(_defaultOutput);
+    if (defaultOutputFile != null) {
+      final luaFile = defaultOutputFile;
       if (luaFile.device is! StdoutDevice) {
         await luaFile.close();
         IOLib.unregisterOpenFileForLuaFile(luaFile);
@@ -316,7 +314,7 @@ class IOClose extends BuiltinFunction {
     if (args.isEmpty) {
       Logger.debugLazy(() => 'Closing default output', category: 'IO');
       final defaultOutput = IOLib.defaultOutput;
-      final luaFile = defaultOutput.raw as LuaFile;
+      final luaFile = extractLuaFile(defaultOutput)!;
       final result = await luaFile.close();
       IOLib._defaultOutputExplicitlyClosed = true;
       Logger.debugLazy(
@@ -355,10 +353,7 @@ class IOClose extends BuiltinFunction {
       // Special handling for default input/output files
       // If this is the default input or output file that was closed (e.g., by GC),
       // we should return success rather than throwing an error
-      if ((IOLib._defaultInput != null &&
-              IOLib._defaultInput!.raw == luaFile) ||
-          (IOLib._defaultOutput != null &&
-              IOLib._defaultOutput!.raw == luaFile)) {
+      if (IOLib.isCurrentDefaultFile(luaFile)) {
         Logger.debugLazy(
           () => 'Default input/output file already closed, returning success',
           category: 'IO',
@@ -377,7 +372,7 @@ class IOClose extends BuiltinFunction {
     if (result.isNotEmpty && result[0] == true) {
       IOLib.unregisterOpenFileForLuaFile(luaFile);
     }
-    if (IOLib._defaultOutput != null && IOLib._defaultOutput!.raw == luaFile) {
+    if (_isLuaFileWrapperFor(IOLib._defaultOutput, luaFile)) {
       // When closing the current output file, revert to stdout
       Logger.debugLazy(
         () => 'Resetting default output to stdout',
@@ -399,7 +394,7 @@ class IOFlush extends BuiltinFunction {
   Future<Object?> call(List<Object?> args) async {
     Logger.debugLazy(() => 'Executing IO flush', category: 'IO');
     final defaultOutput = IOLib.defaultOutput;
-    final luaFile = defaultOutput.raw as LuaFile;
+    final luaFile = extractLuaFile(defaultOutput)!;
     final result = await luaFile.flush();
     return LuaResults(result);
   }
@@ -500,12 +495,12 @@ class IOLines extends BuiltinFunction {
       Logger.debugLazy(() => 'Got defaultInput: $fileValue', category: 'IO');
       formats = ["l"];
       Logger.debugLazy(() => 'About to call file.lines()...', category: 'IO');
-      final luaFile = fileValue.raw as LuaFile;
+      final luaFile = extractLuaFile(fileValue)!;
       return await luaFile.lines(formats, false, fileValue);
     } else if (isLuaFile(args[0])) {
       Logger.debugLazy(() => 'Using provided file for lines', category: 'IO');
       fileValue = args[0] as Value;
-      final luaFile = fileValue.raw as LuaFile;
+      final luaFile = extractLuaFile(fileValue)!;
       formats = args.skip(1).map((e) => (e as Value).raw.toString()).toList();
       if (formats.isEmpty) formats = ["l"];
       return await luaFile.lines(formats, false, fileValue);
@@ -548,7 +543,7 @@ class IOLines extends BuiltinFunction {
         () => 'Got defaultInput for nil case: $fileValue',
         category: 'IO',
       );
-      final luaFile = fileValue.raw as LuaFile;
+      final luaFile = extractLuaFile(fileValue)!;
       formats = args.skip(1).map((e) => (e as Value).raw.toString()).toList();
       if (formats.isEmpty) formats = ["l"];
       Logger.debugLazy(
@@ -662,8 +657,8 @@ class IOOutput extends BuiltinFunction {
     );
     // Avoid hanging - just set the new output without closing problematic files
     final previousDefault = IOLib._defaultOutput;
-    if (previousDefault != null && previousDefault.raw is LuaFile) {
-      final currentFile = previousDefault.raw as LuaFile;
+    final currentFile = extractLuaFile(previousDefault);
+    if (currentFile != null) {
       if (currentFile.device is! StdoutDevice) {
         Logger.debugLazy(
           () => 'Closing previous default output before replacement',
@@ -752,7 +747,7 @@ class IORead extends BuiltinFunction {
 
       try {
         final defaultInput = IOLib.defaultInput;
-        final luaFile = defaultInput.raw as LuaFile;
+        final luaFile = extractLuaFile(defaultInput)!;
         final result = await luaFile.read(format);
         if (format == '1') {
           final v = result.isNotEmpty ? result[0] : null;
@@ -877,7 +872,7 @@ class IOWrite extends BuiltinFunction {
       final val = arg as Value;
       try {
         final defaultOutput = IOLib.defaultOutput;
-        final luaFile = defaultOutput.raw as LuaFile;
+        final luaFile = extractLuaFile(defaultOutput)!;
         if (val.raw is LuaString) {
           final bytes = (val.raw as LuaString).bytes;
           Logger.debugLazy(
@@ -968,7 +963,7 @@ class FileClose extends BuiltinFunction {
     final result = await luaFile.close();
 
     // If this file was the current default output, reset it to stdout
-    if (IOLib._defaultOutput != null && IOLib._defaultOutput!.raw == luaFile) {
+    if (_isLuaFileWrapperFor(IOLib._defaultOutput, luaFile)) {
       Logger.debugLazy(
         () => 'Resetting default output to stdout after file close',
         category: 'IO',
@@ -978,7 +973,7 @@ class FileClose extends BuiltinFunction {
     }
 
     // Similarly for default input
-    if (IOLib._defaultInput != null && IOLib._defaultInput!.raw == luaFile) {
+    if (_isLuaFileWrapperFor(IOLib._defaultInput, luaFile)) {
       Logger.debugLazy(
         () => 'Resetting default input to stdin after file close',
         category: 'IO',
