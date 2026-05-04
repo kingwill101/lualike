@@ -619,10 +619,11 @@ mixin InterpreterFunctionMixin on AstVisitor<Object?> {
       Value requireTable(Object? candidate, String sourceLabel) {
         final lineNumber = node.span == null ? null : node.span!.start.line + 1;
         final wrapped = valueFromLuaSlot(interpreter, candidate);
-        if (wrapped.raw is Map) {
+        final raw = _rawInterpreterValue(wrapped);
+        if (raw is Map) {
           return wrapped;
         }
-        if (wrapped.raw == null) {
+        if (raw == null) {
           throw LuaError.typeError(
             "attempt to index a nil value ($sourceLabel)",
             node: node,
@@ -687,7 +688,8 @@ mixin InterpreterFunctionMixin on AstVisitor<Object?> {
       }
 
       // Install the function on the resolved target table
-      (targetTable.raw as Map)[methodName] = closure;
+      final targetRaw = _rawInterpreterValue(targetTable) as Map;
+      targetRaw[methodName] = closure;
       targetTable.markTableModified();
       Logger.debugLazy(
         () => 'Defined method on table',
@@ -720,6 +722,8 @@ mixin InterpreterFunctionMixin on AstVisitor<Object?> {
 
     final envVal = globals.get('_ENV');
     final gVal = globals.get('_G');
+    final envRaw = _rawInterpreterValue(envVal);
+    final gRaw = _rawInterpreterValue(gVal);
 
     if (!node.explicitGlobal) {
       // Check if there is an existing local variable with this name
@@ -754,8 +758,8 @@ mixin InterpreterFunctionMixin on AstVisitor<Object?> {
           'env_hash': envVal.hashCode,
         },
       );
-      if (envVal.raw is Map) {
-        (envVal.raw as Map)[node.name.first.name] = closure;
+      if (envRaw is Map) {
+        envRaw[node.name.first.name] = closure;
         envVal.markTableModified();
         return closure;
       }
@@ -772,8 +776,8 @@ mixin InterpreterFunctionMixin on AstVisitor<Object?> {
         categories: {'Interpreter', 'Function', 'Environment'},
         contextBuilder: () => {'function_name': node.name.first.name},
       );
-      if (gVal.raw is Map) {
-        (gVal.raw as Map)[node.name.first.name] = closure;
+      if (gRaw is Map) {
+        gRaw[node.name.first.name] = closure;
         gVal.markTableModified();
         return closure;
       }
@@ -781,7 +785,7 @@ mixin InterpreterFunctionMixin on AstVisitor<Object?> {
 
     if (node.explicitGlobal) {
       final writesToRootGlobals =
-          envVal is Value && gVal is Value && identical(envVal.raw, gVal.raw);
+          envVal is Value && gVal is Value && identical(envRaw, gRaw);
       if (writesToRootGlobals) {
         globals.defineGlobal(node.name.first.name, closure);
         return closure;
