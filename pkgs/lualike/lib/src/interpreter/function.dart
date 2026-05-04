@@ -1655,8 +1655,8 @@ mixin InterpreterFunctionMixin on AstVisitor<Object?> {
       }
       final a0 = fastArgs[0] as Value;
       final a1 = fastArgs[1] as Value;
-      final rawA = a0.raw;
-      final rawB = a1.raw;
+      final rawA = _rawInterpreterValue(a0);
+      final rawB = _rawInterpreterValue(a1);
       final safeA = a0.metatable == null;
       final safeB = a1.metatable == null;
       if (safeA && safeB) {
@@ -1697,8 +1697,9 @@ mixin InterpreterFunctionMixin on AstVisitor<Object?> {
     // Canonicalize table arguments to preserve per-instance metatables.
     for (var i = 0; i < args.length; i++) {
       final a = args[i];
-      if (a is Value && a.raw is Map) {
-        final canon = Value.lookupCanonicalTableWrapper(a.raw);
+      final raw = _rawInterpreterValue(a);
+      if (a is Value && raw is Map) {
+        final canon = Value.lookupCanonicalTableWrapper(raw);
         if (canon != null && !identical(canon, a)) {
           args[i] = canon;
         }
@@ -1742,10 +1743,11 @@ mixin InterpreterFunctionMixin on AstVisitor<Object?> {
         }
       }
 
-      if (func.raw is FunctionDef) {
-        final funcDef = func.raw as FunctionDef;
+      final funcRaw = _rawInterpreterValue(func);
+      if (funcRaw is FunctionDef) {
+        final funcDef = funcRaw;
         functionName = funcDef.name.first.name;
-      } else if (func.raw is Function) {
+      } else if (funcRaw is Function) {
         functionName = 'function';
       }
     }
@@ -1858,7 +1860,7 @@ mixin InterpreterFunctionMixin on AstVisitor<Object?> {
       }
     }
 
-    if (objVal.raw is! Map) {
+    if (_rawInterpreterValue(objVal) is! Map) {
       final sourceLabel = _sourceLabelForAst(
         (this as Interpreter).getCurrentEnv(),
         node.prefix,
