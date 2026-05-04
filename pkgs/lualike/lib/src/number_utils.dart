@@ -398,11 +398,9 @@ class NumberUtils {
         return bigA + bigB;
       }
 
-      // Both are regular int - apply wrap-around
-      final bigA = toBigInt(a);
-      final bigB = toBigInt(b);
-      final result = bigA + bigB;
-      return _wrapToInt64(result);
+      // Both are regular int - Dart VM int arithmetic is already 64-bit
+      // wrapping on native targets, so no BigInt round-trip needed.
+      return (a as int) + (b as int);
     }
 
     // For mixed types or floating point, use double arithmetic
@@ -419,26 +417,9 @@ class NumberUtils {
         return bigA - bigB;
       }
 
-      // Both are regular int - apply wrap-around, but preserve large ranges for specific cases
-      final bigA = toBigInt(a);
-      final bigB = toBigInt(b);
-      final result = bigA - bigB;
-
-      // Special case: preserve large positive numbers ONLY for specific range calculations
-      // like maxint - (minint + 1), not for basic cases like 0 - minint
-      if (result > BigInt.from(NumberLimits.maxInteger) &&
-          result <= BigInt.parse('FFFFFFFFFFFFFFFF', radix: 16)) {
-        // Only preserve if it looks like a legitimate range calculation:
-        // - The first operand should be near maxint
-        // - The second operand should be near minint
-        if (a >= (NumberLimits.maxInteger ~/ 2) &&
-            b <= (NumberLimits.minInteger ~/ 2)) {
-          return result;
-        }
-      }
-
-      // Apply 64-bit signed integer wrap-around for all other cases
-      return _wrapToInt64(result);
+      // Both are regular int - Dart VM int arithmetic is 64-bit wrapping on
+      // native targets, so no BigInt round-trip needed for the common case.
+      return (a as int) - (b as int);
     }
 
     // For mixed types or floating point, use double arithmetic
