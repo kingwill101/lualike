@@ -1228,8 +1228,9 @@ class LoadFunction extends BuiltinFunction {
     final nameArg = args.length > 1 ? args[1] as Value : null;
     final modeArg = args.length > 2 ? args[2] as Value : null;
     final envArg = args.length > 3 ? args[3] as Value : null;
+    final rawSource = _rawBaseValue(source);
 
-    final defaultChunkName = switch (source.raw) {
+    final defaultChunkName = switch (rawSource) {
       String text =>
         text.isNotEmpty && text.codeUnitAt(0) == 0x1B ? "=(load)" : text,
       LuaString luaString =>
@@ -1238,13 +1239,13 @@ class LoadFunction extends BuiltinFunction {
             : luaString.toString(),
       _ => "=(load)",
     };
-    final chunkname = switch (nameArg?.raw) {
+    final chunkname = switch (_rawBaseValue(nameArg)) {
       null => defaultChunkName,
-      _ => nameArg!.raw.toString(),
+      final Object rawName => rawName.toString(),
     };
-    final mode = switch (modeArg?.raw) {
+    final mode = switch (_rawBaseValue(modeArg)) {
       null => 'bt',
-      _ => modeArg!.raw.toString(),
+      final Object rawMode => rawMode.toString(),
     };
     if (mode.isEmpty || !RegExp(r'^[bt]+$').hasMatch(mode)) {
       throw LuaError("bad argument #3 to 'load' (invalid mode)");
@@ -1276,7 +1277,7 @@ class DoFileFunction extends BuiltinFunction {
   @override
   Future<Object?> call(List<Object?> args) async {
     if (args.isEmpty) throw LuaError("dofile requires a filename");
-    final filename = (args[0] as Value).raw.toString();
+    final filename = _rawBaseValue(args[0]).toString();
     final runtime = interpreter;
     if (runtime == null) {
       throw LuaError("No interpreter context available");
@@ -1290,7 +1291,7 @@ class DoFileFunction extends BuiltinFunction {
     }
     if (loaded is List) {
       final error = loaded.length > 1 && loaded[1] is Value
-          ? (loaded[1] as Value).raw
+          ? _rawBaseValue(loaded[1])
           : loaded;
       throw LuaError("Error in dofile('$filename'): $error");
     }
@@ -1377,8 +1378,8 @@ class LoadfileFunction extends BuiltinFunction {
 
   @override
   Future<Object?> call(List<Object?> args) async {
-    final filename = args.isNotEmpty ? (args[0] as Value).raw.toString() : null;
-    final modeStr = args.length > 1 ? (args[1] as Value).raw.toString() : 'bt';
+    final filename = args.isNotEmpty ? _rawBaseValue(args[0]).toString() : null;
+    final modeStr = args.length > 1 ? _rawBaseValue(args[1]).toString() : 'bt';
     final providedEnv = args.length > 2 ? args[2] as Value : null;
     final runtime = interpreter;
     if (runtime == null) {
