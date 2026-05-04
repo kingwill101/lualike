@@ -2807,7 +2807,7 @@ class _StringPack extends BuiltinFunction {
     if (args.isEmpty) {
       throw LuaError.typeError("string.pack requires format string");
     }
-    final format = (args[0] as Value).raw.toString();
+    final format = _rawStringValue(args[0]).toString();
     final values = args.sublist(1);
 
     final bytes = <int>[];
@@ -2860,7 +2860,7 @@ class _StringPack extends BuiltinFunction {
           if (size == null) {
             throw LuaError("missing size for format option 'c'");
           }
-          final rawVal = getArg('string').raw;
+          final rawVal = _rawStringValue(getArg('string'));
           final encoded = rawVal is LuaString
               ? rawVal.bytes
               : utf8.encode(rawVal.toString());
@@ -2948,14 +2948,14 @@ class _StringPack extends BuiltinFunction {
 
             // Handle float types differently from integer types
             if (opt.type == 'f') {
-              final value = NumberUtils.toDouble(getArg().raw);
+              final value = NumberUtils.toDouble(_rawStringValue(getArg()));
               bytes.addAll(NumberUtils.packFloat32(value, endianness));
             } else if (opt.type == 'd' || opt.type == 'n') {
-              final value = NumberUtils.toDouble(getArg().raw);
+              final value = NumberUtils.toDouble(_rawStringValue(getArg()));
               bytes.addAll(NumberUtils.packFloat64(value, endianness));
             } else {
               // Integer types with overflow detection
-              final v = NumberUtils.toBigInt(getArg().raw);
+              final v = NumberUtils.toBigInt(_rawStringValue(getArg()));
               final isUnsigned =
                   opt.type == 'B' ||
                   opt.type == 'H' ||
@@ -2994,7 +2994,7 @@ class _StringPack extends BuiltinFunction {
           }
         case 's': // size-prefixed string with native integer size
           {
-            final rawVal = getArg('string').raw;
+            final rawVal = _rawStringValue(getArg('string'));
             final encoded = rawVal is LuaString
                 ? rawVal.bytes
                 : utf8.encode(rawVal.toString());
@@ -3100,7 +3100,7 @@ class _StringPack extends BuiltinFunction {
           continue;
         case 'z':
           {
-            final rawVal = getArg('string').raw;
+            final rawVal = _rawStringValue(getArg('string'));
             final encoded = rawVal is LuaString
                 ? rawVal.bytes
                 : utf8.encode(rawVal.toString());
@@ -3153,7 +3153,7 @@ class _StringPackSize extends BuiltinFunction {
     if (args.isEmpty) {
       throw LuaError.typeError("string.packsize requires format string");
     }
-    final format = (args[0] as Value).raw.toString();
+    final format = _rawStringValue(args[0]).toString();
 
     // Use the new parser instead of character-by-character parsing
     try {
@@ -3330,14 +3330,17 @@ class _StringUnpack extends BuiltinFunction {
         "string.unpack requires format string and binary string",
       );
     }
-    final format = (args[0] as Value).raw.toString();
+    final format = _rawStringValue(args[0]).toString();
     final binaryValue = args[1] as Value;
-    final pos = args.length > 2 ? NumberUtils.toInt((args[2] as Value).raw) : 1;
+    final pos = args.length > 2
+        ? NumberUtils.toInt(_rawStringValue(args[2]))
+        : 1;
 
     final results = <Object?>[];
-    final bytes = binaryValue.raw is LuaString
-        ? (binaryValue.raw as LuaString).bytes
-        : LuaString.fromDartString(binaryValue.raw.toString()).bytes;
+    final rawBinaryValue = _rawStringValue(binaryValue);
+    final bytes = rawBinaryValue is LuaString
+        ? rawBinaryValue.bytes
+        : LuaString.fromDartString(rawBinaryValue.toString()).bytes;
     var startPos = pos;
     if (startPos < 0) {
       startPos = bytes.length + startPos + 1;
