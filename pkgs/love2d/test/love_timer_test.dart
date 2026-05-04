@@ -49,9 +49,13 @@ void main() {
     test(
       'stepExternal keeps LOVE timer state aligned with an external loop',
       () {
+        final clock = TestLoveClock(nowSeconds: 0);
         final runtime = createLuaLikeTestRuntime();
 
-        installLove2d(runtime: runtime, host: LoveHeadlessHost());
+        installLove2d(
+          runtime: runtime,
+          host: LoveHeadlessHost(clock: clock),
+        );
 
         final context = LoveRuntimeContext.of(runtime);
         expect(context.delta, 0);

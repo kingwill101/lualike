@@ -80,10 +80,10 @@ void main() {
       final outside = _pixelAt(raw, 8, 1, 1);
       final inside = _pixelAt(raw, 8, 5, 1);
 
-      expect(outside.r, lessThan(10));
-      expect(outside.g, inInclusiveRange(250, 255));
-      expect(outside.b, lessThan(10));
-      expect(outside.a, 255);
+      expect(outside.r, 0);
+      expect(outside.g, 0);
+      expect(outside.b, 0);
+      expect(outside.a, 0);
 
       expect(inside.r, inInclusiveRange(250, 255));
       expect(inside.g, lessThan(10));
