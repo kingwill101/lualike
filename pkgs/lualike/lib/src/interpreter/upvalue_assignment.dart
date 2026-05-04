@@ -1,6 +1,9 @@
 import 'package:lualike/src/value.dart';
 import 'package:lualike/src/logging/logger.dart';
 
+Object? _rawUpvalueAssignmentValue(Object? value) =>
+    value is Value ? value.raw : value;
+
 /// Handler for upvalue assignments in functions
 class UpvalueAssignmentHandler {
   /// Attempts to assign a value to an upvalue
@@ -17,16 +20,17 @@ class UpvalueAssignmentHandler {
 
     for (final upvalue in currentFunction.upvalues!) {
       if (upvalue.name == varName) {
+        final rawNewValue = _rawUpvalueAssignmentValue(newValue);
         Logger.debugLazy(
           () =>
-              'UpvalueAssignment: Updating upvalue $varName from ${upvalue.getValue()} to ${newValue.raw}',
+              'UpvalueAssignment: Updating upvalue $varName from ${upvalue.getValue()} to $rawNewValue',
           category: 'UpvalueAssignment',
           contextBuilder: () => {
             'varName': varName,
             'hasValue': upvalue.getValue() != null,
           },
         );
-        upvalue.setValue(newValue.raw);
+        upvalue.setValue(rawNewValue);
         return true;
       }
     }
