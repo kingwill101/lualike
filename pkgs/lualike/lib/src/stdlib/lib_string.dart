@@ -2369,11 +2369,12 @@ class _StringLen extends BuiltinFunction {
       throw LuaError.typeError("string.len requires a string argument");
     }
     final value = args[0] as Value;
+    final rawValue = _rawStringValue(value);
     int len;
-    if (value.raw is LuaString) {
-      len = (value.raw as LuaString).bytes.length;
+    if (rawValue is LuaString) {
+      len = rawValue.bytes.length;
     } else {
-      len = utf8.encode(value.raw.toString()).length;
+      len = utf8.encode(rawValue.toString()).length;
     }
     return primitiveValue(len);
   }
@@ -2389,10 +2390,11 @@ class _StringLower extends BuiltinFunction {
     }
 
     final value = args[0] as Value;
+    final rawValue = _rawStringValue(value);
 
     // Handle LuaString specially to preserve byte representation
-    if (value.raw is LuaString) {
-      final luaStr = value.raw as LuaString;
+    if (rawValue is LuaString) {
+      final luaStr = rawValue;
       final bytes = luaStr.bytes;
       final resultBytes = <int>[];
 
@@ -2419,7 +2421,7 @@ class _StringLower extends BuiltinFunction {
       }
     } else {
       // For normal string operations, use Dart's string methods for better interop
-      final str = value.raw.toString();
+      final str = rawValue.toString();
       return dartStringValue(str.toLowerCase());
     }
   }
@@ -2434,8 +2436,8 @@ class _StringMatch extends BuiltinFunction {
       throw LuaError.typeError("string.match requires a string and a pattern");
     }
 
-    final strValue = (args[0] as Value).raw;
-    final patternValue = (args[1] as Value).raw;
+    final strValue = _rawStringValue(args[0]);
+    final patternValue = _rawStringValue(args[1]);
     final useByteLevel = _shouldUseBytePatternProcessing(
       strValue,
       patternValue,
@@ -2445,7 +2447,9 @@ class _StringMatch extends BuiltinFunction {
       patternValue,
       byteLevel: useByteLevel,
     );
-    var init = args.length > 2 ? NumberUtils.toInt((args[2] as Value).raw) : 1;
+    var init = args.length > 2
+        ? NumberUtils.toInt(_rawStringValue(args[2]))
+        : 1;
 
     // Convert to 0-based index and handle negative indices
     init = init > 0 ? init - 1 : str.length + init;
@@ -2613,8 +2617,10 @@ class _StringRep extends BuiltinFunction {
     }
 
     final value = args[0] as Value;
-    final count = _requireIntegerRepresentation((args[1] as Value).raw);
+    final rawValue = _rawStringValue(value);
+    final count = _requireIntegerRepresentation(_rawStringValue(args[1]));
     final separatorValue = args.length > 2 ? (args[2] as Value) : null;
+    final rawSeparator = _rawStringValue(separatorValue);
 
     if (count <= 0) return _wrapRepeatedString('');
 
@@ -2626,11 +2632,11 @@ class _StringRep extends BuiltinFunction {
     }
 
     // Handle LuaString specially to preserve byte representation
-    if (value.raw is LuaString) {
-      final luaStr = value.raw as LuaString;
-      final separatorBytes = separatorValue?.raw is LuaString
-          ? (separatorValue!.raw as LuaString).bytes
-          : (separatorValue?.raw?.toString() ?? '').codeUnits
+    if (rawValue is LuaString) {
+      final luaStr = rawValue;
+      final separatorBytes = rawSeparator is LuaString
+          ? rawSeparator.bytes
+          : (rawSeparator?.toString() ?? '').codeUnits
                 .map((c) => c & 0xFF)
                 .toList();
 
@@ -2668,8 +2674,8 @@ class _StringRep extends BuiltinFunction {
       return result;
     } else {
       // Handle regular strings
-      final originalStr = value.raw.toString();
-      final separatorStr = separatorValue?.raw?.toString() ?? '';
+      final originalStr = rawValue.toString();
+      final separatorStr = rawSeparator?.toString() ?? '';
 
       final totalLength =
           (BigInt.from(originalStr.length) * BigInt.from(count)) +
@@ -2722,13 +2728,14 @@ class _StringReverse extends BuiltinFunction {
     }
 
     final value = args[0] as Value;
+    final rawValue = _rawStringValue(value);
 
-    if (value.raw is LuaString) {
-      final bytes = List<int>.from((value.raw as LuaString).bytes.reversed);
+    if (rawValue is LuaString) {
+      final bytes = List<int>.from(rawValue.bytes.reversed);
       return valueFromOptionalLuaSlot(interpreter, LuaString.fromBytes(bytes));
     }
 
-    final str = value.raw.toString();
+    final str = rawValue.toString();
     return dartStringValue(str.split('').reversed.join(''));
   }
 }
@@ -2739,7 +2746,7 @@ class _StringSub extends BuiltinFunction {
   @override
   Object? call(List<Object?> args) {
     final value = _requireStringLibrarySubject(this, args, 'sub');
-    final strValue = value.raw;
+    final strValue = _rawStringValue(value);
     final str = strValue is LuaString ? null : strValue.toString();
     final length = strValue is LuaString ? strValue.length : str!.length;
 
@@ -3687,10 +3694,11 @@ class _StringUpper extends BuiltinFunction {
     }
 
     final value = args[0] as Value;
+    final rawValue = _rawStringValue(value);
 
     // Handle LuaString specially to preserve byte representation
-    if (value.raw is LuaString) {
-      final luaStr = value.raw as LuaString;
+    if (rawValue is LuaString) {
+      final luaStr = rawValue;
       final bytes = luaStr.bytes;
       final resultBytes = <int>[];
 
@@ -3717,7 +3725,7 @@ class _StringUpper extends BuiltinFunction {
       }
     } else {
       // For normal string operations, use Dart's string methods for better interop
-      final str = value.raw.toString();
+      final str = rawValue.toString();
       return dartStringValue(str.toUpperCase());
     }
   }
