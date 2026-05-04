@@ -20,6 +20,8 @@ import 'library.dart';
 
 dynamic _rawBaseValue(Object? value) => value is Value ? value.raw : value;
 
+bool _isNilBaseValue(Object? value) => _rawBaseValue(value) == null;
+
 /// Base library implementation using the new Library system
 /// Note: Base functions are global, so they don't have a namespace
 class BaseLibrary extends Library {
@@ -913,7 +915,7 @@ class IPairsFunction extends BuiltinFunction {
     final index = (iterArgs[1] as Value).raw as num;
     final nextIndex = index + 1;
     final value = await t.getValueAsync(primitiveValue(nextIndex));
-    if (value == null || (value is Value && value.raw == null)) {
+    if (_isNilBaseValue(value)) {
       return primitiveValue(null);
     }
 
@@ -1281,7 +1283,7 @@ class DoFileFunction extends BuiltinFunction {
     final loaded = await LoadfileFunction(
       runtime,
     ).call(<Object?>[valueFromLuaSlot(runtime, filename)]);
-    if (loaded is Value && loaded.raw == null) {
+    if (loaded is Value && _isNilBaseValue(loaded)) {
       throw LuaError("Cannot open file '$filename'");
     }
     if (loaded is List) {
@@ -1709,7 +1711,7 @@ class NextFunction extends BuiltinFunction {
       return true;
     }
 
-    if (candidate is Value && candidate.raw == keyRaw) {
+    if (candidate is Value && _rawBaseValue(candidate) == keyRaw) {
       return true;
     }
 
@@ -2324,15 +2326,17 @@ class RequireFunction extends BuiltinFunction {
     }
 
     // Get package.loaded table first to check for standard library modules
-    if (packageTable.raw is Map) {
-      final packageTableEarly = packageTable.raw as Map;
+    final rawPackageTable = _rawBaseValue(packageTable);
+    if (rawPackageTable is Map) {
+      final packageTableEarly = rawPackageTable;
       if (packageTableEarly.containsKey("loaded")) {
         final loadedValueEarly = packageTableEarly["loaded"] as Value;
-        if (loadedValueEarly.raw is Map) {
-          final loadedEarly = loadedValueEarly.raw as Map;
+        final rawLoadedEarly = _rawBaseValue(loadedValueEarly);
+        if (rawLoadedEarly is Map) {
+          final loadedEarly = rawLoadedEarly;
           if (loadedEarly.containsKey(moduleName)) {
             final val = loadedEarly[moduleName];
-            if (val is Value && val.raw != false) {
+            if (val is Value && _rawBaseValue(val) != false) {
               Logger.debugLazy(
                 () => "Found module '$moduleName' in package.loaded",
                 category: 'Require',
@@ -2386,7 +2390,7 @@ class RequireFunction extends BuiltinFunction {
     // Step 1: Check if module is already loaded
     if (loaded.containsKey(moduleName)) {
       final loadedVal = loaded[moduleName];
-      if (loadedVal is Value && loadedVal.raw != false) {
+      if (loadedVal is Value && _rawBaseValue(loadedVal) != false) {
         Logger.debugLazy(
           () => "Module '$moduleName' already loaded: $loadedVal",
           category: 'Require',
@@ -2460,13 +2464,14 @@ class RequireFunction extends BuiltinFunction {
     errorLines.add("no field package.preload['$moduleName']");
 
     // Add path errors
-    if (packageTable.raw is Map) {
-      final pkgTable = packageTable.raw as Map;
+    final rawDiagnosticPackageTable = _rawBaseValue(packageTable);
+    if (rawDiagnosticPackageTable is Map) {
+      final pkgTable = rawDiagnosticPackageTable;
 
       // Add Lua path errors
       if (pkgTable.containsKey("path") && pkgTable["path"] is Value) {
         final pathValue = pkgTable["path"] as Value;
-        final rawPath = pathValue.raw;
+        final rawPath = _rawBaseValue(pathValue);
         if (rawPath is String || rawPath is LuaString) {
           final templates = rawPath.toString().split(";");
           for (final template in templates) {
@@ -2480,7 +2485,7 @@ class RequireFunction extends BuiltinFunction {
       // Add C path errors
       if (pkgTable.containsKey("cpath") && pkgTable["cpath"] is Value) {
         final cpathValue = pkgTable["cpath"] as Value;
-        final rawCPath = cpathValue.raw;
+        final rawCPath = _rawBaseValue(cpathValue);
         if (rawCPath is String || rawCPath is LuaString) {
           final templates = rawCPath.toString().split(";");
           for (final template in templates) {
@@ -2611,11 +2616,12 @@ class RequireFunction extends BuiltinFunction {
         }
 
         final ret = loaded[moduleName];
-        if (loaderData is Value && loaderData.raw != null) {
-          if (loaderData.raw is String) {
+        if (loaderData is Value && !_isNilBaseValue(loaderData)) {
+          final rawLoaderData = _rawBaseValue(loaderData);
+          if (rawLoaderData is String) {
             final normalizedLoaderData = valueFromLuaSlot(
               interpreter!,
-              path.normalize(loaderData.raw as String),
+              path.normalize(rawLoaderData),
             );
             return (found: true, result: [ret, normalizedLoaderData]);
           }
@@ -2624,8 +2630,8 @@ class RequireFunction extends BuiltinFunction {
         return (found: true, result: ret);
       } else if (result is String) {
         errors.add(result);
-      } else if (result is Value && result.raw is String) {
-        errors.add(result.raw.toString());
+      } else if (result is Value && _rawBaseValue(result) is String) {
+        errors.add(_rawBaseValue(result).toString());
       }
     }
 
