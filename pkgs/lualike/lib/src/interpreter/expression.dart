@@ -57,7 +57,7 @@ Value? _resolveActiveGlobalValue(Interpreter interpreter) {
 }
 
 Value _detachTemporaryValue(Value value) {
-  final raw = value.raw;
+  final raw = _rawInterpreterValue(value);
   if (value.metatable == null && isLuaPrimitiveSlot(raw)) {
     return Value.primitive(
       raw,
@@ -414,7 +414,7 @@ mixin InterpreterExpressionMixin on AstVisitor<Object?> {
         : _wrapExpressionValue(interpreter, rightResult);
 
     String? nilSourceLabel(AstNode expr, Value value) {
-      if (value.raw != null) {
+      if (_rawInterpreterValue(value) != null) {
         return null;
       }
       return _sourceLabelForAst((this as Interpreter).getCurrentEnv(), expr);
@@ -425,7 +425,7 @@ mixin InterpreterExpressionMixin on AstVisitor<Object?> {
           null) {
         return false;
       }
-      final raw = value.raw;
+      final raw = _rawInterpreterValue(value);
       return raw == null || raw is Map || raw is TableStorage;
     }
 
@@ -460,7 +460,7 @@ mixin InterpreterExpressionMixin on AstVisitor<Object?> {
           (this as Interpreter).getCurrentEnv(),
           expr,
         );
-        final raw = value.raw;
+        final raw = _rawInterpreterValue(value);
         if (sourceLabel != null &&
             (raw is num ||
                 raw is BigInt ||
@@ -527,8 +527,8 @@ mixin InterpreterExpressionMixin on AstVisitor<Object?> {
           right.metatableRef != null) {
         return false;
       }
-      final leftRaw = left.raw;
-      final rightRaw = right.raw;
+      final leftRaw = _rawInterpreterValue(left);
+      final rightRaw = _rawInterpreterValue(right);
       final plainNumericOperands =
           (leftRaw is num || leftRaw is BigInt) &&
           (rightRaw is num || rightRaw is BigInt);
@@ -645,8 +645,9 @@ mixin InterpreterExpressionMixin on AstVisitor<Object?> {
 
     // Canonicalize table wrappers to preserve per-instance metatables
     Value canon(Value v) {
-      if (v.raw is Map) {
-        final c = Value.lookupCanonicalTableWrapper(v.raw);
+      final raw = _rawInterpreterValue(v);
+      if (raw is Map) {
+        final c = Value.lookupCanonicalTableWrapper(raw);
         if (c != null) return c;
       }
       return v;
@@ -654,6 +655,8 @@ mixin InterpreterExpressionMixin on AstVisitor<Object?> {
 
     final canonicalLeft = canon(leftVal);
     final canonicalRight = canon(rightVal);
+    final leftRawForDiagnostics = _rawInterpreterValue(leftVal);
+    final rightRawForDiagnostics = _rawInterpreterValue(rightVal);
 
     Value operandForMetamethod(Value live, Value canonical, String event) {
       if (live.hasMetamethod(event)) {
@@ -665,7 +668,7 @@ mixin InterpreterExpressionMixin on AstVisitor<Object?> {
     if (Logger.enabled) {
       Logger.debugLazy(
         () =>
-            'BinaryExpression operands before metamethod check: $leftVal (${leftVal.raw.runtimeType}) ${node.op} $rightVal (${rightVal.raw.runtimeType})',
+            'BinaryExpression operands before metamethod check: $leftVal (${leftRawForDiagnostics.runtimeType}) ${node.op} $rightVal (${rightRawForDiagnostics.runtimeType})',
         category: 'Expression',
       );
     }
@@ -800,18 +803,20 @@ mixin InterpreterExpressionMixin on AstVisitor<Object?> {
 
         // For inequality operators that use __eq, negate the result
         if ((node.op == '~=' || node.op == '!=') && metamethodName == '__eq') {
+          final resultRaw = _rawInterpreterValue(result);
           if (result is bool) {
             return _wrapExpressionValue(interpreter, !result);
-          } else if (result is Value && result.raw is bool) {
-            return _wrapExpressionValue(interpreter, !result.raw);
+          } else if (result is Value && resultRaw is bool) {
+            return _wrapExpressionValue(interpreter, !resultRaw);
           }
         }
 
         if (invertResult) {
+          final resultRaw = _rawInterpreterValue(result);
           if (result is bool) {
             result = !result;
-          } else if (result is Value && result.raw is bool) {
-            result = _wrapExpressionValue(interpreter, !result.raw);
+          } else if (result is Value && resultRaw is bool) {
+            result = _wrapExpressionValue(interpreter, !resultRaw);
           }
         }
 
@@ -826,12 +831,12 @@ mixin InterpreterExpressionMixin on AstVisitor<Object?> {
       if (Logger.enabled) {
         Logger.debugLazy(
           () =>
-              'Equality check: leftVal.raw type = ${leftVal.raw.runtimeType}, value = "${leftVal.raw}"',
+              'Equality check: leftVal.raw type = ${leftRawForDiagnostics.runtimeType}, value = "$leftRawForDiagnostics"',
           category: 'Expression/Equality',
         );
         Logger.debugLazy(
           () =>
-              'Equality check: rightVal.raw type = ${rightVal.raw.runtimeType}, value = "${rightVal.raw}"',
+              'Equality check: rightVal.raw type = ${rightRawForDiagnostics.runtimeType}, value = "$rightRawForDiagnostics"',
           category: 'Expression/Equality',
         );
       }
@@ -842,8 +847,8 @@ mixin InterpreterExpressionMixin on AstVisitor<Object?> {
             node.op == '>' ||
             node.op == '<=' ||
             node.op == '>=') &&
-        leftVal.raw is Map &&
-        rightVal.raw is Map) {
+        leftRawForDiagnostics is Map &&
+        rightRawForDiagnostics is Map) {
       final hasLtLeft = leftVal.hasMetamethod('__lt');
       final hasLtRight = rightVal.hasMetamethod('__lt');
       final hasLeLeft = leftVal.hasMetamethod('__le');
@@ -1122,16 +1127,17 @@ mixin InterpreterExpressionMixin on AstVisitor<Object?> {
     // so that local _ENV assignments are respected.
     Value? envValue = _resolveActiveEnvValue(interpreter);
     Value? gValue = _resolveActiveGlobalValue(interpreter);
+    final envRaw = _rawInterpreterValue(envValue);
 
     final bool canUseGlobalCache =
-        envValue is Value &&
-        envValue.raw is Map &&
-        gValue is Value &&
+        envValue != null &&
+        envRaw is Map &&
+        gValue != null &&
         identical(envValue, gValue);
 
     _IdentifierGlobalCache? cache;
     if (canUseGlobalCache) {
-      final map = envValue.raw as Map;
+      final map = envRaw;
       if (map.containsKey(node.name)) {
         cache = _identifierGlobalCache[node];
         if (cache != null &&
@@ -1149,9 +1155,9 @@ mixin InterpreterExpressionMixin on AstVisitor<Object?> {
       }
     }
 
-    if (envValue is Value) {
-      if (envValue.raw is Map) {
-        final map = envValue.raw as Map;
+    if (envValue != null) {
+      if (envRaw is Map) {
+        final map = envRaw;
         if (map.containsKey(node.name)) {
           final entry = map[node.name];
           final resolvedValue = valueFromLuaSlot(interpreter, entry);
@@ -1193,7 +1199,7 @@ mixin InterpreterExpressionMixin on AstVisitor<Object?> {
           interpreter.constantRawStringValue(node.name),
         );
         return valueFromLuaSlot(interpreter, result);
-      } else if (envValue.raw == null) {
+      } else if (envRaw == null) {
         final envLabel = _bindingScopeLabel(
           interpreter.getCurrentEnv(),
           '_ENV',
@@ -1201,7 +1207,7 @@ mixin InterpreterExpressionMixin on AstVisitor<Object?> {
         throw LuaError.typeError("attempt to index a nil value ($envLabel)");
       } else {
         // Non-table _ENV: any variable lookup is an index on that value -> error
-        final tname = getLuaType(envValue.raw);
+        final tname = getLuaType(envRaw);
         throw LuaError.typeError('attempt to index a $tname value');
       }
     }
