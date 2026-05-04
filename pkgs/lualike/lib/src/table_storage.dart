@@ -453,8 +453,7 @@ class TableStorage extends MapBase<dynamic, dynamic> {
         continue;
       }
       final value = _array[index];
-      final isNil = value == null || (value is Value && value.raw == null);
-      if (!isNil) {
+      if (!isLuaNilValue(value)) {
         maxIndex = index + 1;
         break;
       }
@@ -463,8 +462,7 @@ class TableStorage extends MapBase<dynamic, dynamic> {
     var key = _hashHead;
     while (key != null) {
       final value = _hash[key];
-      final isNil = value == null || (value is Value && value.raw == null);
-      if (!isNil) {
+      if (!isLuaNilValue(value)) {
         final arrayIndex = _arrayIndexFor(key);
         if (arrayIndex != null) {
           final oneBasedIndex = arrayIndex + 1;
