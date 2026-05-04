@@ -96,8 +96,8 @@ class NumberUtils {
     }
   }
 
-  /// Extract and validate a number from a Value with proper error handling
-  static dynamic getNumber(Value value, String funcName, int argNum) {
+  /// Extract and validate a number from a Lua slot with proper error handling.
+  static dynamic getNumber(Object? value, String funcName, int argNum) {
     final raw = rawLuaSlot(value);
     if (raw is! num && raw is! BigInt) {
       throw LuaError.typeError(
