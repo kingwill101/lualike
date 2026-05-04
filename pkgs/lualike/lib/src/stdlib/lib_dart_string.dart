@@ -3,7 +3,6 @@ import 'dart:async';
 import 'package:lualike/src/builtin_function.dart';
 import 'package:lualike/src/lua_error.dart';
 import 'package:lualike/src/runtime/lua_slot.dart';
-import 'package:lualike/src/value.dart';
 
 import 'lib_dart_bytes.dart';
 import 'library.dart';
@@ -95,7 +94,7 @@ class DartStringTrim extends BuiltinFunction {
     if (args.isEmpty) {
       throw LuaError('dart.string.trim requires 1 argument: string');
     }
-    final val = args[0] as Value;
+    final val = args[0];
     final str = _dartStringText(val);
     final trimmed = str.trim();
     if (identical(trimmed, str)) {
@@ -112,7 +111,7 @@ class DartStringToUpper extends BuiltinFunction {
     if (args.isEmpty) {
       throw LuaError('dart.string.toUpperCase requires 1 argument: string');
     }
-    final val = args[0] as Value;
+    final val = args[0];
     final str = _dartStringText(val);
     final upper = str.toUpperCase();
     if (identical(upper, str)) {
@@ -129,7 +128,7 @@ class DartStringToLower extends BuiltinFunction {
     if (args.isEmpty) {
       throw LuaError('dart.string.toLowerCase requires 1 argument: string');
     }
-    final val = args[0] as Value;
+    final val = args[0];
     final str = _dartStringText(val);
     final lower = str.toLowerCase();
     if (identical(lower, str)) {
@@ -197,7 +196,7 @@ class DartStringTrimLeft extends BuiltinFunction {
     if (args.isEmpty) {
       throw LuaError('dart.string.trimLeft requires 1 argument: string');
     }
-    final val = args[0] as Value;
+    final val = args[0];
     final str = _dartStringText(val);
     final trimmed = str.trimLeft();
     if (identical(trimmed, str)) {
@@ -214,7 +213,7 @@ class DartStringTrimRight extends BuiltinFunction {
     if (args.isEmpty) {
       throw LuaError('dart.string.trimRight requires 1 argument: string');
     }
-    final val = args[0] as Value;
+    final val = args[0];
     final str = _dartStringText(val);
     final trimmed = str.trimRight();
     if (identical(trimmed, str)) {
@@ -233,7 +232,7 @@ class DartStringPadLeft extends BuiltinFunction {
         'dart.string.padLeft requires 2 arguments: string, width, [padding]',
       );
     }
-    final val = args[0] as Value;
+    final val = args[0];
     final str = _dartStringText(val);
     final width = _requiredDartStringIndex(args, 1);
     if (width <= str.length) {
@@ -256,7 +255,7 @@ class DartStringPadRight extends BuiltinFunction {
         'dart.string.padRight requires 2 arguments: string, width, [padding]',
       );
     }
-    final val = args[0] as Value;
+    final val = args[0];
     final str = _dartStringText(val);
     final width = _requiredDartStringIndex(args, 1);
     if (width <= str.length) {
