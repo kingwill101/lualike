@@ -15,6 +15,43 @@ import 'package:lualike/src/value.dart' show Value;
 import '../../lualike.dart' show Value;
 import 'library.dart';
 
+Object? _rawUtf8Value(Object? value) => value is Value ? value.raw : value;
+
+Uint8List _utf8StringBytes(Object? value, String functionName) {
+  final raw = _rawUtf8Value(value);
+  if (raw is LuaString) {
+    return raw.bytes;
+  }
+  if (raw is String) {
+    return Uint8List.fromList(convert.utf8.encode(raw));
+  }
+  throw LuaError("$functionName requires a string argument");
+}
+
+int _utf8NumericOrStringInt(Object? value, int fallback) {
+  final raw = _rawUtf8Value(value);
+  if (raw is num) {
+    return raw.toInt();
+  }
+  if (raw is String) {
+    return int.tryParse(raw) ?? fallback;
+  }
+  return fallback;
+}
+
+int _utf8LooseInt(Object? value, int fallback) {
+  final raw = _rawUtf8Value(value);
+  if (raw is num) {
+    return raw.toInt();
+  }
+  return int.tryParse(raw.toString()) ?? fallback;
+}
+
+bool _utf8OptionalBool(Object? value, bool fallback) {
+  final raw = _rawUtf8Value(value);
+  return raw as bool? ?? fallback;
+}
+
 /// UTF8 library implementation using the Library system
 class UTF8Library extends Library {
   @override
@@ -24,11 +61,12 @@ class UTF8Library extends Library {
   Map<String, Function>? getMetamethods(LuaRuntime interpreter) => {
     "__len": (List<Object?> args) {
       final str = args[0] as Value;
-      if (str.raw is! String && str.raw is! LuaString) {
+      final raw = _rawUtf8Value(str);
+      if (raw is! String && raw is! LuaString) {
         throw LuaError("utf8 operation on non-string value");
       }
       return interpreter.constantPrimitiveValue(
-        str.raw.toString().characters.length,
+        raw.toString().characters.length,
       );
     },
     "__index": (List<Object?> args) {
@@ -36,7 +74,8 @@ class UTF8Library extends Library {
       final key = args[1] as Value;
 
       // Convert key to string if needed
-      final keyStr = key.raw is String ? key.raw as String : key.toString();
+      final keyRaw = _rawUtf8Value(key);
+      final keyStr = keyRaw is String ? keyRaw : key.toString();
 
       // Return the function from our registry if it exists
       switch (keyStr) {
@@ -140,7 +179,7 @@ class _UTF8Char extends BuiltinFunction {
     final codePoints = <int>[];
     for (var index = 0; index < args.length; index++) {
       final arg = args[index];
-      final value = (arg as Value).raw;
+      final value = _rawUtf8Value(arg);
 
       if (value == null) {
         throw LuaError(
@@ -185,17 +224,7 @@ class _UTF8Codes extends BuiltinFunction {
       throw LuaError("utf8.codes requires a string argument");
     }
 
-    final value = (args[0] as Value).raw;
-    final Uint8List bytes;
-
-    if (value is LuaString) {
-      bytes = value.bytes;
-    } else if (value is String) {
-      // Convert regular Dart String to UTF-8 bytes for processing
-      bytes = Uint8List.fromList(convert.utf8.encode(value));
-    } else {
-      throw LuaError("utf8.codes requires a string argument");
-    }
+    final bytes = _utf8StringBytes(args[0], 'utf8.codes');
 
     // Accept either (s [, lax]) or (s [, i [, j [, lax]]])
     int i = 1;
@@ -203,33 +232,23 @@ class _UTF8Codes extends BuiltinFunction {
     bool lax = false;
 
     if (args.length > 1) {
-      final second = args[1] as Value;
-      final rawSecond = second.raw;
+      final rawSecond = _rawUtf8Value(args[1]);
 
       if (rawSecond is bool) {
         // Signature (s, lax)
         lax = rawSecond;
       } else {
         // Assume numeric/string 'i'
-        if (rawSecond is num) {
-          i = rawSecond.toInt();
-        } else if (rawSecond is String) {
-          i = int.tryParse(rawSecond) ?? 1;
-        }
+        i = _utf8NumericOrStringInt(args[1], 1);
 
         // Handle optional j
         if (args.length > 2 && args[2] != null) {
-          final rawJ = (args[2] as Value).raw;
-          if (rawJ is num) {
-            j = rawJ.toInt();
-          } else if (rawJ is String) {
-            j = int.tryParse(rawJ) ?? -1;
-          }
+          j = _utf8NumericOrStringInt(args[2], -1);
         }
 
         // Optional lax as 4th argument
         if (args.length > 3) {
-          lax = (args[3] as Value).raw as bool? ?? false;
+          lax = _utf8OptionalBool(args[3], false);
         }
       }
     }
@@ -308,44 +327,22 @@ class _UTF8CodePoint extends BuiltinFunction {
       throw LuaError("utf8.codepoint requires a string argument");
     }
 
-    final value = (args[0] as Value).raw;
-    final Uint8List bytes;
-
-    if (value is LuaString) {
-      bytes = value.bytes;
-    } else if (value is String) {
-      // Convert regular Dart String to UTF-8 bytes for processing
-      bytes = Uint8List.fromList(convert.utf8.encode(value));
-    } else {
-      throw LuaError("utf8.codepoint requires a string argument");
-    }
+    final bytes = _utf8StringBytes(args[0], 'utf8.codepoint');
 
     // Handle both string and numeric parameters for i and j
     int i = 1;
     int j = 1;
 
     if (args.length > 1) {
-      final rawI = (args[1] as Value).raw;
-      if (rawI is num) {
-        i = rawI.toInt();
-      } else if (rawI is String) {
-        i = int.tryParse(rawI) ?? 1;
-      }
+      i = _utf8NumericOrStringInt(args[1], 1);
       j = i; // Default j to i if only i is provided
     }
 
     if (args.length > 2) {
-      final rawJ = (args[2] as Value).raw;
-      if (rawJ is num) {
-        j = rawJ.toInt();
-      } else if (rawJ is String) {
-        j = int.tryParse(rawJ) ?? i;
-      }
+      j = _utf8NumericOrStringInt(args[2], i);
     }
 
-    final lax = args.length > 3
-        ? ((args[3] as Value).raw as bool? ?? false)
-        : false;
+    final lax = args.length > 3 ? _utf8OptionalBool(args[3], false) : false;
 
     // Handle negative indices relative to byte length
     final len = bytes.length;
@@ -419,17 +416,7 @@ class _UTF8Len extends BuiltinFunction {
       throw LuaError("utf8.len requires a string argument");
     }
 
-    final value = (args[0] as Value).raw;
-    final Uint8List bytes;
-
-    if (value is LuaString) {
-      bytes = value.bytes;
-    } else if (value is String) {
-      // Convert regular Dart String to UTF-8 bytes for processing
-      bytes = Uint8List.fromList(convert.utf8.encode(value));
-    } else {
-      throw LuaError("utf8.len requires a string argument");
-    }
+    final bytes = _utf8StringBytes(args[0], 'utf8.len');
 
     // Handle both string and numeric parameters for i and j
     int i = 1;
@@ -437,33 +424,23 @@ class _UTF8Len extends BuiltinFunction {
     bool lax = false;
 
     if (args.length > 1) {
-      final second = args[1] as Value;
-      final rawSecond = second.raw;
+      final rawSecond = _rawUtf8Value(args[1]);
 
       if (rawSecond is bool) {
         // Signature (s, lax)
         lax = rawSecond;
       } else {
         // Assume numeric/string 'i'
-        if (rawSecond is num) {
-          i = rawSecond.toInt();
-        } else if (rawSecond is String) {
-          i = int.tryParse(rawSecond) ?? 1;
-        }
+        i = _utf8NumericOrStringInt(args[1], 1);
 
         // Handle optional j
         if (args.length > 2 && args[2] != null) {
-          final rawJ = (args[2] as Value).raw;
-          if (rawJ is num) {
-            j = rawJ.toInt();
-          } else if (rawJ is String) {
-            j = int.tryParse(rawJ) ?? -1;
-          }
+          j = _utf8NumericOrStringInt(args[2], -1);
         }
 
         // Optional lax as 4th argument
         if (args.length > 3) {
-          lax = (args[3] as Value).raw as bool? ?? false;
+          lax = _utf8OptionalBool(args[3], false);
         }
       }
     }
@@ -577,37 +554,19 @@ class _UTF8Offset extends BuiltinFunction {
       throw LuaError("utf8.offset requires string and n arguments");
     }
 
-    final value = (args[0] as Value).raw;
-    final Uint8List bytes;
-
-    if (value is LuaString) {
-      bytes = value.bytes;
-    } else if (value is String) {
-      // Convert regular Dart String to UTF-8 bytes for processing
-      bytes = Uint8List.fromList(convert.utf8.encode(value));
-    } else {
-      throw LuaError("utf8.offset requires a string argument");
-    }
+    final bytes = _utf8StringBytes(args[0], 'utf8.offset');
 
     // Handle both string and numeric parameters for n
-    final rawN = (args[1] as Value).raw;
-    int n = rawN is num ? rawN.toInt() : int.tryParse(rawN.toString()) ?? 0;
+    int n = _utf8LooseInt(args[1], 0);
 
     // Handle both string and numeric parameters for i
     // For negative n, default starting position should be after the last byte
     int i = (n < 0) ? bytes.length + 1 : 1;
     if (args.length > 2) {
-      final rawI = (args[2] as Value).raw;
-      if (rawI is num) {
-        i = rawI.toInt();
-      } else if (rawI is String) {
-        i = int.tryParse(rawI) ?? i;
-      }
+      i = _utf8NumericOrStringInt(args[2], i);
     }
 
-    // final lax = args.length > 3
-    //     ? ((args[3] as Value).raw as bool? ?? false)
-    //     : false;
+    // utf8.offset currently ignores Lua 5.4's optional lax flag.
 
     // Handle negative i relative to byte length
     if (i < 0) {
