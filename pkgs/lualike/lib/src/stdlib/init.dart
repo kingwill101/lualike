@@ -127,7 +127,7 @@ void _ensureGlobalTable(Environment env) {
   final proxyMetatable = <String, dynamic>{
     '__index': (List<Object?> args) {
       final key = args[1] as Value;
-      final keyStr = key.raw.toString();
+      final keyStr = _rawInitValue(key).toString();
       return env.get(keyStr) ??
           env.interpreter?.constantPrimitiveValue(null) ??
           Value.primitive(null);
@@ -136,7 +136,7 @@ void _ensureGlobalTable(Environment env) {
       final self = args[0] as Value;
       final key = args[1] as Value;
       final value = args[2] as Value;
-      final keyStr = key.raw.toString();
+      final keyStr = _rawInitValue(key).toString();
 
       // update the real environment
       env.define(keyStr, value);
