@@ -15,6 +15,8 @@ dynamic _rawTableValue(Object? value) => value is Value ? value.raw : value;
 
 bool _isNilTableValue(Object? value) => _rawTableValue(value) == null;
 
+bool _isTrueTableValue(Object? value) => _rawTableValue(value) == true;
+
 /// Table library implementation using the new Library system
 class TableLibrary extends Library {
   @override
@@ -570,10 +572,11 @@ class _TableSort extends BuiltinFunction {
         "bad argument #2 to 'sort' (function expected, got ${getLuaType(comp)})",
       );
     }
+    final compRaw = _rawTableValue(comp);
     if (comp is Value &&
-        comp.raw != null &&
-        comp.raw is! Function &&
-        comp.raw is! BuiltinFunction) {
+        compRaw != null &&
+        compRaw is! Function &&
+        compRaw is! BuiltinFunction) {
       throw LuaError(
         "bad argument #2 to 'sort' (function expected, got ${getLuaType(comp)})",
       );
@@ -846,7 +849,9 @@ class _TableSort extends BuiltinFunction {
     }
 
     // If either value is nil, raise an error (Lua behavior)
-    if (valA.raw == null || valB.raw == null) {
+    final aVal = _rawTableValue(valA);
+    final bVal = _rawTableValue(valB);
+    if (aVal == null || bVal == null) {
       throw LuaError.typeError("attempt to compare nil value");
     }
 
@@ -854,8 +859,6 @@ class _TableSort extends BuiltinFunction {
       // no function?
 
       // Fast path: number/number or string/string (including LuaString) comparisons
-      final aVal = valA.raw;
-      final bVal = valB.raw;
       if (aVal is num && bVal is num) {
         final res = aVal < bVal;
         Logger.debugLazy(
@@ -884,8 +887,9 @@ class _TableSort extends BuiltinFunction {
       return result;
     } else {
       // function
+      final compRaw = _rawTableValue(comp);
       if (comp is Value &&
-          (comp.raw is Function || comp.raw is BuiltinFunction)) {
+          (compRaw is Function || compRaw is BuiltinFunction)) {
         if (comp.isNilReturningClosure) {
           return false;
         }
@@ -918,7 +922,7 @@ class _TableSort extends BuiltinFunction {
           }
         }
 
-        final func = comp.raw;
+        final func = compRaw;
         final runtime = interpreter;
         final previousYieldable = runtime?.isYieldable;
         if (runtime != null) {
@@ -927,16 +931,14 @@ class _TableSort extends BuiltinFunction {
         }
         late final Object? result;
         try {
-          result = await func([valA, valB]);
+          result = await (func as dynamic)([valA, valB]);
         } finally {
           if (runtime != null) {
             runtime.isYieldable = previousYieldable ?? true;
             exitSortComparator(runtime);
           }
         }
-        final boolResult = result is Value
-            ? result.raw == true
-            : result == true;
+        final boolResult = _isTrueTableValue(result);
         Logger.debugLazy(
           () => "_sortComp: result = $boolResult",
           category: 'TableSort',
@@ -969,7 +971,7 @@ class _TableSort extends BuiltinFunction {
       case Value(raw: final BigInt value):
         counterBox.value = primitiveValue(value + BigInt.one);
       case final Value wrapped:
-        final raw = wrapped.raw;
+        final raw = _rawTableValue(wrapped);
         if (raw is num) {
           if (wrapped.isSharedPrimitive) {
             counterBox.value = primitiveValue(raw + 1);
@@ -996,9 +998,9 @@ class _TableSort extends BuiltinFunction {
   Future<void> _validateOrderFunction(Value table, int n, Object? comp) async {
     if (comp == null || n < 2) return;
 
-    if (comp is Value &&
-        (comp.raw is Function || comp.raw is BuiltinFunction)) {
-      final func = comp.raw;
+    final compRaw = _rawTableValue(comp);
+    if (comp is Value && (compRaw is Function || compRaw is BuiltinFunction)) {
+      final func = compRaw;
 
       // Test the function with a few pairs to detect obvious issues
       bool? firstResult;
@@ -1009,7 +1011,7 @@ class _TableSort extends BuiltinFunction {
         final valA = await _tableSequenceReadAsync(table, i);
         final valB = await _tableSequenceReadAsync(table, i + 1);
 
-        if (valA.raw != null && valB.raw != null) {
+        if (!_isNilTableValue(valA) && !_isNilTableValue(valB)) {
           final runtime = interpreter;
           final previousYieldable = runtime?.isYieldable;
           if (runtime != null) {
@@ -1018,16 +1020,14 @@ class _TableSort extends BuiltinFunction {
           }
           late final Object? result;
           try {
-            result = await func([valA, valB]);
+            result = await (func as dynamic)([valA, valB]);
           } finally {
             if (runtime != null) {
               runtime.isYieldable = previousYieldable ?? true;
               exitSortComparator(runtime);
             }
           }
-          final boolResult = result is Value
-              ? result.raw == true
-              : result == true;
+          final boolResult = _isTrueTableValue(result);
 
           if (firstResult == null) {
             firstResult = boolResult;
@@ -1047,22 +1047,20 @@ class _TableSort extends BuiltinFunction {
         final valA = await _tableSequenceReadAsync(table, 2);
         final valB = await _tableSequenceReadAsync(table, 1);
 
-        if (valA.raw != null && valB.raw != null) {
+        if (!_isNilTableValue(valA) && !_isNilTableValue(valB)) {
           final runtime = interpreter;
           if (runtime != null) {
             enterSortComparator(runtime);
           }
           late final Object? result;
           try {
-            result = await func([valA, valB]);
+            result = await (func as dynamic)([valA, valB]);
           } finally {
             if (runtime != null) {
               exitSortComparator(runtime);
             }
           }
-          final boolResult = result is Value
-              ? result.raw == true
-              : result == true;
+          final boolResult = _isTrueTableValue(result);
 
           if (boolResult == true) {
             // Function always returns true regardless of order
@@ -1118,9 +1116,7 @@ class _TableSort extends BuiltinFunction {
             aValue,
             bValue,
           ]);
-          final boolRes = result is Value
-              ? (result.raw == true)
-              : (result == true);
+          final boolRes = _isTrueTableValue(result);
           return boolRes ? -1 : 1;
         } catch (e) {
           Logger.debugLazy(
@@ -1137,9 +1133,7 @@ class _TableSort extends BuiltinFunction {
             bValue,
             aValue,
           ]);
-          final boolRes = result is Value
-              ? (result.raw == true)
-              : (result == true);
+          final boolRes = _isTrueTableValue(result);
           return boolRes ? 1 : -1;
         } catch (e) {
           Logger.debugLazy(
