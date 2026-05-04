@@ -162,59 +162,67 @@ String? _sourceLabelForAst(
 };
 
 ({String? name, String namewhat}) _frameNameInfoForCall(
-  Environment env,
-  AstNode? callNode,
-  String fallbackFunctionName,
-) {
-  if (callNode case MethodCall(methodName: final Identifier methodName)) {
-    return (name: methodName.name, namewhat: 'method');
-  }
-  if (callNode case FunctionCall(name: final AstNode callee)) {
-    if (callee case Identifier(name: final name)) {
-      final label = _bindingScopeLabel(env, name);
-      if (label.startsWith("local '") || label.startsWith("upvalue '")) {
-        return (name: name, namewhat: 'local');
-      }
-      if (label.startsWith("global '")) {
-        return (name: name, namewhat: 'global');
-      }
-      return (name: name, namewhat: '');
-    }
-    if (callee case TableFieldAccess(fieldName: final Identifier fieldName)) {
-      return (name: fieldName.name, namewhat: 'field');
-    }
-  }
+   Environment env,
+   AstNode? callNode,
+   String fallbackFunctionName,
+ ) {
+   if (callNode == null) {
+     final fallbackName = switch (fallbackFunctionName) {
+       'unknown' || 'function' => null,
+       final name => name,
+     };
+     return (name: fallbackName, namewhat: '');
+   }
+   
+   if (callNode case MethodCall(methodName: final Identifier methodName)) {
+     return (name: methodName.name, namewhat: 'method');
+   }
+   if (callNode case FunctionCall(name: final AstNode callee)) {
+     if (callee case Identifier(name: final name)) {
+       final label = _bindingScopeLabel(env, name);
+       if (label.startsWith("local '") || label.startsWith("upvalue '")) {
+         return (name: name, namewhat: 'local');
+       }
+       if (label.startsWith("global '")) {
+         return (name: name, namewhat: 'global');
+       }
+       return (name: name, namewhat: '');
+     }
+     if (callee case TableFieldAccess(fieldName: final Identifier fieldName)) {
+       return (name: fieldName.name, namewhat: 'field');
+     }
+   }
 
-  final fallbackName = switch (fallbackFunctionName) {
-    'unknown' || 'function' => null,
-    final name => name,
-  };
-  return (name: fallbackName, namewhat: '');
-}
+   final fallbackName = switch (fallbackFunctionName) {
+     'unknown' || 'function' => null,
+     final name => name,
+   };
+   return (name: fallbackName, namewhat: '');
+ }
 
 int? _callSiteLineNumber(AstNode? callNode) {
-  if (callNode == null) {
-    return null;
-  }
+   if (callNode == null || callNode.span == null) {
+     return null;
+   }
+   
+   final zeroBasedLine = switch (callNode) {
+     FunctionCall(name: final AstNode name, args: final args)
+         when args.isNotEmpty &&
+              name.span != null &&
+              args.first.span != null &&
+              args.first.span!.start.line > name.span!.end.line =>
+       args.first.span!.start.line,
+     MethodCall(prefix: final AstNode prefix, args: final args)
+         when args.isNotEmpty &&
+              prefix.span != null &&
+              args.first.span != null &&
+              args.first.span!.start.line > prefix.span!.end.line =>
+       args.first.span!.start.line,
+     _ => callNode.span!.start.line,
+   };
 
-  final zeroBasedLine = switch (callNode) {
-    FunctionCall(name: final AstNode name, args: final args)
-        when args.isNotEmpty &&
-            name.span != null &&
-            args.first.span != null &&
-            args.first.span!.start.line > name.span!.end.line =>
-      args.first.span!.start.line - 1,
-    MethodCall(prefix: final AstNode prefix, args: final args)
-        when args.isNotEmpty &&
-            prefix.span != null &&
-            args.first.span != null &&
-            args.first.span!.start.line > prefix.span!.end.line =>
-      args.first.span!.start.line - 1,
-    _ => callNode.span?.start.line,
-  };
-
-  return zeroBasedLine == null ? null : zeroBasedLine + 1;
-}
+   return zeroBasedLine;
+ }
 
 bool _hasPendingToBeClosed(Environment? env) {
   var current = env;
@@ -2113,10 +2121,11 @@ mixin InterpreterFunctionMixin on AstVisitor<Object?> {
     // Log the current coroutine
     final interpreter = this as Interpreter;
     final currentCoroutine = getCurrentCoroutine();
+    final currentEnv = interpreter.getCurrentEnv();
     if (Logger.enabled) {
       Logger.debugLazy(
         () =>
-            '>>> Current coroutine: ${currentCoroutine?.hashCode}, current environment: ${interpreter.getCurrentEnv().hashCode}',
+            '>>> Current coroutine: ${currentCoroutine?.hashCode}, current environment: ${currentEnv.hashCode}',
         category: 'Interpreter',
       );
     }
@@ -2187,22 +2196,22 @@ mixin InterpreterFunctionMixin on AstVisitor<Object?> {
     final frameNameInfo =
         debugNameOverride != null || debugNameWhatOverride.isNotEmpty
         ? (name: debugNameOverride, namewhat: debugNameWhatOverride)
-        : _frameNameInfoForCall(
-            interpreter.getCurrentEnv(),
-            callNode,
-            functionName,
-          );
+            : _frameNameInfoForCall(
+             currentEnv,
+             callNode,
+             functionName,
+           );
     // Save the caller state before this frame is pushed. Nested yields can
     // resume through pcall/xpcall, generic-for iterators, and wrapped
     // coroutines; if we restore the callee state instead of the caller state,
     // locals/upvalues after the yield will resolve against the wrong scope.
-    final callerEnv = interpreter.getCurrentEnv();
+    final callerEnv = currentEnv;
     final callerFunction = interpreter.getCurrentFunction();
     final callerFastLocals = interpreter.getCurrentFastLocals();
     callStack.push(
       functionName,
       callNode: callNode,
-      env: interpreter.getCurrentEnv(),
+      env: callerEnv,
       callable: func is Value ? func : null,
       debugName: frameNameInfo.name,
       debugNameWhat: frameNameInfo.namewhat,
@@ -2382,6 +2391,23 @@ mixin InterpreterFunctionMixin on AstVisitor<Object?> {
       }
 
       while (true) {
+        // Fast path for builtin function calls: skip frame push, debug hooks,
+        // and GC root management since builtins are leaf calls with no Lua stack.
+        // Only use when debug hooks are NOT active — debug hooks need correct frames.
+        if (func is Value &&
+            rawLuaSlot(func) is BuiltinFunction &&
+            interpreter.debugHookFunction == null) {
+          final builtin = rawLuaSlot(func) as BuiltinFunction;
+          final result = builtin.call(args);
+          if (result is Future) {
+            final awaited = await result;
+            if (await rebindTailCall(awaited)) continue;
+            return awaited;
+          }
+          if (await rebindTailCall(result)) continue;
+          return result;
+        }
+
         try {
           if (func is Value) {
             final funcRaw = rawLuaSlot(func);
