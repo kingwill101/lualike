@@ -7,6 +7,10 @@ import 'package:lualike/src/utils/platform_utils.dart' as platform;
 import 'package:path/path.dart' as path_lib;
 import 'library.dart';
 
+Object? _rawPackageValue(Object? value) => value is Value ? value.raw : value;
+
+bool _isNilPackageValue(Object? value) => _rawPackageValue(value) == null;
+
 class PackageLib {
   static const _defaultPath = "?.lua;?/?;?/init";
   static const _defaultCPath = "?.so";
@@ -28,8 +32,9 @@ class PackageLib {
           return vm.constantDartStringValue(_defaultCPath);
         }
 
-        if (table.raw is Map) {
-          final map = table.raw as Map;
+        final rawTable = _rawPackageValue(table);
+        if (rawTable is Map) {
+          final map = rawTable;
           if (map.containsKey(key.raw)) {
             return map[key.raw];
           }
@@ -73,8 +78,11 @@ class PackageLib {
       // 1. Package preload searcher
       Value((List<Object?> args) {
         final name = (args[0] as Value).raw.toString();
-        final preload = vm.globals.get("package")?.raw?["preload"] as Map?;
-        if (preload != null && preload.containsKey(name)) {
+        final packageTable = _rawPackageValue(vm.globals.get("package"));
+        final preload = packageTable is Map
+            ? _rawPackageValue(packageTable["preload"])
+            : null;
+        if (preload is Map && preload.containsKey(name)) {
           Logger.debugLazy(
             () => "Preload searcher found module: $name",
             category: 'Package',
@@ -411,7 +419,7 @@ class _LuaLoader extends BuiltinFunction {
             }
 
             // If the module didn't return anything, return an empty table
-            if ((result is Value && result.raw == null)) {
+            if (_isNilPackageValue(result)) {
               Logger.debugLazy(
                 () => "Module returned nil, defaulting to empty table",
                 category: 'Package',
@@ -431,20 +439,21 @@ class _LuaLoader extends BuiltinFunction {
               category: 'Package',
             );
             final packageVal = interpreter!.globals.get("package");
-            if (packageVal is Value && packageVal.raw is Map) {
-              final packageTable = packageVal.raw as Map;
+            final packageTable = _rawPackageValue(packageVal);
+            if (packageTable is Map) {
               if (packageTable.containsKey("loaded")) {
-                final loadedValue = packageTable["loaded"] as Value;
-                final loaded = loadedValue.raw as Map;
-                loaded[name] = result;
-                Logger.debugLazy(
-                  () => "Module '$name' stored in package.loaded",
-                  category: 'Package',
-                );
-                Logger.debugLazy(
-                  () => "Module '$name' stored in package.loaded during load",
-                  category: 'Package',
-                );
+                final loaded = _rawPackageValue(packageTable["loaded"]);
+                if (loaded is Map) {
+                  loaded[name] = result;
+                  Logger.debugLazy(
+                    () => "Module '$name' stored in package.loaded",
+                    category: 'Package',
+                  );
+                  Logger.debugLazy(
+                    () => "Module '$name' stored in package.loaded during load",
+                    category: 'Package',
+                  );
+                }
               }
             }
 
@@ -473,13 +482,11 @@ class _LuaLoader extends BuiltinFunction {
 String _moduleNotFoundDiagnostic(LuaRuntime runtime, String moduleName) {
   final packageValue = runtime.globals.get('package');
   var packagePath = '';
-  if (packageValue is Value && packageValue.raw is Map) {
-    final rawPath = (packageValue.raw as Map)['path'];
-    if (rawPath is Value) {
-      final value = rawPath.unwrap();
-      if (value is String || value is LuaString) {
-        packagePath = value.toString();
-      }
+  final packageTable = _rawPackageValue(packageValue);
+  if (packageTable is Map) {
+    final rawPath = _rawPackageValue(packageTable['path']);
+    if (rawPath is String || rawPath is LuaString) {
+      packagePath = rawPath.toString();
     }
   }
 
@@ -562,8 +569,8 @@ void definePackageLibrary({required Environment env, LuaRuntime? vm}) {
           path,
         ]);
 
-        if (filename is Value && filename.raw != null) {
-          final modulePath = filename.raw.toString();
+        if (filename is Value && !_isNilPackageValue(filename)) {
+          final modulePath = _rawPackageValue(filename).toString();
           // Return loader function
           return [
             Value((loaderArgs) async {
