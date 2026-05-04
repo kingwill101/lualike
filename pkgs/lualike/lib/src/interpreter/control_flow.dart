@@ -894,12 +894,10 @@ mixin InterpreterControlFlowMixin on AstVisitor<Object?> {
       try {
         for (final entry in entries) {
           await fireHeaderHook(force: true);
-          final key = entry.key is Value ? entry.key : entry.key;
-          final value = entry.value is Value ? entry.value : entry.value;
 
           setCurrentEnv(loopEnv);
           try {
-            assignLoopValues([key, value]);
+            assignLoopValues([entry.key, entry.value]);
             final bodyResult = await _executeBlockStatements(node.body);
             if (bodyResult is TailCallSignal) {
               await resetLoopEnvironment();
