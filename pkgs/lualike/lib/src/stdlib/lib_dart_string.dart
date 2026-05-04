@@ -8,6 +8,17 @@ import 'package:lualike/src/value.dart';
 import 'lib_dart_bytes.dart';
 import 'library.dart';
 
+Object? _rawDartStringValue(Object? value) =>
+    value is Value ? value.raw : value;
+
+int? _optionalDartStringIndex(List<Object?> args, int index) {
+  if (args.length <= index) {
+    return null;
+  }
+  final rawIndex = _rawDartStringValue(args[index]);
+  return rawIndex is num ? rawIndex.toInt() : null;
+}
+
 /// Dart String library implementation using the new Library system
 class DartStringLibrary extends Library {
   @override
@@ -135,8 +146,8 @@ class DartStringContains extends BuiltinFunction {
     final str = (args[0] as Value).raw.toString();
     final otherValue = (args[1] as Value).raw;
     final other = otherValue is String ? otherValue : otherValue.toString();
-    if (args.length > 2 && args[2] is Value && (args[2] as Value).raw is num) {
-      final startIndex = ((args[2] as Value).raw as num).toInt();
+    final startIndex = _optionalDartStringIndex(args, 2);
+    if (startIndex != null) {
       return primitiveValue(str.contains(other, startIndex));
     }
     return primitiveValue(str.contains(other));
@@ -172,10 +183,7 @@ class DartStringSubstring extends BuiltinFunction {
     }
     final str = (args[0] as Value).raw.toString();
     final startIndex = ((args[1] as Value).raw as num).toInt();
-    int? endIndex;
-    if (args.length > 2 && args[2] is Value && (args[2] as Value).raw is num) {
-      endIndex = ((args[2] as Value).raw as num).toInt();
-    }
+    final endIndex = _optionalDartStringIndex(args, 2);
     return dartStringValue(str.substring(startIndex, endIndex));
   }
 }
@@ -276,10 +284,7 @@ class DartStringStartsWith extends BuiltinFunction {
     final pattern = patternValue is String
         ? patternValue
         : patternValue.toString();
-    int? index;
-    if (args.length > 2 && args[2] is Value && (args[2] as Value).raw is num) {
-      index = ((args[2] as Value).raw as num).toInt();
-    }
+    final index = _optionalDartStringIndex(args, 2);
     return primitiveValue(str.startsWith(pattern, index ?? 0));
   }
 }
@@ -314,10 +319,7 @@ class DartStringIndexOf extends BuiltinFunction {
     final pattern = patternValue is String
         ? patternValue
         : patternValue.toString();
-    int? start;
-    if (args.length > 2 && args[2] is Value && (args[2] as Value).raw is num) {
-      start = ((args[2] as Value).raw as num).toInt();
-    }
+    final start = _optionalDartStringIndex(args, 2);
     return primitiveValue(str.indexOf(pattern, start ?? 0));
   }
 }
@@ -336,10 +338,7 @@ class DartStringLastIndexOf extends BuiltinFunction {
     final pattern = patternValue is String
         ? patternValue
         : patternValue.toString();
-    int? start;
-    if (args.length > 2 && args[2] is Value && (args[2] as Value).raw is num) {
-      start = ((args[2] as Value).raw as num).toInt();
-    }
+    final start = _optionalDartStringIndex(args, 2);
     return primitiveValue(str.lastIndexOf(pattern, start));
   }
 }
@@ -358,10 +357,7 @@ class DartStringReplaceFirst extends BuiltinFunction {
     final from = fromValue is String ? fromValue : fromValue.toString();
     final toValue = (args[2] as Value).raw;
     final to = toValue is String ? toValue : toValue.toString();
-    int? startIndex;
-    if (args.length > 3 && args[3] is Value && (args[3] as Value).raw is num) {
-      startIndex = ((args[3] as Value).raw as num).toInt();
-    }
+    final startIndex = _optionalDartStringIndex(args, 3);
     return dartStringValue(str.replaceFirst(from, to, startIndex ?? 0));
   }
 }
