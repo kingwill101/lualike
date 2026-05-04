@@ -2317,7 +2317,7 @@ class RequireFunction extends BuiltinFunction {
   @override
   Future<Object?> call(List<Object?> args) async {
     if (args.isEmpty) throw LuaError("require() needs a module name");
-    final moduleName = (args[0] as Value).raw.toString();
+    final moduleName = _rawBaseValue(args[0]).toString();
 
     Logger.debugLazy(
       () => "Looking for module '$moduleName'",
@@ -2335,30 +2335,25 @@ class RequireFunction extends BuiltinFunction {
 
     // Get package.loaded table first to check for standard library modules
     final rawPackageTable = _rawBaseValue(packageTable);
-    if (rawPackageTable is Map) {
-      final packageTableEarly = rawPackageTable;
-      if (packageTableEarly.containsKey("loaded")) {
-        final loadedValueEarly = packageTableEarly["loaded"] as Value;
-        final rawLoadedEarly = _rawBaseValue(loadedValueEarly);
-        if (rawLoadedEarly is Map) {
-          final loadedEarly = rawLoadedEarly;
-          if (loadedEarly.containsKey(moduleName)) {
-            final val = loadedEarly[moduleName];
-            if (val is Value && _rawBaseValue(val) != false) {
-              Logger.debugLazy(
-                () => "Found module '$moduleName' in package.loaded",
-                category: 'Require',
-              );
-              return val;
-            }
+    if (rawPackageTable is! Map) {
+      throw LuaError("package is not a table");
+    }
+    if (rawPackageTable.containsKey("loaded")) {
+      final loadedValueEarly = rawPackageTable["loaded"] as Value;
+      final rawLoadedEarly = _rawBaseValue(loadedValueEarly);
+      if (rawLoadedEarly is Map) {
+        final loadedEarly = rawLoadedEarly;
+        if (loadedEarly.containsKey(moduleName)) {
+          final val = loadedEarly[moduleName];
+          if (val is Value && _rawBaseValue(val) != false) {
+            Logger.debugLazy(
+              () => "Found module '$moduleName' in package.loaded",
+              category: 'Require',
+            );
+            return val;
           }
         }
       }
-    }
-
-    // Get package.loaded table
-    if (packageTable.raw is! Map) {
-      throw LuaError("package is not a table");
     }
 
     // Use the stored package table
@@ -2367,7 +2362,7 @@ class RequireFunction extends BuiltinFunction {
     if (packageTable.containsKey('path')) {
       final pathField = packageTable['path'];
       if (pathField is Value) {
-        final rawPath = pathField.raw;
+        final rawPath = _rawBaseValue(pathField);
         if (rawPath is! String && rawPath is! LuaString) {
           throw LuaError('package.path must be a string');
         }
@@ -2412,10 +2407,9 @@ class RequireFunction extends BuiltinFunction {
 
     // Step 2: Try the preload table first
     final preloadTable = packageTable["preload"];
-    if (preloadTable != null &&
-        preloadTable is Value &&
-        preloadTable.raw is Map) {
-      final preloadMap = preloadTable.raw as Map;
+    final rawPreloadTable = _rawBaseValue(preloadTable);
+    if (preloadTable is Value && rawPreloadTable is Map) {
+      final preloadMap = rawPreloadTable;
       if (preloadMap.containsKey(moduleName)) {
         Logger.debugLazy(
           () => "Found module '$moduleName' in preload table",
@@ -2445,9 +2439,8 @@ class RequireFunction extends BuiltinFunction {
     // Lua requires require() to use package.searchers; if it is not a table,
     // require must error out (attrib.lua test expects this).
     {
-      final rawPkg = packageTable.raw as Map;
-      final searchersEntry = rawPkg['searchers'];
-      if (searchersEntry is! Value || searchersEntry.raw is! List) {
+      final searchersEntry = rawPackageTable['searchers'];
+      if (searchersEntry is! Value || _rawBaseValue(searchersEntry) is! List) {
         throw LuaError("package.searchers must be a table");
       }
     }
@@ -2472,40 +2465,37 @@ class RequireFunction extends BuiltinFunction {
     errorLines.add("no field package.preload['$moduleName']");
 
     // Add path errors
-    final rawDiagnosticPackageTable = _rawBaseValue(packageTable);
-    if (rawDiagnosticPackageTable is Map) {
-      final pkgTable = rawDiagnosticPackageTable;
+    final pkgTable = rawPackageTable;
 
-      // Add Lua path errors
-      if (pkgTable.containsKey("path") && pkgTable["path"] is Value) {
-        final pathValue = pkgTable["path"] as Value;
-        final rawPath = _rawBaseValue(pathValue);
-        if (rawPath is String || rawPath is LuaString) {
-          final templates = rawPath.toString().split(";");
-          for (final template in templates) {
-            if (template.isEmpty) continue;
-            final filename = template.replaceAll("?", moduleName);
-            errorLines.add("no file '$filename'");
-          }
+    // Add Lua path errors
+    if (pkgTable.containsKey("path") && pkgTable["path"] is Value) {
+      final pathValue = pkgTable["path"] as Value;
+      final rawPath = _rawBaseValue(pathValue);
+      if (rawPath is String || rawPath is LuaString) {
+        final templates = rawPath.toString().split(";");
+        for (final template in templates) {
+          if (template.isEmpty) continue;
+          final filename = template.replaceAll("?", moduleName);
+          errorLines.add("no file '$filename'");
         }
       }
+    }
 
-      // Add C path errors
-      if (pkgTable.containsKey("cpath") && pkgTable["cpath"] is Value) {
-        final cpathValue = pkgTable["cpath"] as Value;
-        final rawCPath = _rawBaseValue(cpathValue);
-        if (rawCPath is String || rawCPath is LuaString) {
-          final templates = rawCPath.toString().split(";");
-          for (final template in templates) {
-            if (template.isEmpty) continue;
-            final filename = template.replaceAll("?", moduleName);
-            errorLines.add("no file '$filename'");
-          }
-        } else if (moduleName == "XXX") {
-          // Special case for the attrib.lua test
-          errorLines.add("no file 'XXX.so'");
-          errorLines.add("no file 'XXX/init'");
+    // Add C path errors
+    if (pkgTable.containsKey("cpath") && pkgTable["cpath"] is Value) {
+      final cpathValue = pkgTable["cpath"] as Value;
+      final rawCPath = _rawBaseValue(cpathValue);
+      if (rawCPath is String || rawCPath is LuaString) {
+        final templates = rawCPath.toString().split(";");
+        for (final template in templates) {
+          if (template.isEmpty) continue;
+          final filename = template.replaceAll("?", moduleName);
+          errorLines.add("no file '$filename'");
         }
+      } else if (moduleName == "XXX") {
+        // Special case for the attrib.lua test
+        errorLines.add("no file 'XXX.so'");
+        errorLines.add("no file 'XXX/init'");
       }
     }
 
@@ -2529,7 +2519,7 @@ class RequireFunction extends BuiltinFunction {
     Value loaded,
     List<String> errors,
   ) async {
-    final rawPkg = packageTable.raw as Map;
+    final rawPkg = _rawBaseValue(packageTable) as Map;
     final searchersAny = rawPkg['searchers'];
     final typeName = searchersAny == null
         ? 'null'
@@ -2543,7 +2533,7 @@ class RequireFunction extends BuiltinFunction {
     if (searchersEntry is! Value) {
       throw LuaError("package.searchers must be a table");
     }
-    final searchersRaw = searchersEntry.raw;
+    final searchersRaw = _rawBaseValue(searchersEntry);
     if (searchersRaw is! List) {
       throw LuaError("package.searchers must be a table");
     }
@@ -2565,7 +2555,7 @@ class RequireFunction extends BuiltinFunction {
         // for built-in package.searchers) to preserve existing return-value
         // semantics.  Route Lua closures and bytecode callables through
         // callFunction so their coroutine/yield semantics are respected.
-        final searcherRaw = searcher.raw;
+        final searcherRaw = _rawBaseValue(searcher);
         final moduleNameValue = valueFromLuaSlot(interpreter!, moduleName);
         if (searcherRaw is Function) {
           result = await searcherRaw(<Object?>[moduleNameValue]);
@@ -2598,7 +2588,7 @@ class RequireFunction extends BuiltinFunction {
         // Same dispatch logic for the loader: direct call for Dart functions,
         // callFunction for Lua/bytecode callables.
         final Object? moduleResult;
-        final loaderRaw = loader.raw;
+        final loaderRaw = _rawBaseValue(loader);
         final moduleNameValue = valueFromLuaSlot(interpreter!, moduleName);
         if (loaderRaw is Function) {
           moduleResult = await loaderRaw(<Object?>[
@@ -2615,9 +2605,7 @@ class RequireFunction extends BuiltinFunction {
         final loadedEntry = loaded[moduleName];
         final loadedRaw = _rawBaseValue(loadedEntry);
         if (loadedRaw == null || loadedRaw == false) {
-          final resultRaw = moduleResult is Value
-              ? moduleResult.raw
-              : moduleResult;
+          final resultRaw = _rawBaseValue(moduleResult);
           loaded[moduleName] = resultRaw == null
               ? primitiveValue(true)
               : moduleResult;
