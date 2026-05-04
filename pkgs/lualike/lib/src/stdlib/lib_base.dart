@@ -18,6 +18,8 @@ import 'package:path/path.dart' as path;
 import 'lib_io.dart';
 import 'library.dart';
 
+dynamic _rawBaseValue(Object? value) => value is Value ? value.raw : value;
+
 /// Base library implementation using the new Library system
 /// Note: Base functions are global, so they don't have a namespace
 class BaseLibrary extends Library {
@@ -291,7 +293,7 @@ class AssertFunction extends BuiltinFunction {
       return value;
     }
 
-    final raw = value is Value ? value.raw : value;
+    final raw = _rawBaseValue(value);
     if (raw == null || raw is num || raw is bool) {
       return primitiveValue(raw);
     }
@@ -1128,7 +1130,7 @@ class ToStringFunction extends BuiltinFunction {
       return dartStringValue(value.raw.toString());
     }
     final typeNameMeta = value.getMetamethod('__name');
-    final rawTypeName = typeNameMeta is Value ? typeNameMeta.raw : typeNameMeta;
+    final rawTypeName = _rawBaseValue(typeNameMeta);
     switch (rawTypeName) {
       case final String stringName:
         return dartStringValue("$stringName: ${value.raw.hashCode}");
@@ -1157,7 +1159,7 @@ class _BaseTointeger extends BuiltinFunction {
       throw LuaError.typeError('tointeger requires one argument');
     }
 
-    dynamic value = args[0] is Value ? (args[0] as Value).raw : args[0];
+    final value = _rawBaseValue(args[0]);
     final result = NumberUtils.tryToInteger(value);
     return primitiveValue(result);
   }
@@ -2598,7 +2600,7 @@ class RequireFunction extends BuiltinFunction {
         }
 
         final loadedEntry = loaded[moduleName];
-        final loadedRaw = loadedEntry is Value ? loadedEntry.raw : loadedEntry;
+        final loadedRaw = _rawBaseValue(loadedEntry);
         if (loadedRaw == null || loadedRaw == false) {
           final resultRaw = moduleResult is Value
               ? moduleResult.raw
