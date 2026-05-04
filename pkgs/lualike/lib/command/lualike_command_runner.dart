@@ -243,7 +243,15 @@ bool _looksLikeTrackedLuaBytecodeScript(String scriptPath) {
     if (!file.existsSync()) {
       return false;
     }
-    return looksLikeTrackedLuaBytecodeBytes(file.readAsBytesSync());
+    // Only the first 40 bytes are needed for header detection; avoid reading
+    // the entire file here since ScriptCommand will read it again later.
+    final raf = file.openSync();
+    try {
+      final header = raf.readSync(40);
+      return looksLikeTrackedLuaBytecodeBytes(header);
+    } finally {
+      raf.closeSync();
+    }
   } catch (_) {
     return false;
   }
