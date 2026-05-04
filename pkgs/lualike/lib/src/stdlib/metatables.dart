@@ -8,6 +8,18 @@ import '../../lualike.dart';
 
 bool _isNilMetatableValue(Object? value) => rawLuaSlot(value) == null;
 
+bool _rawStringSlotsEqual(Object? left, Object? right) {
+  final leftRaw = rawLuaSlot(left);
+  final rightRaw = rawLuaSlot(right);
+  if (leftRaw is LuaString) {
+    return leftRaw == rightRaw;
+  }
+  if (rightRaw is LuaString) {
+    return rightRaw == leftRaw;
+  }
+  return leftRaw == rightRaw;
+}
+
 Object? _callMetatableCallable(Object? callable, List<Object?> args) {
   final rawCallable = rawLuaSlot(callable);
   if (rawCallable is Function) {
@@ -175,14 +187,14 @@ class MetaTable {
         return _primitiveValue(null);
       },
       '__eq': (List<Object?> args) {
-        final a = args[0] as Value;
-        final b = args[1] as Value;
+        final a = args[0];
+        final b = args[1];
         Logger.debugLazy(
           () =>
               'String __eq metamethod called: "${rawLuaSlot(a)}" == "${rawLuaSlot(b)}"',
           category: 'Metatables',
         );
-        return _primitiveValue(a == b);
+        return _primitiveValue(_rawStringSlotsEqual(a, b));
       },
     });
     Logger.debugLazy(
