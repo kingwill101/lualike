@@ -114,7 +114,9 @@ class GetMetatableFunction extends BuiltinFunction {
     if (value.metatableRef != null) {
       final metaVal = value.metatableRef!;
       try {
-        final canonical = Value.lookupCanonicalTableWrapper(metaVal.raw);
+        final canonical = Value.lookupCanonicalTableWrapper(
+          _rawBaseValue(metaVal),
+        );
         return canonical ?? metaVal;
       } catch (_) {
         return metaVal;
@@ -985,7 +987,7 @@ class PrintFunction extends BuiltinFunction {
 
     final output = outputs.join("\t");
     final defaultOutput = IOLib.defaultOutput;
-    final luaFile = defaultOutput.raw as LuaFile;
+    final luaFile = _rawBaseValue(defaultOutput) as LuaFile;
     await luaFile.write("$output\n");
     return null;
   }
@@ -1339,18 +1341,17 @@ class SetmetaFunction extends BuiltinFunction {
       throw LuaError("setmetatable requires table and metatable arguments");
     }
 
-    if (meta.raw is Map) {
+    final rawTable = _rawBaseValue(table);
+    final rawMetatable = _rawBaseValue(meta);
+    if (rawMetatable is Map) {
       Logger.debugLazy(
         () =>
-            "setmetatable called on table with raw: ${table.raw} and meta: ${meta.raw}",
+            "setmetatable called on table with raw: $rawTable and meta: $rawMetatable",
         category: "Metatables",
       );
       final rawMeta = <String, dynamic>{};
-      (meta.raw as Map).forEach((key, value) {
-        dynamic resolvedKey = key;
-        if (resolvedKey is Value) {
-          resolvedKey = resolvedKey.raw;
-        }
+      rawMetatable.forEach((key, value) {
+        dynamic resolvedKey = _rawBaseValue(key);
         if (resolvedKey is LuaString) {
           resolvedKey = resolvedKey.toString();
         }
@@ -1359,7 +1360,7 @@ class SetmetaFunction extends BuiltinFunction {
         }
       });
       table.metatableRef = meta;
-      table.setMetatable(rawMeta, ownerRaw: meta.raw);
+      table.setMetatable(rawMeta, ownerRaw: rawMetatable);
       Logger.debugLazy(
         () => "Metatable set. Weak mode now ${table.tableWeakMode}",
         category: 'Metatables',
@@ -1391,7 +1392,7 @@ class LoadfileFunction extends BuiltinFunction {
       Value sourceValue;
       if (filename == null) {
         final defaultInput = IOLib.defaultInput;
-        final luaFile = defaultInput.raw as LuaFile;
+        final luaFile = _rawBaseValue(defaultInput) as LuaFile;
         final result = await luaFile.read('a');
         sourceValue = valueFromLuaSlot(runtime, result[0]?.toString() ?? '');
       } else {
@@ -1871,7 +1872,7 @@ class WarnFunction extends BuiltinFunction {
 
       // Use IOLib default output for warnings instead of stderr
       final defaultOutput = IOLib.defaultOutput;
-      final luaFile = defaultOutput.raw as LuaFile;
+      final luaFile = _rawBaseValue(defaultOutput) as LuaFile;
       await luaFile.write("Lua warning: $messages\n");
       await luaFile.flush();
     }
