@@ -3,22 +3,10 @@ import 'package:lualike/src/intern.dart';
 import '../logging/logger.dart';
 import '../lua_error.dart';
 import '../lua_string.dart';
+import '../runtime/lua_slot.dart';
 import '../value.dart';
 
-Value _extensionValue(Object? value) {
-  if (value is Value) {
-    return value;
-  }
-  if (value == null ||
-      value is bool ||
-      value is num ||
-      value is BigInt ||
-      value is String ||
-      value is LuaString) {
-    return Value.primitive(value);
-  }
-  return Value(value);
-}
+Value _extensionValue(Object? value) => valueFromOptionalLuaSlot(null, value);
 
 dynamic fromLuaValue(dynamic obj) {
   if (obj is Value) {
