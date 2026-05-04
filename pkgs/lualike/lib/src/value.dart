@@ -3195,7 +3195,7 @@ class Value extends Object implements Map<String, dynamic>, GCObject {
 
   dynamic _computeRawKey(Object? key) {
     if (key is Value) {
-      var rawKey = key.raw;
+      var rawKey = _rawValuePayload(key);
       if (rawKey is LuaString) {
         rawKey = rawKey.toString();
       }
@@ -3209,7 +3209,7 @@ class Value extends Object implements Map<String, dynamic>, GCObject {
 
   dynamic _computeStorageKey(Object? key) {
     if (key is Value) {
-      final rawKey = key.raw;
+      final rawKey = _rawValuePayload(key);
 
       // For weak-key tables, preserve wrappers only for collectable keys.
       // Lua treats primitive keys (numbers/strings/booleans) as non-collectable,
@@ -3351,7 +3351,7 @@ extension OperatorExtension on Value {
 
   // Add a helper for Lua's ~= (not equal) semantics
   bool notEquals(Object other) {
-    final otherRaw = other is Value ? other.raw : other;
+    final otherRaw = _rawValuePayload(other);
     // Lua: NaN ~= anything is always true
     if ((raw is num && (raw as num).isNaN) ||
         (otherRaw is num && (otherRaw).isNaN)) {
@@ -3392,7 +3392,9 @@ extension OperatorExtension on Value {
         );
         return true;
       }
-      final intVal = otherRaw is BigInt ? otherRaw : BigInt.from(otherRaw);
+      final intVal = otherRaw is BigInt
+          ? otherRaw
+          : BigInt.from(otherRaw as num);
       final doubleVal = raw;
       final doubleFromInt = intVal.toDouble();
       final intFromDouble = BigInt.from(doubleVal);
@@ -3409,7 +3411,7 @@ extension OperatorExtension on Value {
 
   @pragma('vm:prefer-inline')
   Value _arith(String op, dynamic other) {
-    final otherRaw = other is Value ? other.raw : other;
+    final otherRaw = _rawValuePayload(other);
     final result = NumberUtils.performArithmetic(op, raw, otherRaw);
     return (_resolveInterpreter() ??
                 (other is Value ? other._resolveInterpreter() : null))
@@ -3469,7 +3471,7 @@ extension OperatorExtension on Value {
 
   // Overload the concatenation operator
   Value concat(dynamic other) {
-    final otherRaw = other is Value ? other.raw : other;
+    final otherRaw = _rawValuePayload(other);
 
     if (raw == null || otherRaw == null) {
       throw LuaError.typeError('attempt to concatenate a nil value');
@@ -3503,7 +3505,7 @@ extension OperatorExtension on Value {
   }
 
   dynamic operator >(Object other) {
-    final otherRaw = other is Value ? other.raw : other;
+    final otherRaw = _rawValuePayload(other);
     // Lua: NaN > anything is always false
     if ((raw is num && (raw as num).isNaN) ||
         (otherRaw is num && (otherRaw).isNaN)) {
@@ -3556,7 +3558,9 @@ extension OperatorExtension on Value {
         // For NaN, return false (already handled above)
         return false;
       }
-      final intVal = otherRaw is BigInt ? otherRaw : BigInt.from(otherRaw);
+      final intVal = otherRaw is BigInt
+          ? otherRaw
+          : BigInt.from(otherRaw as num);
       final doubleVal = raw;
       final doubleFromInt = intVal.toDouble();
       Logger.debugLazy(
@@ -3602,7 +3606,7 @@ extension OperatorExtension on Value {
   }
 
   dynamic operator <(Object other) {
-    final otherRaw = other is Value ? other.raw : other;
+    final otherRaw = _rawValuePayload(other);
     // Lua: NaN < anything is always false
     if ((raw is num && (raw as num).isNaN) ||
         (otherRaw is num && (otherRaw).isNaN)) {
@@ -3649,7 +3653,9 @@ extension OperatorExtension on Value {
         // For NaN, return false (already handled above)
         return false;
       }
-      final intVal = otherRaw is BigInt ? otherRaw : BigInt.from(otherRaw);
+      final intVal = otherRaw is BigInt
+          ? otherRaw
+          : BigInt.from(otherRaw as num);
       final doubleVal = raw;
       final doubleFromInt = intVal.toDouble();
       Logger.debugLazy(
@@ -3690,7 +3696,7 @@ extension OperatorExtension on Value {
   }
 
   dynamic operator >=(Object other) {
-    final otherRaw = other is Value ? other.raw : other;
+    final otherRaw = _rawValuePayload(other);
     // Lua: NaN >= anything is always false
     if ((raw is num && (raw as num).isNaN) ||
         (otherRaw is num && (otherRaw).isNaN)) {
@@ -3735,7 +3741,9 @@ extension OperatorExtension on Value {
         }
         return false; // NaN
       }
-      final intVal = otherRaw is BigInt ? otherRaw : BigInt.from(otherRaw);
+      final intVal = otherRaw is BigInt
+          ? otherRaw
+          : BigInt.from(otherRaw as num);
       final doubleVal = raw;
       final doubleFromInt = intVal.toDouble();
       Logger.debugLazy(
@@ -3776,7 +3784,7 @@ extension OperatorExtension on Value {
   }
 
   dynamic operator <=(Object other) {
-    final otherRaw = other is Value ? other.raw : other;
+    final otherRaw = _rawValuePayload(other);
     // Lua: NaN <= anything is always false
     if ((raw is num && (raw as num).isNaN) ||
         (otherRaw is num && (otherRaw).isNaN)) {
@@ -3821,7 +3829,9 @@ extension OperatorExtension on Value {
         }
         return false;
       }
-      final intVal = otherRaw is BigInt ? otherRaw : BigInt.from(otherRaw);
+      final intVal = otherRaw is BigInt
+          ? otherRaw
+          : BigInt.from(otherRaw as num);
       final doubleVal = raw;
       final doubleFromInt = intVal.toDouble();
       Logger.debugLazy(
@@ -3862,7 +3872,7 @@ extension OperatorExtension on Value {
   }
 
   bool equals(Object other) {
-    final otherRaw = other is Value ? other.raw : other;
+    final otherRaw = _rawValuePayload(other);
     // Lua: NaN == anything is always false
     if ((raw is num && raw.isNaN) || (otherRaw is num && otherRaw.isNaN)) {
       Logger.debugLazy(
@@ -3918,7 +3928,9 @@ extension OperatorExtension on Value {
         );
         return false;
       }
-      final intVal = otherRaw is BigInt ? otherRaw : BigInt.from(otherRaw);
+      final intVal = otherRaw is BigInt
+          ? otherRaw
+          : BigInt.from(otherRaw as num);
       final doubleVal = raw;
       BigInt intFromDouble;
       try {
