@@ -254,7 +254,7 @@ class RawSetFunction extends BuiltinFunction {
       throw LuaError("rawset: first argument must be a table");
     }
 
-    final key = args[1] as Value;
+    final key = args[1];
     var rawKey = rawLuaSlot(key);
 
     // Check for nil key
@@ -1808,8 +1808,8 @@ class RawEqualFunction extends BuiltinFunction {
   @override
   Object? call(List<Object?> args) {
     if (args.length < 2) throw LuaError("rawequal requires two arguments");
-    final v1 = args[0] as Value;
-    final v2 = args[1] as Value;
+    final v1 = args[0];
+    final v2 = args[1];
     return primitiveValue(rawLuaSlot(v1) == rawLuaSlot(v2));
   }
 }
@@ -1820,7 +1820,7 @@ class RawLenFunction extends BuiltinFunction {
   @override
   Object? call(List<Object?> args) {
     if (args.isEmpty) throw LuaError("rawlen requires an argument");
-    final value = args[0] as Value;
+    final value = args[0];
     final rawValue = rawLuaSlot(value);
     if (rawValue is String) {
       return primitiveValue(rawValue.length);
@@ -1842,7 +1842,7 @@ class WarnFunction extends BuiltinFunction {
   Future<Object?> call(List<Object?> args) async {
     if (args.isEmpty) return primitiveValue(null);
 
-    final firstArg = args[0] as Value;
+    final firstArg = args[0];
     final rawFirstArg = rawLuaSlot(firstArg);
     if (rawFirstArg is String) {
       final message = rawFirstArg;
@@ -1860,8 +1860,7 @@ class WarnFunction extends BuiltinFunction {
     if (_enabled) {
       final messages = args
           .map((arg) {
-            final value = arg as Value;
-            return rawLuaSlot(value)?.toString() ?? "nil";
+            return rawLuaSlot(arg)?.toString() ?? "nil";
           })
           .join("\t");
 
