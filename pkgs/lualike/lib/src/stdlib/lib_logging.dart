@@ -7,6 +7,8 @@ import 'package:lualike/src/value.dart';
 
 import 'library.dart';
 
+Object? _rawLoggingValue(Object? value) => value is Value ? value.raw : value;
+
 /// Enhanced Lua logging library that exposes the full power of contextual logging
 ///
 /// Features:
@@ -320,16 +322,11 @@ String _levelToString(ctx.Level level) {
 }
 
 String? _extractString(Object? arg, {bool allowNull = false}) {
-  if (arg == null) {
+  final raw = _rawLoggingValue(arg);
+  if (raw == null) {
     return allowNull ? null : '';
   }
-  if (arg is Value) {
-    if (arg.raw == null) {
-      return allowNull ? null : '';
-    }
-    return _stringFromRaw(arg.raw);
-  }
-  return _stringFromRaw(arg);
+  return _stringFromRaw(raw);
 }
 
 String _stringFromRaw(Object? raw) {
@@ -351,7 +348,7 @@ Set<String> _extractCategories(Object? arg) {
 
   if (arg == null) return categories;
 
-  final raw = arg is Value ? arg.raw : arg;
+  final raw = _rawLoggingValue(arg);
 
   if (raw is Map) {
     // Iterate through table (array-like or key-value)
@@ -399,7 +396,7 @@ _LogContext _extractLogContext(Object? opts) {
     return _LogContext();
   }
 
-  final raw = opts is Value ? opts.raw : opts;
+  final raw = _rawLoggingValue(opts);
 
   if (raw is! Map) {
     // Not a table, no context
@@ -413,7 +410,7 @@ _LogContext _extractLogContext(Object? opts) {
   for (final entry in raw.entries) {
     final key = _stringFromRaw(entry.key);
     final value = entry.value;
-    final rawValue = value is Value ? value.raw : value;
+    final rawValue = _rawLoggingValue(value);
 
     if (key == 'category') {
       // Single category
@@ -452,14 +449,14 @@ Object? _luaValueToDartValue(Object? raw) {
     for (final entry in raw.entries) {
       final key = _stringFromRaw(entry.key);
       final value = entry.value;
-      map[key] = _luaValueToDartValue(value is Value ? value.raw : value);
+      map[key] = _luaValueToDartValue(_rawLoggingValue(value));
     }
     return map;
   }
 
   if (raw is List) {
     return raw
-        .map((item) => _luaValueToDartValue(item is Value ? item.raw : item))
+        .map((item) => _luaValueToDartValue(_rawLoggingValue(item)))
         .toList();
   }
 
