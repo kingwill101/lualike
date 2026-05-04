@@ -9,7 +9,6 @@ import 'package:lualike/src/builtin_function.dart';
 
 import 'package:lualike/src/lua_error.dart';
 import 'package:lualike/src/runtime/lua_slot.dart';
-import 'package:lualike/src/value.dart';
 import 'package:lualike/src/lua_string.dart';
 import 'library.dart';
 
@@ -32,7 +31,7 @@ class CryptoLibrary extends Library {
   }
 }
 
-Uint8List _toBytes(Value value) {
+Uint8List _toBytes(Object? value) {
   final raw = rawLuaSlot(value);
   if (raw is String) {
     return utf8.encode(raw);
@@ -64,7 +63,7 @@ class _HashFunction extends BuiltinFunction {
     if (args.isEmpty) {
       throw LuaError('hash function requires 1 argument');
     }
-    final input = _toBytes(args[0] as Value);
+    final input = _toBytes(args[0]);
     final digest = _hash.convert(input);
     return dartStringValue(digest.toString());
   }
@@ -81,8 +80,8 @@ class HmacFunction extends BuiltinFunction {
     }
 
     final digestName = rawLuaSlot(args[0]).toString();
-    final key = _toBytes(args[1] as Value);
-    final message = _toBytes(args[2] as Value);
+    final key = _toBytes(args[1]);
+    final message = _toBytes(args[2]);
 
     try {
       final hmac = pc.Mac('$digestName/HMAC');
@@ -129,9 +128,9 @@ class _AesCbcFunction extends BuiltinFunction {
       );
     }
 
-    final key = _toBytes(args[0] as Value);
-    final iv = _toBytes(args[1] as Value);
-    final data = _toBytes(args[2] as Value);
+    final key = _toBytes(args[0]);
+    final iv = _toBytes(args[1]);
+    final data = _toBytes(args[2]);
 
     if (key.length != 16 && key.length != 24 && key.length != 32) {
       throw LuaError('AES key must be 16, 24, or 32 bytes long');
