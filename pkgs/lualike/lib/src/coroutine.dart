@@ -32,6 +32,9 @@ Value _coroutineNilValue(Coroutine coroutine) {
   return _coroutinePrimitiveValue(coroutine, null);
 }
 
+Object? _rawCoroutineErrorValue(Object? value) =>
+    value is Value ? value.raw : value;
+
 Value _packCoroutineVarargsTable(Coroutine coroutine, List<Object?> varargs) {
   final table = TableStorage();
   for (var i = 0; i < varargs.length; i++) {
@@ -47,10 +50,11 @@ Value _packCoroutineVarargsTable(Coroutine coroutine, List<Object?> varargs) {
 
 Object? _normalizeCoroutineError(Object error) {
   if (error is Value) {
-    if (error.raw is Value) {
-      return _normalizeCoroutineError(error.raw as Value);
+    final rawError = _rawCoroutineErrorValue(error);
+    if (rawError is Value) {
+      return _normalizeCoroutineError(rawError);
     }
-    if (error.raw is Map || error.raw is TableStorage) {
+    if (rawError is Map || rawError is TableStorage) {
       return error;
     }
     return error.unwrap();

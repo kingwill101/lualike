@@ -52,7 +52,7 @@ class NumberUtils {
       if (metamethodName != null) {
         return metamethodName;
       }
-      value = value.raw;
+      value = _rawTypeName(value);
     }
 
     if (value case final Map<dynamic, dynamic> table) {
@@ -99,12 +99,13 @@ class NumberUtils {
 
   /// Extract and validate a number from a Value with proper error handling
   static dynamic getNumber(Value value, String funcName, int argNum) {
-    if (value.raw is! num && value.raw is! BigInt) {
+    final raw = _rawTypeName(value);
+    if (raw is! num && raw is! BigInt) {
       throw LuaError.typeError(
-        "bad argument #$argNum to '$funcName' (number expected, got ${typeName(value.raw)})",
+        "bad argument #$argNum to '$funcName' (number expected, got ${typeName(raw)})",
       );
     }
-    return value.raw;
+    return raw;
   }
 
   /// Convert any numeric type to double
