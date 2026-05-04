@@ -1983,7 +1983,7 @@ class CollectGarbageFunction extends BuiltinFunction {
   @override
   Future<Object?> call(List<Object?> args) async {
     final option = args.isNotEmpty
-        ? (args[0] as Value).raw.toString()
+        ? _rawBaseValue(args[0]).toString()
         : "collect";
     Logger.debugLazy(
       () => 'CollectGarbageFunction: option: $option',
@@ -2090,7 +2090,7 @@ class CollectGarbageFunction extends BuiltinFunction {
           // With a zero value, the collector will perform one basic (indivisible) step
           // For non-zero values, the collector will perform as if that amount of memory
           // (in Kbytes) had been allocated by Lua
-          final stepSize = args.length > 1 ? (args[1] as Value).raw as num : 0;
+          final stepSize = args.length > 1 ? _rawBaseValue(args[1]) as num : 0;
           bool cycleComplete = false;
           if (_currentMode == "generational") {
             cycleComplete = await interpreter!.gc.performGenerationalStep(
@@ -2116,13 +2116,13 @@ class CollectGarbageFunction extends BuiltinFunction {
           _currentMode = "incremental";
 
           if (args.length > 1) {
-            interpreter!.gc.majorMultiplier = (args[1] as Value).raw as int;
+            interpreter!.gc.majorMultiplier = _rawBaseValue(args[1]) as int;
           }
           if (args.length > 2) {
-            interpreter!.gc.minorMultiplier = (args[2] as Value).raw as int;
+            interpreter!.gc.minorMultiplier = _rawBaseValue(args[2]) as int;
           }
           if (args.length > 3) {
-            interpreter!.gc.stepSize = (args[3] as Value).raw as int;
+            interpreter!.gc.stepSize = _rawBaseValue(args[3]) as int;
           }
           return dartStringValue(oldMode);
 
@@ -2136,10 +2136,10 @@ class CollectGarbageFunction extends BuiltinFunction {
           _currentMode = "generational";
 
           if (args.length > 1) {
-            interpreter!.gc.minorMultiplier = (args[1] as Value).raw as int;
+            interpreter!.gc.minorMultiplier = _rawBaseValue(args[1]) as int;
           }
           if (args.length > 2) {
-            interpreter!.gc.majorMultiplier = (args[2] as Value).raw as int;
+            interpreter!.gc.majorMultiplier = _rawBaseValue(args[2]) as int;
           }
           return dartStringValue(oldMode);
 
@@ -2147,7 +2147,7 @@ class CollectGarbageFunction extends BuiltinFunction {
           if (args.length < 2) {
             throw LuaError('collectgarbage("param") requires a parameter name');
           }
-          final paramName = (args[1] as Value).raw.toString();
+          final paramName = _rawBaseValue(args[1]).toString();
 
           int currentValue() => switch (paramName) {
             "pause" => interpreter!.gc.majorMultiplier,
@@ -2160,7 +2160,7 @@ class CollectGarbageFunction extends BuiltinFunction {
 
           final previousValue = currentValue();
           if (args.length > 2) {
-            final newValue = ((args[2] as Value).raw as num).toInt();
+            final newValue = (_rawBaseValue(args[2]) as num).toInt();
             switch (paramName) {
               case "pause":
               case "majormul":
@@ -2202,7 +2202,7 @@ class CollectGarbageFunction extends BuiltinFunction {
           // Returns the previous value of the pause
           final oldPause = interpreter!.gc.majorMultiplier;
           if (args.length > 1) {
-            final newPause = (args[1] as Value).raw as num;
+            final newPause = _rawBaseValue(args[1]) as num;
             interpreter!.gc.majorMultiplier = newPause.toInt();
           }
           return primitiveValue(oldPause);
@@ -2212,7 +2212,7 @@ class CollectGarbageFunction extends BuiltinFunction {
           // Returns the previous value of the step multiplier
           final oldStepMul = interpreter!.gc.minorMultiplier;
           if (args.length > 1) {
-            final newStepMul = (args[1] as Value).raw as num;
+            final newStepMul = _rawBaseValue(args[1]) as num;
             interpreter!.gc.minorMultiplier = newStepMul.toInt();
           }
           return primitiveValue(oldStepMul);
