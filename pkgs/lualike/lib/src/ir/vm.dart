@@ -1748,6 +1748,10 @@ class LualikeIrVm {
     return _ensureValue(raw);
   }
 
+  Value _canonicalValueOf(dynamic raw) {
+    return _canonicalizeValue(_valueOf(raw));
+  }
+
   ({bool handled, dynamic value}) _tryNumericBinary(
     dynamic left,
     dynamic right,
@@ -1884,10 +1888,8 @@ class LualikeIrVm {
       return null;
     }
 
-    final leftCandidate = left is Value ? left : _ensureValue(left);
-    final rightCandidate = right is Value ? right : _ensureValue(right);
-    final leftValue = _canonicalizeValue(leftCandidate);
-    final rightValue = _canonicalizeValue(rightCandidate);
+    final leftValue = _canonicalValueOf(left);
+    final rightValue = _canonicalValueOf(right);
     final result = _evaluateBinaryOperation(leftValue, rightValue, operation);
     if (result is Future) {
       return result.then((resolved) {
@@ -1911,8 +1913,8 @@ class LualikeIrVm {
       return null;
     }
 
-    final leftValue = left is Value ? left : _ensureValue(left);
-    final constantValue = constant is Value ? constant : _ensureValue(constant);
+    final leftValue = _valueOf(left);
+    final constantValue = _valueOf(constant);
     final result = _evaluateBinaryOperation(
       leftValue,
       constantValue,
@@ -1949,8 +1951,8 @@ class LualikeIrVm {
       final rightIndex = end;
       final leftRaw = registers[leftIndex];
       final rightRaw = registers[rightIndex];
-      final leftValue = leftRaw is Value ? leftRaw : _ensureValue(leftRaw);
-      final rightValue = rightRaw is Value ? rightRaw : _ensureValue(rightRaw);
+      final leftValue = _valueOf(leftRaw);
+      final rightValue = _valueOf(rightRaw);
       final combined = _evaluateBinaryOperation(leftValue, rightValue, '..');
       final resolved = combined is Future ? await combined : combined;
       registers[leftIndex] = resolved;
@@ -1972,8 +1974,8 @@ class LualikeIrVm {
       return null;
     }
 
-    final leftValue = left is Value ? left : _ensureValue(left);
-    final rightValue = _ensureValue(immediate);
+    final leftValue = _valueOf(left);
+    final rightValue = _valueOf(immediate);
     final result = _evaluateBinaryOperation(leftValue, rightValue, operation);
     if (result is Future) {
       return result.then((resolved) {
@@ -2451,10 +2453,8 @@ class LualikeIrVm {
   }
 
   FutureOr<bool> _equals(dynamic left, dynamic right) {
-    final leftCandidate = left is Value ? left : _ensureValue(left);
-    final rightCandidate = right is Value ? right : _ensureValue(right);
-    final leftValue = _canonicalizeValue(leftCandidate);
-    final rightValue = _canonicalizeValue(rightCandidate);
+    final leftValue = _canonicalValueOf(left);
+    final rightValue = _canonicalValueOf(right);
 
     Value? callee;
     if (leftValue.hasMetamethod('__eq')) {
@@ -2597,10 +2597,8 @@ class LualikeIrVm {
   }
 
   FutureOr<bool> _lessThan(dynamic left, dynamic right) {
-    final leftCandidate = left is Value ? left : _ensureValue(left);
-    final rightCandidate = right is Value ? right : _ensureValue(right);
-    final leftValue = _canonicalizeValue(leftCandidate);
-    final rightValue = _canonicalizeValue(rightCandidate);
+    final leftValue = _canonicalValueOf(left);
+    final rightValue = _canonicalValueOf(right);
 
     final config = _selectComparisonMetamethod('<', leftValue, rightValue);
     if (config != null) {
@@ -2636,8 +2634,8 @@ class LualikeIrVm {
   }
 
   FutureOr<bool> _lessEqual(dynamic left, dynamic right) {
-    final leftValue = left is Value ? left : _ensureValue(left);
-    final rightValue = right is Value ? right : _ensureValue(right);
+    final leftValue = _valueOf(left);
+    final rightValue = _valueOf(right);
 
     final config = _selectComparisonMetamethod('<=', leftValue, rightValue);
     if (config != null) {
