@@ -2,7 +2,7 @@ part of 'interpreter.dart';
 
 bool _isInlineableMutableLocalPrimitive(Object? value) {
   if (value is Value) {
-    final raw = value.raw;
+    final raw = _rawInterpreterValue(value);
     if (value.isMulti ||
         value.isConst ||
         value.isToBeClose ||
@@ -55,7 +55,7 @@ mixin InterpreterAssignmentMixin on AstVisitor<Object?> {
   }
 
   bool _isPlainDetachedPrimitive(Value value) {
-    final raw = value.raw;
+    final raw = _rawInterpreterValue(value);
     if (value.isMulti ||
         value.isConst ||
         value.isToBeClose ||
@@ -78,7 +78,7 @@ mixin InterpreterAssignmentMixin on AstVisitor<Object?> {
   }
 
   Value _detachPrimitiveValue(Value value) {
-    final raw = value.raw;
+    final raw = _rawInterpreterValue(value);
     if (_isPlainDetachedPrimitive(value)) {
       return Value.primitive(raw, interpreter: value.interpreter);
     }
@@ -102,7 +102,7 @@ mixin InterpreterAssignmentMixin on AstVisitor<Object?> {
     if (isConst) {
       return false;
     }
-    return value.raw is Map ||
+    return _rawInterpreterValue(value) is Map ||
         value.metatable != null ||
         value.metatableRef != null ||
         value.upvalues != null ||
@@ -130,14 +130,16 @@ mixin InterpreterAssignmentMixin on AstVisitor<Object?> {
     bool isToBeClose = false,
   }) {
     if (_isPlainDetachedPrimitive(value)) {
+      final raw = _rawInterpreterValue(value);
       return Value.primitive(
-        value.raw,
+        raw,
         isConst: isConst,
         isToBeClose: isToBeClose,
         interpreter: value.interpreter,
       );
     }
 
+    final raw = _rawInterpreterValue(value);
     // Metatable-backed values can own __gc / __close behavior at the wrapper
     // level, so cloning them for a local binding can leave the live local
     // pointing at raw state whose original wrapper is then finalized.
@@ -153,7 +155,7 @@ mixin InterpreterAssignmentMixin on AstVisitor<Object?> {
     }
 
     final cloned = Value(
-      value.raw,
+      raw,
       isConst: isConst,
       isToBeClose: isToBeClose,
       skipAllocationDebt: value.skipAllocationDebt,
@@ -170,8 +172,8 @@ mixin InterpreterAssignmentMixin on AstVisitor<Object?> {
       cloned.setMetatable(
         value.metatable!,
         ownerRaw:
-            Value.rawMetatableOwnerForTable(value.raw) ??
-            value.metatableRef?.raw ??
+            Value.rawMetatableOwnerForTable(raw) ??
+            _rawInterpreterValue(value.metatableRef) ??
             value.metatable,
       );
     }
@@ -203,7 +205,7 @@ mixin InterpreterAssignmentMixin on AstVisitor<Object?> {
   }
 
   Value _globalConstDeclarationValue(Value value) {
-    final raw = value.raw;
+    final raw = _rawInterpreterValue(value);
     if (value.metatable == null &&
         value.metatableRef == null &&
         isLuaPrimitiveSlot(raw)) {
