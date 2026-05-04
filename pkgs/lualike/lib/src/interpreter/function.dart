@@ -33,7 +33,7 @@ List<Object?> _expandVarargValue(Object? value) {
 
   final rawCount = table['n'];
   final normalizedCount = switch (rawCount) {
-    final Value wrapped => wrapped.raw,
+    final Value wrapped => _rawInterpreterValue(wrapped),
     _ => rawCount,
   };
   if (normalizedCount is! int && normalizedCount is! BigInt) {
@@ -238,13 +238,13 @@ Object? _snapshotReturnPayload(Object? value, LuaRuntime runtime) {
     // reference are identity-sensitive. Returning a fresh wrapper for them
     // can detach metamethod lookups from the live table object, which breaks
     // cases like events.lua's arithmetic metamethod checks.
-    if (original.raw is Map ||
+    final raw = _rawInterpreterValue(original);
+    if (raw is Map ||
         original.metatable != null ||
         original.metatableRef != null) {
       return original;
     }
 
-    final raw = original.raw;
     if (isLuaPrimitiveSlot(raw)) {
       final clone = Value.primitive(
         raw,
@@ -283,7 +283,7 @@ Object? _snapshotReturnPayload(Object? value, LuaRuntime runtime) {
     );
     clone.metatableRef = original.metatableRef;
     clone.globalProxyEnvironment = original.globalProxyEnvironment;
-    if (clone.raw is Map) {
+    if (_rawInterpreterValue(clone) is Map) {
       Value.registerTableIdentity(clone);
     }
     return clone;
