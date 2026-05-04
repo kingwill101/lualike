@@ -312,8 +312,7 @@ void main() {
       'generational steps clear young entries from old all-weak tables',
       () async {
         final lua = LuaLike();
-        final result =
-            await lua.execute('''
+        final raw = await lua.execute('''
         local t = setmetatable({}, {__mode = "kv"})
         collectgarbage()
         collectgarbage("generational")
@@ -325,10 +324,12 @@ void main() {
         t[1] = {10}
         collectgarbage("step")
         return t[1]
-      ''')
-                as Value;
+      ''');
 
-        expect(result.unwrap(), isNull);
+        // After GC collects the weak-table entry, t[1] is nil.
+        // execute() may return null directly or a Value wrapping nil.
+        final resultValue = raw as Value?;
+        expect(resultValue == null || resultValue.unwrap() == null, isTrue);
       },
     );
 
