@@ -1270,7 +1270,10 @@ Environment _createDirectAstExecutionEnv({
       interpreter: runtime,
       isLoadIsolated: true,
     );
-    final gValue = savedEnv.get('_G') ?? savedEnv.root.get('_G') ?? Value({});
+    final gValue =
+        savedEnv.get('_G') ??
+        savedEnv.root.get('_G') ??
+        valueFromLuaSlot(runtime, <dynamic, dynamic>{});
     loadEnv.declare('_ENV', providedEnv);
     loadEnv.declare('_G', gValue);
   } else {
@@ -1337,7 +1340,10 @@ Environment _createSourceLoadEnv({
       interpreter: runtime,
       isLoadIsolated: true,
     );
-    final gValue = savedEnv.get('_G') ?? savedEnv.root.get('_G') ?? Value({});
+    final gValue =
+        savedEnv.get('_G') ??
+        savedEnv.root.get('_G') ??
+        valueFromLuaSlot(runtime, <dynamic, dynamic>{});
     loadEnv.declare('_ENV', providedEnv);
     loadEnv.declare('_G', gValue);
   } else {
