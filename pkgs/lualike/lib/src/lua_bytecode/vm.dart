@@ -8583,12 +8583,12 @@ Object? _packCallResults(LuaRuntime _, List<Value> results) {
   return LuaResults(results);
 }
 
+Object? _rawBytecodeValue(Object? value) => value is Value ? value.raw : value;
+
 Object? _debugResultPayload(Object? result) {
   final resultValues = luaResultValues(result);
   if (resultValues != null) {
-    return resultValues
-        .map((value) => value is Value ? value.raw : value)
-        .toList();
+    return resultValues.map(_rawBytecodeValue).toList();
   }
   return switch (result) {
     Value(:final raw) => raw,
@@ -8727,11 +8727,11 @@ Future<bool> _explicitGlobalIsAlreadyDefined(
 
   if (envValue.raw != null) {
     final current = await envValue.getValueAsync(name);
-    return current is Value ? current.raw != null : current != null;
+    return _rawBytecodeValue(current) != null;
   }
 
   final current = environment.readRootGlobal(name);
-  return current is Value ? current.raw != null : current != null;
+  return _rawBytecodeValue(current) != null;
 }
 
 Value _rkValue(_LuaBytecodeFrame frame, int operand, bool isConstant) {
@@ -9277,9 +9277,7 @@ int? _positiveIntegerKey(Object? key) {
 }
 
 bool _isNilLike(Object? value) => switch (value) {
-  null => true,
-  final Value wrapped => wrapped.raw == null,
-  _ => false,
+  _ => _rawBytecodeValue(value) == null,
 };
 
 String? _stringLike(Object? value) => switch (value) {
