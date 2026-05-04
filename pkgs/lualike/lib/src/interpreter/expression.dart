@@ -337,7 +337,7 @@ mixin InterpreterExpressionMixin on AstVisitor<Object?> {
     final lineNumber = traceLine == null ? null : traceLine + 1;
 
     Object? rawNumericOperand(Object? value) {
-      return value is Value ? value.raw : value;
+      return _rawInterpreterValue(value);
     }
 
     bool hasPerValueMetatable(Object? value) {
@@ -624,7 +624,7 @@ mixin InterpreterExpressionMixin on AstVisitor<Object?> {
       if (Logger.enabled) {
         Logger.debugLazy(
           () =>
-              'BinaryExpression result: $result (raw: ${(result is Value ? result.raw : result).runtimeType})',
+              'BinaryExpression result: $result (raw: ${_rawInterpreterValue(result).runtimeType})',
           category: 'Expression',
         );
       }

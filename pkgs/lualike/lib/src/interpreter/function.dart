@@ -415,7 +415,7 @@ List<Object?> _applySimpleNumericSelfTailLoopPlan(
   }
 
   final original = args[plan.paramIndex];
-  final raw = original is Value ? original.raw : original;
+  final raw = _rawInterpreterValue(original);
   if (raw is! num || raw <= plan.threshold) {
     return args;
   }
@@ -538,7 +538,7 @@ void _applySimpleCapturedCounterSelfTailLoopPlan(
   }
 
   final current = upvalue.getValue();
-  final raw = current is Value ? current.raw : current;
+  final raw = _rawInterpreterValue(current);
   if (raw is! num || raw <= plan.threshold) {
     return;
   }
@@ -1610,7 +1610,7 @@ mixin InterpreterFunctionMixin on AstVisitor<Object?> {
             ? _firstLuaResultOrNil(v, interpreter: interpreter)
             : v;
         // Use raw when possible to skip temporary Value wrappers
-        fastArgs.add(first is Value ? first.raw : first);
+        fastArgs.add(_rawInterpreterValue(first));
       }
       while (fastArgs.length < 2) {
         fastArgs.add(null);
@@ -1717,8 +1717,8 @@ mixin InterpreterFunctionMixin on AstVisitor<Object?> {
       if (func.isLessComparator && args.length >= 2) {
         final a0 = args[0];
         final a1 = args[1];
-        final rawA = a0 is Value ? a0.raw : a0;
-        final rawB = a1 is Value ? a1.raw : a1;
+        final rawA = _rawInterpreterValue(a0);
+        final rawB = _rawInterpreterValue(a1);
         final safeA = !(a0 is Value && a0.metatable != null);
         final safeB = !(a1 is Value && a1.metatable != null);
         if (safeA &&
