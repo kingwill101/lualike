@@ -19,19 +19,19 @@ class _TableIndexInlineCache {
 final Expando<_TableIndexInlineCache> _tableIndexAccessCache =
     Expando<_TableIndexInlineCache>('tableIndexAccessCache');
 
-Object? _tableIndexCacheKey(Value index) => _rawInterpreterValue(index);
+Object? _tableIndexCacheKey(Value index) => rawLuaSlot(index);
 
 Object? _wrapDirectTableLookup(
   Interpreter interpreter,
   Value table,
   Object? result,
 ) {
-  final tableRaw = _rawInterpreterValue(table);
+  final tableRaw = rawLuaSlot(table);
   if (tableRaw is VirtualLuaTable) {
     return result;
   }
   if (result is Value) {
-    final resultRaw = _rawInterpreterValue(result);
+    final resultRaw = rawLuaSlot(result);
     if (resultRaw is Map) {
       final canon = Value.lookupCanonicalTableWrapper(resultRaw);
       if (canon != null && !identical(canon, result)) {
@@ -90,7 +90,7 @@ mixin InterpreterTableMixin on AstVisitor<Object?> {
       }
 
       // If the lookup result is nil, use the name as a direct key
-      if ((indexResult is Value && _rawInterpreterValue(indexResult) == null)) {
+      if ((indexResult is Value && rawLuaSlot(indexResult) == null)) {
         indexResult = identName;
       }
     } else {
@@ -119,7 +119,7 @@ mixin InterpreterTableMixin on AstVisitor<Object?> {
           );
 
     int? positiveInteger(Value candidate) {
-      final raw = _rawInterpreterValue(candidate);
+      final raw = rawLuaSlot(candidate);
       if (raw is int) {
         return raw > 0 ? raw : null;
       }
@@ -132,7 +132,7 @@ mixin InterpreterTableMixin on AstVisitor<Object?> {
       return null;
     }
 
-    final tableRaw = _rawInterpreterValue(tableVal);
+    final tableRaw = rawLuaSlot(tableVal);
     if (tableRaw is TableStorage && !tableVal.hasMetamethod('__index')) {
       final denseIndex = positiveInteger(indexVal);
       if (denseIndex != null) {
@@ -164,7 +164,7 @@ mixin InterpreterTableMixin on AstVisitor<Object?> {
     }
 
     var result = tableVal[indexVal];
-    final resultRaw = _rawInterpreterValue(result);
+    final resultRaw = rawLuaSlot(result);
     if (result is Value && resultRaw is Map) {
       final canon = Value.lookupCanonicalTableWrapper(resultRaw);
       if (canon != null && !identical(canon, result)) {
@@ -203,7 +203,7 @@ mixin InterpreterTableMixin on AstVisitor<Object?> {
     final tableVal = valueFromLuaSlot(interpreter, table);
     final hasIndexMetamethod = tableVal.hasMetamethod('__index');
     final bool tableIsOriginalValue = identical(tableVal, table);
-    final tableRaw = _rawInterpreterValue(tableVal);
+    final tableRaw = rawLuaSlot(tableVal);
 
     if (tableRaw is! Map) {
       final sourceLabel = _sourceLabelForAst(globals, node.table);
@@ -389,7 +389,7 @@ mixin InterpreterTableMixin on AstVisitor<Object?> {
 
     // Check if we can use caching (table is not transformed and has no __index metamethod)
     final bool tableIsOriginalValue = identical(table, tableVal);
-    final tableRaw = _rawInterpreterValue(tableVal);
+    final tableRaw = rawLuaSlot(tableVal);
     final bool canUseCache =
         tableIsOriginalValue &&
         tableRaw is Map &&
@@ -530,7 +530,7 @@ mixin InterpreterTableMixin on AstVisitor<Object?> {
     } else {
       key = await node.key.accept(this);
       if (key is Value) {
-        key = _rawInterpreterValue(key);
+        key = rawLuaSlot(key);
       }
     }
     final value = await node.value.accept(this);
@@ -555,7 +555,7 @@ mixin InterpreterTableMixin on AstVisitor<Object?> {
     // For indexed entries, always evaluate the key expression
     Object? key = await node.key.accept(this);
     if (key is Value) {
-      key = _rawInterpreterValue(key);
+      key = rawLuaSlot(key);
     }
     final value = await node.value.accept(this);
     return [key, value];
@@ -610,7 +610,7 @@ mixin InterpreterTableMixin on AstVisitor<Object?> {
     final valueVal = valueFromLuaSlot(interpreter, value);
 
     int? positiveInteger(Value candidate) {
-      final raw = _rawInterpreterValue(candidate);
+      final raw = rawLuaSlot(candidate);
       if (raw is int) {
         return raw > 0 ? raw : null;
       }
@@ -623,7 +623,7 @@ mixin InterpreterTableMixin on AstVisitor<Object?> {
       return null;
     }
 
-    final targetRaw = _rawInterpreterValue(targetVal);
+    final targetRaw = rawLuaSlot(targetVal);
     if (targetRaw is TableStorage &&
         !targetVal.hasMetamethod('__newindex') &&
         !targetVal.hasMetamethod('__index')) {
@@ -632,7 +632,7 @@ mixin InterpreterTableMixin on AstVisitor<Object?> {
         if (Logger.enabled) {
           print(
             'fast path check raw key type: '
-            '${_rawInterpreterValue(indexVal).runtimeType}',
+            '${rawLuaSlot(indexVal).runtimeType}',
           );
         }
         return true;
@@ -644,7 +644,7 @@ mixin InterpreterTableMixin on AstVisitor<Object?> {
       }
     }
 
-    final rawKey = _rawInterpreterValue(indexVal);
+    final rawKey = rawLuaSlot(indexVal);
     if (rawKey == null) {
       throw LuaError.typeError('table index is nil');
     }
@@ -733,7 +733,7 @@ mixin InterpreterTableMixin on AstVisitor<Object?> {
           rawKey = await entry.key.accept(this);
         }
 
-        final keyForCheck = _rawInterpreterValue(rawKey);
+        final keyForCheck = rawLuaSlot(rawKey);
         if (keyForCheck == null) {
           throw LuaError.typeError('table index is nil');
         }
@@ -764,7 +764,7 @@ mixin InterpreterTableMixin on AstVisitor<Object?> {
       } else if (entry is IndexedTableEntry) {
         // Indexed key-value pair: [key] = value
         final evaluatedKey = await entry.key.accept(this);
-        final keyForCheck = _rawInterpreterValue(evaluatedKey);
+        final keyForCheck = rawLuaSlot(evaluatedKey);
         if (keyForCheck == null) {
           throw LuaError.typeError('table index is nil');
         }
@@ -878,7 +878,7 @@ mixin InterpreterTableMixin on AstVisitor<Object?> {
 
   dynamic _normalizeTableKey(dynamic rawKey) {
     if (rawKey is Value) {
-      final inner = _rawInterpreterValue(rawKey);
+      final inner = rawLuaSlot(rawKey);
       if (inner is LuaString) {
         return inner.toString();
       }

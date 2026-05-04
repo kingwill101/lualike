@@ -2,7 +2,7 @@ part of 'interpreter.dart';
 
 bool _isInlineableMutableLocalPrimitive(Object? value) {
   if (value is Value) {
-    final raw = _rawInterpreterValue(value);
+    final raw = rawLuaSlot(value);
     if (value.isMulti ||
         value.isConst ||
         value.isToBeClose ||
@@ -26,7 +26,7 @@ bool _isInlineableMutableLocalPrimitive(Object? value) {
 
 Object? _mutableLocalStorageValue(Object? value) {
   if (_isInlineableMutableLocalPrimitive(value)) {
-    return _rawInterpreterValue(value);
+    return rawLuaSlot(value);
   }
   return value;
 }
@@ -39,7 +39,7 @@ FutureOr<Object?> _resolveAssignmentFutureValue(
     return value;
   }
 
-  final raw = _rawInterpreterValue(value);
+  final raw = rawLuaSlot(value);
   if (raw is Future) {
     return raw.then((resolved) => valueFromLuaSlot(interpreter, resolved));
   }
@@ -47,13 +47,12 @@ FutureOr<Object?> _resolveAssignmentFutureValue(
   return value;
 }
 
-bool _isRawMapValue(Value value) => _rawInterpreterValue(value) is Map;
+bool _isRawMapValue(Value value) => rawLuaSlot(value) is Map;
 
-bool _isRawTableStorageValue(Value value) =>
-    _rawInterpreterValue(value) is TableStorage;
+bool _isRawTableStorageValue(Value value) => rawLuaSlot(value) is TableStorage;
 
 bool _isTruthyAssignmentValue(Object? value) {
-  final raw = _rawInterpreterValue(value);
+  final raw = rawLuaSlot(value);
   return raw != null && raw != false;
 }
 
@@ -81,7 +80,7 @@ mixin InterpreterAssignmentMixin on AstVisitor<Object?> {
   }
 
   bool _isPlainDetachedPrimitive(Value value) {
-    final raw = _rawInterpreterValue(value);
+    final raw = rawLuaSlot(value);
     if (value.isMulti ||
         value.isConst ||
         value.isToBeClose ||
@@ -104,7 +103,7 @@ mixin InterpreterAssignmentMixin on AstVisitor<Object?> {
   }
 
   Value _detachPrimitiveValue(Value value) {
-    final raw = _rawInterpreterValue(value);
+    final raw = rawLuaSlot(value);
     if (_isPlainDetachedPrimitive(value)) {
       return Value.primitive(raw, interpreter: value.interpreter);
     }
@@ -128,7 +127,7 @@ mixin InterpreterAssignmentMixin on AstVisitor<Object?> {
     if (isConst) {
       return false;
     }
-    return _rawInterpreterValue(value) is Map ||
+    return rawLuaSlot(value) is Map ||
         value.metatable != null ||
         value.metatableRef != null ||
         value.upvalues != null ||
@@ -156,7 +155,7 @@ mixin InterpreterAssignmentMixin on AstVisitor<Object?> {
     bool isToBeClose = false,
   }) {
     if (_isPlainDetachedPrimitive(value)) {
-      final raw = _rawInterpreterValue(value);
+      final raw = rawLuaSlot(value);
       return Value.primitive(
         raw,
         isConst: isConst,
@@ -165,7 +164,7 @@ mixin InterpreterAssignmentMixin on AstVisitor<Object?> {
       );
     }
 
-    final raw = _rawInterpreterValue(value);
+    final raw = rawLuaSlot(value);
     // Metatable-backed values can own __gc / __close behavior at the wrapper
     // level, so cloning them for a local binding can leave the live local
     // pointing at raw state whose original wrapper is then finalized.
@@ -199,7 +198,7 @@ mixin InterpreterAssignmentMixin on AstVisitor<Object?> {
         value.metatable!,
         ownerRaw:
             Value.rawMetatableOwnerForTable(raw) ??
-            _rawInterpreterValue(value.metatableRef) ??
+            rawLuaSlot(value.metatableRef) ??
             value.metatable,
       );
     }
@@ -231,7 +230,7 @@ mixin InterpreterAssignmentMixin on AstVisitor<Object?> {
   }
 
   Value _globalConstDeclarationValue(Value value) {
-    final raw = _rawInterpreterValue(value);
+    final raw = rawLuaSlot(value);
     if (value.metatable == null &&
         value.metatableRef == null &&
         isLuaPrimitiveSlot(raw)) {
@@ -418,7 +417,7 @@ mixin InterpreterAssignmentMixin on AstVisitor<Object?> {
         }
       } else if (expr is TableAccessExpr &&
           value is Value &&
-          _rawInterpreterValue(value) is Coroutine) {
+          rawLuaSlot(value) is Coroutine) {
         // Patch: If the right-hand side is a TableAccessExpr and the value is a Coroutine, assign an empty table
         Logger.debugLazy(
           () =>
@@ -614,7 +613,7 @@ mixin InterpreterAssignmentMixin on AstVisitor<Object?> {
           try {
             // Try to get the identifier as a variable
             final variableValue = globals.get(identName);
-            final variableRaw = _rawInterpreterValue(variableValue);
+            final variableRaw = rawLuaSlot(variableValue);
             if (variableValue is Value && variableRaw != null) {
               // Variable exists and has a non-nil value - use its value as key
               identifier = variableRaw;
@@ -642,7 +641,7 @@ mixin InterpreterAssignmentMixin on AstVisitor<Object?> {
         Logger.debugLazy(
           () =>
               '_handleTableAccessAssignment: Assigned '
-              '${_rawInterpreterValue(storedValue)} to '
+              '${rawLuaSlot(storedValue)} to '
               '${(target.index as Identifier).name}',
           category: 'Interpreter',
           contextBuilder: () => {'key': (target.index as Identifier).name},
@@ -693,8 +692,8 @@ mixin InterpreterAssignmentMixin on AstVisitor<Object?> {
     final interpreter = this as Interpreter;
     final envValue = _resolveActiveEnvValue(interpreter);
     final gValue = _resolveActiveGlobalValue(interpreter);
-    final envRaw = _rawInterpreterValue(envValue);
-    final globalRaw = _rawInterpreterValue(gValue);
+    final envRaw = rawLuaSlot(envValue);
+    final globalRaw = rawLuaSlot(gValue);
     Logger.debugLazy(
       () =>
           'ENV assign context: name=$name, '
@@ -796,7 +795,7 @@ mixin InterpreterAssignmentMixin on AstVisitor<Object?> {
       }
 
       final envTarget = envValue;
-      if (envTarget == null || _rawInterpreterValue(envTarget) == null) {
+      if (envTarget == null || rawLuaSlot(envTarget) == null) {
         throw LuaError("attempt to index a nil value ('_ENV')", node: target);
       }
 
@@ -891,8 +890,8 @@ mixin InterpreterAssignmentMixin on AstVisitor<Object?> {
     final interpreter = this as Interpreter;
     final envValue = _resolveActiveEnvValue(interpreter);
     final rootGlobalValue = _resolveActiveGlobalValue(interpreter);
-    final envRaw = _rawInterpreterValue(envValue);
-    final rootGlobalRaw = _rawInterpreterValue(rootGlobalValue);
+    final envRaw = rawLuaSlot(envValue);
+    final rootGlobalRaw = rawLuaSlot(rootGlobalValue);
 
     if (name == '_ENV') {
       globals.defineGlobal(name, storedValue);
@@ -921,8 +920,8 @@ mixin InterpreterAssignmentMixin on AstVisitor<Object?> {
     final interpreter = this as Interpreter;
     final envValue = _resolveActiveEnvValue(interpreter);
     final rootGlobalValue = _resolveActiveGlobalValue(interpreter);
-    final envRaw = _rawInterpreterValue(envValue);
-    final rootGlobalRaw = _rawInterpreterValue(rootGlobalValue);
+    final envRaw = rawLuaSlot(envValue);
+    final rootGlobalRaw = rawLuaSlot(rootGlobalValue);
 
     if (name == '_ENV') {
       globals.clearGlobal(name);
@@ -957,7 +956,7 @@ mixin InterpreterAssignmentMixin on AstVisitor<Object?> {
     }
 
     final envValue = globals.get('_ENV');
-    if (envValue is Value && _rawInterpreterValue(envValue) != null) {
+    if (envValue is Value && rawLuaSlot(envValue) != null) {
       final current = await envValue.getValueAsync(name);
       return current is Value ? !current.isNil : current != null;
     }
@@ -1054,7 +1053,7 @@ mixin InterpreterAssignmentMixin on AstVisitor<Object?> {
         Logger.debugLazy(
           () =>
               '_handleTableFieldAssignment: Assigned '
-              '${_rawInterpreterValue(storedValue)} to '
+              '${rawLuaSlot(storedValue)} to '
               '${target.fieldName.name}',
           category: 'Interpreter',
           contextBuilder: () => {'fieldName': target.fieldName.name},
@@ -1132,7 +1131,7 @@ mixin InterpreterAssignmentMixin on AstVisitor<Object?> {
         }
 
         int? positiveInteger(Value candidate) {
-          final raw = _rawInterpreterValue(candidate);
+          final raw = rawLuaSlot(candidate);
           if (raw is int) {
             return raw > 0 ? raw : null;
           }
@@ -1156,13 +1155,11 @@ mixin InterpreterAssignmentMixin on AstVisitor<Object?> {
             Logger.debugLazy(
               () =>
                   '_handleTableIndexAssignment: Assigned '
-                  '${_rawInterpreterValue(storedValue)} to dense index '
-                  '${_rawInterpreterValue(keyValue)}',
+                  '${rawLuaSlot(storedValue)} to dense index '
+                  '${rawLuaSlot(keyValue)}',
               category: 'Interpreter',
               contextBuilder: () => {
-                'keyType': _rawInterpreterValue(
-                  keyValue,
-                ).runtimeType.toString(),
+                'keyType': rawLuaSlot(keyValue).runtimeType.toString(),
               },
             );
             return storedValue;
@@ -1177,11 +1174,11 @@ mixin InterpreterAssignmentMixin on AstVisitor<Object?> {
         Logger.debugLazy(
           () =>
               '_handleTableIndexAssignment: Assigned '
-              '${_rawInterpreterValue(storedValue)} to index '
-              '${_rawInterpreterValue(keyValue)}',
+              '${rawLuaSlot(storedValue)} to index '
+              '${rawLuaSlot(keyValue)}',
           category: 'Interpreter',
           contextBuilder: () => {
-            'keyType': _rawInterpreterValue(keyValue).runtimeType.toString(),
+            'keyType': rawLuaSlot(keyValue).runtimeType.toString(),
           },
         );
         return storedValue;
@@ -1515,7 +1512,7 @@ mixin InterpreterAssignmentMixin on AstVisitor<Object?> {
           : node.defaultAttribute;
 
       final baseValue = valueFromLuaSlot(this as Interpreter, rawValue);
-      final baseRaw = _rawInterpreterValue(baseValue);
+      final baseRaw = rawLuaSlot(baseValue);
       final valueWithAttributes = switch (attribute) {
         'const' => _globalConstDeclarationValue(baseValue),
         'close' => throw UnsupportedError(
@@ -1597,13 +1594,13 @@ mixin InterpreterAssignmentMixin on AstVisitor<Object?> {
     final targetVal = valueFromLuaSlot(interpreter, targetValue);
     final indexVal = valueFromLuaSlot(interpreter, indexValue);
 
-    final targetRaw = _rawInterpreterValue(targetVal);
+    final targetRaw = rawLuaSlot(targetVal);
     if (targetRaw is! Map) {
       throw Exception('Cannot assign to index of non-table value');
     }
 
     final map = targetRaw;
-    final rawKey = _rawInterpreterValue(indexVal);
+    final rawKey = rawLuaSlot(indexVal);
     final bool keyExists = map.containsKey(rawKey);
     final bool hasNewindex = targetVal.hasMetamethod('__newindex');
     final bool hasIndexMeta = targetVal.hasMetamethod('__index');
@@ -1618,7 +1615,7 @@ mixin InterpreterAssignmentMixin on AstVisitor<Object?> {
     }
 
     int? positiveInteger(Value candidate) {
-      final raw = _rawInterpreterValue(candidate);
+      final raw = rawLuaSlot(candidate);
       if (raw is int) {
         return raw > 0 ? raw : null;
       }

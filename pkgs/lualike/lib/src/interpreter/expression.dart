@@ -57,7 +57,7 @@ Value? _resolveActiveGlobalValue(Interpreter interpreter) {
 }
 
 Value _detachTemporaryValue(Value value) {
-  final raw = _rawInterpreterValue(value);
+  final raw = rawLuaSlot(value);
   if (value.metatable == null && isLuaPrimitiveSlot(raw)) {
     return Value.primitive(
       raw,
@@ -337,7 +337,7 @@ mixin InterpreterExpressionMixin on AstVisitor<Object?> {
     final lineNumber = traceLine == null ? null : traceLine + 1;
 
     Object? rawNumericOperand(Object? value) {
-      return _rawInterpreterValue(value);
+      return rawLuaSlot(value);
     }
 
     bool hasPerValueMetatable(Object? value) {
@@ -414,7 +414,7 @@ mixin InterpreterExpressionMixin on AstVisitor<Object?> {
         : _wrapExpressionValue(interpreter, rightResult);
 
     String? nilSourceLabel(AstNode expr, Value value) {
-      if (_rawInterpreterValue(value) != null) {
+      if (rawLuaSlot(value) != null) {
         return null;
       }
       return _sourceLabelForAst((this as Interpreter).getCurrentEnv(), expr);
@@ -425,7 +425,7 @@ mixin InterpreterExpressionMixin on AstVisitor<Object?> {
           null) {
         return false;
       }
-      final raw = _rawInterpreterValue(value);
+      final raw = rawLuaSlot(value);
       return raw == null || raw is Map || raw is TableStorage;
     }
 
@@ -460,7 +460,7 @@ mixin InterpreterExpressionMixin on AstVisitor<Object?> {
           (this as Interpreter).getCurrentEnv(),
           expr,
         );
-        final raw = _rawInterpreterValue(value);
+        final raw = rawLuaSlot(value);
         if (sourceLabel != null &&
             (raw is num ||
                 raw is BigInt ||
@@ -527,8 +527,8 @@ mixin InterpreterExpressionMixin on AstVisitor<Object?> {
           right.metatableRef != null) {
         return false;
       }
-      final leftRaw = _rawInterpreterValue(left);
-      final rightRaw = _rawInterpreterValue(right);
+      final leftRaw = rawLuaSlot(left);
+      final rightRaw = rawLuaSlot(right);
       final plainNumericOperands =
           (leftRaw is num || leftRaw is BigInt) &&
           (rightRaw is num || rightRaw is BigInt);
@@ -624,7 +624,7 @@ mixin InterpreterExpressionMixin on AstVisitor<Object?> {
       if (Logger.enabled) {
         Logger.debugLazy(
           () =>
-              'BinaryExpression result: $result (raw: ${_rawInterpreterValue(result).runtimeType})',
+              'BinaryExpression result: $result (raw: ${rawLuaSlot(result).runtimeType})',
           category: 'Expression',
         );
       }
@@ -645,7 +645,7 @@ mixin InterpreterExpressionMixin on AstVisitor<Object?> {
 
     // Canonicalize table wrappers to preserve per-instance metatables
     Value canon(Value v) {
-      final raw = _rawInterpreterValue(v);
+      final raw = rawLuaSlot(v);
       if (raw is Map) {
         final c = Value.lookupCanonicalTableWrapper(raw);
         if (c != null) return c;
@@ -655,8 +655,8 @@ mixin InterpreterExpressionMixin on AstVisitor<Object?> {
 
     final canonicalLeft = canon(leftVal);
     final canonicalRight = canon(rightVal);
-    final leftRawForDiagnostics = _rawInterpreterValue(leftVal);
-    final rightRawForDiagnostics = _rawInterpreterValue(rightVal);
+    final leftRawForDiagnostics = rawLuaSlot(leftVal);
+    final rightRawForDiagnostics = rawLuaSlot(rightVal);
 
     Value operandForMetamethod(Value live, Value canonical, String event) {
       if (live.hasMetamethod(event)) {
@@ -803,7 +803,7 @@ mixin InterpreterExpressionMixin on AstVisitor<Object?> {
 
         // For inequality operators that use __eq, negate the result
         if ((node.op == '~=' || node.op == '!=') && metamethodName == '__eq') {
-          final resultRaw = _rawInterpreterValue(result);
+          final resultRaw = rawLuaSlot(result);
           if (result is bool) {
             return _wrapExpressionValue(interpreter, !result);
           } else if (result is Value && resultRaw is bool) {
@@ -812,7 +812,7 @@ mixin InterpreterExpressionMixin on AstVisitor<Object?> {
         }
 
         if (invertResult) {
-          final resultRaw = _rawInterpreterValue(result);
+          final resultRaw = rawLuaSlot(result);
           if (result is bool) {
             result = !result;
           } else if (result is Value && resultRaw is bool) {
@@ -1127,7 +1127,7 @@ mixin InterpreterExpressionMixin on AstVisitor<Object?> {
     // so that local _ENV assignments are respected.
     Value? envValue = _resolveActiveEnvValue(interpreter);
     Value? gValue = _resolveActiveGlobalValue(interpreter);
-    final envRaw = _rawInterpreterValue(envValue);
+    final envRaw = rawLuaSlot(envValue);
 
     final bool canUseGlobalCache =
         envValue != null &&

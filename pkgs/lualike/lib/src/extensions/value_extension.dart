@@ -8,11 +8,9 @@ import '../value.dart';
 
 Value _extensionValue(Object? value) => valueFromOptionalLuaSlot(null, value);
 
-dynamic _rawExtensionValue(Object? value) => value is Value ? value.raw : value;
-
 dynamic fromLuaValue(dynamic obj) {
   if (obj is Value) {
-    final raw = _rawExtensionValue(obj);
+    final raw = rawLuaSlot(obj);
     if (raw is Map) {
       final rawMap = raw;
       final unwrappedMap = <dynamic, dynamic>{};
@@ -65,7 +63,7 @@ Value toLuaValue(dynamic dy) {
 
   if (dy is Value) {
     final val = dy;
-    final raw = _rawExtensionValue(val);
+    final raw = rawLuaSlot(val);
 
     // If the underlying raw is a Map, recursively convert each entry.
     if (raw is Map) {
@@ -95,7 +93,7 @@ Value toLuaValue(dynamic dy) {
 
 /// Extension methods for the Value class to simplify common operations
 extension ValueExtension<T> on T {
-  dynamic get raw => _rawExtensionValue(this);
+  dynamic get raw => rawLuaSlot(this);
 
   bool get isValue => this is Value;
 
@@ -170,12 +168,8 @@ extension ValueExtension<T> on T {
         dynamic result;
         if (metamethod is Function) {
           result = metamethod([this, wrappedOther]);
-        } else if (metamethod is Value &&
-            _rawExtensionValue(metamethod) is Function) {
-          result = (_rawExtensionValue(metamethod) as Function)([
-            this,
-            wrappedOther,
-          ]);
+        } else if (metamethod is Value && rawLuaSlot(metamethod) is Function) {
+          result = (rawLuaSlot(metamethod) as Function)([this, wrappedOther]);
         } else {
           throw UnsupportedError(
             "Metamethod __concat exists but is not callable: $metamethod",
@@ -190,7 +184,7 @@ extension ValueExtension<T> on T {
 
     // Default string concatenation behavior
     final rawSelf = raw;
-    final rawOther = _rawExtensionValue(wrappedOther);
+    final rawOther = rawLuaSlot(wrappedOther);
     if (isString || wrappedOther.isString) {
       final String leftStr = rawSelf is LuaString
           ? rawSelf.toLatin1String()
