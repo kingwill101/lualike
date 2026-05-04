@@ -58,8 +58,7 @@ class UTF8Library extends Library {
   @override
   Map<String, Function>? getMetamethods(LuaRuntime interpreter) => {
     "__len": (List<Object?> args) {
-      final str = args[0] as Value;
-      final raw = rawLuaSlot(str);
+      final raw = rawLuaSlot(args[0]);
       if (raw is! String && raw is! LuaString) {
         throw LuaError("utf8 operation on non-string value");
       }
@@ -68,8 +67,7 @@ class UTF8Library extends Library {
       );
     },
     "__index": (List<Object?> args) {
-      final _ = args[0] as Value;
-      final key = args[1] as Value;
+      final key = args[1];
 
       // Convert key to string if needed
       final keyRaw = rawLuaSlot(key);
