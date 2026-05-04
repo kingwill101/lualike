@@ -339,6 +339,9 @@ void main() {
   test(
     'pure 7z decoder reads ARM64 plus LZMA2 filter-chain archives',
     () {
+      if (_sevenZipArm64SkipReason != null) {
+        return;
+      }
       final originalBytes = _buildArm64FixtureBytes();
       final archiveBytes = encode7zArchive(
         sevenZipExecutable: _sevenZipExecutable,
@@ -361,6 +364,9 @@ void main() {
   test(
     'pure 7z decoder reads encoded-header ARM64 plus LZMA2 filter chains',
     () {
+      if (_sevenZipArm64SkipReason != null) {
+        return;
+      }
       final originalBytes = _buildArm64FixtureBytes();
       final archiveBytes = encode7zArchive(
         sevenZipExecutable: _sevenZipExecutable,
