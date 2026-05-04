@@ -297,12 +297,12 @@ class LualikeIrVm {
     if (envEntry is! Value) {
       return null;
     }
-    final raw = envEntry.raw;
+    final raw = _rawValue(envEntry);
     if (raw == null) {
       return null;
     }
     final global = _globalEnvValue;
-    if (global != null && identical(global.raw, raw)) {
+    if (global != null && identical(_rawValue(global), raw)) {
       return null;
     }
     return envEntry;
@@ -329,7 +329,7 @@ class LualikeIrVm {
       return 'LualikeIrClosure(protoRegisters=${value.prototype.registerCount})';
     }
     if (value is Value) {
-      final raw = value.raw;
+      final raw = _rawValue(value);
       final typeName = raw == null ? 'nil' : raw.runtimeType.toString();
       return 'Value<$typeName>';
     }
@@ -723,8 +723,11 @@ class LualikeIrVm {
             LualikeIrClosure? closure;
             if (callee is LualikeIrClosure) {
               closure = callee;
-            } else if (callee is Value && callee.raw is LualikeIrClosure) {
-              closure = callee.raw as LualikeIrClosure;
+            } else {
+              final calleeRaw = _rawValue(callee);
+              if (callee is Value && calleeRaw is LualikeIrClosure) {
+                closure = calleeRaw;
+              }
             }
             _logVm(
               () =>
@@ -769,8 +772,11 @@ class LualikeIrVm {
             LualikeIrClosure? closure;
             if (callee is LualikeIrClosure) {
               closure = callee;
-            } else if (callee is Value && callee.raw is LualikeIrClosure) {
-              closure = callee.raw as LualikeIrClosure;
+            } else {
+              final calleeRaw = _rawValue(callee);
+              if (callee is Value && calleeRaw is LualikeIrClosure) {
+                closure = calleeRaw;
+              }
             }
             _logVm(
               () =>
@@ -1597,7 +1603,7 @@ class LualikeIrVm {
 
   dynamic _finalizeValue(dynamic value) {
     if (value is Value && value.isPrimitiveLike) {
-      return value.raw;
+      return _rawValue(value);
     }
     return value;
   }
@@ -2181,8 +2187,9 @@ class LualikeIrVm {
   }
 
   dynamic _ensureMetamethodLookup(Value subject, Value key, dynamic result) {
+    final resultRaw = _rawValue(result);
     final isNilResult =
-        result == null || (result is Value && result.raw == null);
+        result == null || (result is Value && resultRaw == null);
     if (!isNilResult) {
       return result;
     }
@@ -2190,19 +2197,22 @@ class LualikeIrVm {
     if (stringLib is! Value) {
       return result;
     }
-    final methodEntry = stringLib[cachedPrimitiveOrValue(runtime, key.raw)];
-    if (methodEntry is! Value || methodEntry.raw == null) {
+    final keyRaw = _rawValue(key);
+    final methodEntry = stringLib[cachedPrimitiveOrValue(runtime, keyRaw)];
+    final methodRaw = _rawValue(methodEntry);
+    if (methodEntry is! Value || methodRaw == null) {
       return result;
     }
     return Value((List<Object?> callArgs) async {
       final normalizedArgs = callArgs.map(_prepareCallArgument).toList();
+      final subjectRaw = _rawValue(subject);
       final hasSelf =
           normalizedArgs.isNotEmpty &&
           normalizedArgs.first is Value &&
-          (normalizedArgs.first as Value).raw == subject.raw;
+          _rawValue(normalizedArgs.first) == subjectRaw;
       _logVm(
         () =>
-            'metamethod fallback key=${key.raw} hasSelf=$hasSelf args=${normalizedArgs.map(_describeValue).join(', ')}',
+            'metamethod fallback key=$keyRaw hasSelf=$hasSelf args=${normalizedArgs.map(_describeValue).join(', ')}',
         categories: const {'Metamethod', 'String'},
       );
       if (!hasSelf) {
@@ -2225,8 +2235,9 @@ class LualikeIrVm {
         current = await current;
         continue;
       }
-      if (current is Value && current.raw is Future) {
-        current = await current.raw;
+      final currentRaw = _rawValue(current);
+      if (current is Value && currentRaw is Future) {
+        current = await currentRaw;
         continue;
       }
       return _ensureValue(current);
@@ -2239,17 +2250,21 @@ class LualikeIrVm {
     final bool rawHasKey = tableValue.rawContainsKey(keyValue);
     dynamic lookup = tableValue[keyValue];
     final bool usedMetamethod =
-        !rawHasKey || lookup == null || (lookup is Value && lookup.raw == null);
-    if (lookup is Future || (lookup is Value && lookup.raw is Future)) {
+        !rawHasKey ||
+        lookup == null ||
+        (lookup is Value && _rawValue(lookup) == null);
+    if (lookup is Future || (lookup is Value && _rawValue(lookup) is Future)) {
       lookup = await _awaitValue(lookup);
     }
     var resolved = _ensureMetamethodLookup(tableValue, keyValue, lookup);
-    if (resolved is Future || (resolved is Value && resolved.raw is Future)) {
+    if (resolved is Future ||
+        (resolved is Value && _rawValue(resolved) is Future)) {
       resolved = await _awaitValue(resolved);
     }
     if (resolved is Value) {
-      if (usedMetamethod && resolved.raw is List) {
-        final list = resolved.raw as List;
+      final resolvedRaw = _rawValue(resolved);
+      if (usedMetamethod && resolvedRaw is List) {
+        final list = resolvedRaw;
         if (list.isEmpty) {
           final nilValue = cachedPrimitiveOrValue(runtime, null);
           _ensureInterpreterAttached(nilValue);
@@ -2586,8 +2601,9 @@ class LualikeIrVm {
   }
 
   Value _canonicalizeValue(Value value) {
-    if (value.raw is Map) {
-      final canonical = Value.lookupCanonicalTableWrapper(value.raw);
+    final raw = _rawValue(value);
+    if (raw is Map) {
+      final canonical = Value.lookupCanonicalTableWrapper(raw);
       if (canonical != null) {
         _ensureInterpreterAttached(canonical);
         return canonical;
@@ -2893,14 +2909,15 @@ class LoopIrVm {
     final tableValue = _ensureValue(tableRef);
     final keyValue = _ensureValue(keyRef);
     final storedValue = _ensureValue(valueRef);
+    final tableRaw = _rawValue(tableValue);
 
-    if (tableValue.raw is Map) {
+    if (tableRaw is Map) {
       tableValue[keyValue] = storedValue;
       return;
     }
 
     throw LuaError.typeError(
-      'attempt to index a ${tableValue.raw.runtimeType} value',
+      'attempt to index a ${tableRaw.runtimeType} value',
     );
   }
 }
