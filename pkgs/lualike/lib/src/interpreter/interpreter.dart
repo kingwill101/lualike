@@ -1272,8 +1272,9 @@ class Interpreter extends AstVisitor<Object?>
       // Try to get the script path from the environment
       final scriptPathValue = globals.get('_SCRIPT_PATH');
       String? scriptPath;
-      if (scriptPathValue is Value && scriptPathValue.raw != null) {
-        scriptPath = scriptPathValue.raw.toString();
+      final rawScriptPath = _rawInterpreterValue(scriptPathValue);
+      if (scriptPathValue is Value && rawScriptPath != null) {
+        scriptPath = rawScriptPath.toString();
       } else {
         scriptPath = currentScriptPath;
       }
@@ -1385,8 +1386,9 @@ class Interpreter extends AstVisitor<Object?>
     // Set the script path in the call stack if available
     final prevScriptPath = callStack.scriptPath;
     final scriptPathValue = globals.get('_SCRIPT_PATH');
-    if (scriptPathValue is Value && scriptPathValue.raw != null) {
-      String scriptPath = scriptPathValue.raw.toString();
+    final rawScriptPath = _rawInterpreterValue(scriptPathValue);
+    if (scriptPathValue is Value && rawScriptPath != null) {
+      String scriptPath = rawScriptPath.toString();
       callStack.setScriptPath(scriptPath);
       currentScriptPath = scriptPath;
     }
