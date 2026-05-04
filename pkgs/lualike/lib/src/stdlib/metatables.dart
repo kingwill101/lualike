@@ -6,12 +6,10 @@ import 'package:lualike/src/utils/type.dart';
 
 import '../../lualike.dart';
 
-Object? _rawMetatableValue(Object? value) => value is Value ? value.raw : value;
-
-bool _isNilMetatableValue(Object? value) => _rawMetatableValue(value) == null;
+bool _isNilMetatableValue(Object? value) => rawLuaSlot(value) == null;
 
 Object? _callMetatableCallable(Object? callable, List<Object?> args) {
-  final rawCallable = _rawMetatableValue(callable);
+  final rawCallable = rawLuaSlot(callable);
   if (rawCallable is Function) {
     return rawCallable(args);
   }
@@ -84,7 +82,7 @@ class MetaTable {
     _typeMetatables['string'] = ValueClass.create({
       '__len': (List<Object?> args) {
         final str = args[0] as Value;
-        final rawStr = _rawMetatableValue(str);
+        final rawStr = rawLuaSlot(str);
         Logger.debugLazy(
           () => 'String __len metamethod called for "$rawStr"',
           category: 'Metatables',
@@ -97,8 +95,8 @@ class MetaTable {
       '__index': (List<Object?> args) {
         final str = args[0] as Value;
         final key = args[1] as Value;
-        final rawStr = _rawMetatableValue(str);
-        final rawKey = _rawMetatableValue(key);
+        final rawStr = rawLuaSlot(str);
+        final rawKey = rawLuaSlot(key);
         Logger.debugLazy(
           () => 'String __index metamethod called for "$rawStr"[$rawKey]',
           category: 'Metatables',
@@ -182,7 +180,7 @@ class MetaTable {
         final b = args[1] as Value;
         Logger.debugLazy(
           () =>
-              'String __eq metamethod called: "${_rawMetatableValue(a)}" == "${_rawMetatableValue(b)}"',
+              'String __eq metamethod called: "${rawLuaSlot(a)}" == "${rawLuaSlot(b)}"',
           category: 'Metatables',
         );
         return _primitiveValue(a == b);
@@ -227,7 +225,7 @@ class MetaTable {
       // These should only be present when explicitly set by the user
       '__pairs': (List<Object?> args) {
         final table = args[0] as Value;
-        final rawTable = _rawMetatableValue(table);
+        final rawTable = rawLuaSlot(table);
         Logger.debugLazy(
           () => 'Table __pairs metamethod called for table:${table.hashCode}',
           category: 'Metatables',
@@ -283,7 +281,7 @@ class MetaTable {
           Value((List<Object?> args) {
             final state = args[0] as Value;
             final k = args[1] as Value;
-            final rawK = _rawMetatableValue(k);
+            final rawK = rawLuaSlot(k);
             Logger.debugLazy(
               () =>
                   'Table pairs iterator called with state:${state.hashCode} key: $rawK',
@@ -357,7 +355,7 @@ class MetaTable {
       '__call': (List<Object?> args) {
         final func = args[0] as Value;
         final callArgs = args.sublist(1);
-        final rawFunc = _rawMetatableValue(func);
+        final rawFunc = rawLuaSlot(func);
         Logger.debugLazy(
           () =>
               'Function __call metamethod called for function:${func.hashCode} with ${callArgs.length} args',
@@ -391,7 +389,7 @@ class MetaTable {
     _typeMetatables['thread'] = ValueClass.create({
       '__tostring': (List<Object?> args) {
         final thread = args[0] as Value;
-        final coroutine = _rawMetatableValue(thread) as Coroutine;
+        final coroutine = rawLuaSlot(thread) as Coroutine;
         Logger.debugLazy(
           () =>
               'Thread __tostring metamethod called for coroutine:${thread.hashCode}',
@@ -474,7 +472,7 @@ class MetaTable {
     }
     // Cache string methods from the global string table
     final stringTable = interpreter.globals.get('string');
-    final rawStringTable = _rawMetatableValue(stringTable);
+    final rawStringTable = rawLuaSlot(stringTable);
     if (rawStringTable is Map) {
       final stringMap = rawStringTable;
 

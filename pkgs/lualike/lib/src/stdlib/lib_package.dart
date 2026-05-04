@@ -7,11 +7,9 @@ import 'package:lualike/src/utils/platform_utils.dart' as platform;
 import 'package:path/path.dart' as path_lib;
 import 'library.dart';
 
-Object? _rawPackageValue(Object? value) => value is Value ? value.raw : value;
+bool _isNilPackageValue(Object? value) => rawLuaSlot(value) == null;
 
-bool _isNilPackageValue(Object? value) => _rawPackageValue(value) == null;
-
-String _packageString(Object? value) => _rawPackageValue(value).toString();
+String _packageString(Object? value) => rawLuaSlot(value).toString();
 
 class PackageLib {
   static const _defaultPath = "?.lua;?/?;?/init";
@@ -25,7 +23,7 @@ class PackageLib {
       "__index": (List<Object?> args) {
         final table = args[0] as Value;
         final key = args[1] as Value;
-        final rawKey = _rawPackageValue(key);
+        final rawKey = rawLuaSlot(key);
         if (rawKey == "path") {
           // Default package path
           return vm.constantDartStringValue(_defaultPath);
@@ -35,7 +33,7 @@ class PackageLib {
           return vm.constantDartStringValue(_defaultCPath);
         }
 
-        final rawTable = _rawPackageValue(table);
+        final rawTable = rawLuaSlot(table);
         if (rawTable is Map) {
           final map = rawTable;
           if (map.containsKey(rawKey)) {
@@ -81,9 +79,9 @@ class PackageLib {
       // 1. Package preload searcher
       Value((List<Object?> args) {
         final name = _packageString(args[0]);
-        final packageTable = _rawPackageValue(vm.globals.get("package"));
+        final packageTable = rawLuaSlot(vm.globals.get("package"));
         final preload = packageTable is Map
-            ? _rawPackageValue(packageTable["preload"])
+            ? rawLuaSlot(packageTable["preload"])
             : null;
         if (preload is Map && preload.containsKey(name)) {
           Logger.debugLazy(
@@ -440,10 +438,10 @@ class _LuaLoader extends BuiltinFunction {
               category: 'Package',
             );
             final packageVal = interpreter!.globals.get("package");
-            final packageTable = _rawPackageValue(packageVal);
+            final packageTable = rawLuaSlot(packageVal);
             if (packageTable is Map) {
               if (packageTable.containsKey("loaded")) {
-                final loaded = _rawPackageValue(packageTable["loaded"]);
+                final loaded = rawLuaSlot(packageTable["loaded"]);
                 if (loaded is Map) {
                   loaded[name] = result;
                   Logger.debugLazy(
@@ -483,9 +481,9 @@ class _LuaLoader extends BuiltinFunction {
 String _moduleNotFoundDiagnostic(LuaRuntime runtime, String moduleName) {
   final packageValue = runtime.globals.get('package');
   var packagePath = '';
-  final packageTable = _rawPackageValue(packageValue);
+  final packageTable = rawLuaSlot(packageValue);
   if (packageTable is Map) {
-    final rawPath = _rawPackageValue(packageTable['path']);
+    final rawPath = rawLuaSlot(packageTable['path']);
     if (rawPath is String || rawPath is LuaString) {
       packagePath = rawPath.toString();
     }
@@ -571,7 +569,7 @@ void definePackageLibrary({required Environment env, LuaRuntime? vm}) {
         ]);
 
         if (filename is Value && !_isNilPackageValue(filename)) {
-          final modulePath = _rawPackageValue(filename).toString();
+          final modulePath = rawLuaSlot(filename).toString();
           // Return loader function
           return [
             Value((loaderArgs) async {

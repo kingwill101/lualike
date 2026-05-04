@@ -6,9 +6,6 @@ import 'package:lualike/src/builtin_function.dart';
 import 'package:lualike/src/lua_error.dart';
 import 'package:lualike/src/lua_string.dart';
 import 'package:lualike/src/runtime/lua_slot.dart';
-import 'package:lualike/src/value.dart';
-
-Object? _rawDartBytesValue(Object? value) => value is Value ? value.raw : value;
 
 class DartToBytes extends BuiltinFunction {
   DartToBytes([super.interpreter]);
@@ -20,7 +17,7 @@ class DartToBytes extends BuiltinFunction {
         'dart.string.bytes.toBytes requires at least 1 argument: string',
       );
     }
-    final raw = _rawDartBytesValue(args[0]);
+    final raw = rawLuaSlot(args[0]);
 
     // For LuaString, use the raw bytes directly (they're already UTF-8)
     if (raw is LuaString) {
@@ -47,7 +44,7 @@ class DartFromBytes extends BuiltinFunction {
         'dart.string.bytes.fromBytes requires at least 1 argument: bytes',
       );
     }
-    final raw = _rawDartBytesValue(args[0]);
+    final raw = rawLuaSlot(args[0]);
     Uint8List bytes;
 
     if (raw is Uint8List) {
@@ -70,7 +67,7 @@ class DartFromBytes extends BuiltinFunction {
         if (entry == null) {
           break;
         }
-        entry = _rawDartBytesValue(entry);
+        entry = rawLuaSlot(entry);
         if (entry is num) {
           charCodes.add(entry.toInt());
         } else {

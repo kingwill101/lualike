@@ -14,8 +14,6 @@ import 'package:lualike/src/runtime/lua_slot.dart';
 import 'package:lualike/src/value.dart';
 import 'library.dart';
 
-Object? _rawConvertValue(Object? value) => value is Value ? value.raw : value;
-
 /// Convert library implementation using the new Library system
 class ConvertLibrary extends Library {
   @override
@@ -37,7 +35,7 @@ class ConvertLibrary extends Library {
 }
 
 List<int> _toListInt(Value value) {
-  final raw = _rawConvertValue(value);
+  final raw = rawLuaSlot(value);
   if (raw is Uint8List) {
     return raw;
   }
@@ -96,7 +94,7 @@ class JsonDecode extends BuiltinFunction {
     if (arg is! Value) {
       throw LuaError('dart.convert.jsonDecode requires a Value argument');
     }
-    final str = _rawConvertValue(arg).toString();
+    final str = rawLuaSlot(arg).toString();
     try {
       return toLuaValue(json.decode(str));
     } catch (e) {
@@ -134,7 +132,7 @@ class Base64Decode extends BuiltinFunction {
     if (arg is! Value) {
       throw LuaError('dart.convert.base64Decode requires a Value argument');
     }
-    final str = _rawConvertValue(arg).toString();
+    final str = rawLuaSlot(arg).toString();
     try {
       return valueFromOptionalLuaSlot(interpreter, base64.decode(str));
     } catch (e) {
@@ -172,7 +170,7 @@ class AsciiEncode extends BuiltinFunction {
     if (arg is! Value) {
       throw LuaError('dart.convert.asciiEncode requires a Value argument');
     }
-    final str = _rawConvertValue(arg).toString();
+    final str = rawLuaSlot(arg).toString();
     try {
       return valueFromOptionalLuaSlot(interpreter, ascii.encode(str));
     } catch (e) {
@@ -211,7 +209,7 @@ class Latin1Encode extends BuiltinFunction {
       throw LuaError('dart.convert.latin1Encode requires a Value argument');
     }
     try {
-      final raw = _rawConvertValue(value);
+      final raw = rawLuaSlot(value);
       // For LuaString, use the raw bytes directly
       if (raw is LuaString) {
         final luaString = raw;

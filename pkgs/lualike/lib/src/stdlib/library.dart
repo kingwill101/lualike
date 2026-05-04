@@ -3,10 +3,9 @@ import 'dart:collection';
 import 'package:lualike/src/builtin_function.dart';
 import 'package:lualike/src/environment.dart';
 import 'package:lualike/src/runtime/lua_runtime.dart';
+import 'package:lualike/src/runtime/lua_slot.dart';
 import 'package:lualike/src/value.dart';
 import 'metatables.dart' show MetaTable;
-
-Object? _rawLibraryValue(Object? value) => value is Value ? value.raw : value;
 
 /// Abstract base class for organizing standard library functions.
 ///
@@ -220,11 +219,11 @@ class LibraryRegistry {
         : Value(libraryTable, interpreter: context.interpreter);
 
     final existing = context.environment.get(library.name);
-    final rawExisting = _rawLibraryValue(existing);
+    final rawExisting = rawLuaSlot(existing);
     if (existing is Value && rawExisting is LazyLibraryMap) {
       // Reuse the existing Value so any cached references continue to work.
       rawExisting.attach(libraryValue);
-      existing.raw = _rawLibraryValue(libraryValue);
+      existing.raw = rawLuaSlot(libraryValue);
       existing.metatable = libraryValue.metatable;
       existing.metatableRef = libraryValue.metatableRef;
       existing.functionName = libraryValue.functionName;
@@ -249,12 +248,12 @@ void _updatePackageLoaded(
     return;
   }
   final packageValue = env.get('package');
-  final packageMap = _rawLibraryValue(packageValue);
+  final packageMap = rawLuaSlot(packageValue);
   if (packageMap is! Map) {
     return;
   }
   final loaded = packageMap['loaded'];
-  final loadedMap = _rawLibraryValue(loaded);
+  final loadedMap = rawLuaSlot(loaded);
   if (loadedMap is! Map) {
     return;
   }
@@ -288,7 +287,7 @@ class LazyLibraryMap extends MapBase<String, dynamic> {
     }
     _loading = true;
     final initialized = registry.initializeLibraryByName(libraryName);
-    final rawInitialized = _rawLibraryValue(initialized);
+    final rawInitialized = rawLuaSlot(initialized);
     if (rawInitialized is Map) {
       _resolved = rawInitialized as Map<String, dynamic>;
     }
@@ -297,7 +296,7 @@ class LazyLibraryMap extends MapBase<String, dynamic> {
       return _resolved!;
     }
     final value = env.get(libraryName);
-    final rawValue = _rawLibraryValue(value);
+    final rawValue = rawLuaSlot(value);
     if (rawValue is Map) {
       _resolved = rawValue as Map<String, dynamic>;
     } else {
@@ -308,7 +307,7 @@ class LazyLibraryMap extends MapBase<String, dynamic> {
   }
 
   void attach(Value value) {
-    final rawValue = _rawLibraryValue(value);
+    final rawValue = rawLuaSlot(value);
     if (rawValue is Map) {
       _resolved = rawValue as Map<String, dynamic>;
     }

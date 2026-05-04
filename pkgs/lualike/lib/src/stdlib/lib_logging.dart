@@ -3,13 +3,11 @@ import 'package:lualike/src/logging/level.dart' as ctx;
 import 'package:lualike/src/logging/logger.dart';
 import 'package:lualike/src/lua_error.dart';
 import 'package:lualike/src/lua_string.dart';
-import 'package:lualike/src/value.dart';
+import 'package:lualike/src/runtime/lua_slot.dart';
 
 import 'library.dart';
 
-Object? _rawLoggingValue(Object? value) => value is Value ? value.raw : value;
-
-bool _isNilLoggingValue(Object? value) => _rawLoggingValue(value) == null;
+bool _isNilLoggingValue(Object? value) => rawLuaSlot(value) == null;
 
 /// Enhanced Lua logging library that exposes the full power of contextual logging
 ///
@@ -323,7 +321,7 @@ String _levelToString(ctx.Level level) {
 }
 
 String? _extractString(Object? arg, {bool allowNull = false}) {
-  final raw = _rawLoggingValue(arg);
+  final raw = rawLuaSlot(arg);
   if (raw == null) {
     return allowNull ? null : '';
   }
@@ -349,7 +347,7 @@ Set<String> _extractCategories(Object? arg) {
 
   if (arg == null) return categories;
 
-  final raw = _rawLoggingValue(arg);
+  final raw = rawLuaSlot(arg);
 
   if (raw is Map) {
     // Iterate through table (array-like or key-value)
@@ -397,7 +395,7 @@ _LogContext _extractLogContext(Object? opts) {
     return _LogContext();
   }
 
-  final raw = _rawLoggingValue(opts);
+  final raw = rawLuaSlot(opts);
 
   if (raw is! Map) {
     // Not a table, no context
@@ -411,7 +409,7 @@ _LogContext _extractLogContext(Object? opts) {
   for (final entry in raw.entries) {
     final key = _stringFromRaw(entry.key);
     final value = entry.value;
-    final rawValue = _rawLoggingValue(value);
+    final rawValue = rawLuaSlot(value);
 
     if (key == 'category') {
       // Single category
@@ -450,15 +448,13 @@ Object? _luaValueToDartValue(Object? raw) {
     for (final entry in raw.entries) {
       final key = _stringFromRaw(entry.key);
       final value = entry.value;
-      map[key] = _luaValueToDartValue(_rawLoggingValue(value));
+      map[key] = _luaValueToDartValue(rawLuaSlot(value));
     }
     return map;
   }
 
   if (raw is List) {
-    return raw
-        .map((item) => _luaValueToDartValue(_rawLoggingValue(item)))
-        .toList();
+    return raw.map((item) => _luaValueToDartValue(rawLuaSlot(item))).toList();
   }
 
   return raw.toString();

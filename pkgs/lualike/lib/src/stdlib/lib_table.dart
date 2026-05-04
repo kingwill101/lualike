@@ -11,11 +11,9 @@ import 'library.dart';
 
 import '../number_limits.dart';
 
-dynamic _rawTableValue(Object? value) => value is Value ? value.raw : value;
+bool _isNilTableValue(Object? value) => rawLuaSlot(value) == null;
 
-bool _isNilTableValue(Object? value) => _rawTableValue(value) == null;
-
-bool _isTrueTableValue(Object? value) => _rawTableValue(value) == true;
+bool _isTrueTableValue(Object? value) => rawLuaSlot(value) == true;
 
 /// Table library implementation using the new Library system
 class TableLibrary extends Library {
@@ -29,7 +27,7 @@ class TableLibrary extends Library {
       final key = args[1] as Value;
 
       // Convert key to string if needed
-      final rawKey = _rawTableValue(key);
+      final rawKey = rawLuaSlot(key);
       final keyStr = rawKey is String ? rawKey : key.toString();
 
       // Return the function from our registry if it exists
@@ -80,7 +78,7 @@ class TablePermission {
 /// Check that 'table' either is a table or can behave like one (that is,
 /// has a metatable with the required metamethods)
 void checktab(Value table, int what) {
-  if (_rawTableValue(table) is! Map) {
+  if (rawLuaSlot(table) is! Map) {
     /* is it not a table? */
     if (table.metatable != null) {
       /* must have metatable */
@@ -116,7 +114,7 @@ Future<int> getTableLength(Value table, {String? context}) async {
         () =>
             "getTableLength: lenResult = $lenResult, type = ${lenResult.runtimeType}",
       );
-      final lenValue = _rawTableValue(lenResult);
+      final lenValue = rawLuaSlot(lenResult);
       if (lenValue is! int && lenValue is! BigInt) {
         throw LuaError("object length is not an integer");
       }
@@ -142,7 +140,7 @@ Future<int> getTableLength(Value table, {String? context}) async {
   }
 
   // No __len metamethod, use regular table length calculation
-  return switch (_rawTableValue(table)) {
+  return switch (rawLuaSlot(table)) {
     final TableStorage storage => storage.luaLengthBoundary(),
     final Map<dynamic, dynamic> map => _getTableLength(map),
     _ => throw LuaError.typeError("table expected"),
@@ -205,7 +203,7 @@ class _TableCreate extends BuiltinFunction {
     }
 
     int parseSize(Object? value, String label) {
-      final raw = _rawTableValue(value);
+      final raw = rawLuaSlot(value);
       if (raw == null) {
         return 0;
       }
@@ -268,7 +266,7 @@ class _TableInsert extends BuiltinFunction {
       value = args[1];
     } else {
       // table, pos, value
-      pos = _rawTableValue(args[1]) as int;
+      pos = rawLuaSlot(args[1]) as int;
       value = args[2];
       // Check bounds: 1 <= pos <= firstEmpty
       if (pos < 1 || pos > firstEmpty) {
@@ -300,7 +298,7 @@ class _TableRemove extends BuiltinFunction {
     checktab(table, TablePermission.read | TablePermission.write);
 
     final size = await getTableLength(table);
-    final pos = args.length > 1 ? _rawTableValue(args[1]) as int : size;
+    final pos = args.length > 1 ? rawLuaSlot(args[1]) as int : size;
 
     if (pos == 0 && size > 0) {
       throw LuaError("bad argument #2 to 'remove' (position out of bounds)");
@@ -346,10 +344,10 @@ class _TableConcat extends BuiltinFunction {
     final table = _wrapTableLibraryValue(interpreter, args[0]);
     checktab(table, TablePermission.read);
 
-    final separatorValue = args.length > 1 ? _rawTableValue(args[1]) : "";
-    final start = args.length > 2 ? _rawTableValue(args[2]) as int : 1;
+    final separatorValue = args.length > 1 ? rawLuaSlot(args[1]) : "";
+    final start = args.length > 2 ? rawLuaSlot(args[2]) as int : 1;
     final end = args.length > 3
-        ? _rawTableValue(args[3]) as int
+        ? rawLuaSlot(args[3]) as int
         : await getTableLength(table);
 
     // Empty ranges return an empty LuaString when the separator is byte-backed
@@ -371,7 +369,7 @@ class _TableConcat extends BuiltinFunction {
         i,
         runtime: interpreter,
       );
-      final rawValue = _rawTableValue(value);
+      final rawValue = rawLuaSlot(value);
       if (rawValue == null) {
         // Lua throws an error when encountering nil values in the range
         throw LuaError("invalid value (nil) at index $i in table for 'concat'");
@@ -442,12 +440,12 @@ class _TableMove extends BuiltinFunction {
     // Ensure all arguments are Value objects
     final a1 = _wrapTableLibraryValue(interpreter, args[0]);
     Logger.debugLazy(
-      () => "_TableMove: a1 = $a1, type = ${_rawTableValue(a1).runtimeType}",
+      () => "_TableMove: a1 = $a1, type = ${rawLuaSlot(a1).runtimeType}",
     );
 
-    final f = NumberUtils.toInt(_rawTableValue(args[1]));
-    final e = NumberUtils.toInt(_rawTableValue(args[2]));
-    final t = NumberUtils.toInt(_rawTableValue(args[3]));
+    final f = NumberUtils.toInt(rawLuaSlot(args[1]));
+    final e = NumberUtils.toInt(rawLuaSlot(args[2]));
+    final t = NumberUtils.toInt(rawLuaSlot(args[3]));
     final a2 = args.length > 4
         ? _wrapTableLibraryValue(interpreter, args[4])
         : a1;
@@ -559,7 +557,7 @@ class _TableSort extends BuiltinFunction {
       rethrow;
     }
     final comp = args.length > 1 ? args[1] : null;
-    final rawTable = _rawTableValue(table);
+    final rawTable = rawLuaSlot(table);
     final rawSequenceTable =
         rawTable is Map &&
         table.getMetamethod('__index') == null &&
@@ -572,7 +570,7 @@ class _TableSort extends BuiltinFunction {
         "bad argument #2 to 'sort' (function expected, got ${getLuaType(comp)})",
       );
     }
-    final compRaw = _rawTableValue(comp);
+    final compRaw = rawLuaSlot(comp);
     if (comp is Value &&
         compRaw != null &&
         compRaw is! Function &&
@@ -637,7 +635,7 @@ class _TableSort extends BuiltinFunction {
         return false;
       }
 
-      final raw = _rawTableValue(cell);
+      final raw = rawLuaSlot(cell);
       switch (raw) {
         case num value when stringValues != null:
           stringValues = null;
@@ -832,8 +830,8 @@ class _TableSort extends BuiltinFunction {
     );
 
     bool? fastLessThan(dynamic lhs, dynamic rhs) {
-      final left = _rawTableValue(lhs);
-      final right = _rawTableValue(rhs);
+      final left = rawLuaSlot(lhs);
+      final right = rawLuaSlot(rhs);
 
       if (left is num && right is num) {
         return left < right;
@@ -849,8 +847,8 @@ class _TableSort extends BuiltinFunction {
     }
 
     // If either value is nil, raise an error (Lua behavior)
-    final aVal = _rawTableValue(valA);
-    final bVal = _rawTableValue(valB);
+    final aVal = rawLuaSlot(valA);
+    final bVal = rawLuaSlot(valB);
     if (aVal == null || bVal == null) {
       throw LuaError.typeError("attempt to compare nil value");
     }
@@ -887,7 +885,7 @@ class _TableSort extends BuiltinFunction {
       return result;
     } else {
       // function
-      final compRaw = _rawTableValue(comp);
+      final compRaw = rawLuaSlot(comp);
       if (comp is Value &&
           (compRaw is Function || compRaw is BuiltinFunction)) {
         if (comp.isNilReturningClosure) {
@@ -971,7 +969,7 @@ class _TableSort extends BuiltinFunction {
       case Value(raw: final BigInt value):
         counterBox.value = primitiveValue(value + BigInt.one);
       case final Value wrapped:
-        final raw = _rawTableValue(wrapped);
+        final raw = rawLuaSlot(wrapped);
         if (raw is num) {
           if (wrapped.isSharedPrimitive) {
             counterBox.value = primitiveValue(raw + 1);
@@ -998,7 +996,7 @@ class _TableSort extends BuiltinFunction {
   Future<void> _validateOrderFunction(Value table, int n, Object? comp) async {
     if (comp == null || n < 2) return;
 
-    final compRaw = _rawTableValue(comp);
+    final compRaw = rawLuaSlot(comp);
     if (comp is Value && (compRaw is Function || compRaw is BuiltinFunction)) {
       final func = compRaw;
 
@@ -1081,8 +1079,8 @@ class _TableSort extends BuiltinFunction {
       throw LuaError.typeError("attempt to compare nil value");
     }
 
-    final aVal = _rawTableValue(a);
-    final bVal = _rawTableValue(b);
+    final aVal = rawLuaSlot(a);
+    final bVal = rawLuaSlot(b);
 
     // Additional nil check after unwrapping
     if (aVal == null || bVal == null) {
@@ -1199,8 +1197,7 @@ class _TableUnpack extends BuiltinFunction {
     checktab(table, TablePermission.read);
     if (log) {
       Logger.debugLazy(
-        () =>
-            "_TableUnpack: Got table value ${_rawTableValue(table).runtimeType}",
+        () => "_TableUnpack: Got table value ${rawLuaSlot(table).runtimeType}",
       );
     }
 
@@ -1208,7 +1205,7 @@ class _TableUnpack extends BuiltinFunction {
 
     // Handle start index (default to 1)
     if (args.length > 1) {
-      final startArg = _rawTableValue(args[1]);
+      final startArg = rawLuaSlot(args[1]);
       if (log) {
         Logger.debugLazy(
           () =>
@@ -1247,7 +1244,7 @@ class _TableUnpack extends BuiltinFunction {
 
     // Handle end index (default to table length using Lua semantics)
     if (args.length > 2) {
-      final endArg = _rawTableValue(args[2]);
+      final endArg = rawLuaSlot(args[2]);
       if (log) {
         Logger.debugLazy(
           () =>

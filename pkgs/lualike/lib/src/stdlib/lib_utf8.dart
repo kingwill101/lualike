@@ -15,10 +15,8 @@ import 'package:lualike/src/value.dart' show Value;
 import '../../lualike.dart' show Value;
 import 'library.dart';
 
-Object? _rawUtf8Value(Object? value) => value is Value ? value.raw : value;
-
 Uint8List _utf8StringBytes(Object? value, String functionName) {
-  final raw = _rawUtf8Value(value);
+  final raw = rawLuaSlot(value);
   if (raw is LuaString) {
     return raw.bytes;
   }
@@ -29,7 +27,7 @@ Uint8List _utf8StringBytes(Object? value, String functionName) {
 }
 
 int _utf8NumericOrStringInt(Object? value, int fallback) {
-  final raw = _rawUtf8Value(value);
+  final raw = rawLuaSlot(value);
   if (raw is num) {
     return raw.toInt();
   }
@@ -40,7 +38,7 @@ int _utf8NumericOrStringInt(Object? value, int fallback) {
 }
 
 int _utf8LooseInt(Object? value, int fallback) {
-  final raw = _rawUtf8Value(value);
+  final raw = rawLuaSlot(value);
   if (raw is num) {
     return raw.toInt();
   }
@@ -48,7 +46,7 @@ int _utf8LooseInt(Object? value, int fallback) {
 }
 
 bool _utf8OptionalBool(Object? value, bool fallback) {
-  final raw = _rawUtf8Value(value);
+  final raw = rawLuaSlot(value);
   return raw as bool? ?? fallback;
 }
 
@@ -61,7 +59,7 @@ class UTF8Library extends Library {
   Map<String, Function>? getMetamethods(LuaRuntime interpreter) => {
     "__len": (List<Object?> args) {
       final str = args[0] as Value;
-      final raw = _rawUtf8Value(str);
+      final raw = rawLuaSlot(str);
       if (raw is! String && raw is! LuaString) {
         throw LuaError("utf8 operation on non-string value");
       }
@@ -74,7 +72,7 @@ class UTF8Library extends Library {
       final key = args[1] as Value;
 
       // Convert key to string if needed
-      final keyRaw = _rawUtf8Value(key);
+      final keyRaw = rawLuaSlot(key);
       final keyStr = keyRaw is String ? keyRaw : key.toString();
 
       // Return the function from our registry if it exists
@@ -179,7 +177,7 @@ class _UTF8Char extends BuiltinFunction {
     final codePoints = <int>[];
     for (var index = 0; index < args.length; index++) {
       final arg = args[index];
-      final value = _rawUtf8Value(arg);
+      final value = rawLuaSlot(arg);
 
       if (value == null) {
         throw LuaError(
@@ -232,7 +230,7 @@ class _UTF8Codes extends BuiltinFunction {
     bool lax = false;
 
     if (args.length > 1) {
-      final rawSecond = _rawUtf8Value(args[1]);
+      final rawSecond = rawLuaSlot(args[1]);
 
       if (rawSecond is bool) {
         // Signature (s, lax)
@@ -424,7 +422,7 @@ class _UTF8Len extends BuiltinFunction {
     bool lax = false;
 
     if (args.length > 1) {
-      final rawSecond = _rawUtf8Value(args[1]);
+      final rawSecond = rawLuaSlot(args[1]);
 
       if (rawSecond is bool) {
         // Signature (s, lax)
