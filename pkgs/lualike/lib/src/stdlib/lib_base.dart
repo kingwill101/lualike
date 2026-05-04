@@ -997,7 +997,7 @@ class TypeFunction extends BuiltinFunction {
   @override
   Object? call(List<Object?> args) {
     if (args.isEmpty) throw LuaError("type requires an argument");
-    final value = args[0] as Value;
+    final value = args[0];
 
     return getLuaBaseType(value);
   }
@@ -1012,12 +1012,9 @@ class ToNumberFunction extends BuiltinFunction {
       throw LuaError("tonumber requires an argument");
     }
 
-    final value = args[0] as Value;
+    final value = args[0];
     final rawValue = rawLuaSlot(value);
-    Value? base;
-    if (args.length > 1) {
-      base = args[1] as Value;
-    }
+    final base = args.length > 1 ? args[1] : null;
     final rawBase = rawLuaSlot(base);
 
     if (rawValue is String || rawValue is LuaString) {
@@ -1175,7 +1172,7 @@ class SelectFunction extends BuiltinFunction {
   @override
   Object? call(List<Object?> args) {
     if (args.isEmpty) throw LuaError("select requires at least one argument");
-    final index = args[0] as Value;
+    final index = args[0];
     final rawIndex = rawLuaSlot(index);
 
     if (rawIndex is String && rawIndex == "#") {
