@@ -6,6 +6,8 @@ import 'package:lualike/src/runtime/lua_runtime.dart';
 import 'package:lualike/src/value.dart';
 import 'metatables.dart' show MetaTable;
 
+Object? _rawLibraryValue(Object? value) => value is Value ? value.raw : value;
+
 /// Abstract base class for organizing standard library functions.
 ///
 /// Extend this class to register a reusable namespaced or global library with a
@@ -218,10 +220,10 @@ class LibraryRegistry {
         : Value(libraryTable, interpreter: context.interpreter);
 
     final existing = context.environment.get(library.name);
-    if (existing is Value && existing.raw is LazyLibraryMap) {
+    final rawExisting = _rawLibraryValue(existing);
+    if (existing is Value && rawExisting is LazyLibraryMap) {
       // Reuse the existing Value so any cached references continue to work.
-      final lazyMap = existing.raw as LazyLibraryMap;
-      lazyMap.attach(libraryValue);
+      rawExisting.attach(libraryValue);
       existing.raw = libraryValue.raw;
       existing.metatable = libraryValue.metatable;
       existing.metatableRef = libraryValue.metatableRef;
@@ -247,15 +249,15 @@ void _updatePackageLoaded(
     return;
   }
   final packageValue = env.get('package');
-  if (packageValue is! Value || packageValue.raw is! Map) {
+  final packageMap = _rawLibraryValue(packageValue);
+  if (packageMap is! Map) {
     return;
   }
-  final packageMap = packageValue.raw as Map;
   final loaded = packageMap['loaded'];
-  if (loaded is! Value || loaded.raw is! Map) {
+  final loadedMap = _rawLibraryValue(loaded);
+  if (loadedMap is! Map) {
     return;
   }
-  final loadedMap = loaded.raw as Map;
   loadedMap[libraryName] = libraryValue;
   if (libraryName == 'string') {
     MetaTable.refreshStringCache();
@@ -286,16 +288,18 @@ class LazyLibraryMap extends MapBase<String, dynamic> {
     }
     _loading = true;
     final initialized = registry.initializeLibraryByName(libraryName);
-    if (initialized is Value && initialized.raw is Map) {
-      _resolved = initialized.raw as Map<String, dynamic>;
+    final rawInitialized = _rawLibraryValue(initialized);
+    if (rawInitialized is Map) {
+      _resolved = rawInitialized as Map<String, dynamic>;
     }
     if (_resolved != null) {
       _loading = false;
       return _resolved!;
     }
     final value = env.get(libraryName);
-    if (value is Value && value.raw is Map) {
-      _resolved = value.raw as Map<String, dynamic>;
+    final rawValue = _rawLibraryValue(value);
+    if (rawValue is Map) {
+      _resolved = rawValue as Map<String, dynamic>;
     } else {
       _resolved = <String, dynamic>{};
     }
@@ -304,8 +308,9 @@ class LazyLibraryMap extends MapBase<String, dynamic> {
   }
 
   void attach(Value value) {
-    if (value.raw is Map) {
-      _resolved = value.raw as Map<String, dynamic>;
+    final rawValue = _rawLibraryValue(value);
+    if (rawValue is Map) {
+      _resolved = rawValue as Map<String, dynamic>;
     }
   }
 
