@@ -1647,7 +1647,7 @@ class _StringFormat extends BuiltinFunction {
       throw LuaError.typeError("string.format requires a format string");
     }
 
-    final formatString = (args[0] as Value).raw.toString();
+    final formatString = _rawStringValue(args[0]).toString();
 
     List<FormatPart> formatParts;
     try {
@@ -1845,9 +1845,11 @@ class _StringGmatch extends BuiltinFunction {
       throw LuaError.typeError("string.gmatch requires a string and a pattern");
     }
 
-    final strValue = (args[0] as Value).raw;
-    final patternValue = (args[1] as Value).raw;
-    var init = args.length > 2 ? NumberUtils.toInt((args[2] as Value).raw) : 1;
+    final strValue = _rawStringValue(args[0]);
+    final patternValue = _rawStringValue(args[1]);
+    var init = args.length > 2
+        ? NumberUtils.toInt(_rawStringValue(args[2]))
+        : 1;
 
     // Helper function to check if LuaString contains valid UTF-8
     bool isValidUtf8(LuaString luaStr) {
@@ -2046,8 +2048,8 @@ class _StringGsub extends BuiltinFunction {
         "string.gsub requires string, pattern, and replacement",
       );
     }
-    final strValue = (args[0] as Value).raw;
-    final patternValue = (args[1] as Value).raw;
+    final strValue = _rawStringValue(args[0]);
+    final patternValue = _rawStringValue(args[1]);
     final useByteLevel = _shouldUseBytePatternProcessing(
       strValue,
       patternValue,
@@ -2058,13 +2060,16 @@ class _StringGsub extends BuiltinFunction {
       byteLevel: useByteLevel,
     );
     final repl = args[2] as Value;
-    final n = args.length > 3 ? NumberUtils.toInt((args[3] as Value).raw) : -1;
+    final replRaw = _rawStringValue(repl);
+    final n = args.length > 3
+        ? NumberUtils.toInt(_rawStringValue(args[3]))
+        : -1;
 
     try {
       var count = 0;
       var didSubstitute = false;
       if (_isAnchoredWhitespaceTrimCapturePattern(pattern) &&
-          (repl.raw is String || repl.raw is LuaString)) {
+          (replRaw is String || replRaw is LuaString)) {
         final trimMatch = _matchAnchoredWhitespaceTrimCapture(str);
         if (trimMatch == null || n == 0) {
           return LuaResults([
@@ -2128,11 +2133,12 @@ class _StringGsub extends BuiltinFunction {
         final runtime = interpreter;
         final previousYieldable = runtime?.isYieldable;
         try {
-          if (callable.raw is Function) {
+          final rawCallable = _rawStringValue(callable);
+          if (rawCallable is Function) {
             if (runtime != null) {
               runtime.isYieldable = false;
             }
-            final result = (callable.raw as Function)(captures);
+            final result = rawCallable(captures);
             final awaited = result is Future ? await result : result;
             return resolveTailSignal(awaited);
           }
@@ -2199,7 +2205,8 @@ class _StringGsub extends BuiltinFunction {
 
             if (replacement == null ||
                 (replacement is Value &&
-                    (replacement.isNil || replacement.raw == false))) {
+                    (replacement.isNil ||
+                        _rawStringValue(replacement) == false))) {
               buffer.write(match.match);
             } else {
               didSubstitute = true;
@@ -2228,7 +2235,7 @@ class _StringGsub extends BuiltinFunction {
           buffer.write(str.substring(srcPos));
         }
         result = buffer.toString();
-      } else if (repl.raw is Map) {
+      } else if (replRaw is Map) {
         final buffer = StringBuffer();
         var srcPos = 0;
         int? lastMatchEnd;
@@ -2255,7 +2262,9 @@ class _StringGsub extends BuiltinFunction {
             var replacement = await repl.getValueAsync(key);
 
             if (replacement is Value) {
-              replacement = replacement.isNil ? null : replacement.raw;
+              replacement = replacement.isNil
+                  ? null
+                  : _rawStringValue(replacement);
             }
 
             if (replacement != null && replacement != false) {
@@ -2288,7 +2297,7 @@ class _StringGsub extends BuiltinFunction {
           buffer.write(str.substring(srcPos));
         }
         result = buffer.toString();
-      } else if (repl.raw is String || repl.raw is LuaString) {
+      } else if (replRaw is String || replRaw is LuaString) {
         final replStr = _stringifyPatternReplacement(
           repl,
           byteLevel: useByteLevel,
