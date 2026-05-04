@@ -9,6 +9,8 @@ import 'library.dart';
 
 Object? _rawLoggingValue(Object? value) => value is Value ? value.raw : value;
 
+bool _isNilLoggingValue(Object? value) => _rawLoggingValue(value) == null;
+
 /// Enhanced Lua logging library that exposes the full power of contextual logging
 ///
 /// Features:
@@ -142,8 +144,7 @@ class _LoggingSetCategories extends BuiltinFunction {
     }
 
     final categoriesArg = args[0];
-    if (categoriesArg == null ||
-        (categoriesArg is Value && categoriesArg.raw == null)) {
+    if (_isNilLoggingValue(categoriesArg)) {
       Logger.setCategoryFilters(null);
       return primitiveValue(true);
     }
