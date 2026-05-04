@@ -551,7 +551,7 @@ Value _requireStringLikeArgument(
   }
 
   final value = args[argumentIndex] as Value;
-  final raw = value.raw;
+  final raw = _rawStringValue(value);
   if (raw is String || raw is LuaString || raw is num || raw is BigInt) {
     return value;
   }
@@ -575,12 +575,12 @@ int _requireStringIntegerArgument(
   required int functionArgNumber,
   required int methodArgNumber,
 }) {
-  final integer = NumberUtils.tryToInteger(value.raw);
+  final raw = _rawStringValue(value);
+  final integer = NumberUtils.tryToInteger(raw);
   if (integer != null) {
     return integer;
   }
 
-  final raw = value.raw;
   final argNumber = _isMethodSyntaxCall(builtin)
       ? methodArgNumber
       : functionArgNumber;
@@ -643,14 +643,17 @@ class StringLib {
   static final ValueClass stringClass = ValueClass.create({
     "__len": (List<Object?> args) {
       final str = args[0] as Value;
-      return cachedPrimitiveOrValue(str.interpreter, str.raw.toString().length);
+      return cachedPrimitiveOrValue(
+        str.interpreter,
+        _rawStringValue(str).toString().length,
+      );
     },
     "__concat": (List<Object?> args) {
       final a = args[0] as Value;
       final b = args[1] as Value;
       return _dartStringResultValue(
         a.interpreter ?? b.interpreter,
-        a.raw.toString() + b.raw.toString(),
+        _rawStringValue(a).toString() + _rawStringValue(b).toString(),
       );
     },
   });
@@ -666,13 +669,16 @@ class _StringByte extends BuiltinFunction {
     }
 
     final value = args[0] as Value;
-    final bytes = value.raw is LuaString
-        ? (value.raw as LuaString).bytes
-        : LuaString.fromDartString(value.raw.toString()).bytes;
+    final rawValue = _rawStringValue(value);
+    final bytes = rawValue is LuaString
+        ? rawValue.bytes
+        : LuaString.fromDartString(rawValue.toString()).bytes;
 
-    var start = args.length > 1 ? NumberUtils.toInt((args[1] as Value).raw) : 1;
+    var start = args.length > 1
+        ? NumberUtils.toInt(_rawStringValue(args[1]))
+        : 1;
     var end = args.length > 2
-        ? NumberUtils.toInt((args[2] as Value).raw)
+        ? NumberUtils.toInt(_rawStringValue(args[2]))
         : start;
 
     start = start < 0 ? bytes.length + start + 1 : start;
@@ -765,33 +771,36 @@ class _StringFind extends BuiltinFunction {
       throw LuaError.typeError("string.find requires a string and a pattern");
     }
 
-    final strValue = _requireStringLibrarySubject(
-      this,
-      args,
-      'string.find',
-    ).raw;
+    final strValue = _requireStringLibrarySubject(this, args, 'string.find');
     final patternValue = _requireStringLikeArgument(
       this,
       args,
       argumentIndex: 1,
       functionName: 'string.find',
-    ).raw;
-    final useByteLevel = _shouldUseBytePatternProcessing(
-      strValue,
-      patternValue,
     );
-    final str = _toPatternProcessingString(strValue, byteLevel: useByteLevel);
-    final pattern = _toPatternProcessingString(
-      patternValue,
+    final rawStrValue = _rawStringValue(strValue);
+    final rawPatternValue = _rawStringValue(patternValue);
+    final useByteLevel = _shouldUseBytePatternProcessing(
+      rawStrValue,
+      rawPatternValue,
+    );
+    final str = _toPatternProcessingString(
+      rawStrValue,
       byteLevel: useByteLevel,
     );
-    var init = args.length > 2 ? NumberUtils.toInt((args[2] as Value).raw) : 1;
+    final pattern = _toPatternProcessingString(
+      rawPatternValue,
+      byteLevel: useByteLevel,
+    );
+    var init = args.length > 2
+        ? NumberUtils.toInt(_rawStringValue(args[2]))
+        : 1;
     var start = init < 0 ? str.length + init + 1 : init;
     if (start < 1) start = 1;
     start -= 1;
     bool plain = false;
     if (args.length > 3) {
-      final rawPlain = (args[3] as Value).raw;
+      final rawPlain = _rawStringValue(args[3]);
       plain = rawPlain != false && rawPlain != null;
     }
 
@@ -1033,7 +1042,7 @@ Future<Object> _formatString(_FormatContext ctx) async {
           value,
         ]);
         final str = awaitedResult is Value
-            ? awaitedResult.raw.toString()
+            ? _rawStringValue(awaitedResult).toString()
             : awaitedResult.toString();
         if (ctx.precision.isNotEmpty) {
           final precValue = ctx.precisionValue;
@@ -1048,12 +1057,13 @@ Future<Object> _formatString(_FormatContext ctx) async {
     }
 
     // Check for __name metamethod as fallback for tables
-    if (value.raw is Map) {
+    if (_rawStringValue(value) is Map) {
       final name = value.getMetamethod("__name");
+      final rawName = _rawStringValue(name);
       if (name != null &&
           name is Value &&
-          (name.raw is String || name.raw is LuaString)) {
-        final str = '${name.raw}: ';
+          (rawName is String || rawName is LuaString)) {
+        final str = '$rawName: ';
         if (ctx.precision.isNotEmpty) {
           final precValue = ctx.precisionValue;
           if (precValue < str.length) {
