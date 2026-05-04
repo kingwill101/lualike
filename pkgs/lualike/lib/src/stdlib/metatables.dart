@@ -81,8 +81,7 @@ class MetaTable {
     // String metatable
     _typeMetatables['string'] = ValueClass.create({
       '__len': (List<Object?> args) {
-        final str = args[0] as Value;
-        final rawStr = rawLuaSlot(str);
+        final rawStr = rawLuaSlot(args[0]);
         Logger.debugLazy(
           () => 'String __len metamethod called for "$rawStr"',
           category: 'Metatables',
@@ -94,7 +93,7 @@ class MetaTable {
       },
       '__index': (List<Object?> args) {
         final str = args[0] as Value;
-        final key = args[1] as Value;
+        final key = args[1];
         final rawStr = rawLuaSlot(str);
         final rawKey = rawLuaSlot(key);
         Logger.debugLazy(
@@ -280,7 +279,7 @@ class MetaTable {
         return LuaResults([
           Value((List<Object?> args) {
             final state = args[0] as Value;
-            final k = args[1] as Value;
+            final k = args[1];
             final rawK = rawLuaSlot(k);
             Logger.debugLazy(
               () =>
@@ -353,7 +352,7 @@ class MetaTable {
     // Function metatable
     _typeMetatables['function'] = ValueClass.create({
       '__call': (List<Object?> args) {
-        final func = args[0] as Value;
+        final func = args[0];
         final callArgs = args.sublist(1);
         final rawFunc = rawLuaSlot(func);
         Logger.debugLazy(
