@@ -227,10 +227,11 @@ Future<LuaChunkLoadResult> loadChunkWithLegacyAstSupport(
   bool isBinaryChunk = false;
   LegacyChunkInfo? chunkInfo;
   final sourceArg = request.source;
+  final sourceRaw = _rawCompiledArtifactValue(sourceArg);
 
   try {
-    if (sourceArg.raw is String) {
-      source = sourceArg.raw as String;
+    if (sourceRaw is String) {
+      source = sourceRaw;
       isBinaryChunk = source.isNotEmpty && source.codeUnitAt(0) == 0x1B;
       Logger.debugLazy(
         () =>
@@ -250,8 +251,8 @@ Future<LuaChunkLoadResult> loadChunkWithLegacyAstSupport(
           return LuaChunkLoadResult.failure(_cleanLoadError(e));
         }
       }
-    } else if (sourceArg.raw is LuaString) {
-      final luaString = sourceArg.raw as LuaString;
+    } else if (sourceRaw is LuaString) {
+      final luaString = sourceRaw;
       isBinaryChunk = luaString.bytes.isNotEmpty && luaString.bytes[0] == 0x1B;
       Logger.debugLazy(
         () =>
@@ -275,7 +276,7 @@ Future<LuaChunkLoadResult> loadChunkWithLegacyAstSupport(
       } else {
         source = _decodeTextualChunkBytes(luaString.bytes);
       }
-    } else if (sourceArg.raw is Function) {
+    } else if (sourceRaw is Function) {
       final chunks = <String>[];
       var readCount = 0;
       while (true) {
@@ -293,15 +294,16 @@ Future<LuaChunkLoadResult> loadChunkWithLegacyAstSupport(
             "reader function must return a string",
           );
         }
-        if (chunk.raw == null) {
+        final chunkRaw = _rawCompiledArtifactValue(chunk);
+        if (chunkRaw == null) {
           break;
         }
 
         String? text;
-        if (chunk.raw is LuaString) {
-          text = (chunk.raw as LuaString).toLatin1String();
-        } else if (chunk.raw is String) {
-          text = chunk.raw as String;
+        if (chunkRaw is LuaString) {
+          text = chunkRaw.toLatin1String();
+        } else if (chunkRaw is String) {
+          text = chunkRaw;
         } else {
           return const LuaChunkLoadResult.failure(
             "reader function must return a string",
@@ -397,8 +399,8 @@ Future<LuaChunkLoadResult> loadChunkWithLegacyAstSupport(
           category: 'Load',
         );
       }
-    } else if (sourceArg.raw is List<int>) {
-      source = _decodeTextualChunkBytes(sourceArg.raw as List<int>);
+    } else if (sourceRaw is List<int>) {
+      source = _decodeTextualChunkBytes(sourceRaw);
     } else {
       throw LuaError(
         "load() first argument must be string, function or binary",
@@ -605,8 +607,8 @@ Future<LuaChunkLoadResult> loadChunkWithLegacyAstSupport(
               if (loadedAstNode is FunctionBody) {
                 final funcValue =
                     await runtime.evaluateAst(loadedAstNode) as Value;
-                if (funcValue.raw is Function ||
-                    funcValue.raw is BuiltinFunction) {
+                final funcRaw = _rawCompiledArtifactValue(funcValue);
+                if (funcRaw is Function || funcRaw is BuiltinFunction) {
                   return await runtime.callFunction(funcValue, callArgs);
                 }
                 return funcValue;
@@ -671,7 +673,7 @@ Future<LuaChunkLoadResult> loadChunkWithLegacyAstSupport(
               Object? upvalueValue;
               if (upvalueName == '_ENV' &&
                   providedEnv != null &&
-                  providedEnv.raw != null) {
+                  _rawCompiledArtifactValue(providedEnv) != null) {
                 upvalueValue = providedEnv;
               }
               final box = Box<dynamic>(upvalueValue);
@@ -849,13 +851,13 @@ Future<LuaChunkLoadResult> loadChunkWithLegacyAstSupport(
               if (originalUpvalueNames != null &&
                   originalUpvalueNames.isNotEmpty &&
                   executionResult is Value &&
-                  executionResult.raw is Function) {
+                  _rawCompiledArtifactValue(executionResult) is Function) {
                 final upvalues = <Upvalue>[];
                 for (var i = 0; i < originalUpvalueNames.length; i++) {
                   final upvalueName = originalUpvalueNames[i];
                   final upvalueValue =
                       (providedEnv != null &&
-                          providedEnv.raw != null &&
+                          _rawCompiledArtifactValue(providedEnv) != null &&
                           originalUpvalueValues != null &&
                           i < originalUpvalueValues.length)
                       ? originalUpvalueValues[i]
@@ -918,7 +920,7 @@ Future<LuaChunkLoadResult> loadChunkWithLegacyAstSupport(
         final upvalueName = originalUpvalueNames[i];
         final upvalueValue =
             (providedEnv != null &&
-                providedEnv.raw != null &&
+                _rawCompiledArtifactValue(providedEnv) != null &&
                 originalUpvalueValues != null &&
                 i < originalUpvalueValues.length)
             ? originalUpvalueValues[i]
@@ -970,9 +972,10 @@ Object? dumpFunctionWithLegacyAstTransport(
   Value function, {
   bool stripDebugInfo = false,
 }) {
-  if (function.raw is BuiltinFunction) {
+  final functionRaw = _rawCompiledArtifactValue(function);
+  if (functionRaw is BuiltinFunction) {
     throw LuaError(
-      "unable to dump given function (${function.raw.runtimeType})",
+      "unable to dump given function (${functionRaw.runtimeType})",
     );
   }
 
@@ -1139,7 +1142,7 @@ LuaFunctionDebugInfo? defaultDebugInfoForFunction(
     );
   }
 
-  final raw = function.raw;
+  final raw = _rawCompiledArtifactValue(function);
   if (raw is LuaCallableArtifact && raw.debugInfo != null) {
     return raw.debugInfo;
   }
@@ -1151,7 +1154,7 @@ LuaFunctionDebugInfo? defaultDebugInfoForFunction(
     final closureEnvSource = switch (function.closureEnvironment?.get(
       '_SCRIPT_PATH',
     )) {
-      final Value value => value.raw?.toString(),
+      final Value value => _rawCompiledArtifactValue(value)?.toString(),
       final Object? value? => value.toString(),
       _ => null,
     };
@@ -1297,7 +1300,7 @@ Environment _createDirectAstFunctionCreationEnv({
     isLoadIsolated: true,
   );
   if (providedEnv != null) {
-    if (providedEnv.raw != null) {
+    if (_rawCompiledArtifactValue(providedEnv) != null) {
       loadEnv.declare('_ENV', providedEnv);
       final gValue = savedEnv.get('_G') ?? savedEnv.root.get('_G');
       if (gValue is Value) {
