@@ -275,11 +275,12 @@ class Environment extends GCObject {
       return;
     }
     final gValue = gBox.value;
-    if (gValue is! Value || gValue.raw is! Map) {
+    final gRaw = _rawEnvironmentValue(gValue);
+    if (gValue is! Value || gRaw is! Map) {
       return;
     }
 
-    final map = gValue.raw as Map;
+    final map = gRaw;
     final manager = rootEnv.interpreter?.gc ?? GCAccess.defaultManager;
     if (_rawEnvironmentValue(value) == null) {
       map.remove(name);
@@ -933,8 +934,9 @@ class Environment extends GCObject {
         }
         return luaError.message;
       }
-      if (error case final Value value when value.raw is LuaError) {
-        final luaError = value.raw as LuaError;
+      final rawError = _rawEnvironmentValue(error);
+      if (error is Value && rawError is LuaError) {
+        final luaError = rawError;
         if (luaError.cause != null && luaError.cause is! LuaError) {
           return luaError.cause;
         }
@@ -1031,7 +1033,7 @@ class Environment extends GCObject {
     final proxyHandler = <String, Function>{
       '__index': (List<Object?> args) {
         final key = args[1] as Value;
-        final keyStr = key.raw.toString();
+        final keyStr = _rawEnvironmentValue(key).toString();
         Logger.debugLazy(
           () => "Module env __index: looking up '$keyStr'",
           category: 'Env',
@@ -1039,8 +1041,9 @@ class Environment extends GCObject {
         if (envTable.containsKey(keyStr)) {
           return envTable[keyStr];
         }
-        if (inheritedEnvValue != null && inheritedEnvValue.raw is Map) {
-          final inheritedTable = inheritedEnvValue.raw as Map;
+        final inheritedRaw = _rawEnvironmentValue(inheritedEnvValue);
+        if (inheritedEnvValue != null && inheritedRaw is Map) {
+          final inheritedTable = inheritedRaw;
           if (inheritedTable.containsKey(keyStr)) {
             return inheritedTable[keyStr];
           }
@@ -1050,7 +1053,7 @@ class Environment extends GCObject {
       '__newindex': (List<Object?> args) {
         final key = args[1] as Value;
         final value = args[2] as Value;
-        final keyStr = key.raw.toString();
+        final keyStr = _rawEnvironmentValue(key).toString();
         final gc = rootEnv.interpreter?.gc ?? GCAccess.defaultManager;
         Logger.debugLazy(
           () => "Module env __newindex: setting '$keyStr' to $value",
@@ -1061,8 +1064,9 @@ class Environment extends GCObject {
         gc?.noteReferenceWrite(envValue, keyStr);
         gc?.noteReferenceWrite(envValue, value);
         envValue.markTableModified();
-        if (inheritedEnvValue != null && inheritedEnvValue.raw is Map) {
-          final inheritedTable = inheritedEnvValue.raw as Map;
+        final inheritedRaw = _rawEnvironmentValue(inheritedEnvValue);
+        if (inheritedEnvValue != null && inheritedRaw is Map) {
+          final inheritedTable = inheritedRaw;
           inheritedTable[keyStr] = value;
           gc?.noteReferenceWrite(inheritedEnvValue, keyStr);
           gc?.noteReferenceWrite(inheritedEnvValue, value);
@@ -1138,10 +1142,10 @@ bool _tryFastReplaceBoxValue(Box<dynamic> box, dynamic incoming) {
   if (incoming.upvalues != null || existing.upvalues != null) {
     return false;
   }
-  if (!isLuaPrimitiveSlot(existing.raw)) {
+  if (!isLuaPrimitiveSlot(_rawEnvironmentValue(existing))) {
     return false;
   }
-  final raw = incoming.raw;
+  final raw = _rawEnvironmentValue(incoming);
   if (!isLuaPrimitiveSlot(raw)) {
     return false;
   }
