@@ -667,14 +667,14 @@ class LualikeIrVm {
           }
         case LualikeIrOpcode.test:
           final instr = instruction as ABCInstruction;
-          final cond = _isTruthy(registers[instr.a]);
+          final cond = isLuaTruthy(registers[instr.a]);
           if ((!cond) == instr.k) {
             frame.pc += 1;
           }
           break;
         case LualikeIrOpcode.testSet:
           final instr = instruction as ABCInstruction;
-          final cond = _isTruthy(registers[instr.b]);
+          final cond = isLuaTruthy(registers[instr.b]);
           if ((!cond) == instr.k) {
             frame.pc += 1;
           } else {
@@ -2355,7 +2355,7 @@ class LualikeIrVm {
 
   void _unaryBoolean(IrFrame frame, ABCInstruction instruction) {
     final value = frame.registers[instruction.b];
-    frame.setRegister(instruction.a, !_isTruthy(value));
+    frame.setRegister(instruction.a, !isLuaTruthy(value));
   }
 
   Future<void> _unaryLength(IrFrame frame, ABCInstruction instruction) {
@@ -2520,7 +2520,7 @@ class LualikeIrVm {
   Future<bool> _finalizeComparisonResult(dynamic result, bool invert) async {
     final normalized = await _normalizeResults(result);
     final primary = normalized.isEmpty ? null : normalized.first;
-    final outcome = _isTruthy(primary);
+    final outcome = isLuaTruthy(primary);
     return invert ? !outcome : outcome;
   }
 
@@ -2586,7 +2586,7 @@ class LualikeIrVm {
 
   bool _coerceComparisonValue(dynamic result) {
     if (result is Value) {
-      return _isTruthy(result);
+      return isLuaTruthy(result);
     }
     if (result is bool) {
       return result;
@@ -2681,10 +2681,7 @@ class LualikeIrVm {
     );
   }
 
-  bool _isTruthy(dynamic value) {
-    final raw = rawLuaSlot(value);
-    return !(raw == null || raw == false);
-  }
+
 
   bool _isNilControl(dynamic value) {
     if (rawLuaSlot(value) == null) {

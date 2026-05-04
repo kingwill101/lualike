@@ -11,7 +11,6 @@ import 'library.dart';
 
 import '../number_limits.dart';
 
-bool _isNilTableValue(Object? value) => rawLuaSlot(value) == null;
 
 bool _isTrueTableValue(Object? value) => rawLuaSlot(value) == true;
 
@@ -709,7 +708,7 @@ class _TableSort extends BuiltinFunction {
 
     // Quick check for degenerate case: if comparison function always returns false/nil
     // and we have more than a few elements, use a fast path
-    if (up - lo > 5 && comp is Value && !_isNilTableValue(comp)) {
+    if (up - lo > 5 && comp is Value && !isLuaNilSlot(comp)) {
       bool alwaysFalse = true;
       // Test a few comparisons to see if they all return false
       for (int i = 0; i < 3 && alwaysFalse; i++) {
@@ -852,7 +851,7 @@ class _TableSort extends BuiltinFunction {
       throw LuaError.typeError("attempt to compare nil value");
     }
 
-    if (_isNilTableValue(comp)) {
+    if (isLuaNilSlot(comp)) {
       // no function?
 
       // Fast path: number/number or string/string (including LuaString) comparisons
@@ -1008,7 +1007,7 @@ class _TableSort extends BuiltinFunction {
         final valA = await _tableSequenceReadAsync(table, i);
         final valB = await _tableSequenceReadAsync(table, i + 1);
 
-        if (!_isNilTableValue(valA) && !_isNilTableValue(valB)) {
+        if (!isLuaNilSlot(valA) && !isLuaNilSlot(valB)) {
           final runtime = interpreter;
           final previousYieldable = runtime?.isYieldable;
           if (runtime != null) {
@@ -1044,7 +1043,7 @@ class _TableSort extends BuiltinFunction {
         final valA = await _tableSequenceReadAsync(table, 2);
         final valB = await _tableSequenceReadAsync(table, 1);
 
-        if (!_isNilTableValue(valA) && !_isNilTableValue(valB)) {
+        if (!isLuaNilSlot(valA) && !isLuaNilSlot(valB)) {
           final runtime = interpreter;
           if (runtime != null) {
             enterSortComparator(runtime);
@@ -1071,10 +1070,10 @@ class _TableSort extends BuiltinFunction {
   // Compare two values using Lua semantics
   Future<int> _compareValues(dynamic a, dynamic b) async {
     // Handle nil values - this should prevent metamethods from being called with nil
-    if (_isNilTableValue(a)) {
+    if (isLuaNilSlot(a)) {
       throw LuaError.typeError("attempt to compare nil value");
     }
-    if (_isNilTableValue(b)) {
+    if (isLuaNilSlot(b)) {
       throw LuaError.typeError("attempt to compare nil value");
     }
 

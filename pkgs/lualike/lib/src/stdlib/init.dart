@@ -23,7 +23,6 @@ import 'library.dart' show LibraryRegistry, LazyLibraryMap;
 import 'metatables.dart';
 // import 'lib_convert.dart';
 
-bool _isInitNilValue(Object? value) => rawLuaSlot(value) == null;
 
 /// Initialize standard libraries using the Library system
 /// All libraries have been migrated to the new system with proper metamethod handling
@@ -142,7 +141,7 @@ void _ensureGlobalTable(Environment env) {
       // keep the shadow table in sync
       final rawSelf = rawLuaSlot(self);
       if (rawSelf is Map) {
-        if (_isInitNilValue(value)) {
+        if (isLuaNilSlot(value)) {
           rawSelf.remove(keyStr);
         } else {
           rawSelf[keyStr] = value;
@@ -171,7 +170,7 @@ void _ensureGlobalTable(Environment env) {
       continue;
     }
     final boxedValue = box.value;
-    if (_isInitNilValue(boxedValue)) {
+    if (isLuaNilSlot(boxedValue)) {
       gBacking.remove(name);
       continue;
     }

@@ -7,6 +7,35 @@ import 'package:lualike/src/value.dart';
 export 'package:lualike/src/runtime/lua_primitive.dart'
     show isLuaPrimitiveSlot, isLuaScalarPrimitiveSlot;
 
+/// Returns true if the slot's raw Lua value is nil.
+bool isLuaNilSlot(Object? slot) => rawLuaSlot(slot) == null;
+
+/// Returns true by Lua truthiness rules (everything except nil and false).
+bool isLuaTruthy(Object? slot) {
+  final raw = rawLuaSlot(slot);
+  return raw != null && raw != false;
+}
+
+/// Returns true if the slot's raw value is a Lua string (Dart [String] or
+/// [LuaString]).
+bool isLuaStringSlot(Object? slot) {
+  final raw = rawLuaSlot(slot);
+  return raw is String || raw is LuaString;
+}
+
+/// Returns the raw slot value converted to a Dart [String] via [toString].
+String rawLuaSlotString(Object? slot) => rawLuaSlot(slot).toString();
+
+/// Returns true if two slots are equal under Lua raw-equality rules, handling
+/// mixed [LuaString] / Dart [String] comparisons correctly.
+bool rawLuaSlotsEqual(Object? left, Object? right) {
+  final l = rawLuaSlot(left);
+  final r = rawLuaSlot(right);
+  if (l is LuaString) return l == r;
+  if (r is LuaString) return r == l;
+  return l == r;
+}
+
 /// Lightweight internal runtime slot.
 ///
 /// A slot may hold raw Lua primitives, a public [Value] facade, a table payload,

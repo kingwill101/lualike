@@ -52,18 +52,6 @@ class TestLib {
     'querystr': (List<Object?> args) => querystr(args, runtime: runtime),
   };
 
-  static Value _primitiveValue(LuaRuntime? runtime, Object? raw) {
-    return cachedPrimitiveOrValue(runtime, raw);
-  }
-
-  static Value _dartStringValue(LuaRuntime? runtime, String raw) {
-    return cachedPrimitiveOrValue(runtime, raw);
-  }
-
-  static Value _objectValue(LuaRuntime? runtime, Object? raw) {
-    return valueFromOptionalLuaSlot(runtime, raw);
-  }
-
   static Map? _rawTestMap(Object? value) {
     final raw = rawLuaSlot(value);
     return raw is Map ? raw : null;
@@ -74,27 +62,27 @@ class TestLib {
   /// Possible values: "new", "survival", "old", "old0", "old1", "touched1", "touched2"
   static Value gcage(List<Object?> args, {LuaRuntime? runtime}) {
     if (args.isEmpty) {
-      return _primitiveValue(runtime, null);
+      return cachedPrimitiveOrValue(runtime, null);
     }
 
     final obj = args[0];
     if (obj == null) {
-      return _dartStringValue(runtime, "old"); // Default for nil
+      return cachedPrimitiveOrValue(runtime, "old"); // Default for nil
     }
 
     // If we have a stored age for this object, return it
     if (_gcAges.containsKey(obj)) {
-      return _dartStringValue(runtime, _gcAges[obj]!);
+      return cachedPrimitiveOrValue(runtime, _gcAges[obj]!);
     }
 
     // For new objects, set them as "new" and return
     if (!_gcAges.containsKey(obj)) {
       _gcAges[obj] = "new";
-      return _dartStringValue(runtime, "new");
+      return cachedPrimitiveOrValue(runtime, "new");
     }
 
     // Default for other types
-    return _dartStringValue(runtime, "old");
+    return cachedPrimitiveOrValue(runtime, "old");
   }
 
   /// Simulates the gccolor function from the Lua test suite
@@ -102,17 +90,17 @@ class TestLib {
   /// Possible values: "white", "gray", "black", "dead"
   static Value gccolor(List<Object?> args, {LuaRuntime? runtime}) {
     if (args.isEmpty) {
-      return _primitiveValue(runtime, null);
+      return cachedPrimitiveOrValue(runtime, null);
     }
 
     final obj = args[0];
     if (obj == null) {
-      return _dartStringValue(runtime, "black"); // Default for nil
+      return cachedPrimitiveOrValue(runtime, "black"); // Default for nil
     }
 
     // If we have a stored color for this object, return it
     if (_gcColors.containsKey(obj)) {
-      return _dartStringValue(runtime, _gcColors[obj]!);
+      return cachedPrimitiveOrValue(runtime, _gcColors[obj]!);
     }
 
     // For tables with weak keys or values, we'll return "gray"
@@ -121,21 +109,21 @@ class TestLib {
         final metatable = obj.metatable!;
         if (metatable.containsKey('__mode')) {
           _gcColors[obj] = "gray";
-          return _dartStringValue(runtime, "gray");
+          return cachedPrimitiveOrValue(runtime, "gray");
         }
       }
     }
 
     // Default for other types
     _gcColors[obj] = "black";
-    return _dartStringValue(runtime, "black");
+    return cachedPrimitiveOrValue(runtime, "black");
   }
 
   /// Returns the current state of the garbage collector
   static Value gcstate(List<Object?> args, {LuaRuntime? runtime}) {
     // In a real implementation, this would return the actual state of the GC
     // Since we don't have access to the Lua GC internals in Dart, we'll simulate it
-    return _dartStringValue(
+    return cachedPrimitiveOrValue(
       runtime,
       "atomic",
     ); // One of: "pause", "propagate", "sweep", "finalize", "atomic"
@@ -165,7 +153,7 @@ class TestLib {
     };
 
     // Initialize with "new" age
-    final value = _objectValue(runtime, userData);
+    final value = valueFromOptionalLuaSlot(runtime, userData);
     _gcAges[value] = "new";
     _gcColors[value] = "white";
 
@@ -184,115 +172,115 @@ class TestLib {
       '_type': 'lightuserdata',
     };
 
-    return _objectValue(runtime, userData);
+    return valueFromOptionalLuaSlot(runtime, userData);
   }
 
   /// Gets the value of a userdata object
   static Value udataval(List<Object?> args, {LuaRuntime? runtime}) {
     if (args.isEmpty) {
-      return _primitiveValue(runtime, null);
+      return cachedPrimitiveOrValue(runtime, null);
     }
 
     final obj = args[0];
     if (obj == null) {
-      return _primitiveValue(runtime, 0);
+      return cachedPrimitiveOrValue(runtime, 0);
     }
 
     final map = _rawTestMap(obj);
     if (map != null) {
       if (map.containsKey('_id')) {
-        return _primitiveValue(runtime, map['_id']);
+        return cachedPrimitiveOrValue(runtime, map['_id']);
       }
     }
 
-    return _primitiveValue(runtime, 0);
+    return cachedPrimitiveOrValue(runtime, 0);
   }
 
   /// Creates a reference to an object in the registry
   static Value tref(List<Object?> args, {LuaRuntime? runtime}) {
     if (args.isEmpty) {
-      return _primitiveValue(runtime, null);
+      return cachedPrimitiveOrValue(runtime, null);
     }
 
     final obj = args[0];
     final ref = _nextRef++;
     _registry[ref] = obj;
 
-    return _primitiveValue(runtime, ref);
+    return cachedPrimitiveOrValue(runtime, ref);
   }
 
   /// Gets an object from the registry by reference
   static Value getref(List<Object?> args, {LuaRuntime? runtime}) {
     if (args.isEmpty || args[0] == null) {
-      return _primitiveValue(runtime, null);
+      return cachedPrimitiveOrValue(runtime, null);
     }
 
     final ref = args[0] is num ? (args[0] as num).toInt() : 0;
     if (_registry.containsKey(ref)) {
-      return _objectValue(runtime, _registry[ref]);
+      return valueFromOptionalLuaSlot(runtime, _registry[ref]);
     }
 
-    return _primitiveValue(runtime, null);
+    return cachedPrimitiveOrValue(runtime, null);
   }
 
   /// Removes a reference from the registry
   static Value unref(List<Object?> args, {LuaRuntime? runtime}) {
     if (args.isEmpty || args[0] == null) {
-      return _primitiveValue(runtime, null);
+      return cachedPrimitiveOrValue(runtime, null);
     }
 
     final ref = args[0] is num ? (args[0] as num).toInt() : 0;
     _registry.remove(ref);
 
-    return _primitiveValue(runtime, null);
+    return cachedPrimitiveOrValue(runtime, null);
   }
 
   /// Converts a string to a double
   static Value s2d(List<Object?> args, {LuaRuntime? runtime}) {
     if (args.isEmpty || args[0] == null) {
-      return _primitiveValue(runtime, 0.0);
+      return cachedPrimitiveOrValue(runtime, 0.0);
     }
 
     final str = args[0].toString();
     try {
       final number = double.parse(str);
-      return _primitiveValue(runtime, number);
+      return cachedPrimitiveOrValue(runtime, number);
     } catch (e) {
-      return _primitiveValue(runtime, 0.0);
+      return cachedPrimitiveOrValue(runtime, 0.0);
     }
   }
 
   /// Converts a double to a string
   static Value d2s(List<Object?> args, {LuaRuntime? runtime}) {
     if (args.isEmpty || args[0] == null) {
-      return _dartStringValue(runtime, "");
+      return cachedPrimitiveOrValue(runtime, "");
     }
 
     final number = args[0] is double || args[0] is int
         ? (args[0] as dynamic)
         : 0;
-    return _dartStringValue(runtime, number.toString());
+    return cachedPrimitiveOrValue(runtime, number.toString());
   }
 
   /// Converts a number to an integer
   static Value num2int(List<Object?> args, {LuaRuntime? runtime}) {
     if (args.isEmpty || args[0] == null) {
-      return _primitiveValue(runtime, 0);
+      return cachedPrimitiveOrValue(runtime, 0);
     }
 
     if (args[0] is double) {
-      return _primitiveValue(runtime, (args[0] as double).toInt());
+      return cachedPrimitiveOrValue(runtime, (args[0] as double).toInt());
     } else if (args[0] is int) {
-      return _primitiveValue(runtime, args[0] as int);
+      return cachedPrimitiveOrValue(runtime, args[0] as int);
     }
 
-    return _primitiveValue(runtime, 0);
+    return cachedPrimitiveOrValue(runtime, 0);
   }
 
   /// Calculates the base-2 logarithm of a number
   static Value log2(List<Object?> args, {LuaRuntime? runtime}) {
     if (args.isEmpty || args[0] == null) {
-      return _primitiveValue(runtime, 0.0);
+      return cachedPrimitiveOrValue(runtime, 0.0);
     }
 
     double number = 0;
@@ -303,22 +291,22 @@ class TestLib {
     }
 
     if (number <= 0) {
-      return _primitiveValue(runtime, 0.0);
+      return cachedPrimitiveOrValue(runtime, 0.0);
     }
 
-    return _primitiveValue(runtime, math.log(number) / math.log(2));
+    return cachedPrimitiveOrValue(runtime, math.log(number) / math.log(2));
   }
 
   /// Returns information about a table
   static Value querytab(List<Object?> args, {LuaRuntime? runtime}) {
     if (args.isEmpty || args[0] == null) {
-      return _primitiveValue(runtime, null);
+      return cachedPrimitiveOrValue(runtime, null);
     }
 
     final obj = args[0];
     final map = _rawTestMap(obj);
     if (map == null) {
-      return _primitiveValue(runtime, null);
+      return cachedPrimitiveOrValue(runtime, null);
     }
 
     final result = <String, dynamic>{
@@ -335,19 +323,19 @@ class TestLib {
           obj.metatable!['__mode'].toString().contains('v'),
     };
 
-    return _objectValue(runtime, result);
+    return valueFromOptionalLuaSlot(runtime, result);
   }
 
   /// Returns information about a string
   static Value querystr(List<Object?> args, {LuaRuntime? runtime}) {
     if (args.isEmpty || args[0] == null) {
-      return _primitiveValue(runtime, null);
+      return cachedPrimitiveOrValue(runtime, null);
     }
 
     final str = args[0].toString();
     final result = <String, dynamic>{'length': str.length};
 
-    return _objectValue(runtime, result);
+    return valueFromOptionalLuaSlot(runtime, result);
   }
 }
 

@@ -7,7 +7,6 @@ import 'package:lualike/src/runtime/lua_slot.dart';
 import 'lib_dart_bytes.dart';
 import 'library.dart';
 
-String _dartStringText(Object? value) => rawLuaSlot(value).toString();
 
 String _dartStringPattern(Object? value) {
   final raw = rawLuaSlot(value);
@@ -80,7 +79,7 @@ class DartStringSplit extends BuiltinFunction {
         'dart.string.split requires 2 arguments: string and pattern',
       );
     }
-    final str = _dartStringText(args[0]);
+    final str = rawLuaSlotString(args[0]);
     final pattern = _dartStringPattern(args[1]);
     final parts = str.split(pattern);
     return valueFromOptionalLuaSlot(interpreter, parts);
@@ -95,7 +94,7 @@ class DartStringTrim extends BuiltinFunction {
       throw LuaError('dart.string.trim requires 1 argument: string');
     }
     final val = args[0];
-    final str = _dartStringText(val);
+    final str = rawLuaSlotString(val);
     final trimmed = str.trim();
     if (identical(trimmed, str)) {
       return val;
@@ -112,7 +111,7 @@ class DartStringToUpper extends BuiltinFunction {
       throw LuaError('dart.string.toUpperCase requires 1 argument: string');
     }
     final val = args[0];
-    final str = _dartStringText(val);
+    final str = rawLuaSlotString(val);
     final upper = str.toUpperCase();
     if (identical(upper, str)) {
       return val;
@@ -129,7 +128,7 @@ class DartStringToLower extends BuiltinFunction {
       throw LuaError('dart.string.toLowerCase requires 1 argument: string');
     }
     final val = args[0];
-    final str = _dartStringText(val);
+    final str = rawLuaSlotString(val);
     final lower = str.toLowerCase();
     if (identical(lower, str)) {
       return val;
@@ -147,7 +146,7 @@ class DartStringContains extends BuiltinFunction {
         'dart.string.contains requires 2 arguments: string and other',
       );
     }
-    final str = _dartStringText(args[0]);
+    final str = rawLuaSlotString(args[0]);
     final other = _dartStringPattern(args[1]);
     final startIndex = _optionalDartStringIndex(args, 2);
     if (startIndex != null) {
@@ -166,7 +165,7 @@ class DartStringReplaceAll extends BuiltinFunction {
         'dart.string.replaceAll requires 3 arguments: string, from, to',
       );
     }
-    final str = _dartStringText(args[0]);
+    final str = rawLuaSlotString(args[0]);
     final from = _dartStringPattern(args[1]);
     final to = _dartStringPattern(args[2]);
     return dartStringValue(str.replaceAll(from, to));
@@ -182,7 +181,7 @@ class DartStringSubstring extends BuiltinFunction {
         'dart.string.substring requires at least 2 arguments: string, startIndex, [endIndex]',
       );
     }
-    final str = _dartStringText(args[0]);
+    final str = rawLuaSlotString(args[0]);
     final startIndex = _requiredDartStringIndex(args, 1);
     final endIndex = _optionalDartStringIndex(args, 2);
     return dartStringValue(str.substring(startIndex, endIndex));
@@ -197,7 +196,7 @@ class DartStringTrimLeft extends BuiltinFunction {
       throw LuaError('dart.string.trimLeft requires 1 argument: string');
     }
     final val = args[0];
-    final str = _dartStringText(val);
+    final str = rawLuaSlotString(val);
     final trimmed = str.trimLeft();
     if (identical(trimmed, str)) {
       return val;
@@ -214,7 +213,7 @@ class DartStringTrimRight extends BuiltinFunction {
       throw LuaError('dart.string.trimRight requires 1 argument: string');
     }
     final val = args[0];
-    final str = _dartStringText(val);
+    final str = rawLuaSlotString(val);
     final trimmed = str.trimRight();
     if (identical(trimmed, str)) {
       return val;
@@ -233,7 +232,7 @@ class DartStringPadLeft extends BuiltinFunction {
       );
     }
     final val = args[0];
-    final str = _dartStringText(val);
+    final str = rawLuaSlotString(val);
     final width = _requiredDartStringIndex(args, 1);
     if (width <= str.length) {
       return val;
@@ -256,7 +255,7 @@ class DartStringPadRight extends BuiltinFunction {
       );
     }
     final val = args[0];
-    final str = _dartStringText(val);
+    final str = rawLuaSlotString(val);
     final width = _requiredDartStringIndex(args, 1);
     if (width <= str.length) {
       return val;
@@ -278,7 +277,7 @@ class DartStringStartsWith extends BuiltinFunction {
         'dart.string.startsWith requires 2 arguments: string, pattern, [index]',
       );
     }
-    final str = _dartStringText(args[0]);
+    final str = rawLuaSlotString(args[0]);
     final pattern = _dartStringPattern(args[1]);
     final index = _optionalDartStringIndex(args, 2);
     return primitiveValue(str.startsWith(pattern, index ?? 0));
@@ -294,7 +293,7 @@ class DartStringEndsWith extends BuiltinFunction {
         'dart.string.endsWith requires 2 arguments: string, other',
       );
     }
-    final str = _dartStringText(args[0]);
+    final str = rawLuaSlotString(args[0]);
     final other = _dartStringPattern(args[1]);
     return primitiveValue(str.endsWith(other));
   }
@@ -309,7 +308,7 @@ class DartStringIndexOf extends BuiltinFunction {
         'dart.string.indexOf requires 2 arguments: string, pattern, [start]',
       );
     }
-    final str = _dartStringText(args[0]);
+    final str = rawLuaSlotString(args[0]);
     final pattern = _dartStringPattern(args[1]);
     final start = _optionalDartStringIndex(args, 2);
     return primitiveValue(str.indexOf(pattern, start ?? 0));
@@ -325,7 +324,7 @@ class DartStringLastIndexOf extends BuiltinFunction {
         'dart.string.lastIndexOf requires 2 arguments: string, pattern, [start]',
       );
     }
-    final str = _dartStringText(args[0]);
+    final str = rawLuaSlotString(args[0]);
     final pattern = _dartStringPattern(args[1]);
     final start = _optionalDartStringIndex(args, 2);
     return primitiveValue(str.lastIndexOf(pattern, start));
@@ -341,7 +340,7 @@ class DartStringReplaceFirst extends BuiltinFunction {
         'dart.string.replaceFirst requires 3 arguments: string, from, to, [startIndex]',
       );
     }
-    final str = _dartStringText(args[0]);
+    final str = rawLuaSlotString(args[0]);
     final from = _dartStringPattern(args[1]);
     final to = _dartStringPattern(args[2]);
     final startIndex = _optionalDartStringIndex(args, 3);
@@ -356,7 +355,7 @@ class DartStringIsEmpty extends BuiltinFunction {
     if (args.isEmpty) {
       throw LuaError('dart.string.isEmpty requires 1 argument: string');
     }
-    final str = _dartStringText(args[0]);
+    final str = rawLuaSlotString(args[0]);
     return primitiveValue(str.isEmpty);
   }
 }

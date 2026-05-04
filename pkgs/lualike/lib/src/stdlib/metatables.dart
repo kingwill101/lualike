@@ -6,19 +6,7 @@ import 'package:lualike/src/utils/type.dart';
 
 import '../../lualike.dart';
 
-bool _isNilMetatableValue(Object? value) => rawLuaSlot(value) == null;
 
-bool _rawStringSlotsEqual(Object? left, Object? right) {
-  final leftRaw = rawLuaSlot(left);
-  final rightRaw = rawLuaSlot(right);
-  if (leftRaw is LuaString) {
-    return leftRaw == rightRaw;
-  }
-  if (rightRaw is LuaString) {
-    return rightRaw == leftRaw;
-  }
-  return leftRaw == rightRaw;
-}
 
 Object? _callMetatableCallable(Object? callable, List<Object?> args) {
   final rawCallable = rawLuaSlot(callable);
@@ -194,7 +182,7 @@ class MetaTable {
               'String __eq metamethod called: "${rawLuaSlot(a)}" == "${rawLuaSlot(b)}"',
           category: 'Metatables',
         );
-        return _primitiveValue(_rawStringSlotsEqual(a, b));
+        return _primitiveValue(rawLuaSlotsEqual(a, b));
       },
     });
     Logger.debugLazy(
@@ -262,7 +250,7 @@ class MetaTable {
         );
         final filteredEntries = map.entries.where((entry) {
           final value = entry.value;
-          final keep = !_isNilMetatableValue(value);
+          final keep = !isLuaNilSlot(value);
           Logger.debugLazy(
             () =>
                 'Filter entry: key=${entry.key}, value=${entry.value}, keep=$keep',
