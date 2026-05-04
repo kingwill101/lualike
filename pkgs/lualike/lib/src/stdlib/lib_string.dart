@@ -83,6 +83,14 @@ bool _shouldUseBytePatternProcessing(dynamic subject, dynamic pattern) =>
     (subject is String && _containsNonAscii(subject)) ||
     (pattern is String && _containsNonAscii(pattern));
 
+bool _isTruthyStringValue(Object? value) {
+  if (value is Value) {
+    return value.isTruthy();
+  }
+  final raw = rawLuaSlot(value);
+  return raw != null && raw != false;
+}
+
 String _toPatternProcessingString(dynamic value, {required bool byteLevel}) {
   if (!byteLevel) {
     return value is LuaString ? value.toString() : value.toString();
@@ -568,7 +576,7 @@ Value _requireStringLikeArgument(
 
 int _requireStringIntegerArgument(
   BuiltinFunction builtin,
-  Value value, {
+  Object? value, {
   required String functionName,
   required int functionArgNumber,
   required int methodArgNumber,
@@ -640,17 +648,18 @@ class StringLibrary extends Library {
 class StringLib {
   static final ValueClass stringClass = ValueClass.create({
     "__len": (List<Object?> args) {
-      final str = args[0] as Value;
+      final str = args[0];
       return cachedPrimitiveOrValue(
-        str.interpreter,
+        str is Value ? str.interpreter : null,
         rawLuaSlot(str).toString().length,
       );
     },
     "__concat": (List<Object?> args) {
-      final a = args[0] as Value;
-      final b = args[1] as Value;
+      final a = args[0];
+      final b = args[1];
       return _dartStringResultValue(
-        a.interpreter ?? b.interpreter,
+        (a is Value ? a.interpreter : null) ??
+            (b is Value ? b.interpreter : null),
         rawLuaSlot(a).toString() + rawLuaSlot(b).toString(),
       );
     },
@@ -748,7 +757,7 @@ class _StringDump extends BuiltinFunction {
     if (runtime == null) {
       throw LuaError("No interpreter context available");
     }
-    final stripDebugInfo = args.length > 1 && (args[1] as Value).isTruthy();
+    final stripDebugInfo = args.length > 1 && _isTruthyStringValue(args[1]);
     return valueFromLuaSlot(
       runtime,
       runtime.dumpFunction(func, stripDebugInfo: stripDebugInfo),
@@ -2599,7 +2608,7 @@ class _StringRep extends BuiltinFunction {
       throw LuaError.typeError("string.rep requires a string and count");
     }
 
-    final value = args[0] as Value;
+    final value = args[0];
     final rawValue = rawLuaSlot(value);
     final count = _requireIntegerRepresentation(rawLuaSlot(args[1]));
     final separatorValue = args.length > 2 ? args[2] : null;
@@ -2736,7 +2745,7 @@ class _StringSub extends BuiltinFunction {
     var start = args.length > 1
         ? _requireStringIntegerArgument(
             this,
-            args[1] as Value,
+            args[1],
             functionName: 'sub',
             functionArgNumber: 2,
             methodArgNumber: 1,
@@ -2745,7 +2754,7 @@ class _StringSub extends BuiltinFunction {
     var end = args.length > 2
         ? _requireStringIntegerArgument(
             this,
-            args[2] as Value,
+            args[2],
             functionName: 'sub',
             functionArgNumber: 3,
             methodArgNumber: 2,
@@ -3314,7 +3323,7 @@ class _StringUnpack extends BuiltinFunction {
       );
     }
     final format = rawLuaSlot(args[0]).toString();
-    final binaryValue = args[1] as Value;
+    final binaryValue = args[1];
     final pos = args.length > 2 ? NumberUtils.toInt(rawLuaSlot(args[2])) : 1;
 
     final results = <Object?>[];
