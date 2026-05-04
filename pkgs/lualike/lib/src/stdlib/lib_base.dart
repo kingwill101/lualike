@@ -145,8 +145,9 @@ class SetMetatableFunction extends BuiltinFunction {
       );
     }
     final table = args[0];
+    final rawTable = _rawBaseValue(table);
 
-    if (table is! Value || table.raw is! Map) {
+    if (table is! Value || rawTable is! Map) {
       throw LuaError(
         "bad argument #1 to 'setmetatable' "
         "(table expected, got ${getLuaType(table)})",
@@ -178,19 +179,20 @@ class SetMetatableFunction extends BuiltinFunction {
     }
 
     if (metatable is Value) {
-      if (metatable.raw is Map) {
+      final rawMetatable = _rawBaseValue(metatable);
+      if (rawMetatable is Map) {
         Logger.debugLazy(
           () =>
-              "[SetMetatable] on table=${table.hashCode} raw=${table.raw.hashCode} using meta raw=${metatable.raw.hashCode}",
+              "[SetMetatable] on table=${table.hashCode} raw=${rawTable.hashCode} using meta raw=${rawMetatable.hashCode}",
           category: 'Metatables',
         );
         // Preserve identity by keeping a reference to the original Value.
         table.metatableRef = metatable;
         // Reuse the same map instance so identity comparisons work as expected.
         final rawMeta = Map.castFrom<dynamic, dynamic, String, dynamic>(
-          metatable.raw as Map,
+          rawMetatable,
         );
-        table.setMetatable(rawMeta, ownerRaw: metatable.raw);
+        table.setMetatable(rawMeta, ownerRaw: rawMetatable);
         if (Logger.enabled) {
           final mode = rawMeta['__mode'];
           Logger.debugLazy(
@@ -220,7 +222,7 @@ class SetMetatableFunction extends BuiltinFunction {
           table.finalizerEligible = false;
         }
         return table;
-      } else if (metatable.raw == null) {
+      } else if (rawMetatable == null) {
         // Setting nil metatable removes the metatable
         table.setMetatable(<String, dynamic>{});
         table.metatable = null;
@@ -247,19 +249,21 @@ class RawSetFunction extends BuiltinFunction {
     }
 
     final table = args[0];
-    if (table is! Value || table.raw is! Map) {
+    final rawTable = _rawBaseValue(table);
+    if (table is! Value || rawTable is! Map) {
       throw LuaError("rawset: first argument must be a table");
     }
 
     final key = args[1] as Value;
+    var rawKey = _rawBaseValue(key);
 
     // Check for nil key
-    if (key.raw == null) {
+    if (rawKey == null) {
       throw LuaError.typeError('table index is nil');
     }
 
     // Check for NaN key
-    if (key.raw is num && (key.raw as num).isNaN) {
+    if (rawKey is num && rawKey.isNaN) {
       throw LuaError.typeError('table index is NaN');
     }
 
@@ -267,14 +271,13 @@ class RawSetFunction extends BuiltinFunction {
     final wrappedValue = valueFromLuaSlot(interpreter!, value);
 
     // Use raw key like normal table operations do
-    var rawKey = key.raw;
     if (rawKey is LuaString) {
       rawKey = rawKey.toString();
     }
     if (wrappedValue.isNil) {
-      (table.raw as Map).remove(rawKey);
+      rawTable.remove(rawKey);
     } else {
-      (table.raw as Map)[rawKey] = wrappedValue;
+      rawTable[rawKey] = wrappedValue;
     }
     table.markTableModified();
     return table;
@@ -322,18 +325,10 @@ class AssertFunction extends BuiltinFunction {
       primaryCondition = values.isNotEmpty ? values.first : null;
     }
 
-    bool isTrue;
-    if (primaryCondition is Value) {
-      if (primaryCondition.raw is bool) {
-        isTrue = primaryCondition.raw as bool;
-      } else {
-        isTrue = primaryCondition.raw != null;
-      }
-    } else if (primaryCondition is bool) {
-      isTrue = primaryCondition;
-    } else {
-      isTrue = primaryCondition != null;
-    }
+    final rawPrimaryCondition = _rawBaseValue(primaryCondition);
+    final bool isTrue = rawPrimaryCondition is bool
+        ? rawPrimaryCondition
+        : rawPrimaryCondition != null;
 
     Logger.debugLazy(
       () =>
@@ -343,25 +338,25 @@ class AssertFunction extends BuiltinFunction {
 
     if (!isTrue) {
       final explicitMessage = args.length > 1 ? args[1] as Value : null;
-      if (explicitMessage != null && explicitMessage.raw != null) {
+      final rawExplicitMessage = _rawBaseValue(explicitMessage);
+      if (explicitMessage != null && rawExplicitMessage != null) {
         Logger.debugLazy(
           () =>
-              'AssertFunction: Assertion failed with explicit message object: ${explicitMessage.raw}',
+              'AssertFunction: Assertion failed with explicit message object: $rawExplicitMessage',
           category: 'Base',
         );
         if (interpreter != null && interpreter!.isInProtectedCall) {
           throw explicitMessage;
         }
 
-        final message = explicitMessage.raw.toString();
+        final message = rawExplicitMessage.toString();
         final preserveLuaStackTrace =
-            explicitMessage.raw is! String &&
-                explicitMessage.raw is! LuaString ||
+            rawExplicitMessage is! String && rawExplicitMessage is! LuaString ||
             !message.contains("in metamethod 'close'");
         final luaStackTrace = preserveLuaStackTrace
             ? interpreter?.callStack.toLuaStackTrace()
             : null;
-        final cause = switch (explicitMessage.raw) {
+        final cause = switch (rawExplicitMessage) {
           String() || LuaString() => null,
           final Object raw => raw,
           _ => null,
@@ -904,15 +899,15 @@ class IPairsFunction extends BuiltinFunction {
 
     final t = iterArgs[0] as Value;
 
-    if (t.raw is! Map) {
+    if (_rawBaseValue(t) is! Map) {
       throw LuaError("iterator requires a table as first argument");
     }
 
-    if (iterArgs[1] is! Value || (iterArgs[1] as Value).raw is! num) {
+    if (iterArgs[1] is! Value || _rawBaseValue(iterArgs[1]) is! num) {
       throw LuaError("iterator index must be a number");
     }
 
-    final index = (iterArgs[1] as Value).raw as num;
+    final index = _rawBaseValue(iterArgs[1]) as num;
     final nextIndex = index + 1;
     final value = await t.getValueAsync(primitiveValue(nextIndex));
     if (_isNilBaseValue(value)) {
@@ -929,7 +924,7 @@ class IPairsFunction extends BuiltinFunction {
       throw LuaError(_badTableArgumentMessage('ipairs', null));
     }
     final table = args[0] as Value;
-    if (table.raw is! Map) {
+    if (_rawBaseValue(table) is! Map) {
       throw LuaError(_badTableArgumentMessage('ipairs', table));
     }
 
@@ -964,22 +959,24 @@ class PrintFunction extends BuiltinFunction {
         continue;
       }
 
+      final rawValue = _rawBaseValue(value);
+
       // Handle different types
-      if (value.raw is num || value.raw is BigInt) {
+      if (rawValue is num || rawValue is BigInt) {
         // Use proper number formatting
-        outputs.add(value.raw.toString());
-      } else if (value.raw is String || value.raw is LuaString) {
-        outputs.add(value.raw.toString());
-      } else if (value.raw is bool) {
-        outputs.add(value.raw.toString());
-      } else if (value.raw == null) {
+        outputs.add(rawValue.toString());
+      } else if (rawValue is String || rawValue is LuaString) {
+        outputs.add(rawValue.toString());
+      } else if (rawValue is bool) {
+        outputs.add(rawValue.toString());
+      } else if (rawValue == null) {
         outputs.add("nil");
-      } else if (value.raw is Map) {
-        outputs.add("table: ${value.raw.hashCode}");
-      } else if (value.raw is Function || value.raw is BuiltinFunction) {
+      } else if (rawValue is Map) {
+        outputs.add("table: ${rawValue.hashCode}");
+      } else if (rawValue is Function || rawValue is BuiltinFunction) {
         outputs.add("function: ${value.hashCode}");
-      } else if (value.raw is Future) {
-        outputs.add("list: ${value.raw.hashCode}");
+      } else if (rawValue is Future) {
+        outputs.add("list: ${rawValue.hashCode}");
       } else {
         outputs.add(value.toString());
       }
