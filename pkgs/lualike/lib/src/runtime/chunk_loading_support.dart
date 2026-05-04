@@ -3,13 +3,11 @@ import 'dart:typed_data';
 import 'package:lualike/src/lua_string.dart';
 import 'package:lualike/src/lua_error.dart';
 import 'package:lualike/src/runtime/lua_runtime.dart';
+import 'package:lualike/src/runtime/lua_slot.dart';
 import 'package:lualike/src/value.dart';
 
-Object? _rawChunkLoadingValue(Object? value) =>
-    value is Value ? value.raw : value;
-
 List<int>? compiledArtifactSourceBytes(Value source) {
-  return switch (_rawChunkLoadingValue(source)) {
+  return switch (rawLuaSlot(source)) {
     final LuaString luaString => luaString.bytes,
     final String text => text.codeUnits,
     final List<int> bytes => bytes,
@@ -23,7 +21,7 @@ normalizeChunkLoadRequest(
   LuaChunkLoadRequest request,
 ) async {
   final source = request.source;
-  final raw = _rawChunkLoadingValue(source);
+  final raw = rawLuaSlot(source);
   if (raw is String || raw is LuaString || raw is List<int>) {
     return (request: request, failure: null);
   }
@@ -79,7 +77,7 @@ Future<({Value? source, String? errorMessage})> _materializeReaderSource(
       );
     }
 
-    final raw = _rawChunkLoadingValue(chunk);
+    final raw = rawLuaSlot(chunk);
     if (raw == null) {
       break;
     }
