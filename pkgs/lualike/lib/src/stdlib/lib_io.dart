@@ -431,7 +431,7 @@ class IOInput extends BuiltinFunction {
       newFile = args[0] as Value;
       result = args[0];
     } else {
-      final argument = args[0] as Value;
+      final argument = args[0];
       if (!_isIOString(argument)) {
         throw LuaError.typeError(
           "bad argument #1 to 'input' (FILE* expected, got ${getLuaType(argument)})",
@@ -479,7 +479,7 @@ class IOLines extends BuiltinFunction {
 
     // Log the arguments
     for (int i = 0; i < args.length; i++) {
-      final arg = args[i] as Value;
+      final arg = args[i];
       final rawArg = rawLuaSlot(arg);
       Logger.debugLazy(
         () => 'Arg $i: $rawArg (type: ${rawArg.runtimeType})',
@@ -629,7 +629,7 @@ class IOOutput extends BuiltinFunction {
       );
       newFile = args[0] as Value;
     } else {
-      final argument = args[0] as Value;
+      final argument = args[0];
       if (!_isIOString(argument)) {
         throw LuaError.typeError(
           "bad argument #1 to 'output' (FILE* expected, got ${getLuaType(argument)})",
@@ -877,8 +877,7 @@ class IOWrite extends BuiltinFunction {
     }
 
     for (final arg in args) {
-      final val = arg as Value;
-      final rawVal = rawLuaSlot(val);
+      final rawVal = rawLuaSlot(arg);
       try {
         final defaultOutput = IOLib.defaultOutput;
         final luaFile = extractLuaFile(defaultOutput)!;
@@ -909,7 +908,7 @@ class IOWrite extends BuiltinFunction {
           }
         } else {
           throw LuaError.typeError(
-            "bad argument #1 to 'io.write' (string expected, got ${getLuaType(val)})",
+            "bad argument #1 to 'io.write' (string expected, got ${getLuaType(arg)})",
           );
         }
       } catch (e) {
@@ -1074,8 +1073,7 @@ class FileWrite extends BuiltinFunction {
 
     final luaFile = extractLuaFile(file)!;
     for (final arg in actualArgs) {
-      final val = arg as Value;
-      final rawVal = rawLuaSlot(val);
+      final rawVal = rawLuaSlot(arg);
       List<Object?> result;
       if (rawVal is LuaString) {
         final bytes = rawVal.bytes;
