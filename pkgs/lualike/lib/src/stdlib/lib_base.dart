@@ -1809,7 +1809,7 @@ class RawEqualFunction extends BuiltinFunction {
     if (args.length < 2) throw LuaError("rawequal requires two arguments");
     final v1 = args[0] as Value;
     final v2 = args[1] as Value;
-    return primitiveValue(v1.raw == v2.raw);
+    return primitiveValue(_rawBaseValue(v1) == _rawBaseValue(v2));
   }
 }
 
@@ -1820,13 +1820,14 @@ class RawLenFunction extends BuiltinFunction {
   Object? call(List<Object?> args) {
     if (args.isEmpty) throw LuaError("rawlen requires an argument");
     final value = args[0] as Value;
-    if (value.raw is String) {
-      return primitiveValue(value.raw.toString().length);
+    final rawValue = _rawBaseValue(value);
+    if (rawValue is String) {
+      return primitiveValue(rawValue.length);
     }
-    if (value.raw is LuaString) {
-      return primitiveValue((value.raw as LuaString).length);
+    if (rawValue is LuaString) {
+      return primitiveValue(rawValue.length);
     }
-    if (value.raw is Map) return primitiveValue((value.raw as Map).length);
+    if (rawValue is Map) return primitiveValue(rawValue.length);
     throw LuaError("rawlen requires a string or table");
   }
 }
@@ -1841,8 +1842,9 @@ class WarnFunction extends BuiltinFunction {
     if (args.isEmpty) return primitiveValue(null);
 
     final firstArg = args[0] as Value;
-    if (firstArg.raw is String) {
-      final message = firstArg.raw.toString();
+    final rawFirstArg = _rawBaseValue(firstArg);
+    if (rawFirstArg is String) {
+      final message = rawFirstArg;
 
       // Handle control messages
       if (message == "@off") {
@@ -1858,7 +1860,7 @@ class WarnFunction extends BuiltinFunction {
       final messages = args
           .map((arg) {
             final value = arg as Value;
-            return value.raw?.toString() ?? "nil";
+            return _rawBaseValue(value)?.toString() ?? "nil";
           })
           .join("\t");
 
@@ -2231,19 +2233,19 @@ class RawGetFunction extends BuiltinFunction {
     }
 
     final table = args[0] as Value;
-    if (table.raw is! Map) {
+    final rawTable = _rawBaseValue(table);
+    if (rawTable is! Map) {
       throw LuaError("rawget requires a table as first argument");
     }
 
     final key = args[1] as Value;
-    final map = table.raw as Map;
 
     // Use raw key like normal table operations and rawset do
-    var rawKey = key.raw;
+    var rawKey = _rawBaseValue(key);
     if (rawKey is LuaString) {
       rawKey = rawKey.toString();
     }
-    final value = map[rawKey];
+    final value = rawTable[rawKey];
     return value ?? primitiveValue(null);
   }
 }
@@ -2262,7 +2264,7 @@ class PairsFunction extends BuiltinFunction {
       return await table.callMetamethodAsync('__pairs', [table]);
     }
 
-    if (table.raw is! Map) {
+    if (_rawBaseValue(table) is! Map) {
       throw LuaError(_badTableArgumentMessage('pairs', table));
     }
     final nextFunc = interpreter!.globals.get('next');
@@ -2274,7 +2276,7 @@ class PairsFunction extends BuiltinFunction {
 String _badTableArgumentMessage(String functionName, Value? value) {
   final typeName = switch (value) {
     null => 'no value',
-    final Value value => getLuaType(value.raw),
+    final Value value => getLuaType(_rawBaseValue(value)),
   };
   return "bad argument #1 to '$functionName' (table expected, got $typeName)";
 }
