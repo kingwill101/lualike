@@ -1442,7 +1442,8 @@ Future<void> _assignLoadedGlobal(
   Value value,
 ) async {
   final envValue = loadEnv.get('_ENV');
-  if (envValue is Value && envValue.raw is Map) {
+  final rawEnvValue = _rawCompiledArtifactValue(envValue);
+  if (envValue is Value && rawEnvValue is Map) {
     await envValue.setValueAsync(name, value);
     return;
   }
@@ -1790,15 +1791,17 @@ void _installLoadedFunction({
   required String functionName,
   required Value functionValue,
 }) {
-  if (providedEnv case final env? when env.raw is Map) {
-    (env.raw as Map)[functionName] = functionValue;
-    env.markTableModified();
+  final rawProvidedEnv = _rawCompiledArtifactValue(providedEnv);
+  if (rawProvidedEnv is Map) {
+    rawProvidedEnv[functionName] = functionValue;
+    providedEnv!.markTableModified();
     return;
   }
 
   final gValue = savedEnv.get('_G') ?? savedEnv.root.get('_G');
-  if (gValue is Value && gValue.raw is Map) {
-    (gValue.raw as Map)[functionName] = functionValue;
+  final rawGValue = _rawCompiledArtifactValue(gValue);
+  if (gValue is Value && rawGValue is Map) {
+    rawGValue[functionName] = functionValue;
     gValue.markTableModified();
     return;
   }

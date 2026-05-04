@@ -858,9 +858,9 @@ class Environment extends GCObject {
       return box.value;
     }
 
-    final gValue = rootEnv.values['_G']?.value;
-    if (gValue is Value && gValue.raw is Map) {
-      return (gValue.raw as Map)[name];
+    final rawGlobalTable = _rawEnvironmentValue(rootEnv.values['_G']?.value);
+    if (rawGlobalTable is Map) {
+      return rawGlobalTable[name];
     }
     return null;
   }
