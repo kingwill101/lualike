@@ -13,6 +13,8 @@ import '../number_limits.dart';
 
 dynamic _rawTableValue(Object? value) => value is Value ? value.raw : value;
 
+bool _isNilTableValue(Object? value) => _rawTableValue(value) == null;
+
 /// Table library implementation using the new Library system
 class TableLibrary extends Library {
   @override
@@ -737,7 +739,7 @@ class _TableSort extends BuiltinFunction {
 
     // Quick check for degenerate case: if comparison function always returns false/nil
     // and we have more than a few elements, use a fast path
-    if (up - lo > 5 && comp != null && comp is Value && comp.raw != null) {
+    if (up - lo > 5 && comp is Value && !_isNilTableValue(comp)) {
       bool alwaysFalse = true;
       // Test a few comparisons to see if they all return false
       for (int i = 0; i < 3 && alwaysFalse; i++) {
@@ -878,7 +880,7 @@ class _TableSort extends BuiltinFunction {
       throw LuaError.typeError("attempt to compare nil value");
     }
 
-    if (comp == null || (comp is Value && comp.raw == null)) {
+    if (_isNilTableValue(comp)) {
       // no function?
 
       // Fast path: number/number or string/string (including LuaString) comparisons
@@ -1104,10 +1106,10 @@ class _TableSort extends BuiltinFunction {
   // Compare two values using Lua semantics
   Future<int> _compareValues(dynamic a, dynamic b) async {
     // Handle nil values - this should prevent metamethods from being called with nil
-    if (a == null || (a is Value && a.raw == null)) {
+    if (_isNilTableValue(a)) {
       throw LuaError.typeError("attempt to compare nil value");
     }
-    if (b == null || (b is Value && b.raw == null)) {
+    if (_isNilTableValue(b)) {
       throw LuaError.typeError("attempt to compare nil value");
     }
 
