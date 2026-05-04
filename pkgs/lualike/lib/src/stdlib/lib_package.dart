@@ -1,6 +1,7 @@
 import 'package:lualike/lualike.dart';
 
 import 'package:lualike/src/runtime/lua_results.dart';
+import 'package:lualike/src/runtime/lua_slot.dart';
 import 'package:lualike/src/utils/file_system_utils.dart';
 import 'package:lualike/src/utils/platform_utils.dart' as platform;
 import 'package:path/path.dart' as path_lib;
@@ -415,7 +416,7 @@ class _LuaLoader extends BuiltinFunction {
                 () => "Module returned nil, defaulting to empty table",
                 category: 'Package',
               );
-              result = Value({}, interpreter: interpreter);
+              result = valueFromLuaSlot(runtime, <dynamic, dynamic>{});
             } else {
               Logger.debugLazy(
                 () => "Module returned: ${result.runtimeType}",

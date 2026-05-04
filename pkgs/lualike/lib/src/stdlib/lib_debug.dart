@@ -2627,7 +2627,7 @@ void defineDebugLibrary({required Environment env, LuaRuntime? vm}) {
 
     // Ensure package.loaded exists
     if (!packageMap.containsKey("loaded")) {
-      packageMap["loaded"] = Value({}, interpreter: vm);
+      packageMap["loaded"] = valueFromOptionalLuaSlot(vm, <dynamic, dynamic>{});
     }
 
     final loadedTable = packageMap["loaded"];
