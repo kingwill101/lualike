@@ -1,11 +1,10 @@
 import '../../lualike.dart';
 import '../coroutine.dart';
+import '../runtime/lua_slot.dart';
 import '../table_storage.dart';
 
-Object? _rawTypeName(Object? name) => name is Value ? name.raw : name;
-
 String? _metamethodTypeName(Value value) {
-  final rawName = _rawTypeName(value.getMetamethod('__name'));
+  final rawName = rawLuaSlot(value.getMetamethod('__name'));
   return switch (rawName) {
     final String stringName => stringName,
     final LuaString stringName => stringName.toString(),
@@ -19,7 +18,7 @@ String getLuaType(Object? value) {
     if (typeName != null) {
       return typeName;
     }
-    value = _rawTypeName(wrapped);
+    value = rawLuaSlot(wrapped);
   }
   if (value case final Map<dynamic, dynamic> table) {
     final wrapped = Value.lookupCanonicalTableWrapper(table);
@@ -50,7 +49,7 @@ String getLuaType(Object? value) {
 
 String getLuaBaseType(Object? value) {
   if (value case final Value wrapped) {
-    value = _rawTypeName(wrapped);
+    value = rawLuaSlot(wrapped);
   }
   final t = value;
   return switch (t) {

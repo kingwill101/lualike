@@ -1,12 +1,10 @@
 import 'dart:convert';
 
 import 'package:lualike/lualike.dart';
+import 'package:lualike/src/runtime/lua_slot.dart';
 import 'package:lualike/src/utils/file_system_utils.dart' as fs;
 import 'package:lualike/src/utils/platform_utils.dart' as platform;
 import 'package:path/path.dart' as path;
-
-Object? _rawFileManagerValue(Object? value) =>
-    value is Value ? value.raw : value;
 
 /// Manages source file loading and virtual file system for the VM.
 ///
@@ -865,9 +863,9 @@ class FileManager {
     // Try to get package.path from the interpreter's globals
     if (_interpreter != null) {
       final packageTable = _interpreter!.globals.get('package');
-      final rawPackageTable = _rawFileManagerValue(packageTable);
+      final rawPackageTable = rawLuaSlot(packageTable);
       if (rawPackageTable is Map && rawPackageTable.containsKey('path')) {
-        final rawPath = _rawFileManagerValue(rawPackageTable['path']);
+        final rawPath = rawLuaSlot(rawPackageTable['path']);
         if (rawPath is String || rawPath is LuaString) {
           return rawPath.toString();
         }

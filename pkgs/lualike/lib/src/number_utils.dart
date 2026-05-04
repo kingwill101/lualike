@@ -6,6 +6,7 @@ import 'logging/logger.dart';
 import 'lua_error.dart';
 import 'lua_string.dart';
 import 'number.dart';
+import 'runtime/lua_slot.dart';
 
 /// Utility class for common number operations and conversions used throughout the stdlib
 import 'number_limits.dart';
@@ -25,10 +26,8 @@ class NumberUtils {
     return typeName(value);
   }
 
-  static Object? _rawTypeName(Object? name) => name is Value ? name.raw : name;
-
   static String? _metamethodTypeName(Value value) {
-    final rawName = _rawTypeName(value.getMetamethod('__name'));
+    final rawName = rawLuaSlot(value.getMetamethod('__name'));
     return switch (rawName) {
       final String stringName => stringName,
       final LuaString stringName => stringName.toString(),
@@ -52,7 +51,7 @@ class NumberUtils {
       if (metamethodName != null) {
         return metamethodName;
       }
-      value = _rawTypeName(value);
+      value = rawLuaSlot(value);
     }
 
     if (value case final Map<dynamic, dynamic> table) {
@@ -99,7 +98,7 @@ class NumberUtils {
 
   /// Extract and validate a number from a Value with proper error handling
   static dynamic getNumber(Value value, String funcName, int argNum) {
-    final raw = _rawTypeName(value);
+    final raw = rawLuaSlot(value);
     if (raw is! num && raw is! BigInt) {
       throw LuaError.typeError(
         "bad argument #$argNum to '$funcName' (number expected, got ${typeName(raw)})",

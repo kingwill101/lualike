@@ -3,13 +3,11 @@ import 'dart:typed_data';
 
 import 'package:lualike/src/number_limits.dart';
 import 'package:lualike/src/lua_string.dart';
+import 'package:lualike/src/runtime/lua_slot.dart';
 import 'package:lualike/src/value.dart';
 
-Object? _rawTableStorageValue(Object? value) =>
-    value is Value ? value.raw : value;
-
 bool isLuaNilValue(Object? value) =>
-    value == null || (value is Value && _rawTableStorageValue(value) == null);
+    value == null || (value is Value && rawLuaSlot(value) == null);
 
 int luaTableLengthBoundary(bool Function(int index) hasValueAt) {
   if (!hasValueAt(1)) {

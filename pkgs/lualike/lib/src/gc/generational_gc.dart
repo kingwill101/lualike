@@ -5,6 +5,7 @@ import 'dart:math' as math;
 import 'package:lualike/lualike.dart';
 import 'package:lualike/src/gc/gc.dart';
 import 'package:lualike/src/gc/memory_credits.dart';
+import 'package:lualike/src/runtime/lua_slot.dart';
 
 /// Phases of incremental garbage collection
 enum GCPhase { idle, marking, sweeping, finalizing }
@@ -71,9 +72,7 @@ class Generation {
   }
 }
 
-Object? _rawGcValue(Object? value) => value is Value ? value.raw : value;
-
-Map _rawGcTableMap(Value table) => _rawGcValue(table) as Map;
+Map _rawGcTableMap(Value table) => rawLuaSlot(table) as Map;
 
 /// Implementation of a generational garbage collector as described in Lua 5.4 reference manual.
 ///
@@ -1704,7 +1703,7 @@ class GenerationalGCManager {
         if (key is Value && value is Value) {
           sameObject =
               identical(key, value) ||
-              identical(_rawGcValue(key), _rawGcValue(value));
+              identical(rawLuaSlot(key), rawLuaSlot(value));
         }
 
         if (!sameObject &&
@@ -1919,7 +1918,7 @@ class GenerationalGCManager {
     if (key.isPrimitiveLike) {
       return key;
     }
-    final canonical = Value.lookupCanonicalTableWrapper(_rawGcValue(key));
+    final canonical = Value.lookupCanonicalTableWrapper(rawLuaSlot(key));
     return canonical ?? key;
   }
 
@@ -1983,13 +1982,13 @@ class GenerationalGCManager {
     if (_toBeFinalized.isEmpty) return;
     for (final obj in _toBeFinalized) {
       if (obj is! Value) continue;
-      final rawMetaOwner = Value.rawMetatableOwnerForTable(_rawGcValue(obj));
+      final rawMetaOwner = Value.rawMetatableOwnerForTable(rawLuaSlot(obj));
       final metaTable = rawMetaOwner is Map ? rawMetaOwner : obj.getMetatable();
       if (metaTable == null) continue;
       final metaVal = obj.metatableRef;
       final canonicalOwner = switch (metaVal) {
         final Value value =>
-          Value.lookupCanonicalTableWrapper(_rawGcValue(value)) ?? value,
+          Value.lookupCanonicalTableWrapper(rawLuaSlot(value)) ?? value,
         _ => null,
       };
       final isWeakV = Value.tableObjectHasWeakValues(metaTable);
@@ -2014,7 +2013,7 @@ class GenerationalGCManager {
         if (k is String) ks = k;
         if (k is LuaString) ks = k.toString();
         if (k is Value) {
-          final kr = _rawGcValue(k);
+          final kr = rawLuaSlot(k);
           if (kr is String) ks = kr;
           if (kr is LuaString) ks = kr.toString();
         }
@@ -2241,7 +2240,7 @@ class GenerationalGCManager {
           final metaOwner = obj.metatableRef;
           final Value? canonicalOwner = switch (metaOwner) {
             final Value value =>
-              Value.lookupCanonicalTableWrapper(_rawGcValue(value)) ?? value,
+              Value.lookupCanonicalTableWrapper(rawLuaSlot(value)) ?? value,
             _ => null,
           };
           final ownerWeakV = obj.metatableOwnerHasWeakValues;
@@ -2343,7 +2342,7 @@ class GenerationalGCManager {
         if (metaOwner is Value) {
           try {
             canonicalOwner =
-                Value.lookupCanonicalTableWrapper(_rawGcValue(metaOwner)) ??
+                Value.lookupCanonicalTableWrapper(rawLuaSlot(metaOwner)) ??
                 metaOwner;
           } catch (_) {
             canonicalOwner = metaOwner;
