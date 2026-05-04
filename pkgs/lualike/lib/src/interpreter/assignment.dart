@@ -418,7 +418,7 @@ mixin InterpreterAssignmentMixin on AstVisitor<Object?> {
         }
       } else if (expr is TableAccessExpr &&
           value is Value &&
-          value.raw is Coroutine) {
+          _rawInterpreterValue(value) is Coroutine) {
         // Patch: If the right-hand side is a TableAccessExpr and the value is a Coroutine, assign an empty table
         Logger.debugLazy(
           () =>
@@ -1597,12 +1597,13 @@ mixin InterpreterAssignmentMixin on AstVisitor<Object?> {
     final targetVal = valueFromLuaSlot(interpreter, targetValue);
     final indexVal = valueFromLuaSlot(interpreter, indexValue);
 
-    if (targetVal.raw is! Map) {
+    final targetRaw = _rawInterpreterValue(targetVal);
+    if (targetRaw is! Map) {
       throw Exception('Cannot assign to index of non-table value');
     }
 
-    final map = targetVal.raw as Map;
-    final rawKey = indexVal.raw;
+    final map = targetRaw;
+    final rawKey = _rawInterpreterValue(indexVal);
     final bool keyExists = map.containsKey(rawKey);
     final bool hasNewindex = targetVal.hasMetamethod('__newindex');
     final bool hasIndexMeta = targetVal.hasMetamethod('__index');
@@ -1617,7 +1618,7 @@ mixin InterpreterAssignmentMixin on AstVisitor<Object?> {
     }
 
     int? positiveInteger(Value candidate) {
-      final raw = candidate.raw;
+      final raw = _rawInterpreterValue(candidate);
       if (raw is int) {
         return raw > 0 ? raw : null;
       }
