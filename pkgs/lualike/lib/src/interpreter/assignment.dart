@@ -31,6 +31,22 @@ Object? _mutableLocalStorageValue(Object? value) {
   return value;
 }
 
+FutureOr<Object?> _resolveAssignmentFutureValue(
+  Interpreter interpreter,
+  Object? value,
+) {
+  if (value is Future) {
+    return value;
+  }
+
+  final raw = _rawInterpreterValue(value);
+  if (raw is Future) {
+    return raw.then((resolved) => valueFromLuaSlot(interpreter, resolved));
+  }
+
+  return value;
+}
+
 Value _wrapMutableLocalReadValue(Interpreter interpreter, Object? value) {
   return cachedPrimitiveOrValue(interpreter, value);
 }
@@ -305,13 +321,17 @@ mixin InterpreterAssignmentMixin on AstVisitor<Object?> {
           category: 'Assignment',
           contextBuilder: () => {'exprIndex': i},
         );
-      } else if (value is Value && value.raw is Future) {
-        value = valueFromLuaSlot(interpreter, await value.raw);
-        Logger.debugLazy(
-          () => 'visitAssignment: Awaited future value from Value.raw: $value',
-          category: 'Assignment',
-          contextBuilder: () => {'exprIndex': i},
-        );
+      } else {
+        final resolvedValue = _resolveAssignmentFutureValue(interpreter, value);
+        if (!identical(resolvedValue, value)) {
+          value = await resolvedValue;
+          Logger.debugLazy(
+            () =>
+                'visitAssignment: Awaited future value from Value.raw: $value',
+            category: 'Assignment',
+            contextBuilder: () => {'exprIndex': i},
+          );
+        }
       }
 
       // Special handling for grouped expressions with function calls
@@ -1185,12 +1205,7 @@ mixin InterpreterAssignmentMixin on AstVisitor<Object?> {
         // In Lua, parentheses limit multiple return values to just the first one
         value = await expr.expr.accept(this);
 
-        // Handle Future values
-        if (value is Future) {
-          value = await value;
-        } else if (value is Value && value.raw is Future) {
-          value = valueFromLuaSlot(interpreter, await value.raw);
-        }
+        value = await _resolveAssignmentFutureValue(interpreter, value);
 
         Logger.debugLazy(
           () =>
@@ -1210,12 +1225,7 @@ mixin InterpreterAssignmentMixin on AstVisitor<Object?> {
         // Function and method calls are already evaluated when visited
         value = await expr.accept(this);
 
-        // Handle Future values
-        if (value is Future) {
-          value = await value;
-        } else if (value is Value && value.raw is Future) {
-          value = valueFromLuaSlot(interpreter, await value.raw);
-        }
+        value = await _resolveAssignmentFutureValue(interpreter, value);
 
         final resultValues = luaResultValues(value);
         if (resultValues != null) {
@@ -1228,12 +1238,7 @@ mixin InterpreterAssignmentMixin on AstVisitor<Object?> {
       } else {
         value = await expr.accept(this);
 
-        // Handle Future values
-        if (value is Future) {
-          value = await value;
-        } else if (value is Value && value.raw is Future) {
-          value = valueFromLuaSlot(interpreter, await value.raw);
-        }
+        value = await _resolveAssignmentFutureValue(interpreter, value);
 
         // Wrap non-Value results
         final resultValues = luaResultValues(value);
@@ -1417,11 +1422,7 @@ mixin InterpreterAssignmentMixin on AstVisitor<Object?> {
 
       if (expr is GroupedExpression) {
         value = await expr.expr.accept(this);
-        if (value is Future) {
-          value = await value;
-        } else if (value is Value && value.raw is Future) {
-          value = valueFromLuaSlot(interpreter, await value.raw);
-        }
+        value = await _resolveAssignmentFutureValue(interpreter, value);
 
         if (luaResultValues(value) != null || value is List) {
           values.add(_firstLuaResultOrNil(value, interpreter: interpreter));
@@ -1430,11 +1431,7 @@ mixin InterpreterAssignmentMixin on AstVisitor<Object?> {
         }
       } else if (expr is FunctionCall || expr is MethodCall) {
         value = await expr.accept(this);
-        if (value is Future) {
-          value = await value;
-        } else if (value is Value && value.raw is Future) {
-          value = valueFromLuaSlot(interpreter, await value.raw);
-        }
+        value = await _resolveAssignmentFutureValue(interpreter, value);
 
         final resultValues = luaResultValues(value);
         if (resultValues != null) {
@@ -1446,11 +1443,7 @@ mixin InterpreterAssignmentMixin on AstVisitor<Object?> {
         }
       } else {
         value = await expr.accept(this);
-        if (value is Future) {
-          value = await value;
-        } else if (value is Value && value.raw is Future) {
-          value = valueFromLuaSlot(interpreter, await value.raw);
-        }
+        value = await _resolveAssignmentFutureValue(interpreter, value);
 
         final resultValues = luaResultValues(value);
         if (resultValues != null) {
@@ -1545,12 +1538,7 @@ mixin InterpreterAssignmentMixin on AstVisitor<Object?> {
     if (node.value is GroupedExpression) {
       var result = await (node.value as GroupedExpression).expr.accept(this);
 
-      // Handle Future values
-      if (result is Future) {
-        result = await result;
-      } else if (result is Value && result.raw is Future) {
-        result = valueFromLuaSlot(interpreter, await result.raw);
-      }
+      result = await _resolveAssignmentFutureValue(interpreter, result);
 
       Logger.debugLazy(
         () =>
@@ -1569,12 +1557,10 @@ mixin InterpreterAssignmentMixin on AstVisitor<Object?> {
     } else {
       valueToAssign = await node.value.accept(this);
 
-      // Handle Future values
-      if (valueToAssign is Future) {
-        valueToAssign = await valueToAssign;
-      } else if (valueToAssign is Value && valueToAssign.raw is Future) {
-        valueToAssign = valueFromLuaSlot(interpreter, await valueToAssign.raw);
-      }
+      valueToAssign = await _resolveAssignmentFutureValue(
+        interpreter,
+        valueToAssign,
+      );
     }
 
     // Wrap the value if needed
