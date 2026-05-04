@@ -6,6 +6,10 @@ import 'package:lualike/src/utils/type.dart';
 
 import '../../lualike.dart';
 
+Object? _rawMetatableValue(Object? value) => value is Value ? value.raw : value;
+
+bool _isNilMetatableValue(Object? value) => _rawMetatableValue(value) == null;
+
 /// Provides the default metatables and metamethod caches for built-in Lua
 /// types.
 class MetaTable {
@@ -254,8 +258,7 @@ class MetaTable {
         );
         final filteredEntries = map.entries.where((entry) {
           final value = entry.value;
-          final keep =
-              !(value == null || (value is Value && value.raw == null));
+          final keep = !_isNilMetatableValue(value);
           Logger.debugLazy(
             () =>
                 'Filter entry: key=${entry.key}, value=${entry.value}, keep=$keep',
@@ -474,8 +477,9 @@ class MetaTable {
     }
     // Cache string methods from the global string table
     final stringTable = interpreter.globals.get('string');
-    if (stringTable is Value && stringTable.raw is Map) {
-      final stringMap = stringTable.raw as Map;
+    final rawStringTable = _rawMetatableValue(stringTable);
+    if (rawStringTable is Map) {
+      final stringMap = rawStringTable;
 
       // Cache all string methods to avoid repeated map lookups
       for (final entry in stringMap.entries) {
