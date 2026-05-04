@@ -2,28 +2,31 @@ import '../../lualike.dart';
 import '../coroutine.dart';
 import '../table_storage.dart';
 
+Object? _rawTypeName(Object? name) => name is Value ? name.raw : name;
+
+String? _metamethodTypeName(Value value) {
+  final rawName = _rawTypeName(value.getMetamethod('__name'));
+  return switch (rawName) {
+    final String stringName => stringName,
+    final LuaString stringName => stringName.toString(),
+    _ => null,
+  };
+}
+
 String getLuaType(Object? value) {
   if (value case final Value wrapped) {
-    final name = wrapped.getMetamethod('__name');
-    final rawName = name is Value ? name.raw : name;
-    switch (rawName) {
-      case final String stringName:
-        return stringName;
-      case final LuaString stringName:
-        return stringName.toString();
+    final typeName = _metamethodTypeName(wrapped);
+    if (typeName != null) {
+      return typeName;
     }
     value = wrapped.raw;
   }
   if (value case final Map<dynamic, dynamic> table) {
     final wrapped = Value.lookupCanonicalTableWrapper(table);
     if (wrapped != null) {
-      final name = wrapped.getMetamethod('__name');
-      final rawName = name is Value ? name.raw : name;
-      switch (rawName) {
-        case final String stringName:
-          return stringName;
-        case final LuaString stringName:
-          return stringName.toString();
+      final typeName = _metamethodTypeName(wrapped);
+      if (typeName != null) {
+        return typeName;
       }
     }
   }
