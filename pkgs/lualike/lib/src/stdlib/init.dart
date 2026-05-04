@@ -124,7 +124,7 @@ void _ensureGlobalTable(Environment env) {
 
   final proxyMetatable = <String, dynamic>{
     '__index': (List<Object?> args) {
-      final key = args[1] as Value;
+      final key = args[1];
       final keyStr = rawLuaSlot(key).toString();
       return env.get(keyStr) ??
           env.interpreter?.constantPrimitiveValue(null) ??
