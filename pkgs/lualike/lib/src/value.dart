@@ -48,6 +48,8 @@ Object? _publicCallResult(Object? result) {
 
 bool _isPrimitivePayload(Object? value) => isLuaPrimitiveSlot(value);
 
+Object? _rawValuePayload(Object? value) => value is Value ? value.raw : value;
+
 /// Closure-only payload for Lua function values.
 class LuaClosurePayload {
   LuaClosurePayload({
@@ -581,7 +583,7 @@ class Value extends Object implements Map<String, dynamic>, GCObject {
       category: 'Value',
     );
     if (mode is Value) {
-      mode = mode.raw;
+      mode = _rawValuePayload(mode);
     }
     if (mode == null) return null;
     String modeStr;
@@ -616,7 +618,7 @@ class Value extends Object implements Map<String, dynamic>, GCObject {
     if (mt == null) return null;
     dynamic mode = mt['__mode'];
     if (mode is Value) {
-      mode = mode.raw;
+      mode = _rawValuePayload(mode);
     }
     if (mode == null) return null;
     final modeStr = switch (mode) {
@@ -964,9 +966,10 @@ class Value extends Object implements Map<String, dynamic>, GCObject {
   /// Register [v] as the canonical wrapper for its underlying Map, so that
   /// subsequent lookups will return [v] and preserve its metatable/identity.
   static void registerTableIdentity(Value v) {
-    if (v.raw is Map) {
+    final rawValue = _rawValuePayload(v);
+    if (rawValue is Map) {
       try {
-        _tableIdentity[v.raw as Map] = v;
+        _tableIdentity[rawValue] = v;
       } catch (_) {}
     }
   }
@@ -1081,8 +1084,9 @@ class Value extends Object implements Map<String, dynamic>, GCObject {
       return Value.primitive(value);
     }
     final wrapped = Value(value);
-    if (wrapped.raw is Map) {
-      _tableIdentity[wrapped.raw as Map] = wrapped;
+    final rawWrapped = _rawValuePayload(wrapped);
+    if (rawWrapped is Map) {
+      _tableIdentity[rawWrapped] = wrapped;
     }
     return wrapped;
   }
@@ -1161,8 +1165,12 @@ class Value extends Object implements Map<String, dynamic>, GCObject {
               hasBeenReported: e.hasBeenReported,
             );
           }
-        } else if (e is Value && (e.raw is String || e.raw is LuaString)) {
-          final message = e.raw.toString();
+        } else if (e is Value) {
+          final rawError = _rawValuePayload(e);
+          if (rawError is! String && rawError is! LuaString) {
+            rethrow;
+          }
+          final message = rawError.toString();
           if (!message.contains("in metamethod 'close'")) {
             throw LuaError("$message\nin metamethod 'close'");
           }
@@ -1194,10 +1202,11 @@ class Value extends Object implements Map<String, dynamic>, GCObject {
   /// For table values, recursively copies all nested values.
   /// Returns a new Value instance with copied contents.
   Value copy() {
-    if (raw is Map) {
+    final current = raw;
+    if (current is Map) {
       // Deep copy for tables
       final newMap = <dynamic, dynamic>{};
-      (raw as Map).forEach((key, value) {
+      current.forEach((key, value) {
         newMap[key] = _copyLooseValue(value);
       });
       return Value(
@@ -1217,7 +1226,6 @@ class Value extends Object implements Map<String, dynamic>, GCObject {
       );
     }
     // For non-table values, copy with metatable
-    final current = raw;
     final Map<String, dynamic>? copiedMetatable = metatable != null
         ? Map<String, dynamic>.from(metatable!)
         : null;
@@ -1259,9 +1267,10 @@ class Value extends Object implements Map<String, dynamic>, GCObject {
   /// Returns the metatable or null if none is set.
   Map<String, dynamic>? getMetatable() => metatable;
   Map<String, dynamic>? _getRegisteredTableMetatable() {
-    if (raw is Map) {
+    final current = raw;
+    if (current is Map) {
       try {
-        return _tableMetatables[raw as Map];
+        return _tableMetatables[current];
       } catch (_) {
         return null;
       }
@@ -1283,7 +1292,7 @@ class Value extends Object implements Map<String, dynamic>, GCObject {
       if (rawMode is LuaString) {
         modeStr = rawMode.toString();
       } else if (rawMode is Value) {
-        modeStr = rawMode.raw?.toString();
+        modeStr = _rawValuePayload(rawMode)?.toString();
       } else if (rawMode is String) {
         modeStr = rawMode;
       }
@@ -1582,7 +1591,7 @@ class Value extends Object implements Map<String, dynamic>, GCObject {
     final tostringMeta = getMetamethod('__tostring');
     if (tostringMeta != null) {
       // Check if this is a Lua function (which would return a Future)
-      if (tostringMeta is Value && tostringMeta.raw is Function) {
+      if (tostringMeta is Value && _rawValuePayload(tostringMeta) is Function) {
         // This is a Lua function, calling it would return a Future
         // For toString(), we can't handle Futures, so use default representation
         return "Value:<table:${raw.hashCode}>";
@@ -1596,7 +1605,9 @@ class Value extends Object implements Map<String, dynamic>, GCObject {
           // For toString(), we can't await, so return a placeholder
           return "Value:<table:${raw.hashCode}>";
         }
-        return result is Value ? result.raw.toString() : result.toString();
+        return result is Value
+            ? _rawValuePayload(result).toString()
+            : result.toString();
       } catch (e) {
         // If metamethod call fails, fall back to default behavior
         Logger.debugLazy(
@@ -1609,7 +1620,7 @@ class Value extends Object implements Map<String, dynamic>, GCObject {
     }
 
     final typeNameMeta = getMetamethod('__name');
-    final rawTypeName = typeNameMeta is Value ? typeNameMeta.raw : typeNameMeta;
+    final rawTypeName = _rawValuePayload(typeNameMeta);
     switch (rawTypeName) {
       case final String stringName:
         return "$stringName: ${raw.hashCode}";
@@ -1680,8 +1691,9 @@ class Value extends Object implements Map<String, dynamic>, GCObject {
           // If this Value wraps a Map and there is a canonical wrapper
           // registered for that Map, return the canonical one to preserve
           // metatables and identity semantics.
-          if (result.raw is Map) {
-            final existing = _lookupTableIdentity(result.raw);
+          final resultRaw = _rawValuePayload(result);
+          if (resultRaw is Map) {
+            final existing = _lookupTableIdentity(resultRaw);
             if (existing != null && !identical(existing, result)) {
               // Update stored entry to canonical wrapper
               (raw as Map)[storageKey] = existing;
@@ -1758,8 +1770,9 @@ class Value extends Object implements Map<String, dynamic>, GCObject {
           return result;
         }
         if (result is Value) {
-          if (result.raw is Map) {
-            final existing = _lookupTableIdentity(result.raw);
+          final resultRaw = _rawValuePayload(result);
+          if (resultRaw is Map) {
+            final existing = _lookupTableIdentity(resultRaw);
             if (existing != null && !identical(existing, result)) {
               (raw as Map)[storageKey] = existing;
               return existing;
@@ -1895,7 +1908,7 @@ class Value extends Object implements Map<String, dynamic>, GCObject {
         }
         visited.add(this);
 
-        if (newindexMeta is Value && newindexMeta.raw is Map) {
+        if (newindexMeta is Value && _rawValuePayload(newindexMeta) is Map) {
           await newindexMeta.setValueAsync(key, value, visited);
           return;
         }
@@ -1933,7 +1946,7 @@ class Value extends Object implements Map<String, dynamic>, GCObject {
           } else if (k is LuaString) {
             total += k.length * GcWeights.stringUnit;
           } else if (k is Value) {
-            final kr = k.raw;
+            final kr = _rawValuePayload(k);
             if (kr is String) {
               total += kr.length * GcWeights.stringUnit;
             } else if (kr is LuaString) {
@@ -1952,7 +1965,7 @@ class Value extends Object implements Map<String, dynamic>, GCObject {
       try {
         final keyType = storageKey.runtimeType;
         final keyRawType = storageKey is Value
-            ? storageKey.raw.runtimeType
+            ? _rawValuePayload(storageKey).runtimeType
             : keyType;
         Logger.debugLazy(
           () =>
@@ -2090,7 +2103,7 @@ class Value extends Object implements Map<String, dynamic>, GCObject {
   int? _extractPositiveIndex(Object? key) {
     Object? candidate = key;
     if (candidate is Value) {
-      candidate = candidate.raw;
+      candidate = _rawValuePayload(candidate);
     }
     if (candidate is int) {
       return candidate > 0 ? candidate : null;
@@ -2165,7 +2178,8 @@ class Value extends Object implements Map<String, dynamic>, GCObject {
     final indexMeta = getMetamethod('__index');
     if (indexMeta != null) {
       final result = callMetamethod('__index', [this, _wrapRuntimeValue(key)]);
-      return result != null && (result is Value ? result.raw != null : true);
+      return result != null &&
+          (result is Value ? _rawValuePayload(result) != null : true);
     }
 
     return false;
@@ -2198,7 +2212,7 @@ class Value extends Object implements Map<String, dynamic>, GCObject {
     final lenMeta = getMetamethod('__len');
     if (lenMeta != null) {
       final result = callMetamethod('__len', [this]);
-      return (result is Value ? result.raw : result) == 0;
+      return _rawValuePayload(result) == 0;
     }
 
     return (raw as Map).isEmpty;
@@ -2218,7 +2232,7 @@ class Value extends Object implements Map<String, dynamic>, GCObject {
     final lenMeta = getMetamethod('__len');
     if (lenMeta != null) {
       final result = callMetamethod('__len', [this]);
-      return result is Value ? result.raw as int : result as int;
+      return _rawValuePayload(result) as int;
     }
 
     if (raw is String) {
