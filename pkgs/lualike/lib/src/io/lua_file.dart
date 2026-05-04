@@ -20,6 +20,11 @@ Value _ioPrimitiveValue(Object? raw, [Value? owner]) {
   return cachedPrimitiveOrValue(owner?.interpreter, raw);
 }
 
+LuaFile? _rawLuaFile(Object? value) {
+  final raw = value is Value ? value.raw : value;
+  return raw is LuaFile ? raw : null;
+}
+
 final fileMetamethods = {
   "__name": "FILE*",
   "__gc": (List<Object?> args) async {
@@ -30,12 +35,12 @@ final fileMetamethods = {
       );
     }
     final fileValue = args[0];
-    if (fileValue is! Value || fileValue.raw is! LuaFile) {
+    final luaFile = _rawLuaFile(fileValue);
+    if (fileValue is! Value || luaFile == null) {
       throw LuaError(
         "bad argument #1 to '__gc' (FILE* expected, got ${getLuaType(fileValue)})",
       );
     }
-    final luaFile = fileValue.raw as LuaFile;
 
     Logger.debugLazy(
       () =>
@@ -100,8 +105,8 @@ final fileMetamethods = {
   "__close": (List<Object?> args) async {
     Logger.debugLazy(() => 'Closing file', category: 'IO');
     final fileValue = args[0];
-    if (fileValue is Value && fileValue.raw is LuaFile) {
-      final file = fileValue.raw as LuaFile;
+    final file = _rawLuaFile(fileValue);
+    if (fileValue is Value && file != null) {
       final result = await file.close();
       if (result.isNotEmpty && result[0] == true) {
         IOLib.unregisterOpenFile(fileValue);
@@ -114,8 +119,8 @@ final fileMetamethods = {
   "__tostring": (List<Object?> args) {
     Logger.debugLazy(() => 'Converting file to string', category: 'IO');
     final fileValue = args[0];
-    if (fileValue is Value && fileValue.raw is LuaFile) {
-      final file = fileValue.raw as LuaFile;
+    final file = _rawLuaFile(fileValue);
+    if (fileValue is Value && file != null) {
       return _ioPrimitiveValue(file.toString(), fileValue);
     } else {
       throw LuaError.typeError("file expected");
@@ -146,9 +151,8 @@ final fileMetamethods = {
       }
 
       // Handle file properties
-      if (fileValue is Value && fileValue.raw is LuaFile) {
-        final luaFile = fileValue.raw as LuaFile;
-
+      final luaFile = _rawLuaFile(fileValue);
+      if (fileValue is Value && luaFile != null) {
         switch (keyStr) {
           case 'mode':
             Logger.debugLazy(
