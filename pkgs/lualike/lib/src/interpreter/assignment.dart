@@ -52,6 +52,11 @@ bool _isRawMapValue(Value value) => _rawInterpreterValue(value) is Map;
 bool _isRawTableStorageValue(Value value) =>
     _rawInterpreterValue(value) is TableStorage;
 
+bool _isTruthyAssignmentValue(Object? value) {
+  final raw = _rawInterpreterValue(value);
+  return raw != null && raw != false;
+}
+
 Value _wrapMutableLocalReadValue(Interpreter interpreter, Object? value) {
   return cachedPrimitiveOrValue(interpreter, value);
 }
@@ -688,6 +693,8 @@ mixin InterpreterAssignmentMixin on AstVisitor<Object?> {
     final interpreter = this as Interpreter;
     final envValue = _resolveActiveEnvValue(interpreter);
     final gValue = _resolveActiveGlobalValue(interpreter);
+    final envRaw = _rawInterpreterValue(envValue);
+    final globalRaw = _rawInterpreterValue(gValue);
     Logger.debugLazy(
       () =>
           'ENV assign context: name=$name, '
@@ -697,8 +704,10 @@ mixin InterpreterAssignmentMixin on AstVisitor<Object?> {
         'name': name,
         'hasEnv': envValue != null,
         'hasG': gValue != null,
-        'envRawType': envValue?.raw.runtimeType.toString(),
-        'globalRawType': gValue?.raw.runtimeType.toString(),
+        'envRawType': envValue == null ? null : envRaw.runtimeType.toString(),
+        'globalRawType': gValue == null
+            ? null
+            : globalRaw.runtimeType.toString(),
       },
     );
     Logger.debugLazy(
@@ -727,8 +736,8 @@ mixin InterpreterAssignmentMixin on AstVisitor<Object?> {
     }
 
     final bool useCustomEnv =
-        (isInLoadIsolatedContext && envValue?.raw != null) ||
-        (envValue?.raw != null && gValue != null && envValue != gValue);
+        (isInLoadIsolatedContext && envRaw != null) ||
+        (envRaw != null && gValue != null && envValue != gValue);
     Logger.debugLazy(
       () =>
           'Assignment env mode: loadIsolated=${globals.isLoadIsolated} '
@@ -787,7 +796,7 @@ mixin InterpreterAssignmentMixin on AstVisitor<Object?> {
       }
 
       final envTarget = envValue;
-      if (envTarget == null || envTarget.raw == null) {
+      if (envTarget == null || _rawInterpreterValue(envTarget) == null) {
         throw LuaError("attempt to index a nil value ('_ENV')", node: target);
       }
 
@@ -882,6 +891,8 @@ mixin InterpreterAssignmentMixin on AstVisitor<Object?> {
     final interpreter = this as Interpreter;
     final envValue = _resolveActiveEnvValue(interpreter);
     final rootGlobalValue = _resolveActiveGlobalValue(interpreter);
+    final envRaw = _rawInterpreterValue(envValue);
+    final rootGlobalRaw = _rawInterpreterValue(rootGlobalValue);
 
     if (name == '_ENV') {
       globals.defineGlobal(name, storedValue);
@@ -891,7 +902,7 @@ mixin InterpreterAssignmentMixin on AstVisitor<Object?> {
     final writesToRootGlobals =
         envValue is Value &&
         rootGlobalValue is Value &&
-        identical(envValue.raw, rootGlobalValue.raw);
+        identical(envRaw, rootGlobalRaw);
     if (writesToRootGlobals) {
       globals.defineGlobal(name, storedValue);
       return storedValue;
@@ -910,6 +921,8 @@ mixin InterpreterAssignmentMixin on AstVisitor<Object?> {
     final interpreter = this as Interpreter;
     final envValue = _resolveActiveEnvValue(interpreter);
     final rootGlobalValue = _resolveActiveGlobalValue(interpreter);
+    final envRaw = _rawInterpreterValue(envValue);
+    final rootGlobalRaw = _rawInterpreterValue(rootGlobalValue);
 
     if (name == '_ENV') {
       globals.clearGlobal(name);
@@ -919,7 +932,7 @@ mixin InterpreterAssignmentMixin on AstVisitor<Object?> {
     final writesToRootGlobals =
         envValue is Value &&
         rootGlobalValue is Value &&
-        identical(envValue.raw, rootGlobalValue.raw);
+        identical(envRaw, rootGlobalRaw);
     if (writesToRootGlobals) {
       globals.clearGlobal(name);
       return;
@@ -944,7 +957,7 @@ mixin InterpreterAssignmentMixin on AstVisitor<Object?> {
     }
 
     final envValue = globals.get('_ENV');
-    if (envValue is Value && envValue.raw != null) {
+    if (envValue is Value && _rawInterpreterValue(envValue) != null) {
       final current = await envValue.getValueAsync(name);
       return current is Value ? !current.isNil : current != null;
     }
@@ -1311,7 +1324,7 @@ mixin InterpreterAssignmentMixin on AstVisitor<Object?> {
         );
 
         // Verify the value has a __close metamethod if it's not nil or false
-        if (rawValue.raw != null && rawValue.raw != false) {
+        if (_isTruthyAssignmentValue(rawValue)) {
           if (!valueWithAttributes.hasMetamethod('__close')) {
             throw LuaError("variable '$name' got a non-closable value");
           }
@@ -1361,7 +1374,7 @@ mixin InterpreterAssignmentMixin on AstVisitor<Object?> {
             valueWithAttributes = closableValue;
 
             // Verify the value has a __close metamethod if it's not nil or false
-            if (rawValue.raw != null && rawValue.raw != false) {
+            if (_isTruthyAssignmentValue(rawValue)) {
               if (!closableValue.hasMetamethod('__close')) {
                 throw LuaError("variable '$name' got a non-closable value");
               }
@@ -1502,6 +1515,7 @@ mixin InterpreterAssignmentMixin on AstVisitor<Object?> {
           : node.defaultAttribute;
 
       final baseValue = valueFromLuaSlot(this as Interpreter, rawValue);
+      final baseRaw = _rawInterpreterValue(baseValue);
       final valueWithAttributes = switch (attribute) {
         'const' => _globalConstDeclarationValue(baseValue),
         'close' => throw UnsupportedError(
@@ -1510,7 +1524,7 @@ mixin InterpreterAssignmentMixin on AstVisitor<Object?> {
         _ =>
           baseValue.isConst || baseValue.isToBeClose
               ? Value(
-                  baseValue.raw,
+                  baseRaw,
                   metatable: baseValue.metatable,
                   upvalues: baseValue.upvalues,
                   interpreter: baseValue.interpreter,
