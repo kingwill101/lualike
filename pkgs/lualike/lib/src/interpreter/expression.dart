@@ -1269,7 +1269,7 @@ mixin InterpreterExpressionMixin on AstVisitor<Object?> {
           category: 'Expression',
         );
       }
-      return first is Value ? first : _wrapExpressionValue(interpreter, first);
+      return _wrapExpressionValue(interpreter, first);
     }
     if (result is List) {
       final first = _firstLuaResultOrNil(result, interpreter: interpreter);
@@ -1279,7 +1279,7 @@ mixin InterpreterExpressionMixin on AstVisitor<Object?> {
           category: 'Expression',
         );
       }
-      return first is Value ? first : _wrapExpressionValue(interpreter, first);
+      return _wrapExpressionValue(interpreter, first);
     }
     if (Logger.enabled) {
       Logger.debugLazy(
