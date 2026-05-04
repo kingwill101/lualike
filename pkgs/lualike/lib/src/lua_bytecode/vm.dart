@@ -1460,10 +1460,11 @@ final class LuaBytecodeVm {
           case 'UNM':
             {
               final operand = frame.register(word.b);
+              final rawOperand = _rawBytecodeValue(operand);
               if (_canFastPathNumeric(operand)) {
                 frame.setRegister(
                   word.a,
-                  _runtimeValue(runtime, NumberUtils.negate(operand.raw)),
+                  _runtimeValue(runtime, NumberUtils.negate(rawOperand)),
                 );
                 break;
               }
@@ -1476,7 +1477,10 @@ final class LuaBytecodeVm {
                     operandRegister: word.b,
                     metamethod: '__unm',
                     fastPath: (value) => _canFastPathNumeric(value)
-                        ? _runtimeValue(runtime, NumberUtils.negate(value.raw))
+                        ? _runtimeValue(
+                            runtime,
+                            NumberUtils.negate(_rawBytecodeValue(value)),
+                          )
                         : null,
                   ),
                 );
@@ -1488,10 +1492,11 @@ final class LuaBytecodeVm {
           case 'BNOT':
             {
               final operand = frame.register(word.b);
+              final rawOperand = _rawBytecodeValue(operand);
               if (_canFastPathInteger(operand)) {
                 frame.setRegister(
                   word.a,
-                  _runtimeValue(runtime, NumberUtils.bitwiseNot(operand.raw)),
+                  _runtimeValue(runtime, NumberUtils.bitwiseNot(rawOperand)),
                 );
                 break;
               }
@@ -1506,7 +1511,7 @@ final class LuaBytecodeVm {
                     fastPath: (value) => _canFastPathInteger(value)
                         ? _runtimeValue(
                             runtime,
-                            NumberUtils.bitwiseNot(value.raw),
+                            NumberUtils.bitwiseNot(_rawBytecodeValue(value)),
                           )
                         : null,
                   ),
@@ -2156,7 +2161,7 @@ final class LuaBytecodeVm {
           case 'GETVARG':
             {
               final keyValue = frame.register(word.c);
-              final rawKey = keyValue.raw;
+              final rawKey = _rawBytecodeValue(keyValue);
               final index = switch (rawKey) {
                 final int integer => integer,
                 final BigInt integer => NumberUtils.tryToInteger(integer),
@@ -2345,7 +2350,7 @@ final class LuaBytecodeVm {
     int currentPc,
   ) {
     final value = frame.register(register);
-    if (value.raw == null) {
+    if (_rawBytecodeValue(value) == null) {
       return false;
     }
     if (_isPendingCallResultRegister(frame, register, currentPc)) {
@@ -2626,9 +2631,10 @@ final class LuaBytecodeVm {
     }
 
     try {
+      final rawOperand = _rawBytecodeValue(operand);
       return switch (metamethod) {
-        '__unm' => _runtimeValue(runtime, NumberUtils.negate(operand.raw)),
-        '__bnot' => _runtimeValue(runtime, NumberUtils.bitwiseNot(operand.raw)),
+        '__unm' => _runtimeValue(runtime, NumberUtils.negate(rawOperand)),
+        '__bnot' => _runtimeValue(runtime, NumberUtils.bitwiseNot(rawOperand)),
         '__len' => _runtimeValue(runtime, _lengthOf(operand)),
         _ => throw LuaError('unsupported unary metamethod $metamethod'),
       };
@@ -2781,19 +2787,21 @@ final class LuaBytecodeVm {
     if (operation.isConcat) {
       return _runtimeValue(runtime, left.concat(right));
     }
+    final leftRaw = _rawBytecodeValue(left);
+    final rightRaw = _rawBytecodeValue(right);
     final rawResult = switch (operation) {
-      _LuaBinaryOperation.add => NumberUtils.add(left.raw, right.raw),
-      _LuaBinaryOperation.sub => NumberUtils.subtract(left.raw, right.raw),
-      _LuaBinaryOperation.mul => NumberUtils.multiply(left.raw, right.raw),
-      _LuaBinaryOperation.mod => NumberUtils.modulo(left.raw, right.raw),
-      _LuaBinaryOperation.pow => NumberUtils.exponentiate(left.raw, right.raw),
-      _LuaBinaryOperation.div => NumberUtils.divide(left.raw, right.raw),
-      _LuaBinaryOperation.idiv => NumberUtils.floorDivide(left.raw, right.raw),
-      _LuaBinaryOperation.band => NumberUtils.bitwiseAnd(left.raw, right.raw),
-      _LuaBinaryOperation.bor => NumberUtils.bitwiseOr(left.raw, right.raw),
-      _LuaBinaryOperation.bxor => NumberUtils.bitwiseXor(left.raw, right.raw),
-      _LuaBinaryOperation.shl => NumberUtils.leftShift(left.raw, right.raw),
-      _LuaBinaryOperation.shr => NumberUtils.rightShift(left.raw, right.raw),
+      _LuaBinaryOperation.add => NumberUtils.add(leftRaw, rightRaw),
+      _LuaBinaryOperation.sub => NumberUtils.subtract(leftRaw, rightRaw),
+      _LuaBinaryOperation.mul => NumberUtils.multiply(leftRaw, rightRaw),
+      _LuaBinaryOperation.mod => NumberUtils.modulo(leftRaw, rightRaw),
+      _LuaBinaryOperation.pow => NumberUtils.exponentiate(leftRaw, rightRaw),
+      _LuaBinaryOperation.div => NumberUtils.divide(leftRaw, rightRaw),
+      _LuaBinaryOperation.idiv => NumberUtils.floorDivide(leftRaw, rightRaw),
+      _LuaBinaryOperation.band => NumberUtils.bitwiseAnd(leftRaw, rightRaw),
+      _LuaBinaryOperation.bor => NumberUtils.bitwiseOr(leftRaw, rightRaw),
+      _LuaBinaryOperation.bxor => NumberUtils.bitwiseXor(leftRaw, rightRaw),
+      _LuaBinaryOperation.shl => NumberUtils.leftShift(leftRaw, rightRaw),
+      _LuaBinaryOperation.shr => NumberUtils.rightShift(leftRaw, rightRaw),
       _LuaBinaryOperation.concat => left.concat(right),
     };
     return _runtimeValue(runtime, rawResult);
@@ -2811,8 +2819,8 @@ final class LuaBytecodeVm {
       runtime,
       NumberUtils.performArithmetic(
         operation.operatorSymbol,
-        left.raw,
-        right.raw,
+        _rawBytecodeValue(left),
+        _rawBytecodeValue(right),
       ),
     );
   }
@@ -3830,7 +3838,7 @@ final class LuaBytecodeVm {
 
   Value _normalizeInlineAssertSuccessValue(Value value) {
     if (luaResultValues(value) == null) {
-      final raw = value.raw;
+      final raw = _rawBytecodeValue(value);
       if (isLuaPrimitiveSlot(raw)) {
         return switch (raw) {
           null ||
@@ -3873,11 +3881,11 @@ final class LuaBytecodeVm {
     final normalizedValue = switch (result) {
       null => _framePrimitiveValue(runtime, null),
       final Value value when _isSharedRuntimeConstant(runtime, value) =>
-        switch (value.raw) {
+        switch (_rawBytecodeValue(value)) {
           null ||
           bool() ||
           num() ||
-          BigInt() => _framePrimitiveValue(runtime, value.raw),
+          BigInt() => _framePrimitiveValue(runtime, _rawBytecodeValue(value)),
           _ => value,
         },
       final Value value when luaResultValues(value) == null => value,
@@ -4575,9 +4583,11 @@ final class LuaBytecodeVm {
     String? rightLabel,
   }) {
     final message = error.message;
+    final leftRaw = _rawBytecodeValue(left);
+    final rightRaw = _rawBytecodeValue(right);
     if (message == 'number has no integer representation') {
-      final leftInvalid = !_hasIntegerRepresentation(left.raw);
-      final rightInvalid = !_hasIntegerRepresentation(right.raw);
+      final leftInvalid = !_hasIntegerRepresentation(leftRaw);
+      final rightInvalid = !_hasIntegerRepresentation(rightRaw);
       if (leftInvalid != rightInvalid) {
         final label = leftInvalid
             ? leftLabel ?? _valueSourceLabel(frame, left)
@@ -4600,8 +4610,7 @@ final class LuaBytecodeVm {
     }
 
     final offending =
-        _coerceLuaNumber(left.raw) == null &&
-            _coerceLuaNumber(right.raw) != null
+        _coerceLuaNumber(leftRaw) == null && _coerceLuaNumber(rightRaw) != null
         ? left
         : right;
     final offendingType = getLuaType(offending);
@@ -4612,9 +4621,10 @@ final class LuaBytecodeVm {
         ? leftLabel ?? _valueSourceLabel(frame, offending)
         : rightLabel ?? _valueSourceLabel(frame, offending);
     if (_debugFileOps) {
+      final offendingRaw = _rawBytecodeValue(offending);
       _debugFileLog(
-        'binary-error left=${left.raw.runtimeType} right=${right.raw.runtimeType} '
-        'offending=${offending.raw.runtimeType} label=$label',
+        'binary-error left=${leftRaw.runtimeType} right=${rightRaw.runtimeType} '
+        'offending=${offendingRaw.runtimeType} label=$label',
       );
     }
     if (label == null) {
@@ -5110,9 +5120,8 @@ final class LuaBytecodeVm {
       return false;
     }
     final value = frame.slotValue(register);
-    return value.raw != null &&
-        value.raw != false &&
-        !value.hasMetamethod('__close');
+    final raw = _rawBytecodeValue(value);
+    return raw != null && raw != false && !value.hasMetamethod('__close');
   }
 
   LuaError _withFrameRuntimeLocation(_LuaBytecodeFrame frame, LuaError error) {
@@ -5178,7 +5187,7 @@ final class LuaBytecodeVm {
 
   bool _hasIntegerRepresentation(Object? value) {
     if (value is Value) {
-      value = value.raw;
+      value = _rawBytecodeValue(value);
     }
     if (value is String || value is LuaString) {
       try {
@@ -5214,10 +5223,11 @@ final class LuaBytecodeVm {
 
     for (var index = results.length - 1; index >= 0; index--) {
       final value = results[index];
+      final rawValue = _rawBytecodeValue(value);
       if (_debugFileOps) {
         _debugFileLog(
           'discard-result index=$index tbc=${value.isToBeClose} '
-          'raw=${value.raw.runtimeType} live=${frame._toBeClosedRegisters.toList()..sort()}',
+          'raw=${rawValue.runtimeType} live=${frame._toBeClosedRegisters.toList()..sort()}',
         );
       }
       if (frame.isLiveToBeClosedAlias(value)) {
@@ -5226,7 +5236,7 @@ final class LuaBytecodeVm {
         }
         continue;
       }
-      if (!value.isToBeClose || value.raw == null || value.raw == false) {
+      if (!value.isToBeClose || rawValue == null || rawValue == false) {
         continue;
       }
       final closeValue = value.isToBeClose ? value : Value.toBeClose(value);
@@ -5354,9 +5364,9 @@ final class LuaBytecodeVm {
 
   bool _forLoop(_LuaBytecodeFrame frame, int base) {
     if (_isInteger(frame.register(base + 1))) {
-      final rawCount = frame.slotValue(base).raw;
-      final rawStep = frame.slotValue(base + 1).raw;
-      final rawIndex = frame.slotValue(base + 2).raw;
+      final rawCount = _rawBytecodeValue(frame.slotValue(base));
+      final rawStep = _rawBytecodeValue(frame.slotValue(base + 1));
+      final rawIndex = _rawBytecodeValue(frame.slotValue(base + 2));
       if (rawCount is int &&
           rawCount > 0 &&
           rawStep is int &&
@@ -6780,7 +6790,7 @@ final class _LuaBytecodeFrame implements LuaBytecodeGCRootProvider {
         continue;
       }
       final value = registers[registerIndex];
-      if (value.raw == null && !value.isToBeClose) {
+      if (_rawBytecodeValue(value) == null && !value.isToBeClose) {
         continue;
       }
       registers[registerIndex] = _runtimeValue(runtime, null);
@@ -6804,12 +6814,14 @@ final class _LuaBytecodeFrame implements LuaBytecodeGCRootProvider {
       registerIndex,
     );
     if (_debugFileOps) {
+      final raw = _rawBytecodeValue(rawValue);
       _debugFileLog(
         'markToBeClosed register=$registerIndex '
-        'tbc=${rawValue.isToBeClose} raw=${rawValue.raw.runtimeType}',
+        'tbc=${rawValue.isToBeClose} raw=${raw.runtimeType}',
       );
     }
-    if (rawValue.raw == null || rawValue.raw == false) {
+    final raw = _rawBytecodeValue(rawValue);
+    if (raw == null || raw == false) {
       _toBeClosedRegisters.add(registerIndex);
       return;
     }
@@ -6850,7 +6862,8 @@ final class _LuaBytecodeFrame implements LuaBytecodeGCRootProvider {
         continue;
       }
       final slotValue = this.slotValue(registerIndex);
-      if (slotValue.raw == null || slotValue.raw == false) {
+      final rawSlotValue = _rawBytecodeValue(slotValue);
+      if (rawSlotValue == null || rawSlotValue == false) {
         continue;
       }
       final Value closeValue;
@@ -6915,6 +6928,7 @@ final class _LuaBytecodeFrame implements LuaBytecodeGCRootProvider {
   }
 
   bool isLiveToBeClosedAlias(Value value) {
+    final rawValue = _rawBytecodeValue(value);
     for (final registerIndex in _toBeClosedRegisters) {
       if (registerIndex >= registers.length) {
         continue;
@@ -6923,7 +6937,8 @@ final class _LuaBytecodeFrame implements LuaBytecodeGCRootProvider {
       if (identical(liveValue, value)) {
         return true;
       }
-      if (value.raw != null && identical(liveValue.raw, value.raw)) {
+      if (rawValue != null &&
+          identical(_rawBytecodeValue(liveValue), rawValue)) {
         return true;
       }
     }
@@ -8735,10 +8750,11 @@ Future<bool> _explicitGlobalIsAlreadyDefined(
 ) async {
   if (name == '_ENV') {
     final current = environment.root.get(name);
-    return current != null && (current is! Value || current.raw != null);
+    return current != null &&
+        (current is! Value || _rawBytecodeValue(current) != null);
   }
 
-  if (envValue.raw != null) {
+  if (_rawBytecodeValue(envValue) != null) {
     final current = await envValue.getValueAsync(name);
     return _rawBytecodeValue(current) != null;
   }
@@ -8789,7 +8805,7 @@ Value _framePrimitiveValue(LuaRuntime runtime, Object? value) {
 }
 
 bool _isSharedRuntimeConstant(LuaRuntime runtime, Value value) {
-  final raw = value.raw;
+  final raw = _rawBytecodeValue(value);
   return switch (raw) {
     null ||
     bool() ||
@@ -8804,7 +8820,7 @@ bool _isSharedRuntimeConstant(LuaRuntime runtime, Value value) {
 }
 
 Value _cloneBytecodeValue(Value source) {
-  final raw = source.raw;
+  final raw = _rawBytecodeValue(source);
   if (_canUsePrimitiveBytecodeClone(source)) {
     final clone = Value.primitive(
       raw,
@@ -8853,7 +8869,7 @@ Value _cloneBytecodeValue(Value source) {
 }
 
 bool _canUsePrimitiveBytecodeClone(Value source) {
-  final raw = source.raw;
+  final raw = _rawBytecodeValue(source);
   if (isLuaScalarPrimitiveSlot(raw)) {
     return true;
   }
@@ -8864,11 +8880,11 @@ bool _canUsePrimitiveBytecodeClone(Value source) {
 }
 
 bool _isBookkeepingNeutralClone(Value source) {
-  return isLuaPrimitiveSlot(source.raw);
+  return isLuaPrimitiveSlot(_rawBytecodeValue(source));
 }
 
 bool _isGcTrackingNeutralClone(Value source) {
-  return _isGcTrackingNeutralPrimitive(source.raw);
+  return _isGcTrackingNeutralPrimitive(_rawBytecodeValue(source));
 }
 
 bool _isGcTrackingNeutralPrimitive(Object? value) {
@@ -8879,7 +8895,7 @@ bool _isGcTrackingNeutralPrimitive(Object? value) {
 }
 
 Value _canonicalizeBytecodeValue(Value value) {
-  final raw = value.raw;
+  final raw = _rawBytecodeValue(value);
   if (raw is! LuaFile) {
     return value;
   }
@@ -8924,12 +8940,14 @@ Value _firstResultValue(LuaRuntime runtime, Object? result) {
   return _runtimeValue(runtime, result);
 }
 
-bool _canFastPathNumeric(Value value) => _coerceLuaNumber(value.raw) != null;
+bool _canFastPathNumeric(Value value) =>
+    _coerceLuaNumber(_rawBytecodeValue(value)) != null;
 
-bool _canFastPathInteger(Value value) => _coerceLuaInteger(value.raw) != null;
+bool _canFastPathInteger(Value value) =>
+    _coerceLuaInteger(_rawBytecodeValue(value)) != null;
 
 bool _canFastPathConcat(Value value) {
-  return switch (value.raw) {
+  return switch (_rawBytecodeValue(value)) {
     num() || String() || LuaString() => true,
     _ => false,
   };
@@ -8937,7 +8955,7 @@ bool _canFastPathConcat(Value value) {
 
 bool _canFastPathLength(Value value) =>
     !value.hasMetamethod('__len') &&
-    switch (value.raw) {
+    switch (_rawBytecodeValue(value)) {
       LuaString() ||
       String() ||
       List<dynamic>() ||
@@ -9053,13 +9071,13 @@ String _shortSource(String source) {
 }
 
 bool _isTruthy(Value value) {
-  final raw = value.raw;
+  final raw = _rawBytecodeValue(value);
   return raw != null && raw != false;
 }
 
-bool _isNil(Value value) => value.raw == null;
+bool _isNil(Value value) => _rawBytecodeValue(value) == null;
 
-bool _isInteger(Value value) => value.raw is int;
+bool _isInteger(Value value) => _rawBytecodeValue(value) is int;
 
 enum _PrimitiveCompare {
   lessThan,
@@ -9079,18 +9097,20 @@ enum _PrimitiveCompare {
 }
 
 int _integerValue(Value value) {
-  return switch (value.raw) {
+  final raw = _rawBytecodeValue(value);
+  return switch (raw) {
     final int integer => integer,
     final num numeric => numeric.toInt(),
-    _ => throw LuaError('expected integer, got ${value.raw.runtimeType}'),
+    _ => throw LuaError('expected integer, got ${raw.runtimeType}'),
   };
 }
 
 num _numericValue(Value value) {
-  return switch (value.raw) {
+  final raw = _rawBytecodeValue(value);
+  return switch (raw) {
     final num numeric => numeric,
     _ => throw LuaError(
-      'attempt to perform arithmetic on a ${value.raw.runtimeType} value',
+      'attempt to perform arithmetic on a ${raw.runtimeType} value',
     ),
   };
 }
@@ -9104,8 +9124,8 @@ bool? _tryPrimitiveOrdering(
   Value right,
   _PrimitiveCompare primitiveCompare,
 ) {
-  final leftRaw = left.raw;
-  final rightRaw = right.raw;
+  final leftRaw = _rawBytecodeValue(left);
+  final rightRaw = _rawBytecodeValue(right);
   final leftString = _stringLike(leftRaw);
   final rightString = _stringLike(rightRaw);
   return switch ((leftRaw, rightRaw)) {
@@ -9122,7 +9142,7 @@ bool? _tryPrimitiveOrdering(
 }
 
 bool _compareImmediateEquals(Value left, int right) {
-  final leftRaw = left.raw;
+  final leftRaw = _rawBytecodeValue(left);
   return switch (leftRaw) {
     final int integer => integer == right,
     final double doubleValue => doubleValue == right,
@@ -9136,7 +9156,7 @@ bool? _tryPrimitiveImmediateOrdering(
   int right,
   _PrimitiveCompare primitiveCompare,
 ) {
-  final leftRaw = left.raw;
+  final leftRaw = _rawBytecodeValue(left);
   return switch (leftRaw) {
     final int integer => switch (primitiveCompare) {
       _PrimitiveCompare.lessThan => integer < right,
@@ -9161,7 +9181,7 @@ bool? _tryPrimitiveImmediateOrdering(
 }
 
 int _lengthOf(Value value) {
-  return switch (value.raw) {
+  return switch (_rawBytecodeValue(value)) {
     final LuaString stringValue => stringValue.length,
     final String stringValue => stringValue.length,
     final List<dynamic> listValue => listValue.length,
@@ -9275,7 +9295,7 @@ int _tableBoundaryLength(Map<dynamic, dynamic> mapValue) {
 
 int? _positiveIntegerKey(Object? key) {
   final rawKey = switch (key) {
-    final Value value => value.raw,
+    final Value value => _rawBytecodeValue(value),
     _ => key,
   };
   return switch (rawKey) {
@@ -9438,7 +9458,7 @@ BigInt _unsignedDifference64(BigInt left, BigInt right) {
 BigInt _negativeStepDivisor(int step) => BigInt.from(-(step + 1)) + BigInt.one;
 
 BigInt _unsignedForLoopCounter(Value value) {
-  final raw = value.raw;
+  final raw = _rawBytecodeValue(value);
   return switch (raw) {
     final int integer => NumberUtils.toUnsigned64(integer),
     _ => throw LuaError('expected integer, got ${raw.runtimeType}'),
@@ -9455,7 +9475,7 @@ int _signedInt64FromUnsigned(BigInt value) {
 }
 
 Object _forNumericOperand(Value value, String role) {
-  final raw = value.raw;
+  final raw = _rawBytecodeValue(value);
   final coerced = _coerceLuaNumber(raw);
   if (coerced != null) {
     return coerced;
