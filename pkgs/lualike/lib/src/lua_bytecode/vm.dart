@@ -3992,7 +3992,7 @@ final class LuaBytecodeVm {
             final value = rawVarargs[-varargIndex - 1];
             return <Value>[
               runtime.constantDartStringValue('(vararg)'),
-              value is Value ? value : _runtimeValue(runtime, value),
+              _runtimeValue(runtime, value),
             ];
           }
           if (index case final int localIndex when localIndex > 0) {
@@ -6518,7 +6518,7 @@ final class _LuaBytecodeFrame implements LuaBytecodeGCRootProvider {
     }
     if (namedVarargTable case final PackedVarargTable table) {
       final value = table[index + 1];
-      return value is Value ? value : _runtimeValue(runtime, value);
+      return _runtimeValue(runtime, value);
     }
     final materialized = _materializedVarargs;
     if (materialized != null) {
@@ -6613,9 +6613,7 @@ final class _LuaBytecodeFrame implements LuaBytecodeGCRootProvider {
       }
       final expanded = table
           .expandedValues()
-          .map(
-            (value) => value is Value ? value : _runtimeValue(runtime, value),
-          )
+          .map((value) => _runtimeValue(runtime, value))
           .toList(growable: false);
       if (debugVarargValue != null) {
         updateDebugVarargValue(expanded);
@@ -6628,9 +6626,7 @@ final class _LuaBytecodeFrame implements LuaBytecodeGCRootProvider {
         return varargs;
       }
       final normalized = rawList
-          .map(
-            (value) => value is Value ? value : _runtimeValue(runtime, value),
-          )
+          .map((value) => _runtimeValue(runtime, value))
           .toList(growable: false);
       updateDebugVarargValue(normalized);
       return normalized;
