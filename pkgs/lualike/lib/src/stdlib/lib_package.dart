@@ -11,6 +11,8 @@ Object? _rawPackageValue(Object? value) => value is Value ? value.raw : value;
 
 bool _isNilPackageValue(Object? value) => _rawPackageValue(value) == null;
 
+String _packageString(Object? value) => _rawPackageValue(value).toString();
+
 class PackageLib {
   static const _defaultPath = "?.lua;?/?;?/init";
   static const _defaultCPath = "?.so";
@@ -23,11 +25,12 @@ class PackageLib {
       "__index": (List<Object?> args) {
         final table = args[0] as Value;
         final key = args[1] as Value;
-        if (key.raw == "path") {
+        final rawKey = _rawPackageValue(key);
+        if (rawKey == "path") {
           // Default package path
           return vm.constantDartStringValue(_defaultPath);
         }
-        if (key.raw == "cpath") {
+        if (rawKey == "cpath") {
           // Default C module path
           return vm.constantDartStringValue(_defaultCPath);
         }
@@ -35,8 +38,8 @@ class PackageLib {
         final rawTable = _rawPackageValue(table);
         if (rawTable is Map) {
           final map = rawTable;
-          if (map.containsKey(key.raw)) {
-            return map[key.raw];
+          if (map.containsKey(rawKey)) {
+            return map[rawKey];
           }
         }
         return vm.constantPrimitiveValue(null);
@@ -77,7 +80,7 @@ class PackageLib {
     return [
       // 1. Package preload searcher
       Value((List<Object?> args) {
-        final name = (args[0] as Value).raw.toString();
+        final name = _packageString(args[0]);
         final packageTable = _rawPackageValue(vm.globals.get("package"));
         final preload = packageTable is Map
             ? _rawPackageValue(packageTable["preload"])
@@ -97,7 +100,7 @@ class PackageLib {
 
       // 3. C module loader (simulated for Dart)
       Value((List<Object?> args) {
-        final name = (args[0] as Value).raw.toString();
+        final name = _packageString(args[0]);
         return vm.constantDartStringValue(
           "no C module loader implemented for '$name'",
         );
@@ -105,7 +108,7 @@ class PackageLib {
 
       // 4. All-in-one loader
       Value((List<Object?> args) {
-        final name = (args[0] as Value).raw.toString();
+        final name = _packageString(args[0]);
         return vm.constantDartStringValue(
           "no all-in-one loader implemented for '$name'",
         );
@@ -123,8 +126,8 @@ class _LoadLib extends BuiltinFunction {
       throw LuaError("loadlib requires library path and function name");
     }
 
-    final libpath = (args[0] as Value).raw.toString();
-    final funcname = (args[1] as Value).raw.toString();
+    final libpath = _packageString(args[0]);
+    final funcname = _packageString(args[1]);
 
     // We don't actually load C libraries, just simulate the interface
     if (funcname == '*') {
@@ -171,12 +174,10 @@ class _SearchPath extends BuiltinFunction {
       throw LuaError('searchpath requires name and path');
     }
 
-    final name = (args[0] as Value).raw.toString();
-    final searchPath = (args[1] as Value).raw.toString();
-    final sep = args.length > 2 ? (args[2] as Value).raw.toString() : '.';
-    final rep = args.length > 3
-        ? (args[3] as Value).raw.toString()
-        : path_lib.separator;
+    final name = _packageString(args[0]);
+    final searchPath = _packageString(args[1]);
+    final sep = args.length > 2 ? _packageString(args[2]) : '.';
+    final rep = args.length > 3 ? _packageString(args[3]) : path_lib.separator;
 
     // Avoid Dart's replaceAll behavior with empty pattern
     final replacedName = sep.isEmpty ? name : name.replaceAll(sep, rep);
@@ -204,7 +205,7 @@ class _LuaLoader extends BuiltinFunction {
 
   @override
   Future<Object?> call(List<Object?> args) async {
-    final name = (args[0] as Value).raw.toString();
+    final name = _packageString(args[0]);
     Logger.debugLazy(
       () => "_LuaLoader called for module: $name",
       category: 'Package',
@@ -254,8 +255,8 @@ class _LuaLoader extends BuiltinFunction {
     // Return a loader function that will load and execute the module
     return [
       Value((List<Object?> args) async {
-        final name = (args[0] as Value).raw.toString();
-        final modulePath = (args[1] as Value).raw.toString();
+        final name = _packageString(args[0]);
+        final modulePath = _packageString(args[1]);
         Logger.debugLazy(
           () =>
               "Loader function called for module: $name with path: $modulePath",
@@ -543,7 +544,7 @@ void definePackageLibrary({required Environment env, LuaRuntime? vm}) {
   final searchers = <Value>[
     // 1. Package preload searcher
     Value((List<Object?> args) {
-      final name = (args[0] as Value).raw.toString();
+      final name = _packageString(args[0]);
       final preload = packageTable['preload'];
       if (preload.containsKey(name)) {
         return [
@@ -559,7 +560,7 @@ void definePackageLibrary({required Environment env, LuaRuntime? vm}) {
 
     // 2. Lua/Dart module loader
     Value((List<Object?> args) {
-      final name = (args[0] as Value).raw.toString();
+      final name = _packageString(args[0]);
       final path = packageTable['path'] as Value;
 
       try {
