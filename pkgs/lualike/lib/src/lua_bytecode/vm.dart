@@ -4127,9 +4127,7 @@ final class LuaBytecodeVm {
     if (multiValues != null) {
       return <Value>[
         _runtimeValue(runtime, true),
-        ...multiValues.map(
-          (value) => value is Value ? value : _runtimeValue(runtime, value),
-        ),
+        ...multiValues.map((value) => _runtimeValue(runtime, value)),
       ];
     }
     if (result == null) {
@@ -4137,7 +4135,7 @@ final class LuaBytecodeVm {
     }
     return <Value>[
       _runtimeValue(runtime, true),
-      result is Value ? result : _runtimeValue(runtime, result),
+      _runtimeValue(runtime, result),
     ];
   }
 
