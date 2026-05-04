@@ -13,15 +13,24 @@ String luaPathLiteral(String path) {
   return "'$normalized'";
 }
 
+bool _hasPackageFiles(String dir) =>
+    File(p.join(dir, 'pubspec.yaml')).existsSync() &&
+    File(p.join(dir, 'bin', 'main.dart')).existsSync() &&
+    Directory(p.join(dir, 'luascripts')).existsSync();
+
 String _findPackageRoot() {
+  // Walk up from cwd first.
   var current = Directory.current.absolute;
   while (true) {
-    final hasPackageFiles =
-        File(p.join(current.path, 'pubspec.yaml')).existsSync() &&
-        File(p.join(current.path, 'bin', 'main.dart')).existsSync() &&
-        Directory(p.join(current.path, 'luascripts')).existsSync();
-    if (hasPackageFiles) {
+    if (_hasPackageFiles(current.path)) {
       return current.path;
+    }
+
+    // Also probe well-known monorepo sub-path so tests run from the
+    // workspace root (e.g. `dart test pkgs/lualike`) still resolve.
+    final candidate = p.join(current.path, 'pkgs', 'lualike');
+    if (_hasPackageFiles(candidate)) {
+      return candidate;
     }
 
     final parent = current.parent;

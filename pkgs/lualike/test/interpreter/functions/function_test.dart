@@ -1,3 +1,4 @@
+import 'package:lualike/src/runtime/lua_results.dart';
 import 'package:lualike_test/test.dart';
 
 void main() {
@@ -59,7 +60,11 @@ void main() {
       // Call the function multi and expect a list [1, 2]
       var funcCall = FunctionCall(Identifier("multi"), []);
       var result = await funcCall.accept(vm);
-      expect((result as Value).unwrap(), equals([Value(1), Value(2)]));
+      // FunctionCall.accept returns LuaResults for multi-return functions.
+      final values = result is LuaResults
+          ? result.values.cast<Value>()
+          : [(result as Value)];
+      expect(values, equals([Value(1), Value(2)]));
     });
   });
 }
