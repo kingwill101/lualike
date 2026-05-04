@@ -14,8 +14,10 @@ import 'library.dart';
 Value _threadValue(LuaRuntime interpreter, Coroutine coroutine) =>
     Value(coroutine, interpreter: interpreter);
 
+dynamic _rawCoroutineValue(Object? value) => value is Value ? value.raw : value;
+
 Coroutine _expectCoroutine(Object? raw, String functionName, int index) {
-  final target = raw is Value ? raw.raw : raw;
+  final target = _rawCoroutineValue(raw);
   if (target is! Coroutine) {
     throw LuaError.typeError(
       "bad argument #$index to '$functionName' "
@@ -66,7 +68,7 @@ List<Object?> _cloneArgs(List<Object?> args) =>
     args.isEmpty ? const [] : List<Object?>.from(args);
 
 bool _isTrue(Object? value) {
-  final dynamic raw = value is Value ? value.raw : value;
+  final raw = _rawCoroutineValue(value);
   return raw != null && raw != false;
 }
 
@@ -385,7 +387,7 @@ class _CoroutineClose extends BuiltinFunction {
         : args.length > 1
         ? args[1]
         : null;
-    final normalizedError = error is Value ? error.raw : error;
+    final normalizedError = _rawCoroutineValue(error);
     final CoroutineStatus status = _closeStatus(runtime, coroutine);
 
     switch (status) {
