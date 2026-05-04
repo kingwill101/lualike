@@ -1,0 +1,68 @@
+{
+  "schemaVersion": 1,
+  "generatedBy": "tool/parser_profile_compare.dart",
+  "title": "Small Parser Corpus",
+  "generatedAt": "2026-05-03T09:22:10.511352",
+  "baseline": {
+    "label": "origin/ir small-parser-corpus",
+    "capturedAt": "2026-05-03T09:19:35.586857",
+    "revision": "ae3c7fc3eef66bd317eb7c637d3add0d53bf96eb",
+    "branch": null
+  },
+  "latest": {
+    "label": "current small-parser-corpus",
+    "capturedAt": "2026-05-03T09:19:40.305093",
+    "revision": "a85d083aee335b3963edc70da5de78296c0a7caa",
+    "branch": "profiling/parser-performance"
+  },
+  "rows": [
+    {
+      "case": "attributes_and_labels",
+      "baselineMeanMicros": 3138.5,
+      "latestMeanMicros": 1001.8,
+      "timeReductionPercent": 68.08029313366256,
+      "speedup": 3.1328608504691555
+    },
+    {
+      "case": "branches_and_loops",
+      "baselineMeanMicros": 1350.6,
+      "latestMeanMicros": 1032.8,
+      "timeReductionPercent": 23.530282837257513,
+      "speedup": 1.307707203718048
+    },
+    {
+      "case": "functions_and_calls",
+      "baselineMeanMicros": 1342.4,
+      "latestMeanMicros": 655.4,
+      "timeReductionPercent": 51.176996424314666,
+      "speedup": 2.0482148306377788
+    },
+    {
+      "case": "literals_and_expressions",
+      "baselineMeanMicros": 1036.3,
+      "latestMeanMicros": 476.2,
+      "timeReductionPercent": 54.04805558236031,
+      "speedup": 2.1761864762704746
+    },
+    {
+      "case": "strings_and_comments",
+      "baselineMeanMicros": 2717.0,
+      "latestMeanMicros": 239.2,
+      "timeReductionPercent": 91.19617224880383,
+      "speedup": 11.358695652173914
+    },
+    {
+      "case": "table_shapes",
+      "baselineMeanMicros": 2885.6,
+      "latestMeanMicros": 647.1,
+      "timeReductionPercent": 77.57485444968118,
+      "speedup": 4.4592798640086535
+    }
+  ],
+  "total": {
+    "baselineMeanMicros": 12470.4,
+    "latestMeanMicros": 4052.4999999999995,
+    "timeReductionPercent": 67.50304721580703,
+    "speedup": 3.077211597779149
+  }
+}

@@ -1,0 +1,298 @@
+{
+  "schemaVersion": 1,
+  "generatedBy": "tool/parser_profile.dart",
+  "capturedAt": "2026-05-03T11:02:08.015675",
+  "label": "current hot-lua-suite",
+  "packageRoot": "/run/media/kingwill101/disk2/code/code/dart_packages/lualike.worktrees/parser-profiling/pkgs/lualike",
+  "git": {
+    "revision": "a6d79f1e2b1318309ea8b1890c67f81afe2acb8d",
+    "branch": "profiling/parser-performance",
+    "dirty": true,
+    "statusShort": [
+      "?? benchmarks/parser_profiles/2026-05-03T11-01-01-baseline-hot.json",
+      "?? benchmarks/parser_profiles/2026-05-03T11-01-01-baseline-small.json",
+      "?? benchmarks/parser_profiles/2026-05-03T11-01-01-comparison-small.json",
+      "?? benchmarks/parser_profiles/2026-05-03T11-01-01-comparison-small.md",
+      "?? benchmarks/parser_profiles/2026-05-03T11-01-01-latest-small.json"
+    ]
+  },
+  "corpus": {
+    "directory": "/run/media/kingwill101/disk2/code/code/dart_packages/lualike.worktrees/parser-profiling/pkgs/lualike/luascripts",
+    "relativeDirectory": "luascripts"
+  },
+  "config": {
+    "warmup": 5,
+    "repeat": 10,
+    "profile": false,
+    "trace": false,
+    "progress": false,
+    "lint": false,
+    "failFast": false
+  },
+  "arguments": [
+    "--warmup=5",
+    "--repeat=10",
+    "--label=current hot-lua-suite",
+    "--json-out=/run/media/kingwill101/disk2/code/code/dart_packages/lualike.worktrees/parser-profiling/pkgs/lualike/benchmarks/parser_profiles/2026-05-03T11-01-01-latest-hot.json",
+    "--no-fail-fast",
+    "-c",
+    "strings",
+    "-c",
+    "test/api",
+    "-c",
+    "test/files",
+    "-c",
+    "test/math",
+    "-c",
+    "test/db",
+    "-c",
+    "test/locals",
+    "-c",
+    "test/code",
+    "-c",
+    "test/pm",
+    "-c",
+    "test/strings",
+    "--corpus=luascripts"
+  ],
+  "rows": [
+    {
+      "case": "strings",
+      "path": "luascripts/strings.lua",
+      "source": {
+        "characters": 18253,
+        "lines": 518,
+        "encoding": "utf8"
+      },
+      "samplesMicros": [
+        13899,
+        12832,
+        14277,
+        11208,
+        13205,
+        9903,
+        8279,
+        8099,
+        9008,
+        9278
+      ],
+      "minMicros": 8099,
+      "meanMicros": 10998.8,
+      "medianMicros": 10555.5,
+      "maxMicros": 14277,
+      "charsPerSecond": 1659544.6776011928
+    },
+    {
+      "case": "test/api",
+      "path": "luascripts/test/api.lua",
+      "source": {
+        "characters": 40029,
+        "lines": 1417,
+        "encoding": "utf8"
+      },
+      "samplesMicros": [
+        12221,
+        14043,
+        12417,
+        11550,
+        11242,
+        11350,
+        11787,
+        10475,
+        11004,
+        10680
+      ],
+      "minMicros": 10475,
+      "meanMicros": 11676.9,
+      "medianMicros": 11450.0,
+      "maxMicros": 14043,
+      "charsPerSecond": 3428050.253063741
+    },
+    {
+      "case": "test/code",
+      "path": "luascripts/test/code.lua",
+      "source": {
+        "characters": 14715,
+        "lines": 505,
+        "encoding": "utf8"
+      },
+      "samplesMicros": [
+        6309,
+        5307,
+        5279,
+        6340,
+        5319,
+        5870,
+        4808,
+        4765,
+        5354,
+        5330
+      ],
+      "minMicros": 4765,
+      "meanMicros": 5468.1,
+      "medianMicros": 5324.5,
+      "maxMicros": 6340,
+      "charsPerSecond": 2691062.7091677184
+    },
+    {
+      "case": "test/db",
+      "path": "luascripts/test/db.lua",
+      "source": {
+        "characters": 26597,
+        "lines": 1066,
+        "encoding": "utf8"
+      },
+      "samplesMicros": [
+        7614,
+        8981,
+        6955,
+        7663,
+        6557,
+        6014,
+        6200,
+        7919,
+        7329,
+        5679
+      ],
+      "minMicros": 5679,
+      "meanMicros": 7091.1,
+      "medianMicros": 7142.0,
+      "maxMicros": 8981,
+      "charsPerSecond": 3750757.9924130244
+    },
+    {
+      "case": "test/files",
+      "path": "luascripts/test/files.lua",
+      "source": {
+        "characters": 28151,
+        "lines": 1011,
+        "encoding": "utf8"
+      },
+      "samplesMicros": [
+        7614,
+        8553,
+        7518,
+        8430,
+        6341,
+        7227,
+        7924,
+        6990,
+        8795,
+        6225
+      ],
+      "minMicros": 6225,
+      "meanMicros": 7561.7,
+      "medianMicros": 7566.0,
+      "maxMicros": 8795,
+      "charsPerSecond": 3722840.1020934447
+    },
+    {
+      "case": "test/locals",
+      "path": "luascripts/test/locals.lua",
+      "source": {
+        "characters": 30652,
+        "lines": 1228,
+        "encoding": "utf8"
+      },
+      "samplesMicros": [
+        5883,
+        5311,
+        6022,
+        4885,
+        6668,
+        6131,
+        7553,
+        5493,
+        5813,
+        5247
+      ],
+      "minMicros": 4885,
+      "meanMicros": 5900.6,
+      "medianMicros": 5848.0,
+      "maxMicros": 7553,
+      "charsPerSecond": 5194725.960071856
+    },
+    {
+      "case": "test/math",
+      "path": "luascripts/test/math.lua",
+      "source": {
+        "characters": 33144,
+        "lines": 1146,
+        "encoding": "utf8"
+      },
+      "samplesMicros": [
+        7792,
+        8431,
+        9158,
+        11614,
+        9829,
+        9474,
+        10450,
+        8784,
+        7623,
+        12860
+      ],
+      "minMicros": 7623,
+      "meanMicros": 9601.5,
+      "medianMicros": 9316.0,
+      "maxMicros": 12860,
+      "charsPerSecond": 3451960.6311513823
+    },
+    {
+      "case": "test/pm",
+      "path": "luascripts/test/pm.lua",
+      "source": {
+        "characters": 13818,
+        "lines": 443,
+        "encoding": "utf8"
+      },
+      "samplesMicros": [
+        3105,
+        3385,
+        3532,
+        3380,
+        3730,
+        4314,
+        3714,
+        5485,
+        3201,
+        3236
+      ],
+      "minMicros": 3105,
+      "meanMicros": 3708.2,
+      "medianMicros": 3458.5,
+      "maxMicros": 5485,
+      "charsPerSecond": 3726336.2278194274
+    },
+    {
+      "case": "test/strings",
+      "path": "luascripts/test/strings.lua",
+      "source": {
+        "characters": 19405,
+        "lines": 564,
+        "encoding": "latin1"
+      },
+      "samplesMicros": [
+        4874,
+        4875,
+        5011,
+        6347,
+        5975,
+        5780,
+        5101,
+        5158,
+        6505,
+        8257
+      ],
+      "minMicros": 4874,
+      "meanMicros": 5788.3,
+      "medianMicros": 5469.0,
+      "maxMicros": 8257,
+      "charsPerSecond": 3352452.3607967794
+    }
+  ],
+  "total": {
+    "meanMicros": 67795.19999999998,
+    "meanMs": 67.79519999999998
+  }
+}

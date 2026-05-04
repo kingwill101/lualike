@@ -52,6 +52,22 @@ const _groupScenarios = <String, List<String>>{
     'binary-format-unpack',
     'binary-format-mixed',
   ],
+  'format-string-all': <String>[
+    'format-string-simple',
+    'format-string-complex',
+    'format-string-mixed',
+  ],
+  'lua-string-parser-all': <String>[
+    'lua-string-parser-simple',
+    'lua-string-parser-escaped',
+    'lua-string-parser-byte',
+  ],
+  'lua-pattern-all': <String>[
+    'lua-pattern-compile-literal',
+    'lua-pattern-compile-class',
+    'lua-pattern-match-literal',
+  ],
+  'ir-reader-all': <String>['ir-reader-small', 'ir-reader-instructions'],
 };
 
 final _leafScenarios = <String>{
@@ -75,6 +91,17 @@ final _leafScenarios = <String>{
   'binary-format-pack',
   'binary-format-unpack',
   'binary-format-mixed',
+  'format-string-simple',
+  'format-string-complex',
+  'format-string-mixed',
+  'lua-string-parser-simple',
+  'lua-string-parser-escaped',
+  'lua-string-parser-byte',
+  'lua-pattern-compile-literal',
+  'lua-pattern-compile-class',
+  'lua-pattern-match-literal',
+  'ir-reader-small',
+  'ir-reader-instructions',
 };
 
 final List<String> _scenarioNames = (<String>{
@@ -491,6 +518,80 @@ assert(n > 0)
       format: '<!8I2I4I8c32zxxXf',
       workUnits: 40000,
     ),
+    'format-string-simple' => _formatStringScenario(
+      name: 'format-string-simple',
+      format: 'value=%d',
+      workUnits: 40000,
+    ),
+    'format-string-complex' => _formatStringScenario(
+      name: 'format-string-complex',
+      format: 'id=%08X name=%-20.12s score=%+10.3f raw=%q %% done',
+      workUnits: 40000,
+    ),
+    'format-string-mixed' => _formatStringMixedScenario(),
+    'lua-string-parser-simple' => _luaStringParserScenario(
+      name: 'lua-string-parser-simple',
+      content: 'plain ascii text with numbers 12345 and punctuation !?',
+      workUnits: 40000,
+    ),
+    'lua-string-parser-escaped' => _luaStringParserScenario(
+      name: 'lua-string-parser-escaped',
+      content:
+          r'line\n tab\t byte\123 hex\x41 unicode\u{1f600} quote\" slash\\ z\z   '
+          '\nnext',
+      workUnits: 40000,
+    ),
+    'lua-string-parser-byte' => _luaStringParserScenario(
+      name: 'lua-string-parser-byte',
+      content: String.fromCharCodes(<int>[
+        0xE1,
+        0x6C,
+        0x6F,
+        0x5C,
+        0x78,
+        0x34,
+        0x31,
+        0x5C,
+        0x32,
+        0x35,
+        0x35,
+      ]),
+      sourceCodeUnitsAreBytes: true,
+      workUnits: 40000,
+    ),
+    'lua-pattern-compile-literal' => _luaPatternCompileScenario(
+      name: 'lua-pattern-compile-literal',
+      patterns: const <String>[
+        'needle',
+        'status',
+        'function',
+        'return',
+        'table',
+      ],
+      workUnits: 50000,
+    ),
+    'lua-pattern-compile-class' => _luaPatternCompileScenario(
+      name: 'lua-pattern-compile-class',
+      patterns: const <String>[
+        r'%w+',
+        r'(%a+)%s+(%d+)',
+        r'^%s*(.-)%s*$',
+        r'%f[%a]%w+',
+        r'[%w_]+',
+      ],
+      workUnits: 20000,
+    ),
+    'lua-pattern-match-literal' => _luaPatternMatchLiteralScenario(),
+    'ir-reader-small' => _irReaderScenario(
+      name: 'ir-reader-small',
+      source: _smallIrReaderSource,
+      workUnits: 2000,
+    ),
+    'ir-reader-instructions' => _irReaderScenario(
+      name: 'ir-reader-instructions',
+      source: _instructionHeavyIrReaderSource(),
+      workUnits: 400,
+    ),
     _ => throw ArgumentError.value(name, 'scenario', 'Unknown benchmark'),
   };
 }
@@ -620,6 +721,209 @@ _BenchScenario _binaryFormatScenario({
       }
     },
   );
+}
+
+_BenchScenario _formatStringScenario({
+  required String name,
+  required String format,
+  required int workUnits,
+}) {
+  return _BenchScenario(
+    name: name,
+    workUnits: workUnits,
+    workLabel: 'format parses',
+    run: (_) async {
+      var total = 0;
+      for (var i = 0; i < workUnits; i++) {
+        total += FormatStringParser.parse(format).length;
+      }
+      if (total == 0) {
+        throw StateError('unexpected zero total');
+      }
+    },
+  );
+}
+
+_BenchScenario _formatStringMixedScenario() {
+  const formats = <String>[
+    '%d',
+    'literal only',
+    'name=%s age=%03d',
+    'x=%#08x y=%-10.4f z=%q',
+    '%% %c %i %u %o %a %A %p',
+  ];
+  const workUnits = 50000;
+  return _BenchScenario(
+    name: 'format-string-mixed',
+    workUnits: workUnits,
+    workLabel: 'format parses',
+    run: (_) async {
+      var total = 0;
+      for (var i = 0; i < workUnits; i++) {
+        total += FormatStringParser.parse(formats[i % formats.length]).length;
+      }
+      if (total == 0) {
+        throw StateError('unexpected zero total');
+      }
+    },
+  );
+}
+
+_BenchScenario _luaStringParserScenario({
+  required String name,
+  required String content,
+  required int workUnits,
+  bool sourceCodeUnitsAreBytes = false,
+}) {
+  return _BenchScenario(
+    name: name,
+    workUnits: workUnits,
+    workLabel: 'string parses',
+    run: (_) async {
+      var total = 0;
+      for (var i = 0; i < workUnits; i++) {
+        total += LuaStringParser.parseStringContent(
+          content,
+          sourceCodeUnitsAreBytes: sourceCodeUnitsAreBytes,
+        ).length;
+      }
+      if (total == 0) {
+        throw StateError('unexpected zero total');
+      }
+    },
+  );
+}
+
+_BenchScenario _luaPatternCompileScenario({
+  required String name,
+  required List<String> patterns,
+  required int workUnits,
+}) {
+  return _BenchScenario(
+    name: name,
+    workUnits: workUnits,
+    workLabel: 'pattern compiles',
+    run: (_) async {
+      var total = 0;
+      for (var i = 0; i < workUnits; i++) {
+        final pattern = LuaPattern.compile(patterns[i % patterns.length]);
+        final match = pattern.firstMatch(patterns[i % patterns.length]);
+        total += match?.end ?? 0;
+      }
+      if (total == 0) {
+        throw StateError('unexpected zero total');
+      }
+    },
+  );
+}
+
+_BenchScenario _luaPatternMatchLiteralScenario() {
+  const workUnits = 60000;
+  final subject = '${'abcd '.padRight(1024, 'x')} needle tail';
+  final pattern = LuaPattern.compile('needle');
+  return _BenchScenario(
+    name: 'lua-pattern-match-literal',
+    workUnits: workUnits,
+    workLabel: 'pattern matches',
+    run: (_) async {
+      var total = 0;
+      for (var i = 0; i < workUnits; i++) {
+        total += pattern.firstMatch(subject)?.start ?? 0;
+      }
+      if (total == 0) {
+        throw StateError('unexpected zero total');
+      }
+    },
+  );
+}
+
+_BenchScenario _irReaderScenario({
+  required String name,
+  required String source,
+  required int workUnits,
+}) {
+  return _BenchScenario(
+    name: name,
+    workUnits: workUnits,
+    workLabel: 'IR parses',
+    run: (_) async {
+      var total = 0;
+      for (var i = 0; i < workUnits; i++) {
+        total += LualikeIrReader.parse(
+          source,
+        ).mainPrototype.instructions.length;
+      }
+      if (total == 0) {
+        throw StateError('unexpected zero total');
+      }
+    },
+  );
+}
+
+const _smallIrReaderSource = '''
+chunk has_debug_info=true {
+  prototype main register_count=1 param_count=0 is_vararg=true {
+    constants {
+      int 42;
+    }
+    instructions {
+      // pc=0 line=1
+      abc VARARGPREP a=0 b=0 c=0;
+      // pc=1 line=2
+      abx LOADK a=0 bx=0;
+      // pc=2 line=2
+      abc RETURN1 a=0 b=0 c=0;
+    }
+    debug_info {
+      line_info [1, 2, 2];
+      preferred_name "main";
+      preferred_name_what "global";
+    }
+  }
+}
+''';
+
+String _instructionHeavyIrReaderSource() {
+  final buffer = StringBuffer()
+    ..writeln('chunk has_debug_info=true has_constant_hash=true {')
+    ..writeln(
+      '  prototype main register_count=4 param_count=0 is_vararg=true {',
+    )
+    ..writeln('    constants {')
+    ..writeln('      int 1;')
+    ..writeln('      int 2;')
+    ..writeln('      short "value";')
+    ..writeln('    }')
+    ..writeln('    instructions {')
+    ..writeln('      abc VARARGPREP a=0 b=0 c=0;');
+  for (var index = 0; index < 96; index++) {
+    buffer
+      ..writeln('      // pc=$index line=${index + 1}')
+      ..writeln('      abx LOADK a=${index % 3} bx=${index % 2};')
+      ..writeln('      abc MOVE a=${(index + 1) % 3} b=${index % 3} c=0;');
+  }
+  buffer
+    ..writeln('      abc RETURN1 a=0 b=0 c=0;')
+    ..writeln('    }')
+    ..writeln('    debug_info {')
+    ..write('      line_info [');
+  for (var index = 0; index < 194; index++) {
+    if (index > 0) {
+      buffer.write(', ');
+    }
+    buffer.write(index + 1);
+  }
+  buffer
+    ..writeln('];')
+    ..writeln('      preferred_name "main";')
+    ..writeln('      preferred_name_what "global";')
+    ..writeln('      local_names {')
+    ..writeln('        local name="tmp" start_pc=1 end_pc=10 register=0;')
+    ..writeln('      }')
+    ..writeln('    }')
+    ..writeln('  }')
+    ..writeln('}');
+  return buffer.toString();
 }
 
 void _runPetitParserProfile(_ParserProfileSpec spec, {required int top}) {

@@ -21,6 +21,11 @@ class BinaryFormatOption {
 /// Parser that turns a Lua 5.4 binary-format string into a list of
 /// [BinaryFormatOption]s, performing the same validation that the Lua VM does.
 class BinaryFormatParser {
+  static final String _maxIntegerDigits = NumberLimits.maxInteger.toString();
+  static final String _minIntegerMagnitudeDigits = NumberLimits.minInteger
+      .toString()
+      .substring(1);
+
   static final Parser<String> space = char(' ');
   static final Parser<String> digits = digit().plus().flatten();
   static final Parser<String> signedDigits = (char('-').optional() & digits)
@@ -129,85 +134,274 @@ class BinaryFormatParser {
 
   /// Parse [input] into a list of [BinaryFormatOption]s or throw [LuaError].
   static List<BinaryFormatOption> parse(String input) {
-    for (var i = 0; i < input.length; i++) {
-      if (input[i] == 'X') {
-        if (i + 1 >= input.length || input[i + 1].trim().isEmpty) {
+    final raw = <BinaryFormatOption>[];
+    var current = 0;
+    while (current < input.length) {
+      final codeUnit = input.codeUnitAt(current);
+      if (codeUnit == 0x20) {
+        current++;
+        continue;
+      }
+
+      if (codeUnit == 0x58) {
+        if (current + 1 >= input.length || input[current + 1].trim().isEmpty) {
           throw LuaError("invalid next option for option 'X'");
         }
       }
+
+      switch (codeUnit) {
+        case 0x3C: // <
+        case 0x3D: // =
+        case 0x3E: // >
+          final rawOption = input[current];
+          raw.add(BinaryFormatOption(rawOption, raw: rawOption));
+          current++;
+          break;
+        case 0x21: // !
+          current = _parseAlignment(input, current, raw);
+          break;
+        case 0x63: // c
+          current = _parseCharArray(input, current, raw);
+          break;
+        case 0x69: // i
+        case 0x49: // I
+        case 0x6A: // j
+        case 0x4A: // J
+        case 0x73: // s
+          current = _parseIntegerOrStringSize(input, current, raw);
+          break;
+        default:
+          final option = input[current];
+          if (_isSimpleOption(codeUnit)) {
+            raw.add(BinaryFormatOption(option, raw: option));
+            current++;
+          } else {
+            throw LuaError.typeError("invalid format option '$option'");
+          }
+      }
     }
 
-    final result = formatParser.parse(input);
-    if (result is Success) {
-      final raw = List<BinaryFormatOption>.from(result.value);
-      final processed = <BinaryFormatOption>[];
-      for (var i = 0; i < raw.length; i++) {
-        final opt = raw[i];
-        if (opt.type == 'X') {
-          if (i + 1 >= raw.length) {
-            throw LuaError("invalid next option for option 'X'");
-          }
-          final next = raw[i + 1];
-          int size;
-          switch (next.type) {
-            case 'b':
-              size = BinaryTypeSize.b;
-              break;
-            case 'B':
-              size = BinaryTypeSize.B;
-              break;
-            case 'h':
-              size = BinaryTypeSize.h;
-              break;
-            case 'H':
-              size = BinaryTypeSize.H;
-              break;
-            case 'l':
-              size = BinaryTypeSize.l;
-              break;
-            case 'L':
-              size = BinaryTypeSize.L;
-              break;
-            case 'j':
-              size = BinaryTypeSize.j;
-              break;
-            case 'J':
-              size = BinaryTypeSize.J;
-              break;
-            case 'T':
-              size = BinaryTypeSize.T;
-              break;
-            case 'f':
-              size = BinaryTypeSize.f;
-              break;
-            case 'd':
-              size = BinaryTypeSize.d;
-              break;
-            case 'n':
-              size = BinaryTypeSize.n;
-              break;
-            case 'i':
-              size = next.size ?? BinaryTypeSize.i;
-              break;
-            case 'I':
-              size = next.size ?? BinaryTypeSize.I;
-              break;
-            default:
-              throw LuaError("invalid next option for option 'X'");
-          }
-          processed.add(
-            BinaryFormatOption('X', size: size, raw: opt.raw + next.raw),
-          );
-          i++; // skip next
-        } else {
-          processed.add(opt);
+    final processed = <BinaryFormatOption>[];
+    for (var i = 0; i < raw.length; i++) {
+      final opt = raw[i];
+      if (opt.type == 'X') {
+        if (i + 1 >= raw.length) {
+          throw LuaError("invalid next option for option 'X'");
         }
+        final next = raw[i + 1];
+        final size = _paddingSizeFor(next);
+        processed.add(
+          BinaryFormatOption('X', size: size, raw: opt.raw + next.raw),
+        );
+        i++;
+      } else {
+        processed.add(opt);
       }
-      return processed;
     }
-    // Failure – PetitParser tells us where it got stuck.
-    throw LuaError.typeError(
-      "invalid format option at position ${result.position}",
-    );
+    return processed;
+  }
+
+  static int _parseAlignment(
+    String input,
+    int position,
+    List<BinaryFormatOption> raw,
+  ) {
+    final digitStart = position + 1;
+    final digitEnd = _scanDigits(input, digitStart);
+    if (digitEnd == digitStart) {
+      raw.add(BinaryFormatOption('!', raw: '!'));
+      return digitStart;
+    }
+
+    final n = _parseSmallPositiveSize(input, digitStart, digitEnd);
+    if (n < 1 || n > 16) {
+      throw LuaError("integral size ($n) out of limits [1,16]");
+    }
+    if ((n & (n - 1)) != 0) {
+      throw LuaError("format asks for alignment not power of 2");
+    }
+    final digits = input.substring(digitStart, digitEnd);
+    raw.add(BinaryFormatOption('!', align: n, raw: '!$digits'));
+    return digitEnd;
+  }
+
+  static int _parseCharArray(
+    String input,
+    int position,
+    List<BinaryFormatOption> raw,
+  ) {
+    final digitStart = position + 1;
+    final digitEnd = _scanDigits(input, digitStart);
+    if (digitEnd == digitStart) {
+      throw LuaError('missing size');
+    }
+
+    final n = _parseBoundedUnsignedInteger(input, digitStart, digitEnd);
+    final digits = input.substring(digitStart, digitEnd);
+    raw.add(BinaryFormatOption('c', size: n, raw: 'c$digits'));
+    return digitEnd;
+  }
+
+  static int _parseIntegerOrStringSize(
+    String input,
+    int position,
+    List<BinaryFormatOption> raw,
+  ) {
+    final type = input[position];
+    final digitStart = _signedDigitsStart(input, position + 1);
+    if (digitStart == null) {
+      raw.add(BinaryFormatOption(type, raw: type));
+      return position + 1;
+    }
+
+    final digitEnd = _scanDigits(input, digitStart);
+    final numberStart = position + 1;
+    final n = _parseBoundedSignedInteger(input, numberStart, digitEnd);
+    if ((type == 'i' || type == 'I' || type == 'j' || type == 'J') &&
+        (n < 1 || n > 16)) {
+      throw LuaError("integral size ($n) out of limits [1,16]");
+    }
+    if (type == 's' && n < 0) {
+      throw LuaError("invalid size for format option 's'");
+    }
+
+    final numberText = input.substring(numberStart, digitEnd);
+    raw.add(BinaryFormatOption(type, size: n, raw: '$type$numberText'));
+    return digitEnd;
+  }
+
+  static int _parseSmallPositiveSize(String input, int start, int end) {
+    final significantStart = _skipLeadingZeroDigits(input, start, end);
+    if (end - significantStart > 2) {
+      return 17;
+    }
+    return int.parse(input.substring(start, end));
+  }
+
+  static int _parseBoundedUnsignedInteger(String input, int start, int end) {
+    if (_digitsExceed(input, start, end, _maxIntegerDigits)) {
+      throw LuaError('invalid format');
+    }
+    return int.parse(input.substring(start, end));
+  }
+
+  static int _parseBoundedSignedInteger(String input, int start, int end) {
+    final isNegative = input.codeUnitAt(start) == 0x2D;
+    final digitStart = isNegative ? start + 1 : start;
+    final limit = isNegative ? _minIntegerMagnitudeDigits : _maxIntegerDigits;
+    if (_digitsExceed(input, digitStart, end, limit)) {
+      throw LuaError('invalid format');
+    }
+    return int.parse(input.substring(start, end));
+  }
+
+  static bool _digitsExceed(
+    String input,
+    int start,
+    int end,
+    String limitDigits,
+  ) {
+    final significantStart = _skipLeadingZeroDigits(input, start, end);
+    final length = end - significantStart;
+    if (length != limitDigits.length) {
+      return length > limitDigits.length;
+    }
+
+    for (var i = 0; i < length; i++) {
+      final digit = input.codeUnitAt(significantStart + i);
+      final limit = limitDigits.codeUnitAt(i);
+      if (digit != limit) {
+        return digit > limit;
+      }
+    }
+    return false;
+  }
+
+  static int _skipLeadingZeroDigits(String input, int start, int end) {
+    var current = start;
+    while (current + 1 < end && input.codeUnitAt(current) == 0x30) {
+      current++;
+    }
+    return current;
+  }
+
+  static int? _signedDigitsStart(String input, int position) {
+    if (position >= input.length) {
+      return null;
+    }
+    final codeUnit = input.codeUnitAt(position);
+    if (_isDigit(codeUnit)) {
+      return position;
+    }
+    if (codeUnit == 0x2D &&
+        position + 1 < input.length &&
+        _isDigit(input.codeUnitAt(position + 1))) {
+      return position + 1;
+    }
+    return null;
+  }
+
+  static int _scanDigits(String input, int position) {
+    var current = position;
+    while (current < input.length && _isDigit(input.codeUnitAt(current))) {
+      current++;
+    }
+    return current;
+  }
+
+  static bool _isDigit(int codeUnit) => codeUnit >= 0x30 && codeUnit <= 0x39;
+
+  static bool _isSimpleOption(int codeUnit) {
+    switch (codeUnit) {
+      case 0x62: // b
+      case 0x42: // B
+      case 0x68: // h
+      case 0x48: // H
+      case 0x6C: // l
+      case 0x4C: // L
+      case 0x54: // T
+      case 0x64: // d
+      case 0x6E: // n
+      case 0x78: // x
+      case 0x7A: // z
+      case 0x58: // X
+      case 0x66: // f
+        return true;
+    }
+    return false;
+  }
+
+  static int _paddingSizeFor(BinaryFormatOption option) {
+    switch (option.type) {
+      case 'b':
+        return BinaryTypeSize.b;
+      case 'B':
+        return BinaryTypeSize.B;
+      case 'h':
+        return BinaryTypeSize.h;
+      case 'H':
+        return BinaryTypeSize.H;
+      case 'l':
+        return BinaryTypeSize.l;
+      case 'L':
+        return BinaryTypeSize.L;
+      case 'j':
+        return BinaryTypeSize.j;
+      case 'J':
+        return BinaryTypeSize.J;
+      case 'T':
+        return BinaryTypeSize.T;
+      case 'f':
+        return BinaryTypeSize.f;
+      case 'd':
+        return BinaryTypeSize.d;
+      case 'n':
+        return BinaryTypeSize.n;
+      case 'i':
+        return option.size ?? BinaryTypeSize.i;
+      case 'I':
+        return option.size ?? BinaryTypeSize.I;
+    }
+    throw LuaError("invalid next option for option 'X'");
   }
 }

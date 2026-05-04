@@ -1676,6 +1676,14 @@ class StringLiteral extends AstNode implements Dumpable {
     }
   }
 
+  StringLiteral.withParsedBytes(
+    String raw,
+    List<int> bytes, {
+    this.isLongString = false,
+  }) : value = raw {
+    _bytes = bytes;
+  }
+
   /// Get the byte representation of this string literal
   List<int> get bytes => _bytes;
 

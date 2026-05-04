@@ -1,0 +1,68 @@
+{
+  "schemaVersion": 1,
+  "generatedBy": "tool/parser_profile_compare.dart",
+  "title": "Small Parser Corpus",
+  "generatedAt": "2026-05-03T10:52:27.561531",
+  "baseline": {
+    "label": "origin/ir small-parser-corpus",
+    "capturedAt": "2026-05-03T10:52:21.336790",
+    "revision": "3f9069998692cf93cbc5461fe1d3e4150425a7ff",
+    "branch": null
+  },
+  "latest": {
+    "label": "current small-parser-corpus",
+    "capturedAt": "2026-05-03T10:52:26.679227",
+    "revision": "ab37db12192ba4a3f93d98abd6552e4344a9f1a8",
+    "branch": "profiling/parser-performance"
+  },
+  "rows": [
+    {
+      "case": "attributes_and_labels",
+      "baselineMeanMicros": 3615.2,
+      "latestMeanMicros": 1576.2,
+      "timeReductionPercent": 56.40075237884487,
+      "speedup": 2.293617561223195
+    },
+    {
+      "case": "branches_and_loops",
+      "baselineMeanMicros": 2158.0,
+      "latestMeanMicros": 2433.0,
+      "timeReductionPercent": -12.743280815569973,
+      "speedup": 0.886970817920263
+    },
+    {
+      "case": "functions_and_calls",
+      "baselineMeanMicros": 1319.1,
+      "latestMeanMicros": 944.1,
+      "timeReductionPercent": 28.428473959517845,
+      "speedup": 1.3972036860502064
+    },
+    {
+      "case": "literals_and_expressions",
+      "baselineMeanMicros": 829.6,
+      "latestMeanMicros": 526.0,
+      "timeReductionPercent": 36.59594985535198,
+      "speedup": 1.5771863117870724
+    },
+    {
+      "case": "strings_and_comments",
+      "baselineMeanMicros": 3338.5,
+      "latestMeanMicros": 321.8,
+      "timeReductionPercent": 90.36094054215965,
+      "speedup": 10.374456183965195
+    },
+    {
+      "case": "table_shapes",
+      "baselineMeanMicros": 4358.3,
+      "latestMeanMicros": 593.7,
+      "timeReductionPercent": 86.37771608195857,
+      "speedup": 7.340912918982651
+    }
+  ],
+  "total": {
+    "baselineMeanMicros": 15618.7,
+    "latestMeanMicros": 6394.8,
+    "timeReductionPercent": 59.05677169034555,
+    "speedup": 2.4424063301432413
+  }
+}
