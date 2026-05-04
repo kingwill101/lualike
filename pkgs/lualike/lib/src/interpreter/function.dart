@@ -2384,16 +2384,17 @@ mixin InterpreterFunctionMixin on AstVisitor<Object?> {
       while (true) {
         try {
           if (func is Value) {
-            if (func.raw is Function) {
+            final funcRaw = _rawInterpreterValue(func);
+            if (funcRaw is Function) {
               // Call the Dart function
               if (Logger.enabled) {
                 Logger.debugLazy(
-                  () => '>>> Calling Dart function: ${func.raw.runtimeType}',
+                  () => '>>> Calling Dart function: ${funcRaw.runtimeType}',
                   category: 'Interpreter',
                 );
               }
               try {
-                final result = await func.raw(args);
+                final result = await funcRaw(args);
                 if (Logger.enabled) {
                   Logger.debugLazy(
                     () =>
@@ -2420,17 +2421,17 @@ mixin InterpreterFunctionMixin on AstVisitor<Object?> {
                 }
                 rethrow;
               }
-            } else if (func.raw is BuiltinFunction) {
+            } else if (funcRaw is BuiltinFunction) {
               // Call the builtin function
               if (Logger.enabled) {
                 Logger.debugLazy(
                   () =>
-                      '>>> Calling builtin function from Value: ${func.raw.runtimeType}',
+                      '>>> Calling builtin function from Value: ${funcRaw.runtimeType}',
                   category: 'Interpreter',
                 );
               }
               try {
-                var result = (func.raw as BuiltinFunction).call(args);
+                var result = funcRaw.call(args);
 
                 if (result is Future) {
                   result = await result;
@@ -2461,14 +2462,14 @@ mixin InterpreterFunctionMixin on AstVisitor<Object?> {
                 }
                 rethrow;
               }
-            } else if (func.raw is FunctionDef) {
+            } else if (funcRaw is FunctionDef) {
               if (Logger.enabled) {
                 Logger.debugLazy(
                   () => '>>> Calling LuaLike function definition',
                   category: 'Interpreter',
                 );
               }
-              final funcDef = func.raw as FunctionDef;
+              final funcDef = funcRaw;
               final funcBody = funcDef.body;
               final closure = await funcBody.accept(this);
               if (Logger.enabled) {
@@ -2478,9 +2479,10 @@ mixin InterpreterFunctionMixin on AstVisitor<Object?> {
                   category: 'Interpreter',
                 );
               }
-              if (closure is Value && closure.raw is Function) {
+              final closureRaw = _rawInterpreterValue(closure);
+              if (closure is Value && closureRaw is Function) {
                 try {
-                  final result = await closure.raw(args);
+                  final result = await closureRaw(args);
                   if (Logger.enabled) {
                     Logger.debugLazy(
                       () => '>>> LuaLike function result: $result',
@@ -2501,7 +2503,7 @@ mixin InterpreterFunctionMixin on AstVisitor<Object?> {
                   rethrow;
                 }
               }
-            } else if (func.raw is FunctionBody) {
+            } else if (funcRaw is FunctionBody) {
               // Call the LuaLike function body
               if (Logger.enabled) {
                 Logger.debugLazy(
@@ -2509,7 +2511,7 @@ mixin InterpreterFunctionMixin on AstVisitor<Object?> {
                   category: 'Interpreter',
                 );
               }
-              final funcBody = func.raw as FunctionBody;
+              final funcBody = funcRaw;
               final closure = await funcBody.accept(this);
               if (Logger.enabled) {
                 Logger.debugLazy(
@@ -2518,9 +2520,10 @@ mixin InterpreterFunctionMixin on AstVisitor<Object?> {
                   category: 'Interpreter',
                 );
               }
-              if (closure is Value && closure.raw is Function) {
+              final closureRaw = _rawInterpreterValue(closure);
+              if (closure is Value && closureRaw is Function) {
                 try {
-                  final result = await closure.raw(args);
+                  final result = await closureRaw(args);
                   if (Logger.enabled) {
                     Logger.debugLazy(
                       () => '>>> LuaLike function body result: $result',
@@ -2541,7 +2544,7 @@ mixin InterpreterFunctionMixin on AstVisitor<Object?> {
                   rethrow;
                 }
               }
-            } else if (func.raw is FunctionLiteral) {
+            } else if (funcRaw is FunctionLiteral) {
               // Call the LuaLike function literal
               if (Logger.enabled) {
                 Logger.debugLazy(
@@ -2549,7 +2552,7 @@ mixin InterpreterFunctionMixin on AstVisitor<Object?> {
                   category: 'Interpreter',
                 );
               }
-              final funcLiteral = func.raw as FunctionLiteral;
+              final funcLiteral = funcRaw;
               final closure = await funcLiteral.accept(this);
               if (Logger.enabled) {
                 Logger.debugLazy(
@@ -2558,9 +2561,10 @@ mixin InterpreterFunctionMixin on AstVisitor<Object?> {
                   category: 'Interpreter',
                 );
               }
-              if (closure is Value && closure.raw is Function) {
+              final closureRaw = _rawInterpreterValue(closure);
+              if (closure is Value && closureRaw is Function) {
                 try {
-                  final result = await closure.raw(args);
+                  final result = await closureRaw(args);
                   if (Logger.enabled) {
                     Logger.debugLazy(
                       () => '>>> LuaLike function literal result: $result',
@@ -2581,7 +2585,7 @@ mixin InterpreterFunctionMixin on AstVisitor<Object?> {
                   rethrow;
                 }
               }
-            } else if (func.raw is LuaCallableArtifact) {
+            } else if (funcRaw is LuaCallableArtifact) {
               if (Logger.enabled) {
                 Logger.debugLazy(
                   () => '>>> Delegating compiled callable to owning runtime',
@@ -2609,8 +2613,8 @@ mixin InterpreterFunctionMixin on AstVisitor<Object?> {
                 continue;
               }
               return returnWithTransfer(result);
-            } else if (func.raw is String) {
-              final funkLookup = globals.get(func.raw);
+            } else if (funcRaw is String) {
+              final funkLookup = globals.get(funcRaw);
               if (funkLookup != null) {
                 func = funkLookup;
               }
@@ -2693,9 +2697,10 @@ mixin InterpreterFunctionMixin on AstVisitor<Object?> {
                 category: 'Interpreter',
               );
             }
-            if (closure is Value && closure.raw is Function) {
+            final closureRaw = _rawInterpreterValue(closure);
+            if (closure is Value && closureRaw is Function) {
               try {
-                final result = await closure.raw(args);
+                final result = await closureRaw(args);
                 if (Logger.enabled) {
                   Logger.debugLazy(
                     () => '>>> Direct LuaLike function result: $result',
@@ -2727,9 +2732,10 @@ mixin InterpreterFunctionMixin on AstVisitor<Object?> {
                   '(${closure.runtimeType})',
               category: 'Interpreter',
             );
-            if (closure is Value && closure.raw is Function) {
+            final closureRaw = _rawInterpreterValue(closure);
+            if (closure is Value && closureRaw is Function) {
               try {
-                final result = await closure.raw(args);
+                final result = await closureRaw(args);
                 Logger.debugLazy(
                   () => '>>> Direct LuaLike function body result: $result',
                   category: 'Interpreter',
@@ -2759,9 +2765,10 @@ mixin InterpreterFunctionMixin on AstVisitor<Object?> {
                   '(${closure.runtimeType})',
               category: 'Interpreter',
             );
-            if (closure is Value && closure.raw is Function) {
+            final closureRaw = _rawInterpreterValue(closure);
+            if (closure is Value && closureRaw is Function) {
               try {
-                final result = await closure.raw(args);
+                final result = await closureRaw(args);
                 Logger.debugLazy(
                   () => '>>> Direct LuaLike function literal result: $result',
                   category: 'Interpreter',
