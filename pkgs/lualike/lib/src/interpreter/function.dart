@@ -2031,8 +2031,9 @@ mixin InterpreterFunctionMixin on AstVisitor<Object?> {
           }
           if (func == null) {
             // Direct lookup
-            if (obj.raw is Map && (obj).containsKey(methodName)) {
-              func = (obj)[methodName];
+            final rawObj = _rawInterpreterValue(obj);
+            if (rawObj is Map && rawObj.containsKey(methodName)) {
+              func = rawObj[methodName];
             }
           }
 
@@ -2136,17 +2137,20 @@ mixin InterpreterFunctionMixin on AstVisitor<Object?> {
         functionName = func.functionName!;
       } else if (callerFunctionName != null) {
         functionName = callerFunctionName;
-      } else if (func.raw is FunctionDef) {
-        final funcDef = func.raw as FunctionDef;
-        functionName = funcDef.name.first.name;
-      } else if (func.raw is Function) {
-        // Use the caller-provided name if available, otherwise use a generic name
-        functionName = callerFunctionName ?? 'function';
-      } else if (func.raw is String) {
-        functionName = func.raw;
-        final funkLookup = globals.get(func.raw);
-        if (funkLookup != null) {
-          func = funkLookup;
+      } else {
+        final funcRaw = _rawInterpreterValue(func);
+        if (funcRaw is FunctionDef) {
+          final funcDef = funcRaw;
+          functionName = funcDef.name.first.name;
+        } else if (funcRaw is Function) {
+          // Use the caller-provided name if available, otherwise use a generic name
+          functionName = callerFunctionName ?? 'function';
+        } else if (funcRaw is String) {
+          functionName = funcRaw;
+          final funkLookup = globals.get(funcRaw);
+          if (funkLookup != null) {
+            func = funkLookup;
+          }
         }
       }
     } else if (func is FunctionDef) {
