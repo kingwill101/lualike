@@ -175,4 +175,13 @@ class _SandboxFilesystemAdapter extends LoveLualikeFilesystemAdapter {
 
   @override
   String? get executablePath => path.join(root, 'bin', 'love2d_test');
+
+  @override
+  bool get isWindows => false;
+
+  @override
+  bool get isLinux => true;
+
+  @override
+  bool get isMacOS => false;
 }

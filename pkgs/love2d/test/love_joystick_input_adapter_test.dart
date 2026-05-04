@@ -23,79 +23,84 @@ void main() {
     });
 
     test('tracks joystick state and dispatches callbacks', () async {
+      adapter.handleDeviceAdded(joystick);
+      await adapter.flush();
       await runtime.execute('''
 testbed = {}
-
-function love.joystickadded(j)
-  local poll = love.event.poll()
-  local name, queued = poll()
-  testbed.added = string.format("%s|%s|%d|%d", name, tostring(queued == j), love.joystick.getJoystickCount(), select(1, j:getID()))
-end
-
-function love.joystickpressed(j, button)
-  local poll = love.event.poll()
-  local name, queued, queuedButton = poll()
-  testbed.jpressed = string.format("%s|%s|%d|%s", name, tostring(queued == j), queuedButton, tostring(j:isDown(button)))
-end
-
-function love.joystickreleased(j, button)
-  local poll = love.event.poll()
-  local name, queued, queuedButton = poll()
-  testbed.jreleased = string.format("%s|%s|%d|%s", name, tostring(queued == j), queuedButton, tostring(j:isDown(button)))
-end
-
-function love.joystickaxis(j, axis, value)
-  local poll = love.event.poll()
-  local name, queued, queuedAxis, queuedValue = poll()
-  testbed.jaxis = string.format("%s|%s|%d|%.2f|%.2f", name, tostring(queued == j), queuedAxis, queuedValue, j:getAxis(axis))
-end
-
-function love.joystickhat(j, hat, value)
-  local poll = love.event.poll()
-  local name, queued, queuedHat, queuedValue = poll()
-  testbed.jhat = string.format("%s|%s|%d|%s|%s", name, tostring(queued == j), queuedHat, queuedValue, j:getHat(hat))
-end
-
-function love.gamepadpressed(j, button)
-  local poll = love.event.poll()
-  local name, queued, queuedButton = poll()
-  testbed.gpressed = string.format("%s|%s|%s|%s", name, tostring(queued == j), queuedButton, tostring(j:isGamepadDown(button)))
-end
-
-function love.gamepadreleased(j, button)
-  local poll = love.event.poll()
-  local name, queued, queuedButton = poll()
-  testbed.greleased = string.format("%s|%s|%s|%s", name, tostring(queued == j), queuedButton, tostring(j:isGamepadDown(button)))
-end
-
-function love.gamepadaxis(j, axis, value)
-  local poll = love.event.poll()
-  local name, queued, queuedAxis, queuedValue = poll()
-  testbed.gaxis = string.format("%s|%s|%s|%.2f|%.2f", name, tostring(queued == j), queuedAxis, queuedValue, j:getGamepadAxis(axis))
-end
-
-function love.joystickremoved(j)
-  local poll = love.event.poll()
-  local name, queued = poll()
-  local sticks = love.joystick.getJoysticks()
-  testbed.removed = string.format("%s|%s|%s|%s|%d", name, tostring(queued == j), tostring(j:isConnected()), tostring(sticks[1] == nil), love.joystick.getJoystickCount())
-end
+local poll = love.event.poll()
+local name, j = poll()
+testbed.added = string.format("%s|%s|%d|%d", name, tostring(j:isConnected()), love.joystick.getJoystickCount(), select(1, j:getID()))
+testbed.empty_after_added = poll() == nil
 ''');
 
-      adapter.handleDeviceAdded(joystick);
       adapter.handleJoystickButtonDown(joystick, 2);
-      adapter.handleJoystickAxisMotion(joystick, 1, 0.5);
-      adapter.handleJoystickHatMotion(joystick, 1, 'r');
-      adapter.handleGamepadButtonDown(joystick, 'a');
-      adapter.handleGamepadAxisMotion(joystick, 'leftx', 1.0);
-      adapter.handleGamepadButtonUp(joystick, 'a');
-      adapter.handleJoystickButtonUp(joystick, 2);
-      adapter.handleDeviceRemoved(joystick);
-
       await adapter.flush();
+      await runtime.execute('''
+local poll = love.event.poll()
+local name, j, button = poll()
+testbed.jpressed = string.format("%s|%s|%d|%s", name, tostring(j:isConnected()), button, tostring(j:isDown(button)))
+''');
+
+      adapter.handleJoystickAxisMotion(joystick, 1, 0.5);
+      await adapter.flush();
+      await runtime.execute('''
+local poll = love.event.poll()
+local name, j, axis, value = poll()
+testbed.jaxis = string.format("%s|%s|%d|%.2f|%.2f", name, tostring(j:isConnected()), axis, value, j:getAxis(axis))
+''');
+
+      adapter.handleJoystickHatMotion(joystick, 1, 'r');
+      await adapter.flush();
+      await runtime.execute('''
+local poll = love.event.poll()
+local name, j, hat, value = poll()
+testbed.jhat = string.format("%s|%s|%d|%s|%s", name, tostring(j:isConnected()), hat, value, j:getHat(hat))
+''');
+
+      adapter.handleGamepadButtonDown(joystick, 'a');
+      await adapter.flush();
+      await runtime.execute('''
+local poll = love.event.poll()
+local name, j, button = poll()
+testbed.gpressed = string.format("%s|%s|%s|%s", name, tostring(j:isConnected()), button, tostring(j:isGamepadDown(button)))
+''');
+
+      adapter.handleGamepadAxisMotion(joystick, 'leftx', 1.0);
+      await adapter.flush();
+      await runtime.execute('''
+local poll = love.event.poll()
+local name, j, axis, value = poll()
+testbed.gaxis = string.format("%s|%s|%s|%.2f|%.2f", name, tostring(j:isConnected()), axis, value, j:getGamepadAxis(axis))
+''');
+
+      adapter.handleGamepadButtonUp(joystick, 'a');
+      await adapter.flush();
+      await runtime.execute('''
+local poll = love.event.poll()
+local name, j, button = poll()
+testbed.greleased = string.format("%s|%s|%s|%s", name, tostring(j:isConnected()), button, tostring(j:isGamepadDown(button)))
+''');
+
+      adapter.handleJoystickButtonUp(joystick, 2);
+      await adapter.flush();
+      await runtime.execute('''
+local poll = love.event.poll()
+local name, j, button = poll()
+testbed.jreleased = string.format("%s|%s|%d|%s", name, tostring(j:isConnected()), button, tostring(j:isDown(button)))
+''');
+
+      adapter.handleDeviceRemoved(joystick);
+      await adapter.flush();
+      await runtime.execute('''
+local poll = love.event.poll()
+local name, j = poll()
+local sticks = love.joystick.getJoysticks()
+testbed.removed = string.format("%s|%s|%s|%s|%d", name, tostring(j:isConnected()), tostring(j:isConnected()), tostring(sticks[1] == nil), love.joystick.getJoystickCount())
+''');
 
       final snapshot = runtime.unwrapGlobalTable('testbed')!;
       expect(snapshot['added'], 'joystickadded|true|1|7');
+      expect(snapshot['empty_after_added'], isTrue);
       expect(snapshot['jpressed'], 'joystickpressed|true|2|true');
       expect(snapshot['jreleased'], 'joystickreleased|true|2|false');
       expect(snapshot['jaxis'], 'joystickaxis|true|1|0.50|0.50');
@@ -103,7 +108,7 @@ end
       expect(snapshot['gpressed'], 'gamepadpressed|true|a|true');
       expect(snapshot['greleased'], 'gamepadreleased|true|a|false');
       expect(snapshot['gaxis'], 'gamepadaxis|true|leftx|1.00|1.00');
-      expect(snapshot['removed'], 'joystickremoved|true|false|true|0');
+      expect(snapshot['removed'], 'joystickremoved|false|false|true|0');
       expect(host.joysticks.devices, isEmpty);
       expect(host.joysticks.connectedDevices, isEmpty);
       expect(joystick.connected, isFalse);

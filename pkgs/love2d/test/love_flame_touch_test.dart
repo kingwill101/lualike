@@ -15,25 +15,6 @@ void main() {
         host: host,
         runtimeProvider: () => runtime,
       );
-
-      await runtime.execute('''
-testbed = {}
-
-function love.touchpressed(id, x, y, dx, dy, pressure)
-  testbed.touchpressed = string.format("%d,%.0f,%.0f,%.0f,%.0f,%.2f", id, x, y, dx, dy, pressure)
-end
-
-function love.touchmoved(id, x, y, dx, dy, pressure)
-  testbed.touchmoved = string.format("%d,%.0f,%.0f,%.0f,%.0f,%.2f", id, x, y, dx, dy, pressure)
-  testbed.touchpressure = string.format("%.2f", love.touch.getPressure(id))
-end
-
-function love.touchreleased(id, x, y, dx, dy, pressure)
-  testbed.touchreleased = string.format("%d,%.0f,%.0f,%.0f,%.0f,%.2f", id, x, y, dx, dy, pressure)
-  local touches = love.touch.getTouches()
-  testbed.touchreleasedempty = tostring(touches[1] == nil)
-end
-''');
     });
 
     test('tracks active touches and dispatches callbacks', () async {
@@ -68,14 +49,34 @@ end
       expect(host.touch.activeTouch(17)!.pressure, 0.5);
 
       await adapter.flush();
+      await runtime.execute('''
+testbed = {}
+local poll = love.event.poll()
+local name1, id1, x1, y1, dx1, dy1, pressure1
+local name2, id2, x2, y2, dx2, dy2, pressure2
+for i = 1, 4 do
+  local name, a, b, c, d, e, f = poll()
+  if name == nil then
+    break
+  end
+  if name == "touchpressed" then
+    name1, id1, x1, y1, dx1, dy1, pressure1 = name, a, b, c, d, e, f
+  elseif name == "touchmoved" then
+    name2, id2, x2, y2, dx2, dy2, pressure2 = name, a, b, c, d, e, f
+  end
+end
+testbed.touchpressed = string.format("%s|%d|%.0f|%.0f|%.0f|%.0f|%.2f", name1, id1, x1, y1, dx1, dy1, pressure1)
+testbed.touchmoved = string.format("%s|%d|%.0f|%.0f|%.0f|%.0f|%.2f", name2, id2, x2, y2, dx2, dy2, pressure2)
+testbed.touchpressure = string.format("%.2f", love.touch.getPressure(id2))
+''');
 
       expect(
         runtime.unwrapGlobalTable('testbed')!['touchpressed'],
-        '17,10,20,0,0,0.75',
+        'touchpressed|17|10|20|0|0|0.75',
       );
       expect(
         runtime.unwrapGlobalTable('testbed')!['touchmoved'],
-        '17,14,26,4,6,0.50',
+        'touchmoved|17|14|26|4|6|0.50',
       );
       expect(runtime.unwrapGlobalTable('testbed')!['touchpressure'], '0.50');
 
@@ -90,10 +91,27 @@ end
       expect(host.touch.getTouches(), isEmpty);
 
       await adapter.flush();
+      await runtime.execute('''
+local poll = love.event.poll()
+local name, id, x, y, dx, dy, pressure
+for i = 1, 3 do
+  local eventName, a, b, c, d, e, f = poll()
+  if eventName == nil then
+    break
+  end
+  if eventName == "touchreleased" then
+    name, id, x, y, dx, dy, pressure = eventName, a, b, c, d, e, f
+    break
+  end
+end
+testbed.touchreleased = string.format("%s|%d|%.0f|%.0f|%.0f|%.0f|%.2f", name, id, x, y, dx, dy, pressure)
+local touches = love.touch.getTouches()
+testbed.touchreleasedempty = tostring(touches[1] == nil)
+''');
 
       expect(
         runtime.unwrapGlobalTable('testbed')!['touchreleased'],
-        '17,15,27,0,0,0.00',
+        'touchreleased|17|15|27|0|0|0.00',
       );
       expect(
         runtime.unwrapGlobalTable('testbed')!['touchreleasedempty'],

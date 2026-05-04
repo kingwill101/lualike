@@ -5,49 +5,10 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:lualike/lualike.dart';
 import 'package:path/path.dart' as p;
 
+import 'package_path_test_support.dart';
+
 const String love2dDefaultTrueTypeFontAssetPath =
     'packages/love2d/third_party/love/extra/resources/Vera.ttf';
-
-Future<Directory> love2dPackageRoot() async {
-  final nestedSegments = <String>['pkgs', 'love2d'];
-  final resourceSegments = <String>[
-    'third_party',
-    'love',
-    'extra',
-    'resources',
-    'Vera.ttf',
-  ];
-
-  var current = Directory.current.absolute;
-  while (true) {
-    final directSegments = List<String>.from(resourceSegments)
-      ..insert(0, current.path);
-    final directCandidate = File(p.joinAll(directSegments));
-    if (directCandidate.existsSync()) {
-      return current;
-    }
-
-    final nestedPathSegments = List<String>.from(nestedSegments)
-      ..insert(0, current.path);
-    final nestedCandidate = Directory(p.joinAll(nestedPathSegments));
-    final nestedResourceSegments = List<String>.from(resourceSegments)
-      ..insert(0, nestedCandidate.path);
-    if (File(p.joinAll(nestedResourceSegments)).existsSync()) {
-      return nestedCandidate;
-    }
-
-    final parent = current.parent;
-    if (parent.path == current.path) {
-      break;
-    }
-    current = parent;
-  }
-
-  throw StateError(
-    'Unable to locate package:love2d test resources from '
-    '${Directory.current.path}.',
-  );
-}
 
 Future<Directory> love2dResourceDirectory() async {
   final packageRoot = await love2dPackageRoot();

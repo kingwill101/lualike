@@ -98,7 +98,7 @@ end
       expect(text.text, contains('default boom'));
       expect(text.text, contains('stack traceback:'));
       expect(text.text, contains("function 'explode'"));
-      expect(text.text, contains("function 'update'"));
+      expect(text.text, contains("function 'love.update'"));
       expect(find.byKey(const Key('error-message')), findsNothing);
     },
   );

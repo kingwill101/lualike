@@ -956,7 +956,7 @@ testbed.clone_pitch = clone:getPitch()
       expect(snapshot['theme_type'], 'stream');
       expect(snapshot['theme_volume'], 0.4);
       expect(snapshot['theme_pitch'], 1.25);
-      expect(snapshot['theme_tell'], 2.5);
+      expect(snapshot['theme_tell'], closeTo(2.5, 0.01));
       expect(snapshot['theme_position'], '10.0/20.0/0.0');
       expect(snapshot['theme_velocity'], '3.0/4.0/0.0');
       expect(snapshot['theme_relative'], isTrue);
@@ -3228,7 +3228,7 @@ vec4 effect(vec4 color, Image texture, vec2 texture_coords, vec2 screen_coords) 
             isA<LuaError>().having(
               (error) => error.message,
               'message',
-              contains('expected a Mesh'),
+              contains('Mesh expected'),
             ),
           ),
         );

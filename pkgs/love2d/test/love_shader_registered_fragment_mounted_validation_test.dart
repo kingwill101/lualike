@@ -1,11 +1,10 @@
-import 'dart:io';
-
 import 'package:flutter_test/flutter_test.dart';
 import 'package:lualike/lualike.dart';
 import 'package:love2d/love2d.dart';
 import 'package:love2d/src/runtime/filesystem/love_filesystem_runtime.dart';
 
 import 'test_support/memory_filesystem_test_support.dart';
+import 'test_support/package_path_test_support.dart';
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
@@ -128,8 +127,5 @@ shader_error = err
 }
 
 Future<String> _packageShaderSource(String relativePath) async {
-  final shaderPath =
-      '/run/media/kingwill101/disk2/code/code/dart_packages/lualike/'
-      'pkgs/love2d/$relativePath';
-  return File(shaderPath).readAsString();
+  return (await love2dPackageFile(relativePath.split('/'))).readAsString();
 }

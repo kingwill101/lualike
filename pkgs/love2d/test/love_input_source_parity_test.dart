@@ -1,9 +1,9 @@
-import 'dart:io';
-
 import 'package:flutter_test/flutter_test.dart';
 import 'package:lualike/lualike.dart';
 import 'package:love2d/love2d.dart';
+
 import 'test_support/lua_api_test_helpers.dart';
+import 'test_support/package_path_test_support.dart';
 
 void main() {
   group('LOVE input source parity', () {
@@ -19,9 +19,19 @@ void main() {
     test(
       'accepts every key and scancode from the vendored LOVE source',
       () async {
-        final source = File(
-          'third_party/love/src/modules/keyboard/Keyboard.cpp',
-        ).readAsStringSync();
+        final file = await love2dPackageFile(<String>[
+          'third_party',
+          'love',
+          'src',
+          'modules',
+          'keyboard',
+          'Keyboard.cpp',
+        ]);
+        if (!file.existsSync()) {
+          markTestSkipped('Vendored LOVE keyboard source is not available.');
+          return;
+        }
+        final source = file.readAsStringSync();
         final keys = _extractCppEntries(source, 'Keyboard::keyEntries[]')
           ..sort();
         final scancodes = _extractCppEntries(
@@ -68,9 +78,19 @@ void main() {
     test(
       'accepts every system cursor name from the vendored LOVE source',
       () async {
-        final source = File(
-          'third_party/love/src/modules/mouse/Cursor.cpp',
-        ).readAsStringSync();
+        final file = await love2dPackageFile(<String>[
+          'third_party',
+          'love',
+          'src',
+          'modules',
+          'mouse',
+          'Cursor.cpp',
+        ]);
+        if (!file.existsSync()) {
+          markTestSkipped('Vendored LOVE cursor source is not available.');
+          return;
+        }
+        final source = file.readAsStringSync();
         final cursorTypes = _extractCppEntries(
           source,
           'Cursor::systemCursorEntries[]',

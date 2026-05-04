@@ -6,8 +6,10 @@ import 'package:lualike/lualike.dart';
 import 'package:lualike/src/io/io_device.dart';
 import 'package:love2d/love2d.dart';
 import 'package:love2d/src/runtime/filesystem/love_filesystem_runtime.dart';
+import 'package:path/path.dart' as path;
 
 import 'test_support/lua_api_test_helpers.dart';
+import 'test_support/package_path_test_support.dart';
 
 void main() {
   group('Modern-Pong surface', () {
@@ -681,24 +683,8 @@ paddle_collision_dy = gameBallRef.dy
   });
 }
 
-final Directory _modernPongRoot = _resolveModernPongRoot();
-final String _modernPongMainPath =
-    '${_modernPongRoot.path}${Platform.pathSeparator}main.lua';
-
-Directory _resolveModernPongRoot() {
-  const candidatePaths = <String>[
-    'pkgs/love2d/third_party/Modern-Pong',
-    'third_party/Modern-Pong',
-  ];
-
-  for (final candidate in candidatePaths) {
-    final directory = Directory(candidate);
-    if (directory.existsSync()) {
-      return directory;
-    }
-  }
-
-  return Directory(candidatePaths.first);
+Future<Directory> _resolveModernPongRoot() {
+  return love2dPackageDirectory(<String>['example', 'assets', 'modern_pong']);
 }
 
 class _FakeAudioBackend implements LoveAudioSourceBackend {
@@ -963,6 +949,7 @@ Future<LoveScriptRuntime> _createModernPongRuntime({
   EngineMode? engineMode,
   LoveJoystickManager? joysticks,
 }) async {
+  final modernPongRoot = await _resolveModernPongRoot();
   late LoveScriptRuntime runtime;
   runtime = LoveScriptRuntime(
     engineMode: engineMode,
@@ -993,14 +980,15 @@ Future<LoveScriptRuntime> _createModernPongRuntime({
   );
 
   final filesystem = LoveFilesystemState.of(runtime.runtime);
-  expect(filesystem.setSource(_modernPongRoot.path), isTrue);
+  expect(filesystem.setSource(modernPongRoot.path), isTrue);
   return runtime;
 }
 
 Future<void> _loadModernPong(LoveScriptRuntime runtime) async {
+  final modernPongRoot = await _resolveModernPongRoot();
   await runtime.loadConfIfPresent();
   await runtime.execute(
-    await File(_modernPongMainPath).readAsString(),
+    await File(path.join(modernPongRoot.path, 'main.lua')).readAsString(),
     scriptPath: 'main.lua',
   );
   await runtime.callLoadIfDefined();
