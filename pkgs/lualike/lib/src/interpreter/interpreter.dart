@@ -59,6 +59,9 @@ part 'table.dart';
 /// Static flag to track if an error is already being reported
 bool _errorReporting = false;
 
+Object? _rawInterpreterValue(Object? value) =>
+    value is Value ? value.raw : value;
+
 class _StatementBlockMetadata {
   Map<String, int>? labelMap;
 }

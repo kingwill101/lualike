@@ -328,8 +328,8 @@ mixin InterpreterControlFlowMixin on AstVisitor<Object?> {
     final startResult = await node.start.accept(this);
     final endResult = await node.endExpr.accept(this);
     final stepResult = await node.stepExpr.accept(this);
-    final rawStart = startResult is Value ? startResult.raw : startResult;
-    final rawStep = stepResult is Value ? stepResult.raw : stepResult;
+    final rawStart = _rawInterpreterValue(startResult);
+    final rawStep = _rawInterpreterValue(stepResult);
 
     Never throwForLoopTypeError(String role, Object? value) {
       throw LuaError(
@@ -338,7 +338,7 @@ mixin InterpreterControlFlowMixin on AstVisitor<Object?> {
     }
 
     dynamic parseNumericValue(Object? value, String role) {
-      final rawValue = value is Value ? value.raw : value;
+      final rawValue = _rawInterpreterValue(value);
       if (rawValue is num) {
         return rawValue;
       }

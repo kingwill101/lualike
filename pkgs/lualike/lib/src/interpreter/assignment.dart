@@ -26,7 +26,7 @@ bool _isInlineableMutableLocalPrimitive(Object? value) {
 
 Object? _mutableLocalStorageValue(Object? value) {
   if (_isInlineableMutableLocalPrimitive(value)) {
-    return value is Value ? value.raw : value;
+    return _rawInterpreterValue(value);
   }
   return value;
 }
