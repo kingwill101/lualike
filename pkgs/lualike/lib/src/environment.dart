@@ -7,6 +7,9 @@ import 'package:lualike/src/runtime/lua_slot.dart';
 import 'package:lualike/src/gc/gc_access.dart';
 import 'package:lualike/src/gc/memory_credits.dart';
 
+Object? _rawEnvironmentValue(Object? value) =>
+    value is Value ? value.raw : value;
+
 /// A generic box class that wraps a single value of type T.
 /// Used to create mutable references to values in the environment.
 class Box<T> extends GCObject {
@@ -278,7 +281,7 @@ class Environment extends GCObject {
 
     final map = gValue.raw as Map;
     final manager = rootEnv.interpreter?.gc ?? GCAccess.defaultManager;
-    if (value is Value ? value.raw == null : value == null) {
+    if (_rawEnvironmentValue(value) == null) {
       map.remove(name);
     } else {
       final wrappedValue = cachedPrimitiveOrValue(rootEnv.interpreter, value);
@@ -413,7 +416,7 @@ class Environment extends GCObject {
       if (Logger.enabled) {
         Logger.debugLazy(
           () =>
-              "Found '$name' = $val (type: ${val is Value ? val.raw.runtimeType : val.runtimeType}) in env ($hashCode)",
+              "Found '$name' = $val (type: ${_rawEnvironmentValue(val).runtimeType}) in env ($hashCode)",
           category: 'Env',
         );
       }
