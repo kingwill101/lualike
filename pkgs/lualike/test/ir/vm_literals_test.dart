@@ -4,7 +4,22 @@ library;
 import 'package:lualike/src/config.dart';
 import 'package:lualike/src/executor.dart';
 import 'package:lualike/src/logging/logging.dart';
+import 'package:lualike/src/lua_string.dart';
+import 'package:lualike/src/value.dart';
 import 'package:test/test.dart';
+
+Object? _unwrapResult(Object? value) {
+  if (value is Value) {
+    return _unwrapResult(value.raw);
+  }
+  if (value is LuaString) {
+    return value.toString();
+  }
+  if (value is List) {
+    return value.map(_unwrapResult).toList();
+  }
+  return value;
+}
 
 void main() {
   Logger.setEnabled(false);
@@ -39,7 +54,7 @@ local a, b, c = string.byte(s, 1, 3)
 return a, b, c, string.char(0, 255, 0) == s
 ''', mode: EngineMode.ir);
 
-        expect(result, equals(<Object?>[0, 255, 0, true]));
+        expect(_unwrapResult(result), equals(<Object?>[0, 255, 0, true]));
       },
     );
 
@@ -60,7 +75,7 @@ return text1, text2, literal1
           },
         );
 
-        expect(result, equals(<Object?>[195, 164, 228]));
+        expect(_unwrapResult(result), equals(<Object?>[195, 164, 228]));
       },
     );
   });
