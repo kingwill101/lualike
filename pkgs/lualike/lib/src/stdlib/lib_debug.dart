@@ -686,7 +686,7 @@ class _GetUpvalue extends BuiltinFunction {
     }
 
     final functionArg = args[0] as Value;
-    final indexArg = args[1] as Value;
+    final indexArg = args[1];
 
     // Validate that index is a number
     final indexRaw = rawLuaSlot(indexArg);
@@ -1212,7 +1212,7 @@ class _SetUpvalue extends BuiltinFunction {
     }
 
     final functionArg = args[0] as Value;
-    final indexArg = args[1] as Value;
+    final indexArg = args[1];
     final newValue = args[2] as Value;
 
     // Validate that index is a number
@@ -1715,7 +1715,7 @@ class _UpvalueId extends BuiltinFunction {
       throw LuaError("debug.upvalueid requires function and index");
     }
     final functionArg = args[0] as Value;
-    final indexArg = args[1] as Value;
+    final indexArg = args[1];
 
     final indexRaw = rawLuaSlot(indexArg);
     if (indexRaw is! num) {
@@ -1755,9 +1755,9 @@ class _UpvalueJoin extends BuiltinFunction {
     }
 
     final f1Arg = args[0] as Value;
-    final n1Arg = args[1] as Value;
+    final n1Arg = args[1];
     final f2Arg = args[2] as Value;
-    final n2Arg = args[3] as Value;
+    final n2Arg = args[3];
 
     // Validate that indices are numbers
     final n1Raw = rawLuaSlot(n1Arg);
