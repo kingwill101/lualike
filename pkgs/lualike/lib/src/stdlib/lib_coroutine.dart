@@ -114,8 +114,7 @@ class CoroutineLibrary extends Library {
   @override
   Map<String, Function>? getMetamethods(LuaRuntime interpreter) => {
     "__index": (List<Object?> args) {
-      final _ = args[0] as Value;
-      final keyValue = args[1] as Value;
+      final keyValue = args[1];
       final rawKey = rawLuaSlot(keyValue);
       final key = rawKey is String ? rawKey : keyValue.toString();
 
