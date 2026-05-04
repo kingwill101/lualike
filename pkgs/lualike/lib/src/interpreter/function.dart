@@ -843,7 +843,7 @@ mixin InterpreterFunctionMixin on AstVisitor<Object?> {
     }
 
     if (localBox != null) {
-      localBox.value = closure is Value ? closure : Value(closure);
+      localBox.value = valueFromLuaSlot(interpreter, closure);
     }
     Logger.debugLazy(
       () => 'Defined local function ${node.name.name}',
