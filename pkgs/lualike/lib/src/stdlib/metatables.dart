@@ -10,6 +10,17 @@ Object? _rawMetatableValue(Object? value) => value is Value ? value.raw : value;
 
 bool _isNilMetatableValue(Object? value) => _rawMetatableValue(value) == null;
 
+Object? _callMetatableCallable(Object? callable, List<Object?> args) {
+  final rawCallable = _rawMetatableValue(callable);
+  if (rawCallable is Function) {
+    return rawCallable(args);
+  }
+  if (rawCallable is BuiltinFunction) {
+    return rawCallable.call(args);
+  }
+  return callable;
+}
+
 /// Provides the default metatables and metamethod caches for built-in Lua
 /// types.
 class MetaTable {
@@ -73,24 +84,27 @@ class MetaTable {
     _typeMetatables['string'] = ValueClass.create({
       '__len': (List<Object?> args) {
         final str = args[0] as Value;
+        final rawStr = _rawMetatableValue(str);
         Logger.debugLazy(
-          () => 'String __len metamethod called for "${str.raw}"',
+          () => 'String __len metamethod called for "$rawStr"',
           category: 'Metatables',
         );
-        if (str.raw is LuaString) {
-          return _primitiveValue((str.raw as LuaString).length);
+        if (rawStr is LuaString) {
+          return _primitiveValue(rawStr.length);
         }
-        return _primitiveValue(str.raw.toString().length);
+        return _primitiveValue(rawStr.toString().length);
       },
       '__index': (List<Object?> args) {
         final str = args[0] as Value;
         final key = args[1] as Value;
+        final rawStr = _rawMetatableValue(str);
+        final rawKey = _rawMetatableValue(key);
         Logger.debugLazy(
-          () => 'String __index metamethod called for "${str.raw}"[${key.raw}]',
+          () => 'String __index metamethod called for "$rawStr"[$rawKey]',
           category: 'Metatables',
         );
 
-        final keyStr = switch (key.raw) {
+        final keyStr = switch (rawKey) {
           final String stringValue => stringValue,
           final LuaString stringValue => stringValue.toString(),
           _ => null,
@@ -128,7 +142,7 @@ class MetaTable {
               (callArgs) {
                 Logger.debugLazy(
                   () =>
-                      'String method ${key.raw} called with ${callArgs.length} arguments',
+                      'String method $rawKey called with ${callArgs.length} arguments',
                   category: 'Metatables',
                 );
 
@@ -136,32 +150,11 @@ class MetaTable {
                 final hasSelf = callArgs.isNotEmpty && callArgs.first == str;
 
                 if (hasSelf) {
-                  if (method is BuiltinFunction) {
-                    return method.call(callArgs);
-                  } else if (method is Value && method.raw is BuiltinFunction) {
-                    return (method.raw as BuiltinFunction).call(callArgs);
-                  } else if (method is Value && method.raw is Function) {
-                    return (method.raw as Function)(callArgs);
-                  } else if (method is Function) {
-                    return method(callArgs);
-                  }
-                  return method; // not callable
+                  return _callMetatableCallable(method, callArgs);
                 }
 
                 // prepend the string itself (obj:func() syntax)
-                if (method is BuiltinFunction) {
-                  return method.call([str, ...callArgs]);
-                } else if (method is Value && method.raw is BuiltinFunction) {
-                  return (method.raw as BuiltinFunction).call([
-                    str,
-                    ...callArgs,
-                  ]);
-                } else if (method is Function) {
-                  return method([str, ...callArgs]);
-                } else if (method is Value && method.raw is Function) {
-                  return (method.raw as Function)([str, ...callArgs]);
-                }
-                return method;
+                return _callMetatableCallable(method, [str, ...callArgs]);
               },
               isTempKey: true,
               interpreter: _interpreter,
@@ -179,7 +172,7 @@ class MetaTable {
         }
 
         Logger.debugLazy(
-          () => 'String method not found: ${key.raw}',
+          () => 'String method not found: $rawKey',
           category: 'Metatables',
         );
         return _primitiveValue(null);
@@ -188,7 +181,8 @@ class MetaTable {
         final a = args[0] as Value;
         final b = args[1] as Value;
         Logger.debugLazy(
-          () => 'String __eq metamethod called: "${a.raw}" == "${b.raw}"',
+          () =>
+              'String __eq metamethod called: "${_rawMetatableValue(a)}" == "${_rawMetatableValue(b)}"',
           category: 'Metatables',
         );
         return _primitiveValue(a == b);
@@ -233,25 +227,26 @@ class MetaTable {
       // These should only be present when explicitly set by the user
       '__pairs': (List<Object?> args) {
         final table = args[0] as Value;
+        final rawTable = _rawMetatableValue(table);
         Logger.debugLazy(
           () => 'Table __pairs metamethod called for table:${table.hashCode}',
           category: 'Metatables',
         );
         Logger.debugLazy(
-          () => 'Table content: ${(table.raw as Map).toString()}',
+          () => 'Table content: ${(rawTable as Map).toString()}',
           category: 'Metatables',
         );
-        if (table.raw is! Map) {
+        if (rawTable is! Map) {
           Logger.debugLazy(
             () =>
-                'Error: Attempt to iterate over non-table value of type ${table.raw.runtimeType}',
+                'Error: Attempt to iterate over non-table value of type ${rawTable.runtimeType}',
             category: 'Metatables',
           );
           throw LuaError("attempt to iterate over non-table value");
         }
 
         // Create a filtered map without nil values
-        final map = table.raw as Map;
+        final map = rawTable;
         Logger.debugLazy(
           () => 'Raw map entries before filtering: ${map.entries.length}',
           category: 'Metatables',
@@ -288,14 +283,15 @@ class MetaTable {
           Value((List<Object?> args) {
             final state = args[0] as Value;
             final k = args[1] as Value;
+            final rawK = _rawMetatableValue(k);
             Logger.debugLazy(
               () =>
-                  'Table pairs iterator called with state:${state.hashCode} key: ${k.raw}',
+                  'Table pairs iterator called with state:${state.hashCode} key: $rawK',
               category: 'Metatables',
             );
 
             int foundIndex = -1;
-            if (k.raw == null) {
+            if (rawK == null) {
               Logger.debugLazy(
                 () =>
                     'Initial call with nil key, returning first entry if available',
@@ -304,7 +300,7 @@ class MetaTable {
               foundIndex = 0;
             } else {
               Logger.debugLazy(
-                () => 'Looking for entry after key ${k.raw}',
+                () => 'Looking for entry after key $rawK',
                 category: 'Metatables',
               );
               // Find the index of the entry that matches the current key
@@ -312,10 +308,10 @@ class MetaTable {
                 final entry = filteredEntries[i];
                 Logger.debugLazy(
                   () =>
-                      'Checking entry $i: key=${entry.key}, current key=${k.raw}',
+                      'Checking entry $i: key=${entry.key}, current key=$rawK',
                   category: 'Metatables',
                 );
-                if (entry.key == k.raw) {
+                if (entry.key == rawK) {
                   foundIndex = i + 1; // Return next entry
                   Logger.debugLazy(
                     () =>
@@ -361,20 +357,21 @@ class MetaTable {
       '__call': (List<Object?> args) {
         final func = args[0] as Value;
         final callArgs = args.sublist(1);
+        final rawFunc = _rawMetatableValue(func);
         Logger.debugLazy(
           () =>
               'Function __call metamethod called for function:${func.hashCode} with ${callArgs.length} args',
           category: 'Metatables',
         );
-        if (func.raw is Function) {
-          final result = (func.raw as Function)(callArgs);
+        if (rawFunc is Function) {
+          final result = rawFunc(callArgs);
           Logger.debugLazy(
             () => 'Function call result: $result',
             category: 'Metatables',
           );
           return result;
-        } else if (func.raw is BuiltinFunction) {
-          final result = (func.raw as BuiltinFunction).call(callArgs);
+        } else if (rawFunc is BuiltinFunction) {
+          final result = rawFunc.call(callArgs);
           Logger.debugLazy(
             () => 'Function call result: $result',
             category: 'Metatables',
@@ -394,7 +391,7 @@ class MetaTable {
     _typeMetatables['thread'] = ValueClass.create({
       '__tostring': (List<Object?> args) {
         final thread = args[0] as Value;
-        final coroutine = thread.raw as Coroutine;
+        final coroutine = _rawMetatableValue(thread) as Coroutine;
         Logger.debugLazy(
           () =>
               'Thread __tostring metamethod called for coroutine:${thread.hashCode}',
