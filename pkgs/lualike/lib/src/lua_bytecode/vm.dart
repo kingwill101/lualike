@@ -3063,7 +3063,7 @@ final class LuaBytecodeVm {
     Value? key,
     String? rawStringKey,
   }) {
-    final rawTable = table.raw;
+    final rawTable = _rawBytecodeValue(table);
     final hasWeakMode = table.tableWeakMode != null;
     if (rawStringKey != null &&
         _canFastPathGlobalProxyTableGetStringKey(table, rawStringKey)) {
@@ -3114,7 +3114,7 @@ final class LuaBytecodeVm {
   }
 
   bool _canSkipSuspendingBoundaryForTableSet(Value table) {
-    final rawTable = table.raw;
+    final rawTable = _rawBytecodeValue(table);
     final hasWeakMode = table.tableWeakMode != null;
     return (rawTable is TableStorage || rawTable is Map) &&
         !hasWeakMode &&
@@ -5486,7 +5486,7 @@ final class LuaBytecodeVm {
   Value? _tryFastTableGet(Value table, Value key) {
     table.interpreter ??= runtime;
     key.interpreter ??= runtime;
-    final rawTable = table.raw;
+    final rawTable = _rawBytecodeValue(table);
     if (_canFastPathGlobalProxyTableGet(table, key)) {
       final result = (rawTable as Map)[_plainTableStorageKey(key)];
       return _runtimeValue(runtime, result);
@@ -5513,7 +5513,7 @@ final class LuaBytecodeVm {
 
   Value? _tryFastTableGetStringKey(Value table, String rawKey) {
     table.interpreter ??= runtime;
-    final rawTable = table.raw;
+    final rawTable = _rawBytecodeValue(table);
     if (rawTable is Map &&
         table.globalProxyEnvironment != null &&
         table.tableWeakMode == null) {
@@ -5537,7 +5537,7 @@ final class LuaBytecodeVm {
   }
 
   bool _canFastPathGlobalProxyTableGet(Value table, Value key) {
-    final rawTable = table.raw;
+    final rawTable = _rawBytecodeValue(table);
     if (rawTable is! Map || table.globalProxyEnvironment == null) {
       return false;
     }
@@ -5549,7 +5549,7 @@ final class LuaBytecodeVm {
   }
 
   bool _canFastPathGlobalProxyTableGetStringKey(Value table, String rawKey) {
-    final rawTable = table.raw;
+    final rawTable = _rawBytecodeValue(table);
     if (rawTable is! Map || table.globalProxyEnvironment == null) {
       return false;
     }
@@ -5562,14 +5562,15 @@ final class LuaBytecodeVm {
   bool _tryFastTableSetStringKey(Value table, String rawKey, Value value) {
     table.interpreter ??= runtime;
     value.interpreter ??= runtime;
-    final rawTable = table.raw;
+    final rawTable = _rawBytecodeValue(table);
+    final rawValue = _rawBytecodeValue(value);
     final hasWeakMode = table.tableWeakMode != null;
     if (rawTable is TableStorage &&
         !hasWeakMode &&
         !table.hasMetamethod('__newindex') &&
         !table.hasMetamethod('__index') &&
-        _isPlainPrimitiveValue(value.raw)) {
-      if (value.raw == null) {
+        _isPlainPrimitiveValue(rawValue)) {
+      if (rawValue == null) {
         rawTable.remove(rawKey);
       } else {
         rawTable[rawKey] = value;
@@ -5581,8 +5582,8 @@ final class LuaBytecodeVm {
         !hasWeakMode &&
         !table.hasMetamethod('__newindex') &&
         !table.hasMetamethod('__index') &&
-        _isPlainPrimitiveValue(value.raw)) {
-      if (value.raw == null) {
+        _isPlainPrimitiveValue(rawValue)) {
+      if (rawValue == null) {
         rawTable.remove(rawKey);
       } else {
         rawTable[rawKey] = value;
@@ -5597,7 +5598,8 @@ final class LuaBytecodeVm {
     table.interpreter ??= runtime;
     key.interpreter ??= runtime;
     value.interpreter ??= runtime;
-    final rawTable = table.raw;
+    final rawTable = _rawBytecodeValue(table);
+    final rawValue = _rawBytecodeValue(value);
     final hasWeakMode = table.tableWeakMode != null;
     if (rawTable is TableStorage &&
         !hasWeakMode &&
@@ -5609,7 +5611,7 @@ final class LuaBytecodeVm {
       }
       if (_canFastSetPlainPrimitiveEntry(key, value)) {
         final storageKey = _plainTableStorageKey(key);
-        if (value.raw == null) {
+        if (rawValue == null) {
           rawTable.remove(storageKey);
         } else {
           rawTable[storageKey] = value;
@@ -5625,7 +5627,7 @@ final class LuaBytecodeVm {
         !table.hasMetamethod('__index') &&
         _canFastSetPlainPrimitiveEntry(key, value)) {
       final storageKey = _plainTableStorageKey(key);
-      if (value.raw == null) {
+      if (rawValue == null) {
         rawTable.remove(storageKey);
       } else {
         rawTable[storageKey] = value;
@@ -5640,7 +5642,7 @@ final class LuaBytecodeVm {
     if (_tryFastTableSet(table, key, value)) {
       return;
     }
-    final rawTable = table.raw;
+    final rawTable = _rawBytecodeValue(table);
     final hasWeakMode = table.tableWeakMode != null;
     if (rawTable is Map &&
         !hasWeakMode &&
@@ -5653,7 +5655,7 @@ final class LuaBytecodeVm {
   }
 
   Object? _plainTableStorageKey(Value key) {
-    final rawKey = key.raw;
+    final rawKey = _rawBytecodeValue(key);
     return switch (rawKey) {
       final LuaString string => string.toString(),
       final num number => number == 0 ? 0.0 : number,
@@ -5665,7 +5667,7 @@ final class LuaBytecodeVm {
   }
 
   int? _plainPositiveIntegerKey(Value key) {
-    final rawKey = key.raw;
+    final rawKey = _rawBytecodeValue(key);
     return switch (rawKey) {
       final int integer when integer > 0 => integer,
       final num number
@@ -5678,8 +5680,9 @@ final class LuaBytecodeVm {
   }
 
   bool _canFastSetPlainPrimitiveEntry(Value key, Value value) {
-    final rawKey = key.raw;
-    return _isPlainPrimitiveKey(rawKey) && _isPlainPrimitiveValue(value.raw);
+    final rawKey = _rawBytecodeValue(key);
+    final rawValue = _rawBytecodeValue(value);
+    return _isPlainPrimitiveKey(rawKey) && _isPlainPrimitiveValue(rawValue);
   }
 
   bool _isPlainPrimitiveKey(Object? raw) =>
@@ -6198,7 +6201,7 @@ bool _localHasPendingClosureTemporaryOnCurrentLine(
 }
 
 void _overwriteValue(Value target, Value source) {
-  target.raw = source.raw;
+  target.raw = _rawBytecodeValue(source);
   target.metatable = source.metatable;
   target.metatableRef = source.metatableRef;
   target.upvalues = source.upvalues;
