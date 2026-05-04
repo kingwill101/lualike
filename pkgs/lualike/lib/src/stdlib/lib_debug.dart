@@ -1352,7 +1352,7 @@ class _SetUserValue extends BuiltinFunction {
 class _Traceback extends BuiltinFunction {
   _Traceback(super.interpreter);
 
-  int _intArg(Value value, int fallback) {
+  int _intArg(Object? value, int fallback) {
     final raw = rawLuaSlot(value);
     if (raw == null) {
       return fallback;
@@ -1585,17 +1585,17 @@ class _Traceback extends BuiltinFunction {
   @override
   Object? call(List<Object?> args) {
     Coroutine? thread;
-    Value? messageArg;
+    Object? messageArg;
     var level = 1;
 
     final firstRaw = args.isNotEmpty ? rawLuaSlot(args[0]) : null;
     if (firstRaw is Coroutine) {
       thread = firstRaw;
-      messageArg = args.length > 1 ? args[1] as Value : null;
-      level = args.length > 2 ? _intArg(args[2] as Value, 0) : 0;
+      messageArg = args.length > 1 ? args[1] : null;
+      level = args.length > 2 ? _intArg(args[2], 0) : 0;
     } else {
-      messageArg = args.isNotEmpty ? args[0] as Value : null;
-      level = args.length > 1 ? _intArg(args[1] as Value, 1) : 1;
+      messageArg = args.isNotEmpty ? args[0] : null;
+      level = args.length > 1 ? _intArg(args[1], 1) : 1;
     }
 
     final messageRaw = rawLuaSlot(messageArg);
