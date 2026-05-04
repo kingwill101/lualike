@@ -800,15 +800,17 @@ mixin InterpreterControlFlowMixin on AstVisitor<Object?> {
     }
 
     // Handle direct table iteration case
-    if (iterComponents.length == 1 &&
-        iterComponents[0] is Value &&
-        (iterComponents[0] as Value).raw is Map) {
+    final directTableCandidate = iterComponents.length == 1
+        ? iterComponents[0]
+        : null;
+    final directTableRaw = _rawInterpreterValue(directTableCandidate);
+    if (directTableCandidate is Value && directTableRaw is Map) {
       Logger.debugLazy(
         () => 'ForInLoop: Direct table iteration',
         category: 'ControlFlow',
         contextBuilder: () => {'iterationType': 'direct_table'},
       );
-      final table = (iterComponents[0] as Value).raw as Map;
+      final table = directTableRaw;
       final entries = table.entries.toList();
 
       final loopEnv = Environment(
@@ -1188,7 +1190,7 @@ mixin InterpreterControlFlowMixin on AstVisitor<Object?> {
 
         if (items == null ||
             (items is List && items.isEmpty) ||
-            (items is Value && items.raw == null)) {
+            (items is Value && _rawInterpreterValue(items) == null)) {
           Logger.debugLazy(
             () => 'ForInLoop: Iterator returned null/empty, breaking loop',
             category: 'ControlFlow',
@@ -1248,7 +1250,7 @@ mixin InterpreterControlFlowMixin on AstVisitor<Object?> {
           }
         }
 
-        if (control.raw == null) {
+        if (_rawInterpreterValue(control) == null) {
           Logger.debugLazy(
             () => 'ForInLoop: Control is null, breaking loop',
             category: 'ControlFlow',
@@ -1515,23 +1517,25 @@ mixin InterpreterControlFlowMixin on AstVisitor<Object?> {
   }
 
   Value? _directPairsState(Object? iterFunc, Object? state) {
-    if (state is! Value || state.raw is! Map || state.tableWeakMode != null) {
+    final stateRaw = _rawInterpreterValue(state);
+    if (state is! Value || stateRaw is! Map || state.tableWeakMode != null) {
       return null;
     }
 
     final nextGlobal = globals.get('next');
     final nextValue = valueFromLuaSlot(this as Interpreter, nextGlobal);
+    final nextRaw = _rawInterpreterValue(nextValue);
     return switch (iterFunc) {
       final Value value
           when identical(value, nextValue) ||
-              identical(value.raw, nextValue.raw) =>
+              identical(_rawInterpreterValue(value), nextRaw) =>
         state,
       _ => null,
     };
   }
 
   List<MapEntry<dynamic, dynamic>> _snapshotPairsEntries(Value table) {
-    final raw = table.raw;
+    final raw = _rawInterpreterValue(table);
     if (raw case final TableStorage storage) {
       final entries = <MapEntry<dynamic, dynamic>>[];
       for (var index = 1; index <= storage.arrayLength; index++) {
