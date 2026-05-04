@@ -30,8 +30,6 @@ import 'package:lualike/src/stdlib/library.dart';
 import 'package:lualike/src/stdlib/metatables.dart';
 import 'package:lualike/src/value.dart';
 
-Object? _rawIrRuntimeValue(Object? value) => value is Value ? value.raw : value;
-
 /// Runtime wrapper that executes code via the lualike IR VM while satisfying
 /// the [LuaRuntime] contract expected by higher-level tooling.
 class LualikeIrRuntime implements LuaRuntime {
@@ -111,7 +109,7 @@ class LualikeIrRuntime implements LuaRuntime {
     args = prepared.args;
     _ensureValueInterpreter(callee);
     _attachInterpreterToArgs(args);
-    final raw = _rawIrRuntimeValue(callee);
+    final raw = rawLuaSlot(callee);
     if (raw is LuaBytecodeClosure) {
       final vm = LuaBytecodeVm(this);
       final results = await vm.invoke(
@@ -177,7 +175,7 @@ class LualikeIrRuntime implements LuaRuntime {
   @override
   Object? dumpFunction(Value function, {bool stripDebugInfo = false}) {
     _ensureValueInterpreter(function);
-    switch (_rawIrRuntimeValue(function)) {
+    switch (rawLuaSlot(function)) {
       case LuaBytecodeClosure(:final prototype):
         final chunk = LuaBytecodeBinaryChunk(
           header: const LuaBytecodeChunkHeader.official(),
@@ -345,7 +343,7 @@ class LualikeIrRuntime implements LuaRuntime {
     var extraArgs = 0;
 
     while (true) {
-      final raw = _rawIrRuntimeValue(callee);
+      final raw = rawLuaSlot(callee);
       if (raw is String) {
         final lookup = globals.get(raw);
         if (lookup != null) {
@@ -425,7 +423,7 @@ class LualikeIrRuntime implements LuaRuntime {
   }
 
   Object? _finalizeChunkResult(Object? result) {
-    final raw = _rawIrRuntimeValue(result);
+    final raw = rawLuaSlot(result);
     if (result is Value && result.isMulti && raw is List) {
       final values = raw;
       if (values.isEmpty) {
@@ -438,7 +436,7 @@ class LualikeIrRuntime implements LuaRuntime {
 
   Object? _finalizeChunkValue(Object? value) {
     if (value is Value && value.isPrimitiveLike) {
-      return _rawIrRuntimeValue(value);
+      return rawLuaSlot(value);
     }
     return value;
   }
@@ -532,7 +530,7 @@ class LualikeIrRuntime implements LuaRuntime {
   }
 
   List<int>? _sourceBytes(Value source) {
-    return switch (_rawIrRuntimeValue(source)) {
+    return switch (rawLuaSlot(source)) {
       final LuaString luaString => luaString.bytes,
       final String text => text.codeUnits,
       final List<int> bytes => bytes,

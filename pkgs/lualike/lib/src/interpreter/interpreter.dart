@@ -60,9 +60,6 @@ part 'table.dart';
 /// Static flag to track if an error is already being reported
 bool _errorReporting = false;
 
-Object? _rawInterpreterValue(Object? value) =>
-    value is Value ? value.raw : value;
-
 class _StatementBlockMetadata {
   Map<String, int>? labelMap;
 }
@@ -1272,7 +1269,7 @@ class Interpreter extends AstVisitor<Object?>
       // Try to get the script path from the environment
       final scriptPathValue = globals.get('_SCRIPT_PATH');
       String? scriptPath;
-      final rawScriptPath = _rawInterpreterValue(scriptPathValue);
+      final rawScriptPath = rawLuaSlot(scriptPathValue);
       if (scriptPathValue is Value && rawScriptPath != null) {
         scriptPath = rawScriptPath.toString();
       } else {
@@ -1386,7 +1383,7 @@ class Interpreter extends AstVisitor<Object?>
     // Set the script path in the call stack if available
     final prevScriptPath = callStack.scriptPath;
     final scriptPathValue = globals.get('_SCRIPT_PATH');
-    final rawScriptPath = _rawInterpreterValue(scriptPathValue);
+    final rawScriptPath = rawLuaSlot(scriptPathValue);
     if (scriptPathValue is Value && rawScriptPath != null) {
       String scriptPath = rawScriptPath.toString();
       callStack.setScriptPath(scriptPath);

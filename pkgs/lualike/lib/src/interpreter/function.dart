@@ -33,7 +33,7 @@ List<Object?> _expandVarargValue(Object? value) {
 
   final rawCount = table['n'];
   final normalizedCount = switch (rawCount) {
-    final Value wrapped => _rawInterpreterValue(wrapped),
+    final Value wrapped => rawLuaSlot(wrapped),
     _ => rawCount,
   };
   if (normalizedCount is! int && normalizedCount is! BigInt) {
@@ -238,7 +238,7 @@ Object? _snapshotReturnPayload(Object? value, LuaRuntime runtime) {
     // reference are identity-sensitive. Returning a fresh wrapper for them
     // can detach metamethod lookups from the live table object, which breaks
     // cases like events.lua's arithmetic metamethod checks.
-    final raw = _rawInterpreterValue(original);
+    final raw = rawLuaSlot(original);
     if (raw is Map ||
         original.metatable != null ||
         original.metatableRef != null) {
@@ -283,7 +283,7 @@ Object? _snapshotReturnPayload(Object? value, LuaRuntime runtime) {
     );
     clone.metatableRef = original.metatableRef;
     clone.globalProxyEnvironment = original.globalProxyEnvironment;
-    if (_rawInterpreterValue(clone) is Map) {
+    if (rawLuaSlot(clone) is Map) {
       Value.registerTableIdentity(clone);
     }
     return clone;
@@ -415,7 +415,7 @@ List<Object?> _applySimpleNumericSelfTailLoopPlan(
   }
 
   final original = args[plan.paramIndex];
-  final raw = _rawInterpreterValue(original);
+  final raw = rawLuaSlot(original);
   if (raw is! num || raw <= plan.threshold) {
     return args;
   }
@@ -538,7 +538,7 @@ void _applySimpleCapturedCounterSelfTailLoopPlan(
   }
 
   final current = upvalue.getValue();
-  final raw = _rawInterpreterValue(current);
+  final raw = rawLuaSlot(current);
   if (raw is! num || raw <= plan.threshold) {
     return;
   }
@@ -619,7 +619,7 @@ mixin InterpreterFunctionMixin on AstVisitor<Object?> {
       Value requireTable(Object? candidate, String sourceLabel) {
         final lineNumber = node.span == null ? null : node.span!.start.line + 1;
         final wrapped = valueFromLuaSlot(interpreter, candidate);
-        final raw = _rawInterpreterValue(wrapped);
+        final raw = rawLuaSlot(wrapped);
         if (raw is Map) {
           return wrapped;
         }
@@ -688,7 +688,7 @@ mixin InterpreterFunctionMixin on AstVisitor<Object?> {
       }
 
       // Install the function on the resolved target table
-      final targetRaw = _rawInterpreterValue(targetTable) as Map;
+      final targetRaw = rawLuaSlot(targetTable) as Map;
       targetRaw[methodName] = closure;
       targetTable.markTableModified();
       Logger.debugLazy(
@@ -722,8 +722,8 @@ mixin InterpreterFunctionMixin on AstVisitor<Object?> {
 
     final envVal = globals.get('_ENV');
     final gVal = globals.get('_G');
-    final envRaw = _rawInterpreterValue(envVal);
-    final gRaw = _rawInterpreterValue(gVal);
+    final envRaw = rawLuaSlot(envVal);
+    final gRaw = rawLuaSlot(gVal);
 
     if (!node.explicitGlobal) {
       // Check if there is an existing local variable with this name
@@ -1614,7 +1614,7 @@ mixin InterpreterFunctionMixin on AstVisitor<Object?> {
             ? _firstLuaResultOrNil(v, interpreter: interpreter)
             : v;
         // Use raw when possible to skip temporary Value wrappers
-        fastArgs.add(_rawInterpreterValue(first));
+        fastArgs.add(rawLuaSlot(first));
       }
       while (fastArgs.length < 2) {
         fastArgs.add(null);
@@ -1655,8 +1655,8 @@ mixin InterpreterFunctionMixin on AstVisitor<Object?> {
       }
       final a0 = fastArgs[0] as Value;
       final a1 = fastArgs[1] as Value;
-      final rawA = _rawInterpreterValue(a0);
-      final rawB = _rawInterpreterValue(a1);
+      final rawA = rawLuaSlot(a0);
+      final rawB = rawLuaSlot(a1);
       final safeA = a0.metatable == null;
       final safeB = a1.metatable == null;
       if (safeA && safeB) {
@@ -1697,7 +1697,7 @@ mixin InterpreterFunctionMixin on AstVisitor<Object?> {
     // Canonicalize table arguments to preserve per-instance metatables.
     for (var i = 0; i < args.length; i++) {
       final a = args[i];
-      final raw = _rawInterpreterValue(a);
+      final raw = rawLuaSlot(a);
       if (a is Value && raw is Map) {
         final canon = Value.lookupCanonicalTableWrapper(raw);
         if (canon != null && !identical(canon, a)) {
@@ -1722,8 +1722,8 @@ mixin InterpreterFunctionMixin on AstVisitor<Object?> {
       if (func.isLessComparator && args.length >= 2) {
         final a0 = args[0];
         final a1 = args[1];
-        final rawA = _rawInterpreterValue(a0);
-        final rawB = _rawInterpreterValue(a1);
+        final rawA = rawLuaSlot(a0);
+        final rawB = rawLuaSlot(a1);
         final safeA = !(a0 is Value && a0.metatable != null);
         final safeB = !(a1 is Value && a1.metatable != null);
         if (safeA &&
@@ -1743,7 +1743,7 @@ mixin InterpreterFunctionMixin on AstVisitor<Object?> {
         }
       }
 
-      final funcRaw = _rawInterpreterValue(func);
+      final funcRaw = rawLuaSlot(func);
       if (funcRaw is FunctionDef) {
         final funcDef = funcRaw;
         functionName = funcDef.name.first.name;
@@ -1860,7 +1860,7 @@ mixin InterpreterFunctionMixin on AstVisitor<Object?> {
       }
     }
 
-    if (_rawInterpreterValue(objVal) is! Map) {
+    if (rawLuaSlot(objVal) is! Map) {
       final sourceLabel = _sourceLabelForAst(
         (this as Interpreter).getCurrentEnv(),
         node.prefix,
@@ -2031,7 +2031,7 @@ mixin InterpreterFunctionMixin on AstVisitor<Object?> {
           }
           if (func == null) {
             // Direct lookup
-            final rawObj = _rawInterpreterValue(obj);
+            final rawObj = rawLuaSlot(obj);
             if (rawObj is Map && rawObj.containsKey(methodName)) {
               func = rawObj[methodName];
             }
@@ -2138,7 +2138,7 @@ mixin InterpreterFunctionMixin on AstVisitor<Object?> {
       } else if (callerFunctionName != null) {
         functionName = callerFunctionName;
       } else {
-        final funcRaw = _rawInterpreterValue(func);
+        final funcRaw = rawLuaSlot(func);
         if (funcRaw is FunctionDef) {
           final funcDef = funcRaw;
           functionName = funcDef.name.first.name;
@@ -2384,7 +2384,7 @@ mixin InterpreterFunctionMixin on AstVisitor<Object?> {
       while (true) {
         try {
           if (func is Value) {
-            final funcRaw = _rawInterpreterValue(func);
+            final funcRaw = rawLuaSlot(func);
             if (funcRaw is Function) {
               // Call the Dart function
               if (Logger.enabled) {
@@ -2479,7 +2479,7 @@ mixin InterpreterFunctionMixin on AstVisitor<Object?> {
                   category: 'Interpreter',
                 );
               }
-              final closureRaw = _rawInterpreterValue(closure);
+              final closureRaw = rawLuaSlot(closure);
               if (closure is Value && closureRaw is Function) {
                 try {
                   final result = await closureRaw(args);
@@ -2520,7 +2520,7 @@ mixin InterpreterFunctionMixin on AstVisitor<Object?> {
                   category: 'Interpreter',
                 );
               }
-              final closureRaw = _rawInterpreterValue(closure);
+              final closureRaw = rawLuaSlot(closure);
               if (closure is Value && closureRaw is Function) {
                 try {
                   final result = await closureRaw(args);
@@ -2561,7 +2561,7 @@ mixin InterpreterFunctionMixin on AstVisitor<Object?> {
                   category: 'Interpreter',
                 );
               }
-              final closureRaw = _rawInterpreterValue(closure);
+              final closureRaw = rawLuaSlot(closure);
               if (closure is Value && closureRaw is Function) {
                 try {
                   final result = await closureRaw(args);
@@ -2697,7 +2697,7 @@ mixin InterpreterFunctionMixin on AstVisitor<Object?> {
                 category: 'Interpreter',
               );
             }
-            final closureRaw = _rawInterpreterValue(closure);
+            final closureRaw = rawLuaSlot(closure);
             if (closure is Value && closureRaw is Function) {
               try {
                 final result = await closureRaw(args);
@@ -2732,7 +2732,7 @@ mixin InterpreterFunctionMixin on AstVisitor<Object?> {
                   '(${closure.runtimeType})',
               category: 'Interpreter',
             );
-            final closureRaw = _rawInterpreterValue(closure);
+            final closureRaw = rawLuaSlot(closure);
             if (closure is Value && closureRaw is Function) {
               try {
                 final result = await closureRaw(args);
@@ -2765,7 +2765,7 @@ mixin InterpreterFunctionMixin on AstVisitor<Object?> {
                   '(${closure.runtimeType})',
               category: 'Interpreter',
             );
-            final closureRaw = _rawInterpreterValue(closure);
+            final closureRaw = rawLuaSlot(closure);
             if (closure is Value && closureRaw is Function) {
               try {
                 final result = await closureRaw(args);

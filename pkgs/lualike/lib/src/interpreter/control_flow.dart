@@ -328,8 +328,8 @@ mixin InterpreterControlFlowMixin on AstVisitor<Object?> {
     final startResult = await node.start.accept(this);
     final endResult = await node.endExpr.accept(this);
     final stepResult = await node.stepExpr.accept(this);
-    final rawStart = _rawInterpreterValue(startResult);
-    final rawStep = _rawInterpreterValue(stepResult);
+    final rawStart = rawLuaSlot(startResult);
+    final rawStep = rawLuaSlot(stepResult);
 
     Never throwForLoopTypeError(String role, Object? value) {
       throw LuaError(
@@ -338,7 +338,7 @@ mixin InterpreterControlFlowMixin on AstVisitor<Object?> {
     }
 
     dynamic parseNumericValue(Object? value, String role) {
-      final rawValue = _rawInterpreterValue(value);
+      final rawValue = rawLuaSlot(value);
       if (rawValue is num) {
         return rawValue;
       }
@@ -803,7 +803,7 @@ mixin InterpreterControlFlowMixin on AstVisitor<Object?> {
     final directTableCandidate = iterComponents.length == 1
         ? iterComponents[0]
         : null;
-    final directTableRaw = _rawInterpreterValue(directTableCandidate);
+    final directTableRaw = rawLuaSlot(directTableCandidate);
     if (directTableCandidate is Value && directTableRaw is Map) {
       Logger.debugLazy(
         () => 'ForInLoop: Direct table iteration',
@@ -1190,7 +1190,7 @@ mixin InterpreterControlFlowMixin on AstVisitor<Object?> {
 
         if (items == null ||
             (items is List && items.isEmpty) ||
-            (items is Value && _rawInterpreterValue(items) == null)) {
+            (items is Value && rawLuaSlot(items) == null)) {
           Logger.debugLazy(
             () => 'ForInLoop: Iterator returned null/empty, breaking loop',
             category: 'ControlFlow',
@@ -1250,7 +1250,7 @@ mixin InterpreterControlFlowMixin on AstVisitor<Object?> {
           }
         }
 
-        if (_rawInterpreterValue(control) == null) {
+        if (rawLuaSlot(control) == null) {
           Logger.debugLazy(
             () => 'ForInLoop: Control is null, breaking loop',
             category: 'ControlFlow',
@@ -1517,25 +1517,25 @@ mixin InterpreterControlFlowMixin on AstVisitor<Object?> {
   }
 
   Value? _directPairsState(Object? iterFunc, Object? state) {
-    final stateRaw = _rawInterpreterValue(state);
+    final stateRaw = rawLuaSlot(state);
     if (state is! Value || stateRaw is! Map || state.tableWeakMode != null) {
       return null;
     }
 
     final nextGlobal = globals.get('next');
     final nextValue = valueFromLuaSlot(this as Interpreter, nextGlobal);
-    final nextRaw = _rawInterpreterValue(nextValue);
+    final nextRaw = rawLuaSlot(nextValue);
     return switch (iterFunc) {
       final Value value
           when identical(value, nextValue) ||
-              identical(_rawInterpreterValue(value), nextRaw) =>
+              identical(rawLuaSlot(value), nextRaw) =>
         state,
       _ => null,
     };
   }
 
   List<MapEntry<dynamic, dynamic>> _snapshotPairsEntries(Value table) {
-    final raw = _rawInterpreterValue(table);
+    final raw = rawLuaSlot(table);
     if (raw case final TableStorage storage) {
       final entries = <MapEntry<dynamic, dynamic>>[];
       for (var index = 1; index <= storage.arrayLength; index++) {
