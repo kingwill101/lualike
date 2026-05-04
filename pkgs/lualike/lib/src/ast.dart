@@ -19,9 +19,21 @@ sealed class AstNode {
   // Optional span info for error reporting, debugging, traces, etc.
   SourceSpan? span;
 
+  /// Cached start line (0-based) from [span], set once in [setSpan].
+  ///
+  /// Avoids repeated [SourceFile.getLine] binary-search calls on hot
+  /// interpreter paths that need the line number every statement.
+  /// -1 means no span has been attached yet.
+  int cachedStartLine = -1;
+
+  /// Cached end line (0-based) from [span], set once in [setSpan].
+  int cachedEndLine = -1;
+
   // A helper to set/update the position information.
   void setSpan(SourceSpan span) {
     this.span = span;
+    cachedStartLine = span.start.line;
+    cachedEndLine = span.end.line;
   }
 
   // A getter so you can easily access the span.

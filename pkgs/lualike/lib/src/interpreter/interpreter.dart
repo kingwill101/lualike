@@ -439,12 +439,12 @@ class Interpreter extends AstVisitor<Object?>
   }
 
   int? _debugHookLineForNode(AstNode node) {
-    int lastMeaningfulSpanLine(SourceSpan span) {
-      var endLine = span.end.line;
-      if (span.end.column == 0 && endLine > span.start.line) {
+    int lastMeaningfulSpanLine(AstNode n, SourceSpan span) {
+      final endLine = n.cachedEndLine;
+      if (span.end.column == 0 && endLine > n.cachedStartLine) {
         return endLine - 1;
       }
-      if (endLine > span.start.line &&
+      if (endLine > n.cachedStartLine &&
           RegExp(r'\n[ \t]*$').hasMatch(span.text)) {
         return endLine - 1;
       }
@@ -455,9 +455,9 @@ class Interpreter extends AstVisitor<Object?>
       final expr = exprs.first;
       if (expr is BinaryExpression &&
           expr.operatorLine != null &&
-          expr.right.span != null &&
-          expr.left.span != null &&
-          expr.left.span!.start.line != expr.right.span!.start.line) {
+          expr.cachedStartLine >= 0 &&
+          expr.right.cachedStartLine >= 0 &&
+          expr.left.cachedStartLine != expr.right.cachedStartLine) {
         return expr.operatorLine;
       }
     }
@@ -467,15 +467,15 @@ class Interpreter extends AstVisitor<Object?>
       return null;
     }
 
-    var endLine = span.end.line;
-    if (span.end.column == 0 && endLine > span.start.line) {
+    var endLine = node.cachedEndLine;
+    if (span.end.column == 0 && endLine > node.cachedStartLine) {
       endLine -= 1;
     }
 
     return switch (node) {
       LocalDeclaration(exprs: final exprs, span: final SourceSpan span)
           when exprs.any((expr) => expr is FunctionLiteral) =>
-        lastMeaningfulSpanLine(span),
+        lastMeaningfulSpanLine(node, span),
       DoBlock() => null,
       IfStatement() ||
       ElseIfClause() ||
@@ -485,13 +485,12 @@ class Interpreter extends AstVisitor<Object?>
       ForInLoop() ||
       FunctionDef() ||
       LocalFunctionDef() => endLine,
-      _ => span.start.line,
+      _ => node.cachedStartLine >= 0 ? node.cachedStartLine : span.start.line,
     };
   }
 
   int? _traceLineForNode(AstNode node) {
-    final span = node.span;
-    if (span == null) {
+    if (node.span == null) {
       return null;
     }
 
@@ -501,8 +500,12 @@ class Interpreter extends AstVisitor<Object?>
       UnaryExpression() ||
       FunctionCall() ||
       MethodCall() ||
-      ReturnStatement() => span.start.line,
-      _ => _debugHookLineForNode(node) ?? span.start.line,
+      ReturnStatement() =>
+        node.cachedStartLine >= 0 ? node.cachedStartLine : node.span!.start.line,
+      _ => _debugHookLineForNode(node) ??
+          (node.cachedStartLine >= 0
+              ? node.cachedStartLine
+              : node.span!.start.line),
     };
   }
 

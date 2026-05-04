@@ -149,6 +149,7 @@ class Logger {
     );
   }
 
+  @pragma('vm:prefer-inline')
   static void debugLazy(
     String Function() messageBuilder, {
     String? category,
