@@ -84,7 +84,10 @@ void _populatePackageLoaded(Environment env, LibraryRegistry registry) {
     final packageMap = packageTable.raw as Map;
 
     if (!packageMap.containsKey("loaded")) {
-      packageMap["loaded"] = Value({}, interpreter: env.interpreter);
+      packageMap["loaded"] = valueFromOptionalLuaSlot(
+        env.interpreter,
+        <dynamic, dynamic>{},
+      );
     }
 
     final loadedTable = packageMap["loaded"];

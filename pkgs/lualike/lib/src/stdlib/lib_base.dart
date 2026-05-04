@@ -2362,7 +2362,10 @@ class RequireFunction extends BuiltinFunction {
 
     // Ensure package.loaded exists
     if (!packageTable.containsKey("loaded")) {
-      packageTable["loaded"] = Value({}, interpreter: interpreter);
+      packageTable["loaded"] = valueFromOptionalLuaSlot(
+        interpreter,
+        <dynamic, dynamic>{},
+      );
       Logger.debugLazy(
         () => "Created new package.loaded table",
         category: 'Require',
