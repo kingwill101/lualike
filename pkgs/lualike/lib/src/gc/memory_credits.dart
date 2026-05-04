@@ -7,6 +7,9 @@ import 'package:lualike/src/gc/gc.dart';
 /// accounting purposes.
 enum GCGenerationSpace { young, old }
 
+Object? _rawMemoryCreditValue(Object? value) =>
+    value is Value ? value.raw : value;
+
 /// Tracks the garbage collector "allocation credits" – an abstract unit that
 /// mimics the relative memory cost of runtime structures.
 ///
@@ -81,7 +84,7 @@ class MemoryCredits {
     // Debug: Log allocations during large operations
     if (Logger.enabled && _total > 1000000 && credits > 100) {
       final objType = obj is Value
-          ? 'Value(${obj.raw?.runtimeType ?? 'null'})'
+          ? 'Value(${_rawMemoryCreditValue(obj)?.runtimeType ?? 'null'})'
           : obj.runtimeType.toString();
       Logger.debugLazy(
         () =>
@@ -251,7 +254,7 @@ class MemoryCredits {
       if (credits != null && credits > 0) {
         String typeName;
         if (obj is Value) {
-          final raw = obj.raw;
+          final raw = _rawMemoryCreditValue(obj);
           typeName = 'Value(${raw?.runtimeType ?? 'null'})';
         } else {
           typeName = obj.runtimeType.toString();
@@ -302,7 +305,7 @@ class MemoryCredits {
           if (obj.isTempKey) {
             objInfo += ' [TEMP]';
           }
-          final raw = obj.raw;
+          final raw = _rawMemoryCreditValue(obj);
           if (raw is LuaString && raw.length <= 200) {
             final preview = raw.toString();
             final truncated = preview.length > 50

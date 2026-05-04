@@ -71,6 +71,10 @@ class Generation {
   }
 }
 
+Object? _rawGcValue(Object? value) => value is Value ? value.raw : value;
+
+Map _rawGcTableMap(Value table) => _rawGcValue(table) as Map;
+
 /// Implementation of a generational garbage collector as described in Lua 5.4 reference manual.
 ///
 /// The generational garbage collector divides objects into two generations:
@@ -1603,7 +1607,7 @@ class GenerationalGCManager {
       }
 
       if (_inMajorCollection && isNewEphemeronTable) {
-        final tableMap = table.raw as Map;
+        final tableMap = _rawGcTableMap(table);
         for (final entry in tableMap.entries) {
           final key = entry.key;
           if (key is Value) {
@@ -1668,7 +1672,7 @@ class GenerationalGCManager {
     );
 
     for (final table in weakValuesTables) {
-      final tableMap = table.raw as Map;
+      final tableMap = _rawGcTableMap(table);
       final entriesToRemove = <dynamic>[];
 
       Logger.debugLazy(
@@ -1698,7 +1702,9 @@ class GenerationalGCManager {
         // even if the value wrapper itself is unmarked.
         bool sameObject = false;
         if (key is Value && value is Value) {
-          sameObject = identical(key, value) || identical(key.raw, value.raw);
+          sameObject =
+              identical(key, value) ||
+              identical(_rawGcValue(key), _rawGcValue(value));
         }
 
         if (!sameObject &&
@@ -1771,7 +1777,7 @@ class GenerationalGCManager {
   /// Called after marking phase during major collection.
   void _clearAllWeak() {
     for (final table in allWeakTables) {
-      final tableMap = table.raw as Map;
+      final tableMap = _rawGcTableMap(table);
       final keysToRemove = <dynamic>[];
       for (final entry in tableMap.entries) {
         final key = entry.key;
@@ -1848,7 +1854,7 @@ class GenerationalGCManager {
       );
 
       for (final table in ephemeronTables) {
-        final tableMap = table.raw as Map;
+        final tableMap = _rawGcTableMap(table);
 
         for (final entry in tableMap.entries) {
           final key = entry.key;
@@ -1913,7 +1919,7 @@ class GenerationalGCManager {
     if (key.isPrimitiveLike) {
       return key;
     }
-    final canonical = Value.lookupCanonicalTableWrapper(key.raw);
+    final canonical = Value.lookupCanonicalTableWrapper(_rawGcValue(key));
     return canonical ?? key;
   }
 
@@ -1946,7 +1952,7 @@ class GenerationalGCManager {
   void _applyPendingWeakRemovals() {
     void apply(Map<Value, Set<dynamic>> pending) {
       pending.forEach((table, keys) {
-        final tableMap = table.raw as Map;
+        final tableMap = _rawGcTableMap(table);
         for (final key in keys) {
           Logger.debugLazy(
             () =>
@@ -1977,13 +1983,13 @@ class GenerationalGCManager {
     if (_toBeFinalized.isEmpty) return;
     for (final obj in _toBeFinalized) {
       if (obj is! Value) continue;
-      final rawMetaOwner = Value.rawMetatableOwnerForTable(obj.raw);
+      final rawMetaOwner = Value.rawMetatableOwnerForTable(_rawGcValue(obj));
       final metaTable = rawMetaOwner is Map ? rawMetaOwner : obj.getMetatable();
       if (metaTable == null) continue;
       final metaVal = obj.metatableRef;
       final canonicalOwner = switch (metaVal) {
         final Value value =>
-          Value.lookupCanonicalTableWrapper(value.raw) ?? value,
+          Value.lookupCanonicalTableWrapper(_rawGcValue(value)) ?? value,
         _ => null,
       };
       final isWeakV = Value.tableObjectHasWeakValues(metaTable);
@@ -2008,7 +2014,7 @@ class GenerationalGCManager {
         if (k is String) ks = k;
         if (k is LuaString) ks = k.toString();
         if (k is Value) {
-          final kr = k.raw;
+          final kr = _rawGcValue(k);
           if (kr is String) ks = kr;
           if (kr is LuaString) ks = kr.toString();
         }
@@ -2076,12 +2082,12 @@ class GenerationalGCManager {
       if (obj is! Value) continue;
       final metaVal = obj.metatableRef;
       if (metaVal is! Value || !metaVal.isTable) continue;
-      final metaMap = metaVal.raw as Map;
+      final metaMap = _rawGcTableMap(metaVal);
       for (final entry in metaMap.entries) {
         final val = entry.value;
         if (val is! Value || !val.isTable) continue;
         if (val.tableWeakMode != 'kv') continue;
-        final tableMap = val.raw as Map;
+        final tableMap = _rawGcTableMap(val);
         final keysToRemove = <dynamic>[];
         for (final e in tableMap.entries) {
           final k = e.key;
@@ -2136,7 +2142,7 @@ class GenerationalGCManager {
     );
 
     for (final table in ephemeronTables) {
-      final tableMap = table.raw as Map;
+      final tableMap = _rawGcTableMap(table);
 
       Logger.debugLazy(
         () =>
@@ -2235,7 +2241,7 @@ class GenerationalGCManager {
           final metaOwner = obj.metatableRef;
           final Value? canonicalOwner = switch (metaOwner) {
             final Value value =>
-              Value.lookupCanonicalTableWrapper(value.raw) ?? value,
+              Value.lookupCanonicalTableWrapper(_rawGcValue(value)) ?? value,
             _ => null,
           };
           final ownerWeakV = obj.metatableOwnerHasWeakValues;
@@ -2337,7 +2343,8 @@ class GenerationalGCManager {
         if (metaOwner is Value) {
           try {
             canonicalOwner =
-                Value.lookupCanonicalTableWrapper(metaOwner.raw) ?? metaOwner;
+                Value.lookupCanonicalTableWrapper(_rawGcValue(metaOwner)) ??
+                metaOwner;
           } catch (_) {
             canonicalOwner = metaOwner;
           }
