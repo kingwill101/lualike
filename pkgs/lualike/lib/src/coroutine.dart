@@ -150,7 +150,7 @@ enum CoroutineStatus {
 }
 
 /// Represents a Lua coroutine that participates in garbage collection
-class Coroutine extends GCObject {
+class Coroutine with GCObject {
   static final List<Coroutine> _activeStack = [];
 
   static Coroutine? get active {

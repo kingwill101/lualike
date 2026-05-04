@@ -22,9 +22,6 @@ class MemoryCredits {
   static final MemoryCredits instance = MemoryCredits._();
 
   final Expando<int> _objectCredits = Expando<int>('gcCredits');
-  final Expando<GCGenerationSpace> _objectSpaces = Expando<GCGenerationSpace>(
-    'gcSpace',
-  );
   final Set<GCObject> _excludedObjects = HashSet<GCObject>.identity();
 
   // Debug: Track allocation stack traces
@@ -50,9 +47,9 @@ class MemoryCredits {
     final existingCredits = _objectCredits[obj];
     if (existingCredits != null) {
       // Object already tracked - just update space if needed
-      final existingSpace = _objectSpaces[obj];
+      final existingSpace = obj.gcSpace;
       if (existingSpace != space) {
-        _objectSpaces[obj] = space;
+        obj.gcSpace = space;
       }
       return;
     }
@@ -92,7 +89,7 @@ class MemoryCredits {
     }
 
     _objectCredits[obj] = credits;
-    _objectSpaces[obj] = space;
+    obj.gcSpace = space;
     _total += credits;
     if (space == GCGenerationSpace.young) {
       _young += credits;
@@ -125,12 +122,12 @@ class MemoryCredits {
       return;
     }
 
-    final space = _objectSpaces[obj];
+    final space = obj.gcSpace;
     if (space == GCGenerationSpace.young) {
       _young -= credits;
       _old += credits;
     }
-    _objectSpaces[obj] = GCGenerationSpace.old;
+    obj.gcSpace = GCGenerationSpace.old;
   }
 
   /// Updates bookkeeping after an object has been reclaimed.
@@ -145,7 +142,7 @@ class MemoryCredits {
       return;
     }
 
-    final space = _objectSpaces[obj];
+    final space = obj.gcSpace;
     if (space == GCGenerationSpace.young) {
       _young -= credits;
     } else if (space == GCGenerationSpace.old) {
@@ -154,7 +151,7 @@ class MemoryCredits {
     _total -= credits;
 
     _objectCredits[obj] = null;
-    _objectSpaces[obj] = null;
+    obj.gcSpace = null;
   }
 
   /// Recalculates the cost of an object after it changed shape (for example a
@@ -164,7 +161,7 @@ class MemoryCredits {
       return;
     }
 
-    final space = _objectSpaces[obj];
+    final space = obj.gcSpace;
     if (space == null) {
       return;
     }
@@ -201,10 +198,10 @@ class MemoryCredits {
       }
       if (excluded) {
         _objectCredits[obj] = null;
-        _objectSpaces[obj] = null;
+        obj.gcSpace = null;
       } else {
         _objectCredits[obj] = credits;
-        _objectSpaces[obj] = GCGenerationSpace.young;
+        obj.gcSpace = GCGenerationSpace.young;
       }
     }
 
@@ -216,10 +213,10 @@ class MemoryCredits {
       }
       if (excluded) {
         _objectCredits[obj] = null;
-        _objectSpaces[obj] = null;
+        obj.gcSpace = null;
       } else {
         _objectCredits[obj] = credits;
-        _objectSpaces[obj] = GCGenerationSpace.old;
+        obj.gcSpace = GCGenerationSpace.old;
       }
     }
 

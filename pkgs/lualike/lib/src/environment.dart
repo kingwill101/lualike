@@ -9,7 +9,7 @@ import 'package:lualike/src/gc/memory_credits.dart';
 
 /// A generic box class that wraps a single value of type T.
 /// Used to create mutable references to values in the environment.
-class Box<T> extends GCObject {
+class Box<T> with GCObject {
   /// The wrapped value.
   T _value;
 
@@ -181,7 +181,7 @@ class Box<T> extends GCObject {
 /// The original `define()` method couldn't distinguish these cases correctly,
 /// leading to bugs where local variables in main scripts affected globals.
 /// The newer methods provide precise control over each scenario.
-class Environment extends GCObject {
+class Environment with GCObject {
   static int totalCreated = 0;
   static int totalFreed = 0;
   static int maxActive = 0;
