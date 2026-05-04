@@ -443,13 +443,14 @@ bool _looksFormattedLuaErrorMessage(String message) {
 
 Object? _normalizeProtectedCallError(LuaRuntime interpreter, Object error) {
   if (error is Value) {
-    if (error.raw is Value) {
-      return _normalizeProtectedCallError(interpreter, error.raw);
+    final rawError = _rawBaseValue(error);
+    if (rawError is Value) {
+      return _normalizeProtectedCallError(interpreter, rawError);
     }
-    if (error.raw == null) {
+    if (rawError == null) {
       return "<no error object>";
     }
-    if (error.raw is Map || error.raw is TableStorage) {
+    if (rawError is Map || rawError is TableStorage) {
       return error;
     }
     return error.unwrap();
@@ -488,7 +489,7 @@ Object? _normalizeProtectedCallError(LuaRuntime interpreter, Object error) {
 
 Value _errorHandlerArgument(LuaRuntime runtime, Object error) {
   if (error case final Value value) {
-    return switch (value.raw) {
+    return switch (_rawBaseValue(value)) {
       final Value nested => _errorHandlerArgument(runtime, nested),
       _ => value,
     };
@@ -628,7 +629,7 @@ enum _ProtectedCallPhase { call, errorHandler }
 
 bool _shouldRecurseXpcallHandler(LuaRuntime runtime, Object error) {
   final normalized = _errorHandlerArgument(runtime, error);
-  return normalized.raw is num;
+  return _rawBaseValue(normalized) is num;
 }
 
 final class _ProtectedCallSuspension implements CoroutineContinuation {
@@ -771,10 +772,11 @@ final class _ProtectedCallSuspension implements CoroutineContinuation {
     if (child case final nested?) {
       yield* nested.getReferences();
     }
-    if (messageHandler?.raw case final GCObject handlerObject) {
+    if (_rawBaseValue(messageHandler) case final GCObject handlerObject) {
       yield handlerObject;
     }
-    if (messageHandler?.metatableRef?.raw case final GCObject metatableObject) {
+    if (_rawBaseValue(messageHandler?.metatableRef)
+        case final GCObject metatableObject) {
       yield metatableObject;
     }
   }
@@ -814,16 +816,15 @@ class ErrorFunction extends BuiltinFunction {
 
     // Get the error value
     final errorValue = args[0] as Value;
+    final rawErrorValue = _rawBaseValue(errorValue);
 
     // If the error value is a table, preserve it
-    if (errorValue.raw is Map) {
+    if (rawErrorValue is Map) {
       throw errorValue; // Throw the Value directly instead of converting to Exception
     }
 
-    final message = errorValue.raw.toString();
-    final level = args.length > 1 && args[1] is Value
-        ? (args[1] as Value).raw
-        : null;
+    final message = rawErrorValue.toString();
+    final level = args.length > 1 ? _rawBaseValue(args[1]) : null;
     final numericLevel = switch (level) {
       final int value => value,
       final double value when value.toInt().toDouble() == value =>
@@ -851,10 +852,10 @@ class ErrorFunction extends BuiltinFunction {
     // string errors in their usual Lua "file:line: message" form unless the
     // caller explicitly suppressed location with level 0.
     if (interpreter != null && interpreter!.isInProtectedCall) {
-      if (errorValue.raw is Map) {
+      if (rawErrorValue is Map) {
         throw errorValue;
       }
-      if (errorValue.raw is String || errorValue.raw is LuaString) {
+      if (rawErrorValue is String || rawErrorValue is LuaString) {
         throw LuaError(_formatProtectedCallMessage(interpreter!, message));
       }
       throw errorValue;
@@ -875,9 +876,9 @@ class ErrorFunction extends BuiltinFunction {
       // Let the interpreter handle the error reporting with proper stack trace
       final luaError = LuaError(
         message,
-        cause: errorValue.raw is String || errorValue.raw is LuaString
+        cause: rawErrorValue is String || rawErrorValue is LuaString
             ? null
-            : errorValue.raw,
+            : rawErrorValue,
       );
       interpreter!.reportError(message, error: luaError);
       // This will never be reached, but needed for type safety
