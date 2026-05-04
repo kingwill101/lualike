@@ -25,6 +25,17 @@ class NumberUtils {
     return typeName(value);
   }
 
+  static Object? _rawTypeName(Object? name) => name is Value ? name.raw : name;
+
+  static String? _metamethodTypeName(Value value) {
+    final rawName = _rawTypeName(value.getMetamethod('__name'));
+    return switch (rawName) {
+      final String stringName => stringName,
+      final LuaString stringName => stringName.toString(),
+      _ => null,
+    };
+  }
+
   static Never _throwNumericTypeError(String op, dynamic value) {
     final operation = _isBitwiseOperator(op)
         ? 'bitwise operation'
@@ -37,13 +48,9 @@ class NumberUtils {
   /// Get type name for error messages
   static String typeName(dynamic value) {
     if (value is Value) {
-      final name = value.getMetamethod('__name');
-      final rawName = name is Value ? name.raw : name;
-      switch (rawName) {
-        case final String stringName:
-          return stringName;
-        case final LuaString stringName:
-          return stringName.toString();
+      final metamethodName = _metamethodTypeName(value);
+      if (metamethodName != null) {
+        return metamethodName;
       }
       value = value.raw;
     }
@@ -51,13 +58,9 @@ class NumberUtils {
     if (value case final Map<dynamic, dynamic> table) {
       final wrapped = Value.lookupCanonicalTableWrapper(table);
       if (wrapped != null) {
-        final name = wrapped.getMetamethod('__name');
-        final rawName = name is Value ? name.raw : name;
-        switch (rawName) {
-          case final String stringName:
-            return stringName;
-          case final LuaString stringName:
-            return stringName.toString();
+        final metamethodName = _metamethodTypeName(wrapped);
+        if (metamethodName != null) {
+          return metamethodName;
         }
       }
     }
