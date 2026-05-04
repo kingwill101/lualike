@@ -79,11 +79,7 @@ dynamic _getFastNumber(Object? value, String funcName, int argNum) {
       return rawNumber;
     }
   }
-  return _getNumber(
-    value is Value ? value : freshValueFromLuaSlot(null, value),
-    funcName,
-    argNum,
-  );
+  return _getNumber(freshValueFromLuaSlot(null, value), funcName, argNum);
 }
 
 Object? _tryFastMinMaxNumericResult(
