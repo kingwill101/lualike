@@ -227,7 +227,7 @@ Future<LuaChunkLoadResult> loadChunkWithLegacyAstSupport(
   bool isBinaryChunk = false;
   LegacyChunkInfo? chunkInfo;
   final sourceArg = request.source;
-  final sourceRaw = _rawCompiledArtifactValue(sourceArg);
+  final sourceRaw = rawLuaSlot(sourceArg);
 
   try {
     if (sourceRaw is String) {
@@ -294,7 +294,7 @@ Future<LuaChunkLoadResult> loadChunkWithLegacyAstSupport(
             "reader function must return a string",
           );
         }
-        final chunkRaw = _rawCompiledArtifactValue(chunk);
+        final chunkRaw = rawLuaSlot(chunk);
         if (chunkRaw == null) {
           break;
         }
@@ -607,7 +607,7 @@ Future<LuaChunkLoadResult> loadChunkWithLegacyAstSupport(
               if (loadedAstNode is FunctionBody) {
                 final funcValue =
                     await runtime.evaluateAst(loadedAstNode) as Value;
-                final funcRaw = _rawCompiledArtifactValue(funcValue);
+                final funcRaw = rawLuaSlot(funcValue);
                 if (funcRaw is Function || funcRaw is BuiltinFunction) {
                   return await runtime.callFunction(funcValue, callArgs);
                 }
@@ -673,7 +673,7 @@ Future<LuaChunkLoadResult> loadChunkWithLegacyAstSupport(
               Object? upvalueValue;
               if (upvalueName == '_ENV' &&
                   providedEnv != null &&
-                  _rawCompiledArtifactValue(providedEnv) != null) {
+                  rawLuaSlot(providedEnv) != null) {
                 upvalueValue = providedEnv;
               }
               final box = Box<dynamic>(upvalueValue);
@@ -757,7 +757,7 @@ Future<LuaChunkLoadResult> loadChunkWithLegacyAstSupport(
             final firstValue = switch (compiledCondition) {
               final _ConstructsShortCircuitExpr compiled => valueFromLuaSlot(
                 runtime,
-                _rawCompiledArtifactValue(compiled.evaluate(loadEnv)),
+                rawLuaSlot(compiled.evaluate(loadEnv)),
               ),
               _ => await _evaluateConstructsShortCircuitExpression(
                 runtime,
@@ -774,7 +774,7 @@ Future<LuaChunkLoadResult> loadChunkWithLegacyAstSupport(
             final resultValue = switch (compiledCondition) {
               final _ConstructsShortCircuitExpr compiled => valueFromLuaSlot(
                 runtime,
-                _rawCompiledArtifactValue(compiled.evaluate(loadEnv)),
+                rawLuaSlot(compiled.evaluate(loadEnv)),
               ),
               _ => await _evaluateConstructsShortCircuitExpression(
                 runtime,
@@ -851,13 +851,13 @@ Future<LuaChunkLoadResult> loadChunkWithLegacyAstSupport(
               if (originalUpvalueNames != null &&
                   originalUpvalueNames.isNotEmpty &&
                   executionResult is Value &&
-                  _rawCompiledArtifactValue(executionResult) is Function) {
+                  rawLuaSlot(executionResult) is Function) {
                 final upvalues = <Upvalue>[];
                 for (var i = 0; i < originalUpvalueNames.length; i++) {
                   final upvalueName = originalUpvalueNames[i];
                   final upvalueValue =
                       (providedEnv != null &&
-                          _rawCompiledArtifactValue(providedEnv) != null &&
+                          rawLuaSlot(providedEnv) != null &&
                           originalUpvalueValues != null &&
                           i < originalUpvalueValues.length)
                       ? originalUpvalueValues[i]
@@ -920,7 +920,7 @@ Future<LuaChunkLoadResult> loadChunkWithLegacyAstSupport(
         final upvalueName = originalUpvalueNames[i];
         final upvalueValue =
             (providedEnv != null &&
-                _rawCompiledArtifactValue(providedEnv) != null &&
+                rawLuaSlot(providedEnv) != null &&
                 originalUpvalueValues != null &&
                 i < originalUpvalueValues.length)
             ? originalUpvalueValues[i]
@@ -972,7 +972,7 @@ Object? dumpFunctionWithLegacyAstTransport(
   Value function, {
   bool stripDebugInfo = false,
 }) {
-  final functionRaw = _rawCompiledArtifactValue(function);
+  final functionRaw = rawLuaSlot(function);
   if (functionRaw is BuiltinFunction) {
     throw LuaError(
       "unable to dump given function (${functionRaw.runtimeType})",
@@ -996,7 +996,7 @@ Object? dumpFunctionWithLegacyAstTransport(
           .toList();
       upvalueValues = function.upvalues!.map((upvalue) {
         final value = upvalue.getValue();
-        final rawValue = _rawCompiledArtifactValue(value);
+        final rawValue = rawLuaSlot(value);
         if (rawValue is String ||
             rawValue is num ||
             rawValue is bool ||
@@ -1142,7 +1142,7 @@ LuaFunctionDebugInfo? defaultDebugInfoForFunction(
     );
   }
 
-  final raw = _rawCompiledArtifactValue(function);
+  final raw = rawLuaSlot(function);
   if (raw is LuaCallableArtifact && raw.debugInfo != null) {
     return raw.debugInfo;
   }
@@ -1154,7 +1154,7 @@ LuaFunctionDebugInfo? defaultDebugInfoForFunction(
     final closureEnvSource = switch (function.closureEnvironment?.get(
       '_SCRIPT_PATH',
     )) {
-      final Value value => _rawCompiledArtifactValue(value)?.toString(),
+      final Value value => rawLuaSlot(value)?.toString(),
       final Object? value? => value.toString(),
       _ => null,
     };
@@ -1300,7 +1300,7 @@ Environment _createDirectAstFunctionCreationEnv({
     isLoadIsolated: true,
   );
   if (providedEnv != null) {
-    if (_rawCompiledArtifactValue(providedEnv) != null) {
+    if (rawLuaSlot(providedEnv) != null) {
       loadEnv.declare('_ENV', providedEnv);
       final gValue = savedEnv.get('_G') ?? savedEnv.root.get('_G');
       if (gValue is Value) {
@@ -1445,7 +1445,7 @@ Future<void> _assignLoadedGlobal(
   Value value,
 ) async {
   final envValue = loadEnv.get('_ENV');
-  final rawEnvValue = _rawCompiledArtifactValue(envValue);
+  final rawEnvValue = rawLuaSlot(envValue);
   if (envValue is Value && rawEnvValue is Map) {
     await envValue.setValueAsync(name, value);
     return;
@@ -1537,7 +1537,7 @@ final class _ConstructsIdentifierExpr extends _ConstructsShortCircuitExpr {
   final String name;
 
   @override
-  Object? evaluate(Environment env) => _rawCompiledArtifactValue(env.get(name));
+  Object? evaluate(Environment env) => rawLuaSlot(env.get(name));
 }
 
 final class _ConstructsEnvFieldExpr extends _ConstructsShortCircuitExpr {
@@ -1547,11 +1547,11 @@ final class _ConstructsEnvFieldExpr extends _ConstructsShortCircuitExpr {
 
   @override
   Object? evaluate(Environment env) {
-    final envValue = _rawCompiledArtifactValue(env.get('_ENV'));
+    final envValue = rawLuaSlot(env.get('_ENV'));
     if (envValue is! Map) {
       return null;
     }
-    return _rawCompiledArtifactValue(envValue[fieldName]);
+    return rawLuaSlot(envValue[fieldName]);
   }
 }
 
@@ -1604,17 +1604,11 @@ final class _ConstructsEqualsExpr extends _ConstructsShortCircuitExpr {
 
   @override
   Object? evaluate(Environment env) =>
-      _rawCompiledArtifactValue(left.evaluate(env)) ==
-      _rawCompiledArtifactValue(right.evaluate(env));
+      rawLuaSlot(left.evaluate(env)) == rawLuaSlot(right.evaluate(env));
 }
 
-Object? _rawCompiledArtifactValue(Object? value) => switch (value) {
-  Value wrapped => wrapped.raw,
-  _ => value,
-};
-
 bool _isConstructsTruthy(Object? value) {
-  final rawValue = _rawCompiledArtifactValue(value);
+  final rawValue = rawLuaSlot(value);
   return rawValue != null && rawValue != false;
 }
 
@@ -1794,7 +1788,7 @@ void _installLoadedFunction({
   required String functionName,
   required Value functionValue,
 }) {
-  final rawProvidedEnv = _rawCompiledArtifactValue(providedEnv);
+  final rawProvidedEnv = rawLuaSlot(providedEnv);
   if (rawProvidedEnv is Map) {
     rawProvidedEnv[functionName] = functionValue;
     providedEnv!.markTableModified();
@@ -1802,7 +1796,7 @@ void _installLoadedFunction({
   }
 
   final gValue = savedEnv.get('_G') ?? savedEnv.root.get('_G');
-  final rawGValue = _rawCompiledArtifactValue(gValue);
+  final rawGValue = rawLuaSlot(gValue);
   if (gValue is Value && rawGValue is Map) {
     rawGValue[functionName] = functionValue;
     gValue.markTableModified();
