@@ -1,8 +1,6 @@
 import 'dart:ui' as ui;
 
 import 'package:flame/components.dart' show Vector2;
-import 'package:flutter/rendering.dart';
-import 'package:flutter/widgets.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:love2d/love2d.dart';
 import 'package:vector_math/vector_math_64.dart' as vm;
@@ -10,9 +8,9 @@ import 'package:vector_math/vector_math_64.dart' as vm;
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
 
-  testWidgets(
+  test(
     'LoveFlameHarnessGame renders centered printf text within the full wrap box',
-    (tester) async {
+    () async {
       final game = LoveFlameHarnessGame();
       game.host.windowMetrics = const LoveWindowMetrics(
         width: 960,
@@ -48,31 +46,13 @@ void main() {
         ),
       );
 
-      const boundaryKey = Key('frame-boundary');
-      await tester.pumpWidget(
-        Directionality(
-          textDirection: TextDirection.ltr,
-          child: Center(
-            child: SizedBox(
-              width: 640,
-              height: 480,
-              child: RepaintBoundary(
-                key: boundaryKey,
-                child: CustomPaint(
-                  painter: _LoveFlameHarnessPainter(game: game),
-                  size: const Size(640, 480),
-                ),
-              ),
-            ),
-          ),
-        ),
-      );
-      await tester.pump();
-
-      final boundary = tester.renderObject<RenderRepaintBoundary>(
-        find.byKey(boundaryKey),
-      );
-      final image = await boundary.toImage(pixelRatio: 1);
+      game.onGameResize(Vector2(640, 480));
+      final recorder = ui.PictureRecorder();
+      final canvas = ui.Canvas(recorder);
+      game.render(canvas);
+      final picture = recorder.endRecording();
+      addTearDown(picture.dispose);
+      final image = await picture.toImage(640, 480);
       addTearDown(image.dispose);
       final data = await image.toByteData(format: ui.ImageByteFormat.rawRgba);
       expect(data, isNotNull);
@@ -103,20 +83,4 @@ void main() {
       expect(minX, greaterThan(200));
     },
   );
-}
-
-class _LoveFlameHarnessPainter extends CustomPainter {
-  _LoveFlameHarnessPainter({required this.game});
-
-  final LoveFlameHarnessGame game;
-
-  @override
-  void paint(Canvas canvas, Size size) {
-    game.onGameResize(Vector2(size.width, size.height));
-    game.render(canvas);
-  }
-
-  @override
-  bool shouldRepaint(covariant _LoveFlameHarnessPainter oldDelegate) =>
-      !identical(oldDelegate.game, game);
 }

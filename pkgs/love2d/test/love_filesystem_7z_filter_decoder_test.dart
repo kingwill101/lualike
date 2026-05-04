@@ -7,6 +7,23 @@ final String? _sevenZipExecutable = findSevenZipExecutable();
 final String? _sevenZipSkipReason = _sevenZipExecutable == null
     ? '7z executable not available in PATH.'
     : null;
+final String? _sevenZipArm64SkipReason =
+    _sevenZipSkipReason ?? _probeArm64SevenZipSupport();
+
+String? _probeArm64SevenZipSupport() {
+  try {
+    encode7zArchive(
+      sevenZipExecutable: _sevenZipExecutable,
+      methodArgs: const <String>['-m0=ARM64', '-m1=LZMA2'],
+      files: const <SevenZipArchiveInputFile>[
+        SevenZipArchiveInputFile('probe.bin', <int>[0, 1, 2, 3]),
+      ],
+    );
+    return null;
+  } catch (error) {
+    return '7z ARM64 filter unsupported on this host: $error';
+  }
+}
 
 void main() {
   test(
@@ -29,7 +46,7 @@ void main() {
       expect(file!.isFile, isTrue);
       expect(file.readBytes(), orderedEquals(originalBytes));
     },
-    skip: _sevenZipSkipReason,
+    skip: _sevenZipArm64SkipReason,
   );
 
   test(
@@ -51,7 +68,7 @@ void main() {
       expect(file, isNotNull);
       expect(file!.readBytes(), orderedEquals(originalBytes));
     },
-    skip: _sevenZipSkipReason,
+    skip: _sevenZipArm64SkipReason,
   );
 
   test(
