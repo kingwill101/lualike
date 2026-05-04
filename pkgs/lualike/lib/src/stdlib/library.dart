@@ -224,7 +224,7 @@ class LibraryRegistry {
     if (existing is Value && rawExisting is LazyLibraryMap) {
       // Reuse the existing Value so any cached references continue to work.
       rawExisting.attach(libraryValue);
-      existing.raw = libraryValue.raw;
+      existing.raw = _rawLibraryValue(libraryValue);
       existing.metatable = libraryValue.metatable;
       existing.metatableRef = libraryValue.metatableRef;
       existing.functionName = libraryValue.functionName;

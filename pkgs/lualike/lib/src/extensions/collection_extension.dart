@@ -1,5 +1,8 @@
 import '../value.dart';
 
+Object? _rawCollectionValue(Object? value) =>
+    value is Value ? value.raw : value;
+
 /// Extension methods for Lists to simplify Value operations
 extension ListValueExtension on List<dynamic> {
   /// Convert all elements in a list to Values
@@ -7,8 +10,7 @@ extension ListValueExtension on List<dynamic> {
       map((item) => item is Value ? item : Value.wrap(item)).toList();
 
   /// Unwrap all Value objects in a list
-  List<dynamic> unwrapValueList() =>
-      map((item) => item is Value ? item.raw : item).toList();
+  List<dynamic> unwrapValueList() => map(_rawCollectionValue).toList();
 
   /// Convert to a Lua-style multi-return Value
   Value toMultiValue() => Value.multi(this);
