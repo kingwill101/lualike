@@ -61,7 +61,7 @@ void main() {
           isA<LuaError>().having(
             (error) => error.message,
             'message',
-            'Text:getFont expected a Text at argument 1',
+            contains("bad argument #1 to 'getFont' (Text expected"),
           ),
         ),
       );
@@ -72,7 +72,7 @@ void main() {
           isA<LuaError>().having(
             (error) => error.message,
             'message',
-            'Text:setFont expected a Text at argument 1',
+            contains("bad argument #1 to 'setFont' (Text expected"),
           ),
         ),
       );
@@ -83,7 +83,7 @@ void main() {
           isA<LuaError>().having(
             (error) => error.message,
             'message',
-            'Text:setFont expected a Font at argument 2',
+            contains("bad argument #2 to 'setFont' (Font expected"),
           ),
         ),
       );

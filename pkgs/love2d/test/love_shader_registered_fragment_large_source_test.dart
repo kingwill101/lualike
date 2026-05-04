@@ -1,19 +1,21 @@
-import 'dart:io';
-
 import 'package:flutter_test/flutter_test.dart';
 import 'package:love2d/love2d.dart';
 import 'package:love2d/src/runtime/filesystem/love_filesystem_runtime.dart';
 
 import 'test_support/memory_filesystem_test_support.dart';
+import 'test_support/package_path_test_support.dart';
 
 void main() {
   test(
     'newShader infers Flutter shader assets for mounted shader explorer files',
     () async {
-      final shaderPath =
-          '/run/media/kingwill101/disk2/code/code/dart_packages/lualike/'
-          'pkgs/love2d/example/assets/shader_explorer/shaders/water.frag';
-      final rawSource = await File(shaderPath).readAsString();
+      final rawSource = await (await love2dPackageFile(<String>[
+        'example',
+        'assets',
+        'shader_explorer',
+        'shaders',
+        'water.frag',
+      ])).readAsString();
 
       final runtime = LoveScriptRuntime(
         host: LoveHeadlessHost(),
@@ -52,10 +54,13 @@ end
   test(
     'validateShader accepts mounted shader explorer files through the public path',
     () async {
-      final shaderPath =
-          '/run/media/kingwill101/disk2/code/code/dart_packages/lualike/'
-          'pkgs/love2d/example/assets/shader_explorer/shaders/water.frag';
-      final rawSource = await File(shaderPath).readAsString();
+      final rawSource = await (await love2dPackageFile(<String>[
+        'example',
+        'assets',
+        'shader_explorer',
+        'shaders',
+        'water.frag',
+      ])).readAsString();
 
       final runtime = LoveScriptRuntime(
         host: LoveHeadlessHost(),
