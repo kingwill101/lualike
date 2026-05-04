@@ -14,6 +14,9 @@ import 'value.dart';
 
 typedef RuntimeSetupCallback = void Function(LuaRuntime);
 
+Object? _rawPublicExecutionValue(Object? value) =>
+    value is Value ? value.raw : value;
+
 /// Executes source code using the specified execution mode.
 ///
 /// [sourceCode] - The source code to execute
@@ -85,7 +88,7 @@ Object? _publicExecutionResult(Object? result) {
 
 Object? _publicResultSlot(Object? result) {
   if (result is Value) {
-    final raw = result.raw;
+    final raw = _rawPublicExecutionValue(result);
     if (isLuaScalarPrimitiveSlot(raw)) {
       return raw;
     }

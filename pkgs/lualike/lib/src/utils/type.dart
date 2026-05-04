@@ -19,7 +19,7 @@ String getLuaType(Object? value) {
     if (typeName != null) {
       return typeName;
     }
-    value = wrapped.raw;
+    value = _rawTypeName(wrapped);
   }
   if (value case final Map<dynamic, dynamic> table) {
     final wrapped = Value.lookupCanonicalTableWrapper(table);
@@ -50,7 +50,7 @@ String getLuaType(Object? value) {
 
 String getLuaBaseType(Object? value) {
   if (value case final Value wrapped) {
-    value = wrapped.raw;
+    value = _rawTypeName(wrapped);
   }
   final t = value;
   return switch (t) {

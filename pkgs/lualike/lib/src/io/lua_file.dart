@@ -20,8 +20,10 @@ Value _ioPrimitiveValue(Object? raw, [Value? owner]) {
   return cachedPrimitiveOrValue(owner?.interpreter, raw);
 }
 
+Object? _rawLuaFileValue(Object? value) => value is Value ? value.raw : value;
+
 LuaFile? _rawLuaFile(Object? value) {
-  final raw = value is Value ? value.raw : value;
+  final raw = _rawLuaFileValue(value);
   return raw is LuaFile ? raw : null;
 }
 
@@ -129,12 +131,13 @@ final fileMetamethods = {
   "__index": (List<Object?> args) {
     final fileValue = args[0];
     final key = args[1] as Value;
+    final rawKey = _rawLuaFileValue(key);
     Logger.debugLazy(
-      () => 'File __index metamethod called for ${key.raw}',
+      () => 'File __index metamethod called for $rawKey',
       category: 'IO',
     );
 
-    final keyStr = switch (key.raw) {
+    final keyStr = switch (rawKey) {
       final String stringValue => stringValue,
       final LuaString stringValue => stringValue.toString(),
       _ => null,
@@ -177,7 +180,7 @@ final fileMetamethods = {
     }
 
     Logger.debugLazy(
-      () => 'File property/method not found: ${key.raw}',
+      () => 'File property/method not found: $rawKey',
       category: 'IO',
     );
     return _ioPrimitiveValue(null, fileValue is Value ? fileValue : null);
