@@ -7,7 +7,6 @@ import 'package:lualike/src/runtime/lua_slot.dart';
 
 import 'library.dart';
 
-bool _isNilLoggingValue(Object? value) => rawLuaSlot(value) == null;
 
 /// Enhanced Lua logging library that exposes the full power of contextual logging
 ///
@@ -142,7 +141,7 @@ class _LoggingSetCategories extends BuiltinFunction {
     }
 
     final categoriesArg = args[0];
-    if (_isNilLoggingValue(categoriesArg)) {
+    if (isLuaNilSlot(categoriesArg)) {
       Logger.setCategoryFilters(null);
       return primitiveValue(true);
     }

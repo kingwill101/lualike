@@ -1561,7 +1561,7 @@ final class _ConstructsNotExpr extends _ConstructsShortCircuitExpr {
   final _ConstructsShortCircuitExpr expr;
 
   @override
-  Object? evaluate(Environment env) => !_isConstructsTruthy(expr.evaluate(env));
+  Object? evaluate(Environment env) => !isLuaTruthy(expr.evaluate(env));
 }
 
 final class _ConstructsAndExpr extends _ConstructsShortCircuitExpr {
@@ -1573,7 +1573,7 @@ final class _ConstructsAndExpr extends _ConstructsShortCircuitExpr {
   @override
   Object? evaluate(Environment env) {
     final leftValue = left.evaluate(env);
-    if (!_isConstructsTruthy(leftValue)) {
+    if (!isLuaTruthy(leftValue)) {
       return leftValue;
     }
     return right.evaluate(env);
@@ -1589,7 +1589,7 @@ final class _ConstructsOrExpr extends _ConstructsShortCircuitExpr {
   @override
   Object? evaluate(Environment env) {
     final leftValue = left.evaluate(env);
-    if (_isConstructsTruthy(leftValue)) {
+    if (isLuaTruthy(leftValue)) {
       return leftValue;
     }
     return right.evaluate(env);
@@ -1607,10 +1607,6 @@ final class _ConstructsEqualsExpr extends _ConstructsShortCircuitExpr {
       rawLuaSlot(left.evaluate(env)) == rawLuaSlot(right.evaluate(env));
 }
 
-bool _isConstructsTruthy(Object? value) {
-  final rawValue = rawLuaSlot(value);
-  return rawValue != null && rawValue != false;
-}
 
 _ConstructsShortCircuitExpr? _compileConstructsShortCircuitExpr(AstNode node) {
   return switch (node) {

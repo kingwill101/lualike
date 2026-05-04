@@ -47,14 +47,6 @@ FutureOr<Object?> _resolveAssignmentFutureValue(
   return value;
 }
 
-bool _isRawMapValue(Value value) => rawLuaSlot(value) is Map;
-
-bool _isRawTableStorageValue(Value value) => rawLuaSlot(value) is TableStorage;
-
-bool _isTruthyAssignmentValue(Object? value) {
-  final raw = rawLuaSlot(value);
-  return raw != null && raw != false;
-}
 
 Value _wrapMutableLocalReadValue(Interpreter interpreter, Object? value) {
   return cachedPrimitiveOrValue(interpreter, value);
@@ -565,7 +557,7 @@ mixin InterpreterAssignmentMixin on AstVisitor<Object?> {
 
     if (tableValue is Value) {
       final storedValue = wrappedValue;
-      if (_isRawMapValue(tableValue)) {
+      if (tableValue.isTable) {
         if (target.index is! Identifier) {
           final table = await target.table.accept(this).toValue();
           if (!table.isNil) {
@@ -1013,7 +1005,7 @@ mixin InterpreterAssignmentMixin on AstVisitor<Object?> {
     }
 
     if (tableValue is Value) {
-      if (_isRawMapValue(tableValue)) {
+      if (tableValue.isTable) {
         final storedValue = wrappedValue;
         // For field access, always use the field name as literal string key
         final fieldKey = target.fieldName.name;
@@ -1095,7 +1087,7 @@ mixin InterpreterAssignmentMixin on AstVisitor<Object?> {
     }
 
     if (tableValue is Value) {
-      if (_isRawMapValue(tableValue)) {
+      if (tableValue.isTable) {
         final storedValue = wrappedValue;
         // For index access, always evaluate the index expression
         var indexResult = preIndex ?? await target.index.accept<Object?>(this);
@@ -1144,7 +1136,7 @@ mixin InterpreterAssignmentMixin on AstVisitor<Object?> {
           return null;
         }
 
-        if (_isRawTableStorageValue(tableValue) &&
+        if (rawLuaSlot(tableValue) is TableStorage &&
             (!hasNewIndexMeta || keyExists) &&
             !tableValue.hasMetamethod('__index')) {
           final denseIndex = positiveInteger(keyValue);
@@ -1321,7 +1313,7 @@ mixin InterpreterAssignmentMixin on AstVisitor<Object?> {
         );
 
         // Verify the value has a __close metamethod if it's not nil or false
-        if (_isTruthyAssignmentValue(rawValue)) {
+        if (isLuaTruthy(rawValue)) {
           if (!valueWithAttributes.hasMetamethod('__close')) {
             throw LuaError("variable '$name' got a non-closable value");
           }
@@ -1371,7 +1363,7 @@ mixin InterpreterAssignmentMixin on AstVisitor<Object?> {
             valueWithAttributes = closableValue;
 
             // Verify the value has a __close metamethod if it's not nil or false
-            if (_isTruthyAssignmentValue(rawValue)) {
+            if (isLuaTruthy(rawValue)) {
               if (!closableValue.hasMetamethod('__close')) {
                 throw LuaError("variable '$name' got a non-closable value");
               }

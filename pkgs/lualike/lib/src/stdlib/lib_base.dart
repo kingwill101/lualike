@@ -18,7 +18,6 @@ import 'package:path/path.dart' as path;
 import 'lib_io.dart';
 import 'library.dart';
 
-bool _isNilBaseValue(Object? value) => rawLuaSlot(value) == null;
 
 /// Base library implementation using the new Library system
 /// Note: Base functions are global, so they don't have a namespace
@@ -911,7 +910,7 @@ class IPairsFunction extends BuiltinFunction {
     final index = rawLuaSlot(iterArgs[1]) as num;
     final nextIndex = index + 1;
     final value = await t.getValueAsync(primitiveValue(nextIndex));
-    if (_isNilBaseValue(value)) {
+    if (isLuaNilSlot(value)) {
       return primitiveValue(null);
     }
 
@@ -1283,7 +1282,7 @@ class DoFileFunction extends BuiltinFunction {
     final loaded = await LoadfileFunction(
       runtime,
     ).call(<Object?>[valueFromLuaSlot(runtime, filename)]);
-    if (loaded is Value && _isNilBaseValue(loaded)) {
+    if (loaded is Value && isLuaNilSlot(loaded)) {
       throw LuaError("Cannot open file '$filename'");
     }
     if (loaded is List) {
@@ -2605,7 +2604,7 @@ class RequireFunction extends BuiltinFunction {
         }
 
         final ret = loaded[moduleName];
-        if (loaderData is Value && !_isNilBaseValue(loaderData)) {
+        if (loaderData is Value && !isLuaNilSlot(loaderData)) {
           final rawLoaderData = rawLuaSlot(loaderData);
           if (rawLoaderData is String) {
             final normalizedLoaderData = valueFromLuaSlot(

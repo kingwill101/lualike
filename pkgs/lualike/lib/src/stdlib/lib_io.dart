@@ -74,15 +74,10 @@ class IOLibrary extends Library {
   }
 }
 
-String _ioString(Object? value) => rawLuaSlot(value).toString();
+String _ioString(Object? value) => rawLuaSlotString(value);
 
 List<String> _ioStringList(Iterable<Object?> values) =>
     values.map(_ioString).toList();
-
-bool _isIOString(Object? value) {
-  final raw = rawLuaSlot(value);
-  return raw is String || raw is LuaString;
-}
 
 LuaFile? extractLuaFile(dynamic value) {
   final raw = rawLuaSlot(value);
@@ -432,7 +427,7 @@ class IOInput extends BuiltinFunction {
       result = args[0];
     } else {
       final argument = args[0];
-      if (!_isIOString(argument)) {
+      if (!isLuaStringSlot(argument)) {
         throw LuaError.typeError(
           "bad argument #1 to 'input' (FILE* expected, got ${getLuaType(argument)})",
         );
@@ -630,7 +625,7 @@ class IOOutput extends BuiltinFunction {
       newFile = args[0] as Value;
     } else {
       final argument = args[0];
-      if (!_isIOString(argument)) {
+      if (!isLuaStringSlot(argument)) {
         throw LuaError.typeError(
           "bad argument #1 to 'output' (FILE* expected, got ${getLuaType(argument)})",
         );

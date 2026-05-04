@@ -83,13 +83,6 @@ bool _shouldUseBytePatternProcessing(dynamic subject, dynamic pattern) =>
     (subject is String && _containsNonAscii(subject)) ||
     (pattern is String && _containsNonAscii(pattern));
 
-bool _isTruthyStringValue(Object? value) {
-  if (value is Value) {
-    return value.isTruthy();
-  }
-  final raw = rawLuaSlot(value);
-  return raw != null && raw != false;
-}
 
 String _toPatternProcessingString(dynamic value, {required bool byteLevel}) {
   if (!byteLevel) {
@@ -757,7 +750,7 @@ class _StringDump extends BuiltinFunction {
     if (runtime == null) {
       throw LuaError("No interpreter context available");
     }
-    final stripDebugInfo = args.length > 1 && _isTruthyStringValue(args[1]);
+    final stripDebugInfo = args.length > 1 && isLuaTruthy(args[1]);
     return valueFromLuaSlot(
       runtime,
       runtime.dumpFunction(func, stripDebugInfo: stripDebugInfo),

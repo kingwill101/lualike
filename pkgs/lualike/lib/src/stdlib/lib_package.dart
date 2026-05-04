@@ -7,9 +7,7 @@ import 'package:lualike/src/utils/platform_utils.dart' as platform;
 import 'package:path/path.dart' as path_lib;
 import 'library.dart';
 
-bool _isNilPackageValue(Object? value) => rawLuaSlot(value) == null;
 
-String _packageString(Object? value) => rawLuaSlot(value).toString();
 
 class PackageLib {
   static const _defaultPath = "?.lua;?/?;?/init";
@@ -78,7 +76,7 @@ class PackageLib {
     return [
       // 1. Package preload searcher
       Value((List<Object?> args) {
-        final name = _packageString(args[0]);
+        final name = rawLuaSlotString(args[0]);
         final packageTable = rawLuaSlot(vm.globals.get("package"));
         final preload = packageTable is Map
             ? rawLuaSlot(packageTable["preload"])
@@ -98,7 +96,7 @@ class PackageLib {
 
       // 3. C module loader (simulated for Dart)
       Value((List<Object?> args) {
-        final name = _packageString(args[0]);
+        final name = rawLuaSlotString(args[0]);
         return vm.constantDartStringValue(
           "no C module loader implemented for '$name'",
         );
@@ -106,7 +104,7 @@ class PackageLib {
 
       // 4. All-in-one loader
       Value((List<Object?> args) {
-        final name = _packageString(args[0]);
+        final name = rawLuaSlotString(args[0]);
         return vm.constantDartStringValue(
           "no all-in-one loader implemented for '$name'",
         );
@@ -124,8 +122,8 @@ class _LoadLib extends BuiltinFunction {
       throw LuaError("loadlib requires library path and function name");
     }
 
-    final libpath = _packageString(args[0]);
-    final funcname = _packageString(args[1]);
+    final libpath = rawLuaSlotString(args[0]);
+    final funcname = rawLuaSlotString(args[1]);
 
     // We don't actually load C libraries, just simulate the interface
     if (funcname == '*') {
@@ -172,10 +170,10 @@ class _SearchPath extends BuiltinFunction {
       throw LuaError('searchpath requires name and path');
     }
 
-    final name = _packageString(args[0]);
-    final searchPath = _packageString(args[1]);
-    final sep = args.length > 2 ? _packageString(args[2]) : '.';
-    final rep = args.length > 3 ? _packageString(args[3]) : path_lib.separator;
+    final name = rawLuaSlotString(args[0]);
+    final searchPath = rawLuaSlotString(args[1]);
+    final sep = args.length > 2 ? rawLuaSlotString(args[2]) : '.';
+    final rep = args.length > 3 ? rawLuaSlotString(args[3]) : path_lib.separator;
 
     // Avoid Dart's replaceAll behavior with empty pattern
     final replacedName = sep.isEmpty ? name : name.replaceAll(sep, rep);
@@ -203,7 +201,7 @@ class _LuaLoader extends BuiltinFunction {
 
   @override
   Future<Object?> call(List<Object?> args) async {
-    final name = _packageString(args[0]);
+    final name = rawLuaSlotString(args[0]);
     Logger.debugLazy(
       () => "_LuaLoader called for module: $name",
       category: 'Package',
@@ -253,8 +251,8 @@ class _LuaLoader extends BuiltinFunction {
     // Return a loader function that will load and execute the module
     return [
       Value((List<Object?> args) async {
-        final name = _packageString(args[0]);
-        final modulePath = _packageString(args[1]);
+        final name = rawLuaSlotString(args[0]);
+        final modulePath = rawLuaSlotString(args[1]);
         Logger.debugLazy(
           () =>
               "Loader function called for module: $name with path: $modulePath",
@@ -418,7 +416,7 @@ class _LuaLoader extends BuiltinFunction {
             }
 
             // If the module didn't return anything, return an empty table
-            if (_isNilPackageValue(result)) {
+            if (isLuaNilSlot(result)) {
               Logger.debugLazy(
                 () => "Module returned nil, defaulting to empty table",
                 category: 'Package',
@@ -542,7 +540,7 @@ void definePackageLibrary({required Environment env, LuaRuntime? vm}) {
   final searchers = <Value>[
     // 1. Package preload searcher
     Value((List<Object?> args) {
-      final name = _packageString(args[0]);
+      final name = rawLuaSlotString(args[0]);
       final preload = packageTable['preload'];
       if (preload.containsKey(name)) {
         return [
@@ -558,7 +556,7 @@ void definePackageLibrary({required Environment env, LuaRuntime? vm}) {
 
     // 2. Lua/Dart module loader
     Value((List<Object?> args) {
-      final name = _packageString(args[0]);
+      final name = rawLuaSlotString(args[0]);
       final path = packageTable['path'] as Value;
 
       try {
@@ -568,7 +566,7 @@ void definePackageLibrary({required Environment env, LuaRuntime? vm}) {
           path,
         ]);
 
-        if (filename is Value && !_isNilPackageValue(filename)) {
+        if (filename is Value && !isLuaNilSlot(filename)) {
           final modulePath = rawLuaSlot(filename).toString();
           // Return loader function
           return [

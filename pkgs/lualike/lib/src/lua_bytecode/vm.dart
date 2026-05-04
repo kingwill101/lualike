@@ -1523,7 +1523,7 @@ final class LuaBytecodeVm {
             {
               frame.setRegister(
                 word.a,
-                _runtimeValue(runtime, !_isTruthy(frame.register(word.b))),
+                _runtimeValue(runtime, !isLuaTruthy(frame.register(word.b))),
               );
               break;
             }
@@ -1886,13 +1886,13 @@ final class LuaBytecodeVm {
             }
           case 'TEST':
             {
-              _docondjump(frame, word, _isTruthy(frame.register(word.a)));
+              _docondjump(frame, word, isLuaTruthy(frame.register(word.a)));
               break;
             }
           case 'TESTSET':
             {
               final value = frame.register(word.b);
-              final shouldSkipJump = !_isTruthy(value) == word.kFlag;
+              final shouldSkipJump = !isLuaTruthy(value) == word.kFlag;
               if (shouldSkipJump) {
                 frame.pc += 1;
               } else {
@@ -2129,7 +2129,7 @@ final class LuaBytecodeVm {
             }
           case 'TFORLOOP':
             {
-              if (!_isNil(frame.register(word.a + 3))) {
+              if (!isLuaNilSlot(frame.register(word.a + 3))) {
                 frame.pc -= word.bx;
                 if (_runGcLoopSafePoint(runtime, frame) case final gcWork?) {
                   await gcWork;
@@ -2235,7 +2235,7 @@ final class LuaBytecodeVm {
             }
           case 'ERRNNIL':
             {
-              if (!_isNil(frame.register(word.a))) {
+              if (!isLuaNilSlot(frame.register(word.a))) {
                 throw LuaError('attempt to use a nil value');
               }
               break;
@@ -3758,7 +3758,7 @@ final class LuaBytecodeVm {
               ? firstArgResults.first as Value
               : _runtimeValue(runtime, firstArgResults.first)
         : firstArg;
-    if (!_isTruthy(primaryCondition)) {
+    if (!isLuaTruthy(primaryCondition)) {
       return _inlineBuiltinUnhandled;
     }
     if (word.c == 1) {
@@ -3831,7 +3831,7 @@ final class LuaBytecodeVm {
     if (luaResultValues(firstArg) != null) {
       return _inlineBuiltinUnhandled;
     }
-    return _isTruthy(firstArg) ? null : _inlineBuiltinUnhandled;
+    return isLuaTruthy(firstArg) ? null : _inlineBuiltinUnhandled;
   }
 
   Value _normalizeInlineAssertSuccessValue(Value value) {
@@ -7150,7 +7150,7 @@ final class _LuaBytecodeConditionalJumpSuspension
       }
       // Match luaV_finishOp for yielded EQ/LT/LE-family opcodes: resume with
       // the metamethod's boolean result and only then advance the pending JMP.
-      vm._docondjump(frame, word, _isTruthy(resultValue));
+      vm._docondjump(frame, word, isLuaTruthy(resultValue));
       try {
         final resumedResults = await vm._runFrameWithTailCalls(frame);
         return _packCallResults(vm.runtime, resumedResults);
@@ -8798,7 +8798,7 @@ Value _framePrimitiveValue(LuaRuntime runtime, Object? value) {
     value,
     interpreter: runtime,
     skipAllocationDebt: true,
-    skipGcRegistration: _isGcTrackingNeutralPrimitive(value),
+    skipGcRegistration: isLuaScalarPrimitiveSlot(value),
   );
 }
 
@@ -8827,9 +8827,9 @@ Value _cloneBytecodeValue(Value source) {
       isToBeClose: source.isToBeClose,
       isTempKey: source.isTempKey,
       skipAllocationDebt:
-          source.skipAllocationDebt || _isBookkeepingNeutralClone(source),
+          source.skipAllocationDebt || isLuaPrimitiveSlot(rawLuaSlot(source)),
       skipGcRegistration:
-          source.skipGcRegistration || _isGcTrackingNeutralClone(source),
+          source.skipGcRegistration || isLuaScalarPrimitiveSlot(rawLuaSlot(source)),
       upvalues: source.upvalues,
       interpreter: source.interpreter,
       functionBody: source.functionBody,
@@ -8850,9 +8850,9 @@ Value _cloneBytecodeValue(Value source) {
     isToBeClose: source.isToBeClose,
     isTempKey: source.isTempKey,
     skipAllocationDebt:
-        source.skipAllocationDebt || _isBookkeepingNeutralClone(source),
+        source.skipAllocationDebt || isLuaPrimitiveSlot(rawLuaSlot(source)),
     skipGcRegistration:
-        source.skipGcRegistration || _isGcTrackingNeutralClone(source),
+        source.skipGcRegistration || isLuaScalarPrimitiveSlot(rawLuaSlot(source)),
     upvalues: source.upvalues,
     interpreter: source.interpreter,
     functionBody: source.functionBody,
@@ -8877,20 +8877,6 @@ bool _canUsePrimitiveBytecodeClone(Value source) {
   return source.metatable == null && source.metatableRef == null;
 }
 
-bool _isBookkeepingNeutralClone(Value source) {
-  return isLuaPrimitiveSlot(rawLuaSlot(source));
-}
-
-bool _isGcTrackingNeutralClone(Value source) {
-  return _isGcTrackingNeutralPrimitive(rawLuaSlot(source));
-}
-
-bool _isGcTrackingNeutralPrimitive(Object? value) {
-  return switch (value) {
-    null || bool() || num() || BigInt() => true,
-    _ => false,
-  };
-}
 
 Value _canonicalizeBytecodeValue(Value value) {
   final raw = rawLuaSlot(value);
@@ -9068,12 +9054,7 @@ String _shortSource(String source) {
   }
 }
 
-bool _isTruthy(Value value) {
-  final raw = rawLuaSlot(value);
-  return raw != null && raw != false;
-}
 
-bool _isNil(Value value) => rawLuaSlot(value) == null;
 
 bool _isInteger(Value value) => rawLuaSlot(value) is int;
 
@@ -9199,7 +9180,7 @@ extension on LuaBytecodeVm {
       return false;
     }
     final metamethodResult = await _invokeBinaryMetamethod('__eq', left, right);
-    return metamethodResult != null && _isTruthy(metamethodResult);
+    return metamethodResult != null && isLuaTruthy(metamethodResult);
   }
 
   Future<bool> _compareOrdering(
@@ -9223,7 +9204,7 @@ extension on LuaBytecodeVm {
       right,
     );
     if (metamethodResult != null) {
-      return _isTruthy(metamethodResult);
+      return isLuaTruthy(metamethodResult);
     }
 
     throw LuaError(_orderComparisonError(left, right));
@@ -9255,7 +9236,7 @@ extension on LuaBytecodeVm {
       metamethodRight,
     );
     if (metamethodResult != null) {
-      return _isTruthy(metamethodResult);
+      return isLuaTruthy(metamethodResult);
     }
 
     throw LuaError(_orderComparisonError(metamethodLeft, metamethodRight));
@@ -9278,7 +9259,7 @@ int _tableBoundaryLength(Map<dynamic, dynamic> mapValue) {
   final occupiedPositiveIndices = <int>{};
   for (final MapEntry(:key, :value) in mapValue.entries) {
     final index = _positiveIntegerKey(key);
-    if (index == null || _isNilLike(value)) {
+    if (index == null || isLuaNilSlot(value)) {
       continue;
     }
     occupiedPositiveIndices.add(index);
@@ -9307,9 +9288,7 @@ int? _positiveIntegerKey(Object? key) {
   };
 }
 
-bool _isNilLike(Object? value) => switch (value) {
-  _ => rawLuaSlot(value) == null,
-};
+
 
 String? _stringLike(Object? value) => switch (value) {
   final LuaString stringValue => stringValue.toString(),

@@ -62,10 +62,6 @@ Environment _resolveClosureEnvironment(
 List<Object?> _cloneArgs(List<Object?> args) =>
     args.isEmpty ? const [] : List<Object?>.from(args);
 
-bool _isTrue(Object? value) {
-  final raw = rawLuaSlot(value);
-  return raw != null && raw != false;
-}
 
 String _statusToString(LuaRuntime interpreter, Coroutine coroutine) {
   final Coroutine main = interpreter.getMainThread();
@@ -337,7 +333,7 @@ class _WrappedCoroutineFunction extends BuiltinFunction
       return _interpreter.constantPrimitiveValue(null);
     }
 
-    final success = _isTrue(raw.first);
+    final success = isLuaTruthy(raw.first);
     if (!success) {
       final Object? errValue = raw.length > 1
           ? raw[1]
