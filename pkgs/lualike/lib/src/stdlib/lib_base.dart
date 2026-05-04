@@ -1060,19 +1060,20 @@ class ToStringFunction extends BuiltinFunction {
   @override
   Future<Object?> call(List<Object?> args) async {
     if (args.isEmpty) throw LuaError("tostring requires an argument");
-    final value = args[0] as Value;
+    final value = args[0];
 
     // Check for __tostring metamethod
-    if (value.hasMetamethod("__tostring")) {
+    if (value case final Value wrapped
+        when wrapped.hasMetamethod("__tostring")) {
       Logger.debugLazy(
         () =>
-            'tostring: __tostring metamethod found on value ${value.hashCode}',
+            'tostring: __tostring metamethod found on value ${wrapped.hashCode}',
         category: 'Base',
       );
       try {
         // Always use async metamethod call to ensure proper awaiting semantics
-        final awaitedResult = await value.callMetamethodAsync('__tostring', [
-          value,
+        final awaitedResult = await wrapped.callMetamethodAsync('__tostring', [
+          wrapped,
         ]);
         Logger.debugLazy(
           () =>
@@ -1128,7 +1129,7 @@ class ToStringFunction extends BuiltinFunction {
     if (rawValue is String || rawValue is LuaString) {
       return dartStringValue(rawValue.toString());
     }
-    final typeNameMeta = value.getMetamethod('__name');
+    final typeNameMeta = value is Value ? value.getMetamethod('__name') : null;
     final rawTypeName = rawLuaSlot(typeNameMeta);
     switch (rawTypeName) {
       case final String stringName:
