@@ -2290,7 +2290,8 @@ class Value extends Object implements Map<String, dynamic>, GCObject {
     final indexMeta = getMetamethod('__index');
     if (indexMeta != null) {
       final current = callMetamethod('__index', [this, _wrapRuntimeValue(key)]);
-      if (current != null && (current is Value ? current.raw != null : true)) {
+      if (current != null &&
+          (current is Value ? _rawValuePayload(current) != null : true)) {
         return current;
       }
 
@@ -2373,8 +2374,9 @@ class Value extends Object implements Map<String, dynamic>, GCObject {
         while (true) {
           // Call iterator function with state and previous key
           final List<dynamic> result;
-          if (iterFn.raw is Function) {
-            result = iterFn.raw([state, key]);
+          final rawIterFn = _rawValuePayload(iterFn);
+          if (rawIterFn is Function) {
+            result = rawIterFn([state, key]);
           } else {
             break;
           }
@@ -2385,7 +2387,8 @@ class Value extends Object implements Map<String, dynamic>, GCObject {
           }
 
           final nextKey = result[0];
-          if (nextKey == null || (nextKey is Value && nextKey.raw == null)) {
+          if (nextKey == null ||
+              (nextKey is Value && _rawValuePayload(nextKey) == null)) {
             break;
           }
 
@@ -2393,7 +2396,7 @@ class Value extends Object implements Map<String, dynamic>, GCObject {
 
           // Convert key to string for MapEntry
           final keyStr = nextKey is Value
-              ? nextKey.raw.toString()
+              ? _rawValuePayload(nextKey).toString()
               : nextKey.toString();
 
           // Make sure value is a Value
@@ -2432,12 +2435,12 @@ class Value extends Object implements Map<String, dynamic>, GCObject {
         var key = iterValues[2] as Value;
 
         while (true) {
-          final result = (iterFn.raw as Function)([state, key]);
+          final result = (_rawValuePayload(iterFn) as Function)([state, key]);
           if (result is List && result.isNotEmpty) {
             key = result[0] as Value;
-            if (key.raw == null) break;
+            if (_rawValuePayload(key) == null) break;
             final val = result[1] as Value;
-            entries.add(convert(key.raw.toString(), val));
+            entries.add(convert(_rawValuePayload(key).toString(), val));
           } else {
             break;
           }
@@ -2458,7 +2461,7 @@ class Value extends Object implements Map<String, dynamic>, GCObject {
     Logger.debugLazy(
       () =>
           'callMetamethodAsync called with $s, args: '
-          '${list.map((e) => e.raw)}',
+          '${list.map(_rawValuePayload)}',
       category: 'Value',
     );
     final debugMetamethodName = switch (s) {
@@ -2472,20 +2475,23 @@ class Value extends Object implements Map<String, dynamic>, GCObject {
     }
 
     // Special handling for __index and __newindex when they are tables
-    if (s == '__index' && method is Value && method.raw is Map) {
+    final rawMethod = _rawValuePayload(method);
+
+    if (s == '__index' && method is Value && rawMethod is Map) {
       // __index is a table. Lua repeats the lookup on that table, allowing
       // further metamethod processing.
       if (list.length >= 2) {
         final key = list[1];
         var result = method[key];
-        if (result is Value && result.raw is Future) {
-          result = await result.raw;
+        final rawResult = _rawValuePayload(result);
+        if (result is Value && rawResult is Future) {
+          result = await rawResult;
         } else if (result is Future) {
           result = await result;
         }
         return _normalizeIndexCallResult(result);
       }
-    } else if (s == '__newindex' && method is Value && method.raw is Map) {
+    } else if (s == '__newindex' && method is Value && rawMethod is Map) {
       // __newindex is a table, so repeat the assignment on that table. This
       // allows the table's own metamethods to run, matching Lua semantics.
       if (list.length >= 3) {
@@ -2521,7 +2527,7 @@ class Value extends Object implements Map<String, dynamic>, GCObject {
         method.functionName = s.substring(2);
       }
       if (s == '__index') {
-        if (method.raw is Map) {
+        if (rawMethod is Map) {
           if (list.length >= 2) {
             final key = list[1];
             return method.getValueAsync(key);
@@ -2532,7 +2538,7 @@ class Value extends Object implements Map<String, dynamic>, GCObject {
           );
         }
       } else if (s == '__newindex') {
-        if (method.raw is Map) {
+        if (rawMethod is Map) {
           if (list.length >= 3) {
             final key = list[1];
             final value = list[2];
@@ -2591,7 +2597,7 @@ class Value extends Object implements Map<String, dynamic>, GCObject {
         return result;
       }
     } else if (method is Value) {
-      if (method.raw is Function) {
+      if (rawMethod is Function) {
         final interpreter =
             method._resolveInterpreter() ?? _resolveInterpreter();
         if (interpreter != null && method._isLuaClosureValue()) {
@@ -2605,7 +2611,7 @@ class Value extends Object implements Map<String, dynamic>, GCObject {
           return result;
         }
         try {
-          var result = (method.raw as Function)(list);
+          var result = rawMethod(list);
           if (result is Future) result = await result;
           result = await normalizeTailCallSignal(result);
           return result;
@@ -2619,7 +2625,7 @@ class Value extends Object implements Map<String, dynamic>, GCObject {
           }
           return result;
         }
-      } else if (method.raw is BuiltinFunction) {
+      } else if (rawMethod is BuiltinFunction) {
         final interpreter =
             method._resolveInterpreter() ?? _resolveInterpreter();
         if (interpreter != null) {
@@ -2631,7 +2637,7 @@ class Value extends Object implements Map<String, dynamic>, GCObject {
           );
         }
         try {
-          var result = (method.raw as BuiltinFunction).call(list);
+          var result = rawMethod.call(list);
           if (result is Future) result = await result;
           return result;
         } on TailCallException catch (t) {
@@ -2644,9 +2650,9 @@ class Value extends Object implements Map<String, dynamic>, GCObject {
           }
           return result;
         }
-      } else if (method.raw is FunctionDef ||
-          method.raw is FunctionLiteral ||
-          method.raw is FunctionBody) {
+      } else if (rawMethod is FunctionDef ||
+          rawMethod is FunctionLiteral ||
+          rawMethod is FunctionBody) {
         // This is a Lua function defined as an AST node
         // We can await it here since this is an async method
         final interpreter = _resolveInterpreter();
@@ -2675,7 +2681,7 @@ class Value extends Object implements Map<String, dynamic>, GCObject {
           }
         }
         throw UnsupportedError("No interpreter available to call function");
-      } else if (method.raw is LuaCallableArtifact) {
+      } else if (rawMethod is LuaCallableArtifact) {
         final interpreter =
             method._resolveInterpreter() ?? _resolveInterpreter();
         if (interpreter != null) {
@@ -2762,9 +2768,10 @@ class Value extends Object implements Map<String, dynamic>, GCObject {
     }
 
     // Special handling for __index and __newindex when they are tables.
+    final rawMethod = _rawValuePayload(method);
     if (method is Value) {
       if (s == '__index') {
-        if (method.raw is Map) {
+        if (rawMethod is Map) {
           if (list.length >= 2) {
             final key = list[1];
             return method[key];
@@ -2775,7 +2782,7 @@ class Value extends Object implements Map<String, dynamic>, GCObject {
           );
         }
       } else if (s == '__newindex') {
-        if (method.raw is Map) {
+        if (rawMethod is Map) {
           if (list.length >= 3) {
             final key = list[1];
             final value = list[2];
@@ -2797,7 +2804,7 @@ class Value extends Object implements Map<String, dynamic>, GCObject {
       if (method.functionName == null && s.startsWith('__') && s.length > 2) {
         method.functionName = debugMetamethodName;
       }
-      if (method.raw is Function) {
+      if (rawMethod is Function) {
         final interpreter =
             method._resolveInterpreter() ?? _resolveInterpreter();
         if (interpreter != null && method._isLuaClosureValue()) {
@@ -2808,15 +2815,13 @@ class Value extends Object implements Map<String, dynamic>, GCObject {
             debugNameWhat: 'metamethod',
           );
         }
-        final result = (method.raw as Function)(list);
+        final result = rawMethod(list);
         return normalizeTailCallSignal(result);
-      } else if (method.raw is BuiltinFunction) {
-        return normalizeTailCallSignal(
-          (method.raw as BuiltinFunction).call(list),
-        );
-      } else if (method.raw is FunctionDef ||
-          method.raw is FunctionLiteral ||
-          method.raw is FunctionBody) {
+      } else if (rawMethod is BuiltinFunction) {
+        return normalizeTailCallSignal(rawMethod.call(list));
+      } else if (rawMethod is FunctionDef ||
+          rawMethod is FunctionLiteral ||
+          rawMethod is FunctionBody) {
         final interpreter = _resolveInterpreter();
         if (interpreter != null) {
           return interpreter.callFunction(
@@ -2827,7 +2832,7 @@ class Value extends Object implements Map<String, dynamic>, GCObject {
           );
         }
         throw UnsupportedError("No interpreter available to call function");
-      } else if (method.raw is LuaCallableArtifact) {
+      } else if (rawMethod is LuaCallableArtifact) {
         final interpreter = _resolveInterpreter();
         if (interpreter != null) {
           return interpreter.callFunction(
@@ -2897,13 +2902,13 @@ class Value extends Object implements Map<String, dynamic>, GCObject {
       var key = iterValues[2] as Value;
 
       while (true) {
-        final result = (iterFn.raw as Function)([state, key]);
+        final result = (_rawValuePayload(iterFn) as Function)([state, key]);
         if (result is List && result.isNotEmpty) {
           key = result[0] as Value;
-          if (key.raw == null) break;
+          if (_rawValuePayload(key) == null) break;
 
           final val = result[1] as Value;
-          if (test(key.raw.toString(), val)) {
+          if (test(_rawValuePayload(key).toString(), val)) {
             callMetamethod('__newindex', [this, key, _nilValue()]);
           }
         } else {
@@ -2937,13 +2942,13 @@ class Value extends Object implements Map<String, dynamic>, GCObject {
       var key = iterValues[2] as Value;
 
       while (true) {
-        final result = (iterFn.raw as Function)([state, key]);
+        final result = (_rawValuePayload(iterFn) as Function)([state, key]);
         if (result is List && result.isNotEmpty) {
           key = result[0] as Value;
-          if (key.raw == null) break;
+          if (_rawValuePayload(key) == null) break;
 
           final val = result[1] as Value;
-          final updatedValue = update(key.raw.toString(), val);
+          final updatedValue = update(_rawValuePayload(key).toString(), val);
           callMetamethod('__newindex', [this, key, updatedValue]);
         } else {
           break;
@@ -2973,7 +2978,8 @@ class Value extends Object implements Map<String, dynamic>, GCObject {
     final indexMeta = getMetamethod('__index');
     if (indexMeta != null) {
       final current = callMetamethod('__index', [this, _wrapRuntimeValue(key)]);
-      if (current != null && (current is Value ? current.raw != null : true)) {
+      if (current != null &&
+          (current is Value ? _rawValuePayload(current) != null : true)) {
         final updatedValue = _wrapRuntimeValue(update(current));
         callMetamethod('__newindex', [
           this,
@@ -3044,8 +3050,9 @@ class Value extends Object implements Map<String, dynamic>, GCObject {
         // - a direct Dart function (raw is Function)
         // - a Lua function (FunctionDef/FunctionBody/Literal)
         // - a table with its own __call chain
-        if (callMethod.raw is Function) {
-          final result = callMethod.raw(callArgs);
+        final rawCallMethod = _rawValuePayload(callMethod);
+        if (rawCallMethod is Function) {
+          final result = rawCallMethod(callArgs);
           return _publicCallResult(result is Future ? await result : result);
         }
         final interpreter = _resolveInterpreter();
