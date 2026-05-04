@@ -83,6 +83,8 @@ bool _shouldUseBytePatternProcessing(dynamic subject, dynamic pattern) =>
     (subject is String && _containsNonAscii(subject)) ||
     (pattern is String && _containsNonAscii(pattern));
 
+dynamic _rawStringValue(Object? value) => value is Value ? value.raw : value;
+
 String _toPatternProcessingString(dynamic value, {required bool byteLevel}) {
   if (!byteLevel) {
     return value is LuaString ? value.toString() : value.toString();
@@ -97,7 +99,7 @@ String _toPatternProcessingString(dynamic value, {required bool byteLevel}) {
 }
 
 String _stringifyPatternReplacement(dynamic value, {required bool byteLevel}) {
-  final raw = value is Value ? value.raw : value;
+  final raw = _rawStringValue(value);
   if (!byteLevel) {
     return raw.toString();
   }
@@ -119,7 +121,7 @@ dynamic _collapsePatternReplacementResult(dynamic value) {
 }
 
 String _gsubReplacementTypeName(dynamic value) {
-  final raw = value is Value ? value.raw : value;
+  final raw = _rawStringValue(value);
   return switch (raw) {
     Map _ => 'table',
     Function _ => 'function',
@@ -130,7 +132,7 @@ String _gsubReplacementTypeName(dynamic value) {
 }
 
 dynamic _validateGsubReplacementValue(dynamic value) {
-  final raw = value is Value ? value.raw : value;
+  final raw = _rawStringValue(value);
   if (raw == null || raw == false) {
     return raw;
   }
@@ -985,7 +987,7 @@ Object? _tryFormatBareString(_FormatContext ctx) {
   }
 
   final value = ctx.value;
-  final rawValue = value is Value ? value.raw : value;
+  final rawValue = _rawStringValue(value);
   if (value is Value) {
     if (value.hasMetamethod('__tostring')) {
       return null;
@@ -1011,7 +1013,7 @@ Future<Object> _formatString(_FormatContext ctx) async {
 
   // Check for null bytes in string when width is specified (Lua requirement)
   if (ctx.widthValue > 0) {
-    final rawValue = value is Value ? value.raw : value;
+    final rawValue = _rawStringValue(value);
     if (rawValue is String && rawValue.contains('\u0000')) {
       throw LuaError(
         "bad argument #${ctx.valueIndex} to 'format' (string contains zeros)",
@@ -1063,7 +1065,7 @@ Future<Object> _formatString(_FormatContext ctx) async {
     }
   }
 
-  final rawValue = value is Value ? value.raw : value;
+  final rawValue = _rawStringValue(value);
 
   if (rawValue is LuaString) {
     // For %s format, preserve the original bytes but handle precision and padding
@@ -1113,7 +1115,7 @@ Future<Object> _formatString(_FormatContext ctx) async {
 }
 
 LuaString _formatCharacter(_FormatContext ctx) {
-  final rawValue = ctx.value is Value ? (ctx.value as Value).raw : ctx.value;
+  final rawValue = _rawStringValue(ctx.value);
   if (rawValue is! num && rawValue is! BigInt) {
     throw LuaError.typeError(
       "bad argument #${ctx.valueIndex} to 'format' (number expected, got ${NumberUtils.typeName(rawValue)})",
@@ -1140,7 +1142,7 @@ LuaString _formatCharacter(_FormatContext ctx) {
 }
 
 String _formatPointer(_FormatContext ctx) {
-  dynamic raw = ctx.value is Value ? (ctx.value as Value).raw : ctx.value;
+  final raw = _rawStringValue(ctx.value);
 
   // Scalars → "(null)"
   if (raw == null || raw is num || raw is bool) {
@@ -1247,7 +1249,7 @@ String _formatLargeNumber(double value, int precision) {
 }
 
 String _formatFloat(_FormatContext ctx, bool uppercase) {
-  final rawValue = ctx.value is Value ? (ctx.value as Value).raw : ctx.value;
+  final rawValue = _rawStringValue(ctx.value);
   if (rawValue is! num && rawValue is! BigInt) {
     throw LuaError.typeError(
       "bad argument #${ctx.valueIndex} to 'format' (number expected, got ${NumberUtils.typeName(rawValue)})",
@@ -1289,7 +1291,7 @@ String _formatFloat(_FormatContext ctx, bool uppercase) {
 }
 
 String _formatScientific(_FormatContext ctx, bool uppercase) {
-  final rawValue = ctx.value is Value ? (ctx.value as Value).raw : ctx.value;
+  final rawValue = _rawStringValue(ctx.value);
   if (rawValue is! num && rawValue is! BigInt) {
     throw LuaError.typeError(
       "bad argument #${ctx.valueIndex} to 'format' (number expected, got ${NumberUtils.typeName(rawValue)})",
@@ -1333,7 +1335,7 @@ String _formatScientific(_FormatContext ctx, bool uppercase) {
 }
 
 String _formatHexFloat(_FormatContext ctx, bool uppercase) {
-  final rawValue = ctx.value is Value ? (ctx.value as Value).raw : ctx.value;
+  final rawValue = _rawStringValue(ctx.value);
   if (rawValue is! num && rawValue is! BigInt) {
     throw LuaError.typeError(
       "bad argument #${ctx.valueIndex} to 'format' (number expected, got ${NumberUtils.typeName(rawValue)})",
@@ -1409,7 +1411,7 @@ String _formatHexFloat(_FormatContext ctx, bool uppercase) {
 }
 
 String _formatInteger(_FormatContext ctx, {bool unsigned = false}) {
-  final rawValue = ctx.value is Value ? (ctx.value as Value).raw : ctx.value;
+  final rawValue = _rawStringValue(ctx.value);
   if (rawValue is! num && rawValue is! BigInt) {
     throw LuaError.typeError(
       "bad argument #${ctx.valueIndex} to 'format' (number expected, got ${NumberUtils.typeName(rawValue)})",
@@ -1455,7 +1457,7 @@ String _formatInteger(_FormatContext ctx, {bool unsigned = false}) {
 }
 
 String _formatHex(_FormatContext ctx, bool uppercase) {
-  final rawValue = ctx.value is Value ? (ctx.value as Value).raw : ctx.value;
+  final rawValue = _rawStringValue(ctx.value);
   if (rawValue is! num && rawValue is! BigInt) {
     throw LuaError.typeError(
       "bad argument #${ctx.valueIndex} to 'format' (number expected, got ${NumberUtils.typeName(rawValue)})",
@@ -1536,7 +1538,7 @@ class _FormatContext {
 }
 
 String _formatOctal(_FormatContext ctx) {
-  final rawValue = ctx.value is Value ? (ctx.value as Value).raw : ctx.value;
+  final rawValue = _rawStringValue(ctx.value);
   if (rawValue is! num && rawValue is! BigInt) {
     throw LuaError.typeError(
       "bad argument #${ctx.valueIndex} to 'format' (number expected, got ${NumberUtils.typeName(rawValue)})",
@@ -1568,7 +1570,7 @@ String _formatOctal(_FormatContext ctx) {
 }
 
 LuaString _formatQuoted(_FormatContext ctx) {
-  final rawValue = ctx.value is Value ? (ctx.value as Value).raw : ctx.value;
+  final rawValue = _rawStringValue(ctx.value);
 
   // Handle different types according to Lua %q specification
   if (rawValue == null) {
@@ -3703,7 +3705,7 @@ class _StringUpper extends BuiltinFunction {
 }
 
 String _formatGeneral(_FormatContext ctx, bool uppercase) {
-  final rawValue = ctx.value is Value ? (ctx.value as Value).raw : ctx.value;
+  final rawValue = _rawStringValue(ctx.value);
   if (rawValue is! num && rawValue is! BigInt) {
     throw LuaError.typeError(
       "bad argument #${ctx.valueIndex} to 'format' (number expected, got ${NumberUtils.typeName(rawValue)})",
