@@ -1212,7 +1212,26 @@ class LualikeIrVm {
         case LualikeIrOpcode.tbc:
           {
             final instr = instruction as ABCInstruction;
-            frame.markToBeClosed(instr.a);
+            // Mark register A as a to-be-closed variable. If the value lacks
+            // a __close metamethod, markToBeClosed raises LuaError with the
+            // base message. Rewrite it to include the local variable name
+            // using the debug-info map keyed by PC so that pcall surfaces
+            // "variable '<name>' got a non-closable value" per Lua 5.4 spec.
+            try {
+              frame.markToBeClosed(instr.a);
+            } on LuaError catch (error) {
+              if (error.message ==
+                  'to-be-closed variable value must have a __close metamethod') {
+                final localName = frame.prototype.debugInfo
+                    ?.toBeClosedNamesByPc[frame.pc - 1];
+                if (localName != null) {
+                  throw LuaError(
+                    "variable '$localName' got a non-closable value",
+                  );
+                }
+              }
+              rethrow;
+            }
             break;
           }
         case LualikeIrOpcode.shl:
