@@ -1627,9 +1627,21 @@ final class LuaBytecodeVm {
             }
           case 'TBC':
             {
+              // Mark register A as a to-be-closed variable. If the value has
+              // no __close metamethod, Value.toBeClose throws UnsupportedError.
+              // markToBeClosed wraps that in LuaError with the Lua message, but
+              // in some code paths (e.g. shared-primitive detach variants) the
+              // UnsupportedError can escape unwrapped. Both catch arms normalise
+              // the error and produce the Lua-spec message
+              // "variable '<name>' got a non-closable value" when debug info is
+              // available, so pcall sees a proper Lua string rather than a raw
+              // Dart exception toString().
               try {
                 frame.markToBeClosed(word.a);
               } on LuaError catch (error) {
+                // markToBeClosed already wrapped the UnsupportedError; rewrite
+                // the message to include the local variable name if debug info
+                // is present and the message hasn't been rewritten yet.
                 final localName = frame.localNameForError(word.a);
                 if (localName != null &&
                     error.message ==
@@ -1639,6 +1651,20 @@ final class LuaBytecodeVm {
                   );
                 }
                 rethrow;
+              } on UnsupportedError catch (error) {
+                // Belt-and-suspenders: catch UnsupportedError that escapes
+                // markToBeClosed unwrapped (e.g. thrown by a code path
+                // introduced by refactoring before the inner try/catch).
+                // Apply the same local-name rewrite so the error message is
+                // always Lua-spec compliant.
+                final localName = frame.localNameForError(word.a);
+                final baseMessage = error.message ?? error.toString();
+                final message = localName != null &&
+                        baseMessage ==
+                            'to-be-closed variable value must have a __close metamethod'
+                    ? "variable '$localName' got a non-closable value"
+                    : baseMessage;
+                throw LuaError(message);
               }
               break;
             }
@@ -6841,7 +6867,11 @@ final class _LuaBytecodeFrame implements LuaBytecodeGCRootProvider {
                   'to-be-closed variable value must have a __close metamethod'
           ? "variable '$localName' got a non-closable value"
           : baseMessage;
-      throw LuaError(message, cause: error, stackTrace: stackTrace);
+      // Do NOT pass cause: the UnsupportedError as cause would be
+      // unwrapped by the protected-call error path when isInProtectedCall
+      // is true, causing pcall to surface the raw Dart exception instead
+      // of the formatted Lua message.
+      throw LuaError(message);
     }
   }
 
@@ -6881,10 +6911,10 @@ final class _LuaBytecodeFrame implements LuaBytecodeGCRootProvider {
         final message = localName != null
             ? "variable '$localName' got a non-closable value"
             : (error.message ?? error.toString());
-        Error.throwWithStackTrace(
-          LuaError(message, cause: error, stackTrace: stackTrace),
-          stackTrace,
-        );
+        // Do NOT pass cause: the UnsupportedError as cause would be
+        // unwrapped by the protected-call error path when isInProtectedCall
+        // is true, surfacing the raw Dart exception via pcall.
+        Error.throwWithStackTrace(LuaError(message), stackTrace);
       }
       closeValue.interpreter ??= runtime;
       try {
