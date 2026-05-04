@@ -1019,7 +1019,7 @@ mixin InterpreterExpressionMixin on AstVisitor<Object?> {
         category: 'Expression',
       );
     }
-    return result is Value ? result : _wrapExpressionValue(interpreter, result);
+    return _wrapExpressionValue(interpreter, result);
   }
 
   /// Evaluates a variable reference.
