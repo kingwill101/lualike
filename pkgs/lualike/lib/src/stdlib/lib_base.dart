@@ -950,17 +950,15 @@ class PrintFunction extends BuiltinFunction {
         continue;
       }
 
-      final value = arg as Value;
-
       // Check for __tostring metamethod first
-      if (value.hasMetamethod("__tostring")) {
+      if (arg case final Value value when value.hasMetamethod("__tostring")) {
         final result = await value.callMetamethodAsync('__tostring', [value]);
         final awaited = result is Value ? result.unwrap() : result;
         outputs.add(awaited.toString());
         continue;
       }
 
-      final rawValue = rawLuaSlot(value);
+      final rawValue = rawLuaSlot(arg);
 
       // Handle different types
       if (rawValue is num || rawValue is BigInt) {
@@ -975,11 +973,11 @@ class PrintFunction extends BuiltinFunction {
       } else if (rawValue is Map) {
         outputs.add("table: ${rawValue.hashCode}");
       } else if (rawValue is Function || rawValue is BuiltinFunction) {
-        outputs.add("function: ${value.hashCode}");
+        outputs.add("function: ${arg.hashCode}");
       } else if (rawValue is Future) {
         outputs.add("list: ${rawValue.hashCode}");
       } else {
-        outputs.add(value.toString());
+        outputs.add(arg.toString());
       }
     }
 
@@ -1223,8 +1221,8 @@ class LoadFunction extends BuiltinFunction {
     if (source is! Value) {
       throw LuaError("load() first argument must be a string");
     }
-    final nameArg = args.length > 1 ? args[1] as Value : null;
-    final modeArg = args.length > 2 ? args[2] as Value : null;
+    final nameArg = args.length > 1 ? args[1] : null;
+    final modeArg = args.length > 2 ? args[2] : null;
     final envArg = args.length > 3 ? args[3] as Value : null;
     final rawSource = rawLuaSlot(source);
 
@@ -2230,13 +2228,13 @@ class RawGetFunction extends BuiltinFunction {
       throw LuaError("rawget requires table and index arguments");
     }
 
-    final table = args[0] as Value;
+    final table = args[0];
     final rawTable = rawLuaSlot(table);
     if (rawTable is! Map) {
       throw LuaError("rawget requires a table as first argument");
     }
 
-    final key = args[1] as Value;
+    final key = args[1];
 
     // Use raw key like normal table operations and rawset do
     var rawKey = rawLuaSlot(key);
