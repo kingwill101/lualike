@@ -5468,7 +5468,7 @@ final class LuaBytecodeVm {
     final rawTable = table.raw;
     if (_canFastPathGlobalProxyTableGet(table, key)) {
       final result = (rawTable as Map)[_plainTableStorageKey(key)];
-      return result is Value ? result : _runtimeValue(runtime, result);
+      return _runtimeValue(runtime, result);
     }
     // Weak tables rely on Value's normal key normalization and memory-credit
     // bookkeeping. `__mode` is not a metamethod, so keep them off the raw
@@ -5481,11 +5481,11 @@ final class LuaBytecodeVm {
         final int index => rawTable.arrayValueAt(index),
         _ => rawTable[_plainTableStorageKey(key)],
       };
-      return result is Value ? result : _runtimeValue(runtime, result);
+      return _runtimeValue(runtime, result);
     }
     if (rawTable is Map && !hasWeakMode && !table.hasMetamethod('__index')) {
       final result = rawTable[_plainTableStorageKey(key)];
-      return result is Value ? result : _runtimeValue(runtime, result);
+      return _runtimeValue(runtime, result);
     }
     return null;
   }
@@ -5498,7 +5498,7 @@ final class LuaBytecodeVm {
         table.tableWeakMode == null) {
       final result = rawTable[rawKey];
       if (result != null || rawTable.containsKey(rawKey)) {
-        return result is Value ? result : _runtimeValue(runtime, result);
+        return _runtimeValue(runtime, result);
       }
     }
     final hasWeakMode = table.tableWeakMode != null;
@@ -5506,11 +5506,11 @@ final class LuaBytecodeVm {
         !hasWeakMode &&
         !table.hasMetamethod('__index')) {
       final result = rawTable[rawKey];
-      return result is Value ? result : _runtimeValue(runtime, result);
+      return _runtimeValue(runtime, result);
     }
     if (rawTable is Map && !hasWeakMode && !table.hasMetamethod('__index')) {
       final result = rawTable[rawKey];
-      return result is Value ? result : _runtimeValue(runtime, result);
+      return _runtimeValue(runtime, result);
     }
     return null;
   }
