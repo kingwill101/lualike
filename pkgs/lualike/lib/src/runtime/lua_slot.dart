@@ -170,6 +170,7 @@ Value freshValueFromLuaSlot(
 /// This keeps primitive/string-cache policy centralized while preserving the
 /// lighter generic slot wrapper for objects, tables, and result carriers.
 Value cachedPrimitiveOrValue(LuaRuntime? runtime, LuaSlot slot) {
+  if (slot is Value) return slot; // Already wrapped, no work needed
   if (isLuaScalarPrimitiveSlot(slot)) {
     return runtime?.constantPrimitiveValue(slot) ?? Value.primitive(slot);
   }
