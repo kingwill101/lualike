@@ -445,7 +445,7 @@ class LuaFile {
   }
 }
 
-final class _LuaFileLineIterator extends BuiltinFunction implements GCObject {
+final class _LuaFileLineIterator extends BuiltinFunction with GCObject {
   _LuaFileLineIterator({
     required this.file,
     required this.formats,

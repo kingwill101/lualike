@@ -179,7 +179,7 @@ class LuaValueMetadata {
 /// Values can hold any Dart object and optionally have an associated metatable
 /// that defines their behavior for various operations. Values that represent
 /// tables implement the Map interface for easy interaction with Dart code.
-class Value extends Object implements Map<String, dynamic>, GCObject {
+class Value with GCObject implements Map<String, dynamic> {
   /// The underlying raw value being wrapped.
   dynamic _raw;
 
