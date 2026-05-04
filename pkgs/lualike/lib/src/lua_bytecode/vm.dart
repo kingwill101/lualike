@@ -2899,7 +2899,6 @@ final class LuaBytecodeVm {
       }
     })();
     final value = _firstResultValue(runtime, result);
-    value.interpreter ??= runtime;
     return value;
   }
 
@@ -8917,7 +8916,7 @@ Value _firstResultValue(LuaRuntime runtime, Object? result) {
         : _runtimeValue(runtime, values.first);
   }
   if (result case final Value value) {
-    return value;
+    return valueFromLuaSlot(runtime, value);
   }
   return _runtimeValue(runtime, result);
 }
