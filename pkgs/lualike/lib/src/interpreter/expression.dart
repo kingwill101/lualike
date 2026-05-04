@@ -139,11 +139,10 @@ mixin InterpreterExpressionMixin on AstVisitor<Object?> {
 
     while (env != null) {
       if (!identical(env, closureBoundary)) {
-        if (env.values.containsKey(node.name) &&
-            env.values[node.name]!.isLocal) {
-          final val = env.values[node.name]!.value;
+        final slot = env.values[node.name];
+        if (slot != null && slot.isLocal) {
           return (
-            _wrapMutableLocalReadValue(interpreter, val),
+            _wrapMutableLocalReadValue(interpreter, slot.value),
             false,
             closureBoundary,
           );
