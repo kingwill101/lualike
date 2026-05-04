@@ -5,6 +5,7 @@ import 'package:lualike/src/number_limits.dart';
 import 'package:lualike/src/number_utils.dart';
 import 'package:lualike/src/runtime/lua_slot.dart';
 import 'package:lualike/src/runtime/lua_runtime.dart';
+import 'package:lualike/src/table_storage.dart' show isLuaNilValue;
 import 'package:lualike/src/value.dart';
 
 Value packVarargsTable(List<Object?> varargs, {LuaRuntime? runtime}) {
@@ -82,7 +83,7 @@ final class PackedVarargTable extends MapBase<dynamic, dynamic>
     final wrapped = _wrapValue(value);
 
     if (rawKey == 'n') {
-      if (value == null || (value is Value && value.raw == null)) {
+      if (isLuaNilValue(value)) {
         _extra.remove('n');
       } else {
         _extra['n'] = wrapped;
@@ -96,7 +97,7 @@ final class PackedVarargTable extends MapBase<dynamic, dynamic>
       return;
     }
 
-    if (value == null || (value is Value && value.raw == null)) {
+    if (isLuaNilValue(value)) {
       _extra.remove(rawKey);
     } else {
       _extra[rawKey] = wrapped;
