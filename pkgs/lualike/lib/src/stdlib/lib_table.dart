@@ -27,7 +27,8 @@ class TableLibrary extends Library {
       final key = args[1] as Value;
 
       // Convert key to string if needed
-      final keyStr = key.raw is String ? key.raw as String : key.toString();
+      final rawKey = _rawTableValue(key);
+      final keyStr = rawKey is String ? rawKey : key.toString();
 
       // Return the function from our registry if it exists
       switch (keyStr) {
@@ -77,7 +78,7 @@ class TablePermission {
 /// Check that 'table' either is a table or can behave like one (that is,
 /// has a metatable with the required metamethods)
 void checktab(Value table, int what) {
-  if (table.raw is! Map) {
+  if (_rawTableValue(table) is! Map) {
     /* is it not a table? */
     if (table.metatable != null) {
       /* must have metatable */
@@ -113,44 +114,24 @@ Future<int> getTableLength(Value table, {String? context}) async {
         () =>
             "getTableLength: lenResult = $lenResult, type = ${lenResult.runtimeType}",
       );
-      if (lenResult is Value) {
-        final lenValue = lenResult.raw;
-        if (lenValue is! int && lenValue is! BigInt) {
-          throw LuaError("object length is not an integer");
-        }
-        // Try to convert to int, but catch conversion errors
-        try {
-          return NumberUtils.toInt(lenValue);
-        } catch (e) {
-          // If conversion fails due to size, handle based on context
-          if (lenValue is BigInt &&
-              lenValue >= BigInt.from(NumberLimits.maxInt32)) {
-            if (context == "table.sort") {
-              throw LuaError("bad argument #1 to 'table.sort' (array too big)");
-            } else {
-              throw LuaError("object length is not an integer");
-            }
-          }
-          rethrow;
-        }
-      } else if (lenResult is int || lenResult is BigInt) {
-        // Try to convert to int, but catch conversion errors
-        try {
-          return NumberUtils.toInt(lenResult);
-        } catch (e) {
-          // If conversion fails due to size, handle based on context
-          if (lenResult is BigInt &&
-              lenResult >= BigInt.from(NumberLimits.maxInt32)) {
-            if (context == "table.sort") {
-              throw LuaError("bad argument #1 to 'table.sort' (array too big)");
-            } else {
-              throw LuaError("object length is not an integer");
-            }
-          }
-          rethrow;
-        }
-      } else {
+      final lenValue = _rawTableValue(lenResult);
+      if (lenValue is! int && lenValue is! BigInt) {
         throw LuaError("object length is not an integer");
+      }
+      // Try to convert to int, but catch conversion errors
+      try {
+        return NumberUtils.toInt(lenValue);
+      } catch (e) {
+        // If conversion fails due to size, handle based on context
+        if (lenValue is BigInt &&
+            lenValue >= BigInt.from(NumberLimits.maxInt32)) {
+          if (context == "table.sort") {
+            throw LuaError("bad argument #1 to 'table.sort' (array too big)");
+          } else {
+            throw LuaError("object length is not an integer");
+          }
+        }
+        rethrow;
       }
     } catch (e) {
       // If the metamethod throws an error, we should propagate it
@@ -159,7 +140,7 @@ Future<int> getTableLength(Value table, {String? context}) async {
   }
 
   // No __len metamethod, use regular table length calculation
-  return switch (table.raw) {
+  return switch (_rawTableValue(table)) {
     final TableStorage storage => storage.luaLengthBoundary(),
     final Map<dynamic, dynamic> map => _getTableLength(map),
     _ => throw LuaError.typeError("table expected"),
@@ -285,7 +266,7 @@ class _TableInsert extends BuiltinFunction {
       value = args[1];
     } else {
       // table, pos, value
-      pos = _wrapTableLibraryValue(interpreter, args[1]).raw as int;
+      pos = _rawTableValue(args[1]) as int;
       value = args[2];
       // Check bounds: 1 <= pos <= firstEmpty
       if (pos < 1 || pos > firstEmpty) {
@@ -317,9 +298,7 @@ class _TableRemove extends BuiltinFunction {
     checktab(table, TablePermission.read | TablePermission.write);
 
     final size = await getTableLength(table);
-    final pos = args.length > 1
-        ? _wrapTableLibraryValue(interpreter, args[1]).raw as int
-        : size;
+    final pos = args.length > 1 ? _rawTableValue(args[1]) as int : size;
 
     if (pos == 0 && size > 0) {
       throw LuaError("bad argument #2 to 'remove' (position out of bounds)");
@@ -365,14 +344,10 @@ class _TableConcat extends BuiltinFunction {
     final table = _wrapTableLibraryValue(interpreter, args[0]);
     checktab(table, TablePermission.read);
 
-    final separatorValue = args.length > 1
-        ? _wrapTableLibraryValue(interpreter, args[1]).raw
-        : "";
-    final start = args.length > 2
-        ? _wrapTableLibraryValue(interpreter, args[2]).raw as int
-        : 1;
+    final separatorValue = args.length > 1 ? _rawTableValue(args[1]) : "";
+    final start = args.length > 2 ? _rawTableValue(args[2]) as int : 1;
     final end = args.length > 3
-        ? _wrapTableLibraryValue(interpreter, args[3]).raw as int
+        ? _rawTableValue(args[3]) as int
         : await getTableLength(table);
 
     // Empty ranges return an empty LuaString when the separator is byte-backed
@@ -394,13 +369,13 @@ class _TableConcat extends BuiltinFunction {
         i,
         runtime: interpreter,
       );
-      if (value.raw == null) {
+      final rawValue = _rawTableValue(value);
+      if (rawValue == null) {
         // Lua throws an error when encountering nil values in the range
         throw LuaError("invalid value (nil) at index $i in table for 'concat'");
       }
 
       // Validate that the value is a string or number
-      final rawValue = value.raw;
       NumberUtils.validateStringOrNumber(rawValue, 'concat', i);
       parts.add(rawValue);
 
@@ -465,18 +440,12 @@ class _TableMove extends BuiltinFunction {
     // Ensure all arguments are Value objects
     final a1 = _wrapTableLibraryValue(interpreter, args[0]);
     Logger.debugLazy(
-      () => "_TableMove: a1 = $a1, type = ${a1.raw.runtimeType}",
+      () => "_TableMove: a1 = $a1, type = ${_rawTableValue(a1).runtimeType}",
     );
 
-    final f = NumberUtils.toInt(
-      _wrapTableLibraryValue(interpreter, args[1]).raw,
-    );
-    final e = NumberUtils.toInt(
-      _wrapTableLibraryValue(interpreter, args[2]).raw,
-    );
-    final t = NumberUtils.toInt(
-      _wrapTableLibraryValue(interpreter, args[3]).raw,
-    );
+    final f = NumberUtils.toInt(_rawTableValue(args[1]));
+    final e = NumberUtils.toInt(_rawTableValue(args[2]));
+    final t = NumberUtils.toInt(_rawTableValue(args[3]));
     final a2 = args.length > 4
         ? _wrapTableLibraryValue(interpreter, args[4])
         : a1;
@@ -588,11 +557,12 @@ class _TableSort extends BuiltinFunction {
       rethrow;
     }
     final comp = args.length > 1 ? args[1] : null;
+    final rawTable = _rawTableValue(table);
     final rawSequenceTable =
-        table.raw is Map &&
+        rawTable is Map &&
         table.getMetamethod('__index') == null &&
         table.getMetamethod('__newindex') == null;
-    final map = rawSequenceTable ? table.raw as Map : null;
+    final map = rawSequenceTable ? rawTable : null;
 
     // Validate comparison function if provided
     if (comp != null && comp is! Value) {
@@ -1235,7 +1205,8 @@ class _TableUnpack extends BuiltinFunction {
     checktab(table, TablePermission.read);
     if (log) {
       Logger.debugLazy(
-        () => "_TableUnpack: Got table value ${table.raw.runtimeType}",
+        () =>
+            "_TableUnpack: Got table value ${_rawTableValue(table).runtimeType}",
       );
     }
 
@@ -1243,20 +1214,20 @@ class _TableUnpack extends BuiltinFunction {
 
     // Handle start index (default to 1)
     if (args.length > 1) {
-      final startArg = args[1] as Value;
+      final startArg = _rawTableValue(args[1]);
       if (log) {
         Logger.debugLazy(
           () =>
-              "_TableUnpack: Start arg raw value: ${startArg.raw}, type: ${startArg.raw.runtimeType}",
+              "_TableUnpack: Start arg raw value: $startArg, type: ${startArg.runtimeType}",
         );
       }
-      if (startArg.raw == null) {
+      if (startArg == null) {
         throw LuaError.typeError(
           "bad argument #2 to 'unpack' (number expected, got nil)",
         );
       }
       try {
-        i = NumberUtils.toInt(startArg.raw);
+        i = NumberUtils.toInt(startArg);
         if (log) {
           Logger.debugLazy(
             () =>
@@ -1282,14 +1253,14 @@ class _TableUnpack extends BuiltinFunction {
 
     // Handle end index (default to table length using Lua semantics)
     if (args.length > 2) {
-      final endArg = args[2] as Value;
+      final endArg = _rawTableValue(args[2]);
       if (log) {
         Logger.debugLazy(
           () =>
-              "_TableUnpack: End arg raw value: ${endArg.raw}, type: ${endArg.raw.runtimeType}",
+              "_TableUnpack: End arg raw value: $endArg, type: ${endArg.runtimeType}",
         );
       }
-      if (endArg.raw == null) {
+      if (endArg == null) {
         // nil means use table length (same as not providing the argument)
         if (log) {
           Logger.debugLazy(
@@ -1299,7 +1270,7 @@ class _TableUnpack extends BuiltinFunction {
         j = await getTableLength(table, context: null);
       } else {
         try {
-          j = NumberUtils.toInt(endArg.raw);
+          j = NumberUtils.toInt(endArg);
           if (log) {
             Logger.debugLazy(
               () =>
