@@ -471,7 +471,8 @@ final class LuaBytecodeVm {
           );
           final callee = prepared.callee;
           final tailNameInfo = _decodeTailCallNameInfo(tail.callName);
-          if (callee.raw case final LuaBytecodeClosure nextClosure) {
+          if (_rawBytecodeValue(callee)
+              case final LuaBytecodeClosure nextClosure) {
             currentClosure = nextClosure;
             currentArgs = prepared.args;
             currentFunctionValue = callee;
@@ -510,7 +511,8 @@ final class LuaBytecodeVm {
     var extraArgs = 0;
     while (true) {
       callee.interpreter ??= runtime;
-      switch (callee.raw) {
+      final rawCallee = _rawBytecodeValue(callee);
+      switch (rawCallee) {
         case LuaBytecodeClosure():
         case Function():
         case BuiltinFunction():
@@ -519,8 +521,8 @@ final class LuaBytecodeVm {
         case FunctionBody():
         case LuaCallableArtifact():
           return (callee: callee, args: args, extraArgs: extraArgs);
-        case String():
-          final rebound = runtime.globals.get(callee.raw);
+        case final String name:
+          final rebound = runtime.globals.get(name);
           if (rebound != null) {
             callee = rebound;
             continue;
@@ -558,7 +560,8 @@ final class LuaBytecodeVm {
     runtime.currentScriptPath = activeScriptPath;
     runtime.callStack.setScriptPath(activeScriptPath);
     final callableValue = switch (frame.functionValue) {
-      final Value functionValue when functionValue.raw is LuaBytecodeClosure =>
+      final Value functionValue
+          when _rawBytecodeValue(functionValue) is LuaBytecodeClosure =>
         _hydrateClosureCallableValue(
           functionValue,
           closure,
@@ -780,7 +783,8 @@ final class LuaBytecodeVm {
               .toList(growable: false),
         );
         final callee = prepared.callee;
-        if (callee.raw case final LuaBytecodeClosure nextClosure) {
+        if (_rawBytecodeValue(callee)
+            case final LuaBytecodeClosure nextClosure) {
           try {
             return await invoke(
               nextClosure,
@@ -965,7 +969,7 @@ final class LuaBytecodeVm {
                   frame,
                   receiver,
                   error,
-                  labelOverride: "global '${key.raw}'",
+                  labelOverride: "global '${_rawBytecodeValue(key)}'",
                 );
               }
               break;
@@ -1046,7 +1050,7 @@ final class LuaBytecodeVm {
                   frame,
                   receiver,
                   error,
-                  labelOverride: "global '${key.raw}'",
+                  labelOverride: "global '${_rawBytecodeValue(key)}'",
                 );
               }
               break;
@@ -1897,13 +1901,13 @@ final class LuaBytecodeVm {
             {
               try {
                 final callee = frame.register(word.a);
+                final rawCallee = _rawBytecodeValue(callee);
                 if (profile case final activeProfile?) {
                   activeProfile.recordCallTarget(
                     _callSiteTargetLabel(frame, word.a, callee) ??
-                        callee.raw.runtimeType.toString(),
+                        rawCallee.runtimeType.toString(),
                   );
                 }
-                final rawCallee = callee.raw;
                 if (_debugInterpreter?.debugHookFunction == null &&
                     rawCallee is BuiltinFunction &&
                     word.b != 0) {
@@ -1933,7 +1937,7 @@ final class LuaBytecodeVm {
                       word.b >= 2 && word.a + 1 < frame.registers.length
                       ? frame.register(word.a + 1)
                       : null;
-                  final receiverDetail = switch (receiver?.raw) {
+                  final receiverDetail = switch (_rawBytecodeValue(receiver)) {
                     final LuaFile file =>
                       ' receiverValue=${identityHashCode(receiver)}'
                           ' receiverRaw=${identityHashCode(file)}'
@@ -1942,7 +1946,7 @@ final class LuaBytecodeVm {
                   };
                   _debugFileLog(
                     'CALL pc=${frame.pc - 1} a=${word.a} b=${word.b} c=${word.c} '
-                    'callee=${callee.raw.runtimeType} name=${nameInfo.name}'
+                    'callee=${rawCallee.runtimeType} name=${nameInfo.name}'
                     '$receiverDetail',
                   );
                 }
@@ -2023,7 +2027,7 @@ final class LuaBytecodeVm {
                 final tailNameInfo = _decodeTailCallNameInfo(tailName);
                 final prepared = _flattenTailCallable(call.callee, call.args);
                 final callee = prepared.callee;
-                if (callee.raw case LuaBytecodeClosure()) {
+                if (_rawBytecodeValue(callee) case LuaBytecodeClosure()) {
                   await _closeFrameForCoroutine(frame, error: null);
                   throw TailCallException(
                     callee,
@@ -3042,7 +3046,7 @@ final class LuaBytecodeVm {
     int calleeRegister,
   ) {
     final callee = frame.register(calleeRegister);
-    final raw = callee.raw;
+    final raw = _rawBytecodeValue(callee);
     return raw is BuiltinFunction && _canInlineBuiltinWithoutManagedFrame(raw);
   }
 
@@ -3163,7 +3167,7 @@ final class LuaBytecodeVm {
   ) async {
     final call = _resolveCall(frame, word);
     if (_debugInterpreter?.debugHookFunction == null) {
-      final rawCallee = call.callee.raw;
+      final rawCallee = _rawBytecodeValue(call.callee);
       if (rawCallee is BuiltinFunction &&
           _canInlineBuiltinWithoutManagedFrame(rawCallee) &&
           !(runtime.isInProtectedCall && rawCallee.isBytecodeAssertBuiltin)) {
@@ -3512,7 +3516,7 @@ final class LuaBytecodeVm {
     args = prepared.args;
     extraArgs += prepared.extraArgs;
     if (_debugInterpreter?.debugHookFunction == null) {
-      final rawCallee = callee.raw;
+      final rawCallee = _rawBytecodeValue(callee);
       if (rawCallee is BuiltinFunction &&
           _canInlineBuiltinWithoutManagedFrame(rawCallee) &&
           !(runtime.isInProtectedCall && rawCallee.isBytecodeAssertBuiltin)) {
@@ -3562,7 +3566,7 @@ final class LuaBytecodeVm {
     if (protectedCallResult != null) {
       return protectedCallResult;
     }
-    if (callee.raw case final LuaBytecodeClosure closure) {
+    if (_rawBytecodeValue(callee) case final LuaBytecodeClosure closure) {
       return invoke(
         closure,
         args,
@@ -3913,17 +3917,18 @@ final class LuaBytecodeVm {
     if (args.isEmpty ||
         callNameWhat != 'field' ||
         (callName != 'create' && callName != 'wrap') ||
-        callee.raw is! BuiltinFunction) {
+        _rawBytecodeValue(callee) is! BuiltinFunction) {
       return args;
     }
 
     final functionArg = args.first;
-    if (functionArg.raw is! LuaBytecodeClosure ||
+    final rawFunctionArg = _rawBytecodeValue(functionArg);
+    if (rawFunctionArg is! LuaBytecodeClosure ||
         functionArg.functionBody == null) {
       return args;
     }
 
-    final closure = functionArg.raw as LuaBytecodeClosure;
+    final closure = rawFunctionArg;
     final strippedFunction = Value(
       closure,
       isConst: functionArg.isConst,
@@ -3949,7 +3954,7 @@ final class LuaBytecodeVm {
     int extraArgs = 0,
     _LuaBytecodeFrame? callerFrame,
   }) {
-    final rawBuiltin = callee.raw;
+    final rawBuiltin = _rawBytecodeValue(callee);
     if (rawBuiltin is! BuiltinFunction) {
       return null;
     }
@@ -3961,14 +3966,18 @@ final class LuaBytecodeVm {
       return null;
     }
     _bindCallerFrameForDebugInspection(callerFrame);
-    final level = args.isNotEmpty ? _coerceLuaInteger(args[0].raw) : null;
-    final index = args.length >= 2 ? _coerceLuaInteger(args[1].raw) : null;
+    final level = args.isNotEmpty
+        ? _coerceLuaInteger(_rawBytecodeValue(args[0]))
+        : null;
+    final index = args.length >= 2
+        ? _coerceLuaInteger(_rawBytecodeValue(args[1]))
+        : null;
     final frame = switch (level) {
       final int visibleLevel when visibleLevel > 0 =>
         _resolveVisibleBytecodeFrame(runtime, visibleLevel),
       _ => null,
     };
-    if (frame?.callable?.raw is! LuaBytecodeClosure) {
+    if (_rawBytecodeValue(frame?.callable) is! LuaBytecodeClosure) {
       return null;
     }
     _syncCallFrameDebugLocals(frame);
@@ -4059,7 +4068,7 @@ final class LuaBytecodeVm {
     int extraArgs = 0,
     _LuaBytecodeFrame? callerFrame,
   }) {
-    final rawBuiltin = callee.raw;
+    final rawBuiltin = _rawBytecodeValue(callee);
     if (rawBuiltin is! BuiltinFunction) {
       return null;
     }
@@ -4149,13 +4158,14 @@ final class LuaBytecodeVm {
 
   Object? _normalizeBytecodeProtectedCallError(Object error) {
     if (error is Value) {
-      if (error.raw is Value) {
-        return _normalizeBytecodeProtectedCallError(error.raw as Value);
+      final rawError = _rawBytecodeValue(error);
+      if (rawError is Value) {
+        return _normalizeBytecodeProtectedCallError(rawError);
       }
-      if (error.raw == null) {
+      if (rawError == null) {
         return '<no error object>';
       }
-      if (error.raw is Map || error.raw is TableStorage) {
+      if (rawError is Map || rawError is TableStorage) {
         return error;
       }
       return error.unwrap();
@@ -4336,7 +4346,7 @@ final class LuaBytecodeVm {
   String _callableName(Value callee) {
     return switch (callee.functionName) {
       final String name when name.isNotEmpty => name,
-      _ => switch (callee.raw) {
+      _ => switch (_rawBytecodeValue(callee)) {
         final String name => name,
         _ => 'function',
       },
@@ -4371,10 +4381,11 @@ final class LuaBytecodeVm {
       if (activeLocals[register] case final String name) {
         return (name: name, namewhat: 'local');
       }
+      final calleeRaw = _rawBytecodeValue(callee);
       for (final entry in activeLocals.entries) {
         final localValue = frame.register(entry.key);
-        if ((identical(localValue, callee) ||
-                identical(localValue.raw, callee.raw)) &&
+        final localRaw = _rawBytecodeValue(localValue);
+        if ((identical(localValue, callee) || identical(localRaw, calleeRaw)) &&
             _isUnambiguousMoveAlias(frame, register, beforePc: currentPc - 2)) {
           return (name: entry.value, namewhat: 'local');
         }
@@ -4389,7 +4400,7 @@ final class LuaBytecodeVm {
     if (inferred.name != null) {
       return inferred;
     }
-    return switch (callee.raw) {
+    return switch (_rawBytecodeValue(callee)) {
       final String name => (
         name: name,
         namewhat: _inferCallNameWhatFromEnvironment(frame, name),
@@ -4645,6 +4656,7 @@ final class LuaBytecodeVm {
   }
 
   String? _valueSourceLabel(_LuaBytecodeFrame frame, Value value) {
+    final rawValue = _rawBytecodeValue(value);
     for (
       var registerIndex = 0;
       registerIndex < frame.registers.length;
@@ -4652,7 +4664,8 @@ final class LuaBytecodeVm {
     ) {
       final registerValue = frame.registers[registerIndex];
       if (identical(registerValue, value) ||
-          (value.raw != null && identical(registerValue.raw, value.raw))) {
+          (rawValue != null &&
+              identical(_rawBytecodeValue(registerValue), rawValue))) {
         if (_activeLocalSourceLabel(frame, registerIndex) case final label?) {
           return label;
         }
@@ -5713,7 +5726,7 @@ final class LuaBytecodeVm {
 
 Object? _normalizeCloseErrorArgument(Object? error) {
   if (error case final Value value) {
-    return switch (value.raw) {
+    return switch (_rawBytecodeValue(value)) {
       final Value nested => _normalizeCloseErrorArgument(nested),
       _ => value,
     };
@@ -6070,7 +6083,7 @@ Value _bytecodeFrameNilValue(CallFrame frame) {
 List<MapEntry<String, Value>> _bytecodeFrameLocals(CallFrame frame) {
   final locals = <MapEntry<String, Value>>[];
   final nilValue = _bytecodeFrameNilValue(frame);
-  final closure = frame.callable?.raw;
+  final closure = _rawBytecodeValue(frame.callable);
   final isMainChunkFrame =
       closure is LuaBytecodeClosure && closure.debugInfo.what == 'main';
   if (!isMainChunkFrame && _frameDebugVarargs(frame) != null) {
@@ -6235,7 +6248,7 @@ final class _LuaBytecodeFrame implements LuaBytecodeGCRootProvider {
     if (closure.prototype.needsVarargTable) {
       final packed = packVarargsTable(varargs, runtime: runtime);
       setRegister(parameterCount, packed);
-      if (packed.raw case final PackedVarargTable table) {
+      if (_rawBytecodeValue(packed) case final PackedVarargTable table) {
         namedVarargTable = table;
         namedVarargTableValue = packed;
       }
@@ -6979,7 +6992,7 @@ final class _LuaBytecodeCallSuspension implements CoroutineContinuation {
         _tmpDebugFrame(
           frame,
           'call-resume register=$register resultSpec=$resultSpec '
-          'results=${results.map((v) => "${v.raw.runtimeType}:${v.isMulti}").join(",")} '
+          'results=${results.map((v) => "${_rawBytecodeValue(v).runtimeType}:${v.isMulti}").join(",")} '
           'top=${frame.top} openTop=${frame.openTop} pc=${frame.pc}',
         );
       } on YieldException catch (error) {
@@ -8331,7 +8344,7 @@ final class _LuaBytecodeTailCallSuspension implements CoroutineContinuation {
         _tmpDebugFrame(
           frame,
           'tail-resume-results '
-          'results=${results.map((v) => "${v.raw.runtimeType}:${v.isMulti}").join(",")} '
+          'results=${results.map((v) => "${_rawBytecodeValue(v).runtimeType}:${v.isMulti}").join(",")} '
           'closed=${frame.closed} pc=${frame.pc}',
         );
         await _closeFrameForCoroutine(frame, error: null);
@@ -8591,7 +8604,7 @@ Object? _debugResultPayload(Object? result) {
     return resultValues.map(_rawBytecodeValue).toList();
   }
   return switch (result) {
-    Value(:final raw) => raw,
+    Value() => _rawBytecodeValue(result),
     List<Object?>() => result,
     _ => result,
   };
