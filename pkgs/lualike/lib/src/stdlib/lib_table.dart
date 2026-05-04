@@ -11,6 +11,8 @@ import 'library.dart';
 
 import '../number_limits.dart';
 
+dynamic _rawTableValue(Object? value) => value is Value ? value.raw : value;
+
 /// Table library implementation using the new Library system
 class TableLibrary extends Library {
   @override
@@ -218,7 +220,7 @@ class _TableCreate extends BuiltinFunction {
     }
 
     int parseSize(Object? value, String label) {
-      final raw = value is Value ? value.raw : value;
+      final raw = _rawTableValue(value);
       if (raw == null) {
         return 0;
       }
@@ -660,7 +662,7 @@ class _TableSort extends BuiltinFunction {
         return false;
       }
 
-      final raw = cell is Value ? cell.raw : cell;
+      final raw = _rawTableValue(cell);
       switch (raw) {
         case num value when stringValues != null:
           stringValues = null;
@@ -855,8 +857,8 @@ class _TableSort extends BuiltinFunction {
     );
 
     bool? fastLessThan(dynamic lhs, dynamic rhs) {
-      final left = lhs is Value ? lhs.raw : lhs;
-      final right = rhs is Value ? rhs.raw : rhs;
+      final left = _rawTableValue(lhs);
+      final right = _rawTableValue(rhs);
 
       if (left is num && right is num) {
         return left < right;
@@ -1109,8 +1111,8 @@ class _TableSort extends BuiltinFunction {
       throw LuaError.typeError("attempt to compare nil value");
     }
 
-    final aVal = a is Value ? a.raw : a;
-    final bVal = b is Value ? b.raw : b;
+    final aVal = _rawTableValue(a);
+    final bVal = _rawTableValue(b);
 
     // Additional nil check after unwrapping
     if (aVal == null || bVal == null) {
