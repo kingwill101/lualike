@@ -74,7 +74,7 @@ dynamic _getFastNumber(Object? value, String funcName, int argNum) {
     return value;
   }
   if (value is Value && luaResultValues(value) == null) {
-    final rawNumber = value.raw;
+    final rawNumber = _rawMathArg(value);
     if (rawNumber is int || rawNumber is double || rawNumber is BigInt) {
       return rawNumber;
     }
@@ -90,9 +90,9 @@ Object? _tryFastMinMaxNumericResult(
   required bool wantMax,
 }) {
   if (arg0 is Value && luaResultValues(arg0) == null) {
-    final leftRaw = arg0.raw;
+    final leftRaw = _rawMathArg(arg0);
     if (arg1 is Value && luaResultValues(arg1) == null) {
-      final rightRaw = arg1.raw;
+      final rightRaw = _rawMathArg(arg1);
       if (leftRaw is num && rightRaw is num) {
         if (leftRaw is double && leftRaw.isNaN) return leftRaw;
         if (rightRaw is double && rightRaw.isNaN) return rightRaw;
@@ -337,8 +337,7 @@ class _MathLdexp extends _MathBuiltin {
     }
 
     final number = _getNumber(args[0] as Value, "ldexp", 1);
-    final exponentValue = args[1] as Value;
-    final exponentRaw = exponentValue.raw;
+    final exponentRaw = _rawMathArg(args[1]);
     if (exponentRaw is! num && exponentRaw is! BigInt) {
       throw LuaError.typeError(
         "bad argument #2 to 'ldexp' "
@@ -733,10 +732,10 @@ class _MathType extends _MathBuiltin {
       throw LuaError.typeError("math.type requires one argument");
     }
 
-    final value = args[0] as Value;
-    if (value.raw is int || value.raw is BigInt) {
+    final value = _rawMathArg(args[0]);
+    if (value is int || value is BigInt) {
       return dartStringValue("integer");
-    } else if (value.raw is double) {
+    } else if (value is double) {
       return dartStringValue("float");
     } else {
       return primitiveValue(null);
