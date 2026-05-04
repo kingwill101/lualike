@@ -82,6 +82,8 @@ dynamic _getFastNumber(Object? value, String funcName, int argNum) {
   return _getNumber(freshValueFromLuaSlot(null, value), funcName, argNum);
 }
 
+Object? _rawMathArg(Object? value) => value is Value ? value.raw : value;
+
 Object? _tryFastMinMaxNumericResult(
   Object? arg0,
   Object? arg1, {
@@ -716,7 +718,7 @@ class _MathTointeger extends _MathBuiltin {
       throw LuaError.typeError('math.tointeger requires one argument');
     }
 
-    dynamic value = args[0] is Value ? (args[0] as Value).raw : args[0];
+    final value = _rawMathArg(args[0]);
     final result = NumberUtils.tryToInteger(value);
     return primitiveValue(result);
   }
@@ -751,8 +753,8 @@ class _MathUlt extends _MathBuiltin {
       throw LuaError.typeError('math.ult requires two integer arguments');
     }
 
-    dynamic m = args[0] is Value ? (args[0] as Value).raw : args[0];
-    dynamic n = args[1] is Value ? (args[1] as Value).raw : args[1];
+    final m = _rawMathArg(args[0]);
+    final n = _rawMathArg(args[1]);
 
     return primitiveValue(NumberUtils.unsignedLessThan(m, n));
   }
