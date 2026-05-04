@@ -21,8 +21,8 @@ class PackageLib {
   PackageLib(this.vm) : fileManager = vm.fileManager {
     packageClass = ValueClass.create({
       "__index": (List<Object?> args) {
-        final table = args[0] as Value;
-        final key = args[1] as Value;
+        final table = args[0];
+        final key = args[1];
         final rawKey = rawLuaSlot(key);
         if (rawKey == "path") {
           // Default package path
