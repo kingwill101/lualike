@@ -32,13 +32,16 @@ The menu is responsive and scrollable on small screens.
 
 On compact screens, the launcher can show per-demo on-screen controls.
 
+Those controls now use the shared `package:love2d` floating-joystick overlay,
+which was modeled after the Pocket Bomber touch UI.
+
 Current demo behavior:
 
-- Modern Pong: left-side directional pad and a pause button
+- Modern Pong: floating left joystick zone and a pause button
 - LOVE Example Browser: direct touch interaction plus an on-screen `Esc` button
 - Pocket Bomber: uses its own built-in touch controls
-- Shader Explorer: left directional pad plus right-side action buttons
-- Relic Breach: left directional pad plus right-side action buttons
+- Shader Explorer: floating left joystick zone plus right-side action buttons
+- Relic Breach: floating left joystick zone plus right-side action buttons
 
 Current limitation:
 
