@@ -8,6 +8,8 @@ import 'package:lualike/src/lua_string.dart';
 import 'package:lualike/src/runtime/lua_slot.dart';
 import 'package:lualike/src/value.dart';
 
+Object? _rawDartBytesValue(Object? value) => value is Value ? value.raw : value;
+
 class DartToBytes extends BuiltinFunction {
   DartToBytes([super.interpreter]);
 
@@ -18,18 +20,17 @@ class DartToBytes extends BuiltinFunction {
         'dart.string.bytes.toBytes requires at least 1 argument: string',
       );
     }
-    final value = args[0] as Value;
+    final raw = _rawDartBytesValue(args[0]);
 
     // For LuaString, use the raw bytes directly (they're already UTF-8)
-    if (value.raw is LuaString) {
-      final luaString = value.raw as LuaString;
+    if (raw is LuaString) {
       return valueFromOptionalLuaSlot(
         interpreter,
-        Uint8List.fromList(luaString.bytes),
+        Uint8List.fromList(raw.bytes),
       );
     } else {
       // For other types, convert to string first then encode as UTF-8
-      final str = value.raw.toString();
+      final str = raw.toString();
       final bytes = utf8.encode(str);
       return valueFromOptionalLuaSlot(interpreter, Uint8List.fromList(bytes));
     }
@@ -46,21 +47,21 @@ class DartFromBytes extends BuiltinFunction {
         'dart.string.bytes.fromBytes requires at least 1 argument: bytes',
       );
     }
-    final value = args[0] as Value;
+    final raw = _rawDartBytesValue(args[0]);
     Uint8List bytes;
 
-    if (value.raw is Uint8List) {
-      bytes = value.raw as Uint8List;
-    } else if (value.raw is List) {
+    if (raw is Uint8List) {
+      bytes = raw;
+    } else if (raw is List) {
       try {
-        bytes = Uint8List.fromList((value.raw as List).cast<int>());
+        bytes = Uint8List.fromList(raw.cast<int>());
       } catch (e) {
         throw LuaError(
           'dart.string.bytes.fromBytes requires a List of integers',
         );
       }
-    } else if (value.raw is Map) {
-      final table = value.raw as Map;
+    } else if (raw is Map) {
+      final table = raw;
       final charCodes = <int>[];
       var index = 1;
       while (true) {
@@ -69,9 +70,7 @@ class DartFromBytes extends BuiltinFunction {
         if (entry == null) {
           break;
         }
-        if (entry is Value) {
-          entry = entry.raw;
-        }
+        entry = _rawDartBytesValue(entry);
         if (entry is num) {
           charCodes.add(entry.toInt());
         } else {
