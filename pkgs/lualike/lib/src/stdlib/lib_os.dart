@@ -10,6 +10,13 @@ import 'package:lualike/src/utils/command_parser.dart';
 import 'package:path/path.dart' as path_lib;
 import 'library.dart';
 
+Object? _rawOSValue(Object? value) => value is Value ? value.raw : value;
+
+String _osStringArg(List<Object?> args, int index) =>
+    _rawOSValue(args[index]).toString();
+
+int _osIntArg(List<Object?> args, int index) => _rawOSValue(args[index]) as int;
+
 /// OS library implementation using the new Library system
 class OSLibraryNew extends Library {
   @override
@@ -68,7 +75,7 @@ class _OSDate extends BuiltinFunction {
   _OSDate([super.interpreter]);
   @override
   Object? call(List<Object?> args) {
-    String format = args.isNotEmpty ? (args[0] as Value).raw.toString() : "%c";
+    String format = args.isNotEmpty ? _osStringArg(args, 0) : "%c";
     DateTime time;
     bool useUTC = false;
 
@@ -79,7 +86,7 @@ class _OSDate extends BuiltinFunction {
     }
 
     if (args.length > 1) {
-      final timestamp = NumberUtils.toInt((args[1] as Value).raw);
+      final timestamp = NumberUtils.toInt(_rawOSValue(args[1]));
       try {
         time = DateTime.fromMillisecondsSinceEpoch(
           timestamp * 1000,
@@ -267,8 +274,8 @@ class _OSDiffTime extends BuiltinFunction {
       throw LuaError.typeError("os.difftime requires two timestamps");
     }
 
-    final t2 = (args[0] as Value).raw as int;
-    final t1 = (args[1] as Value).raw as int;
+    final t2 = _osIntArg(args, 0);
+    final t1 = _osIntArg(args, 1);
 
     return primitiveValue(t2 - t1);
   }
@@ -285,7 +292,7 @@ class _OSExecute extends BuiltinFunction {
       );
     }
 
-    String command = (args[0] as Value).raw.toString();
+    String command = _osStringArg(args, 0);
     // Convenience: allow invoking local compiled binary "lualike" without path
     command = _maybePrefixLocalLualike(command);
 
@@ -381,7 +388,7 @@ class _OSExit extends BuiltinFunction {
   _OSExit([super.interpreter]);
   @override
   Object? call(List<Object?> args) {
-    final code = args.isNotEmpty ? (args[0] as Value).raw as int : 0;
+    final code = args.isNotEmpty ? _osIntArg(args, 0) : 0;
     exitProcess(code);
     return null;
   }
@@ -395,7 +402,7 @@ class _OSGetEnv extends BuiltinFunction {
       throw LuaError.typeError("os.getenv requires a variable name");
     }
 
-    final name = (args[0] as Value).raw.toString();
+    final name = _osStringArg(args, 0);
     final value = platform.getEnvironmentVariable(name);
 
     return primitiveValue(value);
@@ -410,7 +417,7 @@ class _OSRemove extends BuiltinFunction {
       throw LuaError.typeError("os.remove requires a filename");
     }
 
-    final filename = path_lib.normalize((args[0] as Value).raw.toString());
+    final filename = path_lib.normalize(_osStringArg(args, 0));
 
     try {
       if (await fileExists(filename)) {
@@ -436,8 +443,8 @@ class _OSRename extends BuiltinFunction {
       throw LuaError.typeError("os.rename requires old and new names");
     }
 
-    final oldName = path_lib.normalize((args[0] as Value).raw.toString());
-    final newName = path_lib.normalize((args[1] as Value).raw.toString());
+    final oldName = path_lib.normalize(_osStringArg(args, 0));
+    final newName = path_lib.normalize(_osStringArg(args, 1));
 
     try {
       if (await fileExists(oldName)) {
@@ -465,16 +472,16 @@ class _OSSetLocale extends BuiltinFunction {
       return dartStringValue(_currentLocale ?? 'C');
     }
 
-    final localeArg = args[0] as Value;
+    final localeArg = _rawOSValue(args[0]);
     // final category =
-    //     args.length > 1 ? (args[1] as Value).raw.toString() : 'all';
+    //     args.length > 1 ? _osStringArg(args, 1) : 'all';
 
     // If locale argument is nil, return current locale
-    if (localeArg.raw == null) {
+    if (localeArg == null) {
       return dartStringValue(_currentLocale ?? 'C');
     }
 
-    final locale = localeArg.raw.toString();
+    final locale = localeArg.toString();
 
     // We only support the "C" locale since we don't implement
     // locale-specific functionality like collation
@@ -501,12 +508,12 @@ class _OSTime extends BuiltinFunction {
       );
     } else {
       // Convert table to timestamp
-      final arg = args[0] as Value;
-      if (arg.raw is! Map) {
+      final arg = _rawOSValue(args[0]);
+      if (arg is! Map) {
         throw LuaError.typeError("table expected");
       }
 
-      final table = arg.raw as Map;
+      final table = arg;
 
       // Extract required fields
       final year = _getTableField(table, "year");
@@ -617,23 +624,8 @@ class _OSTime extends BuiltinFunction {
   }
 
   int? _getTableField(Map table, String key) {
-    final value = table[key];
+    final value = _rawOSValue(table[key]);
     if (value == null) return null;
-    if (value is Value) {
-      final raw = value.raw;
-      if (raw is int) return raw;
-      if (raw is double) {
-        // Check if it's actually an integer value
-        if (raw != raw.truncateToDouble()) {
-          throw LuaError("not an integer");
-        }
-        return raw.toInt();
-      }
-      if (raw is String) {
-        throw LuaError("not an integer");
-      }
-      throw LuaError("not an integer");
-    }
     if (value is int) return value;
     if (value is double) {
       // Check if it's actually an integer value
