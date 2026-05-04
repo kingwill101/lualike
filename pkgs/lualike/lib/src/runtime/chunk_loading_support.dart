@@ -5,8 +5,11 @@ import 'package:lualike/src/lua_error.dart';
 import 'package:lualike/src/runtime/lua_runtime.dart';
 import 'package:lualike/src/value.dart';
 
+Object? _rawChunkLoadingValue(Object? value) =>
+    value is Value ? value.raw : value;
+
 List<int>? compiledArtifactSourceBytes(Value source) {
-  return switch (source.raw) {
+  return switch (_rawChunkLoadingValue(source)) {
     final LuaString luaString => luaString.bytes,
     final String text => text.codeUnits,
     final List<int> bytes => bytes,
@@ -20,7 +23,7 @@ normalizeChunkLoadRequest(
   LuaChunkLoadRequest request,
 ) async {
   final source = request.source;
-  final raw = source.raw;
+  final raw = _rawChunkLoadingValue(source);
   if (raw is String || raw is LuaString || raw is List<int>) {
     return (request: request, failure: null);
   }
@@ -76,7 +79,7 @@ Future<({Value? source, String? errorMessage})> _materializeReaderSource(
       );
     }
 
-    final raw = chunk.raw;
+    final raw = _rawChunkLoadingValue(chunk);
     if (raw == null) {
       break;
     }

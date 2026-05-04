@@ -31,6 +31,9 @@ import 'package:lualike/src/stdlib/library.dart';
 import 'package:lualike/src/stdlib/metatables.dart';
 import 'package:lualike/src/value.dart';
 
+Object? _rawLuaBytecodeRuntimeValue(Object? value) =>
+    value is Value ? value.raw : value;
+
 bool looksLikeTrackedLuaBytecodeBytes(List<int> bytes) {
   if (bytes.length < 12) {
     return false;
@@ -160,7 +163,7 @@ Environment _createLoadEnvironment({
 }
 
 List<int>? _sourceBytes(Value source) {
-  return switch (source.raw) {
+  return switch (_rawLuaBytecodeRuntimeValue(source)) {
     final LuaString luaString => luaString.bytes,
     final String text => text.codeUnits,
     final List<int> bytes => bytes,
@@ -169,7 +172,7 @@ List<int>? _sourceBytes(Value source) {
 }
 
 String? _sourceText(Value source) {
-  return switch (source.raw) {
+  return switch (_rawLuaBytecodeRuntimeValue(source)) {
     final String text => text,
     final LuaString luaString => _decodeLuaSourceBytes(luaString.bytes),
     final List<int> bytes => _decodeLuaSourceBytes(bytes),
@@ -367,7 +370,8 @@ class LuaBytecodeRuntime implements LuaRuntime {
     args = prepared.args;
     _ensureValueInterpreter(callee);
     _attachInterpreterToArgs(args);
-    if (callee.raw case final LuaBytecodeClosure closure) {
+    if (_rawLuaBytecodeRuntimeValue(callee)
+        case final LuaBytecodeClosure closure) {
       final vm = LuaBytecodeVm(this);
       final results = await vm.invoke(
         closure,
@@ -444,7 +448,8 @@ class LuaBytecodeRuntime implements LuaRuntime {
   @override
   Object? dumpFunction(Value function, {bool stripDebugInfo = false}) {
     _ensureValueInterpreter(function);
-    if (function.raw case final LuaBytecodeClosure closure) {
+    if (_rawLuaBytecodeRuntimeValue(function)
+        case final LuaBytecodeClosure closure) {
       final chunk = LuaBytecodeBinaryChunk(
         header: const LuaBytecodeChunkHeader.official(),
         rootUpvalueCount: closure.prototype.upvalues.length,
@@ -475,7 +480,8 @@ class LuaBytecodeRuntime implements LuaRuntime {
 
   @override
   Value constantRawStringValue(String value) {
-    return _interpreter.constantStringValue(value.codeUnits)..interpreter = this;
+    return _interpreter.constantStringValue(value.codeUnits)
+      ..interpreter = this;
   }
 
   @override
@@ -697,7 +703,7 @@ class LuaBytecodeRuntime implements LuaRuntime {
     var extraArgs = 0;
 
     while (true) {
-      final raw = callee.raw;
+      final raw = _rawLuaBytecodeRuntimeValue(callee);
       if (raw is String) {
         final lookup = globals.get(raw);
         if (lookup != null) {
@@ -757,7 +763,7 @@ class LuaBytecodeRuntime implements LuaRuntime {
       return List<Object?>.from(resultValues);
     }
     if (varargs is Value) {
-      if (varargs.raw == null) {
+      if (_rawLuaBytecodeRuntimeValue(varargs) == null) {
         return const <Object?>[];
       }
       return <Object?>[varargs];
