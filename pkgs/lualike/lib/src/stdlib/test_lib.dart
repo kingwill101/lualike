@@ -64,11 +64,8 @@ class TestLib {
     return valueFromOptionalLuaSlot(runtime, raw);
   }
 
-  static Object? _rawTestValue(Object? value) =>
-      value is Value ? value.raw : value;
-
   static Map? _rawTestMap(Object? value) {
-    final raw = _rawTestValue(value);
+    final raw = rawLuaSlot(value);
     return raw is Map ? raw : null;
   }
 

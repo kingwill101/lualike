@@ -14,10 +14,8 @@ import 'library.dart';
 Value _threadValue(LuaRuntime interpreter, Coroutine coroutine) =>
     Value(coroutine, interpreter: interpreter);
 
-dynamic _rawCoroutineValue(Object? value) => value is Value ? value.raw : value;
-
 Coroutine _expectCoroutine(Object? raw, String functionName, int index) {
-  final target = _rawCoroutineValue(raw);
+  final target = rawLuaSlot(raw);
   if (target is! Coroutine) {
     throw LuaError.typeError(
       "bad argument #$index to '$functionName' "
@@ -28,7 +26,7 @@ Coroutine _expectCoroutine(Object? raw, String functionName, int index) {
 }
 
 FunctionBody? _requireFunctionBody(Value functionValue, String functionName) {
-  final raw = _rawCoroutineValue(functionValue);
+  final raw = rawLuaSlot(functionValue);
   final FunctionBody? body =
       functionValue.functionBody ?? (raw is FunctionBody ? raw : null);
   if (body != null) {
@@ -65,7 +63,7 @@ List<Object?> _cloneArgs(List<Object?> args) =>
     args.isEmpty ? const [] : List<Object?>.from(args);
 
 bool _isTrue(Object? value) {
-  final raw = _rawCoroutineValue(value);
+  final raw = rawLuaSlot(value);
   return raw != null && raw != false;
 }
 
@@ -118,7 +116,7 @@ class CoroutineLibrary extends Library {
     "__index": (List<Object?> args) {
       final _ = args[0] as Value;
       final keyValue = args[1] as Value;
-      final rawKey = _rawCoroutineValue(keyValue);
+      final rawKey = rawLuaSlot(keyValue);
       final key = rawKey is String ? rawKey : keyValue.toString();
 
       switch (key) {
@@ -211,7 +209,7 @@ class _CoroutineCreate extends BuiltinFunction {
       throw LuaError.typeError(
         "bad argument #1 to 'create' "
         "(function expected, got "
-        "${NumberUtils.typeName(_rawCoroutineValue(functionValue))})",
+        "${NumberUtils.typeName(rawLuaSlot(functionValue))})",
       );
     }
 
@@ -299,7 +297,7 @@ class _CoroutineWrap extends BuiltinFunction {
       throw LuaError.typeError(
         "bad argument #1 to 'wrap' "
         "(function expected, got "
-        "${NumberUtils.typeName(_rawCoroutineValue(functionValue))})",
+        "${NumberUtils.typeName(rawLuaSlot(functionValue))})",
       );
     }
 
@@ -385,7 +383,7 @@ class _CoroutineClose extends BuiltinFunction {
         : args.length > 1
         ? args[1]
         : null;
-    final normalizedError = _rawCoroutineValue(error);
+    final normalizedError = rawLuaSlot(error);
     final CoroutineStatus status = _closeStatus(runtime, coroutine);
 
     switch (status) {

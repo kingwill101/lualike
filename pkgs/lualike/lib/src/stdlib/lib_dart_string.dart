@@ -8,25 +8,22 @@ import 'package:lualike/src/value.dart';
 import 'lib_dart_bytes.dart';
 import 'library.dart';
 
-Object? _rawDartStringValue(Object? value) =>
-    value is Value ? value.raw : value;
-
-String _dartStringText(Object? value) => _rawDartStringValue(value).toString();
+String _dartStringText(Object? value) => rawLuaSlot(value).toString();
 
 String _dartStringPattern(Object? value) {
-  final raw = _rawDartStringValue(value);
+  final raw = rawLuaSlot(value);
   return raw is String ? raw : raw.toString();
 }
 
 int _requiredDartStringIndex(List<Object?> args, int index) {
-  return (_rawDartStringValue(args[index]) as num).toInt();
+  return (rawLuaSlot(args[index]) as num).toInt();
 }
 
 int? _optionalDartStringIndex(List<Object?> args, int index) {
   if (args.length <= index) {
     return null;
   }
-  final rawIndex = _rawDartStringValue(args[index]);
+  final rawIndex = rawLuaSlot(args[index]);
   return rawIndex is num ? rawIndex.toInt() : null;
 }
 
@@ -374,11 +371,11 @@ class DartStringFromCharCodes extends BuiltinFunction {
         'dart.string.fromCharCodes requires at least 1 argument: charCodes table',
       );
     }
-    final table = _rawDartStringValue(args[0]) as Map;
+    final table = rawLuaSlot(args[0]) as Map;
     final charCodes = <int>[];
     for (var i = 1; i <= table.length; i++) {
       final val = table[primitiveValue(i)];
-      final raw = _rawDartStringValue(val);
+      final raw = rawLuaSlot(val);
       if (raw is num) {
         charCodes.add(raw.toInt());
       }

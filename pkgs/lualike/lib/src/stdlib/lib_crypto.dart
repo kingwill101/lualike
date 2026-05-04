@@ -13,8 +13,6 @@ import 'package:lualike/src/value.dart';
 import 'package:lualike/src/lua_string.dart';
 import 'library.dart';
 
-Object? _rawCryptoValue(Object? value) => value is Value ? value.raw : value;
-
 /// Crypto library implementation using the new Library system
 class CryptoLibrary extends Library {
   @override
@@ -35,7 +33,7 @@ class CryptoLibrary extends Library {
 }
 
 Uint8List _toBytes(Value value) {
-  final raw = _rawCryptoValue(value);
+  final raw = rawLuaSlot(value);
   if (raw is String) {
     return utf8.encode(raw);
   }
@@ -82,7 +80,7 @@ class HmacFunction extends BuiltinFunction {
       );
     }
 
-    final digestName = _rawCryptoValue(args[0]).toString();
+    final digestName = rawLuaSlot(args[0]).toString();
     final key = _toBytes(args[1] as Value);
     final message = _toBytes(args[2] as Value);
 
@@ -106,7 +104,7 @@ class RandomBytesFunction extends BuiltinFunction {
     if (args.isEmpty) {
       throw LuaError('randomBytes requires 1 argument: number of bytes');
     }
-    final count = _rawCryptoValue(args[0]) as int;
+    final count = rawLuaSlot(args[0]) as int;
     if (count <= 0 || count > 1024) {
       throw LuaError('Byte count must be between 1 and 1024');
     }

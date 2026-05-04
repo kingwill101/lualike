@@ -10,12 +10,10 @@ import 'package:lualike/src/utils/command_parser.dart';
 import 'package:path/path.dart' as path_lib;
 import 'library.dart';
 
-Object? _rawOSValue(Object? value) => value is Value ? value.raw : value;
-
 String _osStringArg(List<Object?> args, int index) =>
-    _rawOSValue(args[index]).toString();
+    rawLuaSlot(args[index]).toString();
 
-int _osIntArg(List<Object?> args, int index) => _rawOSValue(args[index]) as int;
+int _osIntArg(List<Object?> args, int index) => rawLuaSlot(args[index]) as int;
 
 /// OS library implementation using the new Library system
 class OSLibraryNew extends Library {
@@ -86,7 +84,7 @@ class _OSDate extends BuiltinFunction {
     }
 
     if (args.length > 1) {
-      final timestamp = NumberUtils.toInt(_rawOSValue(args[1]));
+      final timestamp = NumberUtils.toInt(rawLuaSlot(args[1]));
       try {
         time = DateTime.fromMillisecondsSinceEpoch(
           timestamp * 1000,
@@ -472,7 +470,7 @@ class _OSSetLocale extends BuiltinFunction {
       return dartStringValue(_currentLocale ?? 'C');
     }
 
-    final localeArg = _rawOSValue(args[0]);
+    final localeArg = rawLuaSlot(args[0]);
     // final category =
     //     args.length > 1 ? _osStringArg(args, 1) : 'all';
 
@@ -508,7 +506,7 @@ class _OSTime extends BuiltinFunction {
       );
     } else {
       // Convert table to timestamp
-      final arg = _rawOSValue(args[0]);
+      final arg = rawLuaSlot(args[0]);
       if (arg is! Map) {
         throw LuaError.typeError("table expected");
       }
@@ -624,7 +622,7 @@ class _OSTime extends BuiltinFunction {
   }
 
   int? _getTableField(Map table, String key) {
-    final value = _rawOSValue(table[key]);
+    final value = rawLuaSlot(table[key]);
     if (value == null) return null;
     if (value is int) return value;
     if (value is double) {

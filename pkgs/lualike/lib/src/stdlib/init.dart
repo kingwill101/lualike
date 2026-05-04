@@ -23,9 +23,7 @@ import 'library.dart' show LibraryRegistry, LazyLibraryMap;
 import 'metatables.dart';
 // import 'lib_convert.dart';
 
-Object? _rawInitValue(Object? value) => value is Value ? value.raw : value;
-
-bool _isInitNilValue(Object? value) => _rawInitValue(value) == null;
+bool _isInitNilValue(Object? value) => rawLuaSlot(value) == null;
 
 /// Initialize standard libraries using the Library system
 /// All libraries have been migrated to the new system with proper metamethod handling
@@ -82,7 +80,7 @@ void initializeStandardLibrary({required LuaRuntime vm}) {
 
 void _populatePackageLoaded(Environment env, LibraryRegistry registry) {
   final packageTable = env.get("package");
-  final packageMap = _rawInitValue(packageTable);
+  final packageMap = rawLuaSlot(packageTable);
   if (packageMap is! Map) {
     return;
   }
@@ -94,7 +92,7 @@ void _populatePackageLoaded(Environment env, LibraryRegistry registry) {
     );
   }
 
-  final loadedMap = _rawInitValue(packageMap["loaded"]);
+  final loadedMap = rawLuaSlot(packageMap["loaded"]);
   if (loadedMap is Map) {
     for (final library in registry.libraries.where(
       (lib) => lib.name.isNotEmpty,
@@ -120,14 +118,14 @@ void _populatePackageLoaded(Environment env, LibraryRegistry registry) {
 void _ensureGlobalTable(Environment env) {
   // If a correct _G is already in place we do nothing.
   final existing = env.get('_G');
-  if (existing is Value && _rawInitValue(existing) is Map) return;
+  if (existing is Value && rawLuaSlot(existing) is Map) return;
 
   final gBacking = <String, dynamic>{};
 
   final proxyMetatable = <String, dynamic>{
     '__index': (List<Object?> args) {
       final key = args[1] as Value;
-      final keyStr = _rawInitValue(key).toString();
+      final keyStr = rawLuaSlot(key).toString();
       return env.get(keyStr) ??
           env.interpreter?.constantPrimitiveValue(null) ??
           Value.primitive(null);
@@ -136,13 +134,13 @@ void _ensureGlobalTable(Environment env) {
       final self = args[0] as Value;
       final key = args[1] as Value;
       final value = args[2] as Value;
-      final keyStr = _rawInitValue(key).toString();
+      final keyStr = rawLuaSlot(key).toString();
 
       // update the real environment
       env.define(keyStr, value);
 
       // keep the shadow table in sync
-      final rawSelf = _rawInitValue(self);
+      final rawSelf = rawLuaSlot(self);
       if (rawSelf is Map) {
         if (_isInitNilValue(value)) {
           rawSelf.remove(keyStr);
@@ -188,7 +186,7 @@ void _installLazyLibraryStub({
   required String libraryName,
 }) {
   final existing = env.get(libraryName);
-  if (existing is Value && _rawInitValue(existing) is! LazyLibraryMap) {
+  if (existing is Value && rawLuaSlot(existing) is! LazyLibraryMap) {
     // Already initialized or overridden.
     return;
   }

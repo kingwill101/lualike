@@ -83,8 +83,6 @@ bool _shouldUseBytePatternProcessing(dynamic subject, dynamic pattern) =>
     (subject is String && _containsNonAscii(subject)) ||
     (pattern is String && _containsNonAscii(pattern));
 
-dynamic _rawStringValue(Object? value) => value is Value ? value.raw : value;
-
 String _toPatternProcessingString(dynamic value, {required bool byteLevel}) {
   if (!byteLevel) {
     return value is LuaString ? value.toString() : value.toString();
@@ -99,7 +97,7 @@ String _toPatternProcessingString(dynamic value, {required bool byteLevel}) {
 }
 
 String _stringifyPatternReplacement(dynamic value, {required bool byteLevel}) {
-  final raw = _rawStringValue(value);
+  final raw = rawLuaSlot(value);
   if (!byteLevel) {
     return raw.toString();
   }
@@ -121,7 +119,7 @@ dynamic _collapsePatternReplacementResult(dynamic value) {
 }
 
 String _gsubReplacementTypeName(dynamic value) {
-  final raw = _rawStringValue(value);
+  final raw = rawLuaSlot(value);
   return switch (raw) {
     Map _ => 'table',
     Function _ => 'function',
@@ -132,7 +130,7 @@ String _gsubReplacementTypeName(dynamic value) {
 }
 
 dynamic _validateGsubReplacementValue(dynamic value) {
-  final raw = _rawStringValue(value);
+  final raw = rawLuaSlot(value);
   if (raw == null || raw == false) {
     return raw;
   }
@@ -551,7 +549,7 @@ Value _requireStringLikeArgument(
   }
 
   final value = args[argumentIndex] as Value;
-  final raw = _rawStringValue(value);
+  final raw = rawLuaSlot(value);
   if (raw is String || raw is LuaString || raw is num || raw is BigInt) {
     return value;
   }
@@ -575,7 +573,7 @@ int _requireStringIntegerArgument(
   required int functionArgNumber,
   required int methodArgNumber,
 }) {
-  final raw = _rawStringValue(value);
+  final raw = rawLuaSlot(value);
   final integer = NumberUtils.tryToInteger(raw);
   if (integer != null) {
     return integer;
@@ -645,7 +643,7 @@ class StringLib {
       final str = args[0] as Value;
       return cachedPrimitiveOrValue(
         str.interpreter,
-        _rawStringValue(str).toString().length,
+        rawLuaSlot(str).toString().length,
       );
     },
     "__concat": (List<Object?> args) {
@@ -653,7 +651,7 @@ class StringLib {
       final b = args[1] as Value;
       return _dartStringResultValue(
         a.interpreter ?? b.interpreter,
-        _rawStringValue(a).toString() + _rawStringValue(b).toString(),
+        rawLuaSlot(a).toString() + rawLuaSlot(b).toString(),
       );
     },
   });
@@ -669,17 +667,13 @@ class _StringByte extends BuiltinFunction {
     }
 
     final value = args[0] as Value;
-    final rawValue = _rawStringValue(value);
+    final rawValue = rawLuaSlot(value);
     final bytes = rawValue is LuaString
         ? rawValue.bytes
         : LuaString.fromDartString(rawValue.toString()).bytes;
 
-    var start = args.length > 1
-        ? NumberUtils.toInt(_rawStringValue(args[1]))
-        : 1;
-    var end = args.length > 2
-        ? NumberUtils.toInt(_rawStringValue(args[2]))
-        : start;
+    var start = args.length > 1 ? NumberUtils.toInt(rawLuaSlot(args[1])) : 1;
+    var end = args.length > 2 ? NumberUtils.toInt(rawLuaSlot(args[2])) : start;
 
     start = start < 0 ? bytes.length + start + 1 : start;
     end = end < 0 ? bytes.length + end + 1 : end;
@@ -778,8 +772,8 @@ class _StringFind extends BuiltinFunction {
       argumentIndex: 1,
       functionName: 'string.find',
     );
-    final rawStrValue = _rawStringValue(strValue);
-    final rawPatternValue = _rawStringValue(patternValue);
+    final rawStrValue = rawLuaSlot(strValue);
+    final rawPatternValue = rawLuaSlot(patternValue);
     final useByteLevel = _shouldUseBytePatternProcessing(
       rawStrValue,
       rawPatternValue,
@@ -792,15 +786,13 @@ class _StringFind extends BuiltinFunction {
       rawPatternValue,
       byteLevel: useByteLevel,
     );
-    var init = args.length > 2
-        ? NumberUtils.toInt(_rawStringValue(args[2]))
-        : 1;
+    var init = args.length > 2 ? NumberUtils.toInt(rawLuaSlot(args[2])) : 1;
     var start = init < 0 ? str.length + init + 1 : init;
     if (start < 1) start = 1;
     start -= 1;
     bool plain = false;
     if (args.length > 3) {
-      final rawPlain = _rawStringValue(args[3]);
+      final rawPlain = rawLuaSlot(args[3]);
       plain = rawPlain != false && rawPlain != null;
     }
 
@@ -996,7 +988,7 @@ Object? _tryFormatBareString(_FormatContext ctx) {
   }
 
   final value = ctx.value;
-  final rawValue = _rawStringValue(value);
+  final rawValue = rawLuaSlot(value);
   if (value is Value) {
     if (value.hasMetamethod('__tostring')) {
       return null;
@@ -1022,7 +1014,7 @@ Future<Object> _formatString(_FormatContext ctx) async {
 
   // Check for null bytes in string when width is specified (Lua requirement)
   if (ctx.widthValue > 0) {
-    final rawValue = _rawStringValue(value);
+    final rawValue = rawLuaSlot(value);
     if (rawValue is String && rawValue.contains('\u0000')) {
       throw LuaError(
         "bad argument #${ctx.valueIndex} to 'format' (string contains zeros)",
@@ -1042,7 +1034,7 @@ Future<Object> _formatString(_FormatContext ctx) async {
           value,
         ]);
         final str = awaitedResult is Value
-            ? _rawStringValue(awaitedResult).toString()
+            ? rawLuaSlot(awaitedResult).toString()
             : awaitedResult.toString();
         if (ctx.precision.isNotEmpty) {
           final precValue = ctx.precisionValue;
@@ -1057,9 +1049,9 @@ Future<Object> _formatString(_FormatContext ctx) async {
     }
 
     // Check for __name metamethod as fallback for tables
-    if (_rawStringValue(value) is Map) {
+    if (rawLuaSlot(value) is Map) {
       final name = value.getMetamethod("__name");
-      final rawName = _rawStringValue(name);
+      final rawName = rawLuaSlot(name);
       if (name != null &&
           name is Value &&
           (rawName is String || rawName is LuaString)) {
@@ -1075,7 +1067,7 @@ Future<Object> _formatString(_FormatContext ctx) async {
     }
   }
 
-  final rawValue = _rawStringValue(value);
+  final rawValue = rawLuaSlot(value);
 
   if (rawValue is LuaString) {
     // For %s format, preserve the original bytes but handle precision and padding
@@ -1125,7 +1117,7 @@ Future<Object> _formatString(_FormatContext ctx) async {
 }
 
 LuaString _formatCharacter(_FormatContext ctx) {
-  final rawValue = _rawStringValue(ctx.value);
+  final rawValue = rawLuaSlot(ctx.value);
   if (rawValue is! num && rawValue is! BigInt) {
     throw LuaError.typeError(
       "bad argument #${ctx.valueIndex} to 'format' (number expected, got ${NumberUtils.typeName(rawValue)})",
@@ -1152,7 +1144,7 @@ LuaString _formatCharacter(_FormatContext ctx) {
 }
 
 String _formatPointer(_FormatContext ctx) {
-  final raw = _rawStringValue(ctx.value);
+  final raw = rawLuaSlot(ctx.value);
 
   // Scalars → "(null)"
   if (raw == null || raw is num || raw is bool) {
@@ -1259,7 +1251,7 @@ String _formatLargeNumber(double value, int precision) {
 }
 
 String _formatFloat(_FormatContext ctx, bool uppercase) {
-  final rawValue = _rawStringValue(ctx.value);
+  final rawValue = rawLuaSlot(ctx.value);
   if (rawValue is! num && rawValue is! BigInt) {
     throw LuaError.typeError(
       "bad argument #${ctx.valueIndex} to 'format' (number expected, got ${NumberUtils.typeName(rawValue)})",
@@ -1301,7 +1293,7 @@ String _formatFloat(_FormatContext ctx, bool uppercase) {
 }
 
 String _formatScientific(_FormatContext ctx, bool uppercase) {
-  final rawValue = _rawStringValue(ctx.value);
+  final rawValue = rawLuaSlot(ctx.value);
   if (rawValue is! num && rawValue is! BigInt) {
     throw LuaError.typeError(
       "bad argument #${ctx.valueIndex} to 'format' (number expected, got ${NumberUtils.typeName(rawValue)})",
@@ -1345,7 +1337,7 @@ String _formatScientific(_FormatContext ctx, bool uppercase) {
 }
 
 String _formatHexFloat(_FormatContext ctx, bool uppercase) {
-  final rawValue = _rawStringValue(ctx.value);
+  final rawValue = rawLuaSlot(ctx.value);
   if (rawValue is! num && rawValue is! BigInt) {
     throw LuaError.typeError(
       "bad argument #${ctx.valueIndex} to 'format' (number expected, got ${NumberUtils.typeName(rawValue)})",
@@ -1421,7 +1413,7 @@ String _formatHexFloat(_FormatContext ctx, bool uppercase) {
 }
 
 String _formatInteger(_FormatContext ctx, {bool unsigned = false}) {
-  final rawValue = _rawStringValue(ctx.value);
+  final rawValue = rawLuaSlot(ctx.value);
   if (rawValue is! num && rawValue is! BigInt) {
     throw LuaError.typeError(
       "bad argument #${ctx.valueIndex} to 'format' (number expected, got ${NumberUtils.typeName(rawValue)})",
@@ -1467,7 +1459,7 @@ String _formatInteger(_FormatContext ctx, {bool unsigned = false}) {
 }
 
 String _formatHex(_FormatContext ctx, bool uppercase) {
-  final rawValue = _rawStringValue(ctx.value);
+  final rawValue = rawLuaSlot(ctx.value);
   if (rawValue is! num && rawValue is! BigInt) {
     throw LuaError.typeError(
       "bad argument #${ctx.valueIndex} to 'format' (number expected, got ${NumberUtils.typeName(rawValue)})",
@@ -1548,7 +1540,7 @@ class _FormatContext {
 }
 
 String _formatOctal(_FormatContext ctx) {
-  final rawValue = _rawStringValue(ctx.value);
+  final rawValue = rawLuaSlot(ctx.value);
   if (rawValue is! num && rawValue is! BigInt) {
     throw LuaError.typeError(
       "bad argument #${ctx.valueIndex} to 'format' (number expected, got ${NumberUtils.typeName(rawValue)})",
@@ -1580,7 +1572,7 @@ String _formatOctal(_FormatContext ctx) {
 }
 
 LuaString _formatQuoted(_FormatContext ctx) {
-  final rawValue = _rawStringValue(ctx.value);
+  final rawValue = rawLuaSlot(ctx.value);
 
   // Handle different types according to Lua %q specification
   if (rawValue == null) {
@@ -1647,7 +1639,7 @@ class _StringFormat extends BuiltinFunction {
       throw LuaError.typeError("string.format requires a format string");
     }
 
-    final formatString = _rawStringValue(args[0]).toString();
+    final formatString = rawLuaSlot(args[0]).toString();
 
     List<FormatPart> formatParts;
     try {
@@ -1845,11 +1837,9 @@ class _StringGmatch extends BuiltinFunction {
       throw LuaError.typeError("string.gmatch requires a string and a pattern");
     }
 
-    final strValue = _rawStringValue(args[0]);
-    final patternValue = _rawStringValue(args[1]);
-    var init = args.length > 2
-        ? NumberUtils.toInt(_rawStringValue(args[2]))
-        : 1;
+    final strValue = rawLuaSlot(args[0]);
+    final patternValue = rawLuaSlot(args[1]);
+    var init = args.length > 2 ? NumberUtils.toInt(rawLuaSlot(args[2])) : 1;
 
     // Helper function to check if LuaString contains valid UTF-8
     bool isValidUtf8(LuaString luaStr) {
@@ -2048,8 +2038,8 @@ class _StringGsub extends BuiltinFunction {
         "string.gsub requires string, pattern, and replacement",
       );
     }
-    final strValue = _rawStringValue(args[0]);
-    final patternValue = _rawStringValue(args[1]);
+    final strValue = rawLuaSlot(args[0]);
+    final patternValue = rawLuaSlot(args[1]);
     final useByteLevel = _shouldUseBytePatternProcessing(
       strValue,
       patternValue,
@@ -2060,10 +2050,8 @@ class _StringGsub extends BuiltinFunction {
       byteLevel: useByteLevel,
     );
     final repl = args[2] as Value;
-    final replRaw = _rawStringValue(repl);
-    final n = args.length > 3
-        ? NumberUtils.toInt(_rawStringValue(args[3]))
-        : -1;
+    final replRaw = rawLuaSlot(repl);
+    final n = args.length > 3 ? NumberUtils.toInt(rawLuaSlot(args[3])) : -1;
 
     try {
       var count = 0;
@@ -2133,7 +2121,7 @@ class _StringGsub extends BuiltinFunction {
         final runtime = interpreter;
         final previousYieldable = runtime?.isYieldable;
         try {
-          final rawCallable = _rawStringValue(callable);
+          final rawCallable = rawLuaSlot(callable);
           if (rawCallable is Function) {
             if (runtime != null) {
               runtime.isYieldable = false;
@@ -2205,8 +2193,7 @@ class _StringGsub extends BuiltinFunction {
 
             if (replacement == null ||
                 (replacement is Value &&
-                    (replacement.isNil ||
-                        _rawStringValue(replacement) == false))) {
+                    (replacement.isNil || rawLuaSlot(replacement) == false))) {
               buffer.write(match.match);
             } else {
               didSubstitute = true;
@@ -2262,9 +2249,7 @@ class _StringGsub extends BuiltinFunction {
             var replacement = await repl.getValueAsync(key);
 
             if (replacement is Value) {
-              replacement = replacement.isNil
-                  ? null
-                  : _rawStringValue(replacement);
+              replacement = replacement.isNil ? null : rawLuaSlot(replacement);
             }
 
             if (replacement != null && replacement != false) {
@@ -2369,7 +2354,7 @@ class _StringLen extends BuiltinFunction {
       throw LuaError.typeError("string.len requires a string argument");
     }
     final value = args[0] as Value;
-    final rawValue = _rawStringValue(value);
+    final rawValue = rawLuaSlot(value);
     int len;
     if (rawValue is LuaString) {
       len = rawValue.bytes.length;
@@ -2390,7 +2375,7 @@ class _StringLower extends BuiltinFunction {
     }
 
     final value = args[0] as Value;
-    final rawValue = _rawStringValue(value);
+    final rawValue = rawLuaSlot(value);
 
     // Handle LuaString specially to preserve byte representation
     if (rawValue is LuaString) {
@@ -2436,8 +2421,8 @@ class _StringMatch extends BuiltinFunction {
       throw LuaError.typeError("string.match requires a string and a pattern");
     }
 
-    final strValue = _rawStringValue(args[0]);
-    final patternValue = _rawStringValue(args[1]);
+    final strValue = rawLuaSlot(args[0]);
+    final patternValue = rawLuaSlot(args[1]);
     final useByteLevel = _shouldUseBytePatternProcessing(
       strValue,
       patternValue,
@@ -2447,9 +2432,7 @@ class _StringMatch extends BuiltinFunction {
       patternValue,
       byteLevel: useByteLevel,
     );
-    var init = args.length > 2
-        ? NumberUtils.toInt(_rawStringValue(args[2]))
-        : 1;
+    var init = args.length > 2 ? NumberUtils.toInt(rawLuaSlot(args[2])) : 1;
 
     // Convert to 0-based index and handle negative indices
     init = init > 0 ? init - 1 : str.length + init;
@@ -2617,10 +2600,10 @@ class _StringRep extends BuiltinFunction {
     }
 
     final value = args[0] as Value;
-    final rawValue = _rawStringValue(value);
-    final count = _requireIntegerRepresentation(_rawStringValue(args[1]));
+    final rawValue = rawLuaSlot(value);
+    final count = _requireIntegerRepresentation(rawLuaSlot(args[1]));
     final separatorValue = args.length > 2 ? (args[2] as Value) : null;
-    final rawSeparator = _rawStringValue(separatorValue);
+    final rawSeparator = rawLuaSlot(separatorValue);
 
     if (count <= 0) return _wrapRepeatedString('');
 
@@ -2728,7 +2711,7 @@ class _StringReverse extends BuiltinFunction {
     }
 
     final value = args[0] as Value;
-    final rawValue = _rawStringValue(value);
+    final rawValue = rawLuaSlot(value);
 
     if (rawValue is LuaString) {
       final bytes = List<int>.from(rawValue.bytes.reversed);
@@ -2746,7 +2729,7 @@ class _StringSub extends BuiltinFunction {
   @override
   Object? call(List<Object?> args) {
     final value = _requireStringLibrarySubject(this, args, 'sub');
-    final strValue = _rawStringValue(value);
+    final strValue = rawLuaSlot(value);
     final str = strValue is LuaString ? null : strValue.toString();
     final length = strValue is LuaString ? strValue.length : str!.length;
 
@@ -2807,7 +2790,7 @@ class _StringPack extends BuiltinFunction {
     if (args.isEmpty) {
       throw LuaError.typeError("string.pack requires format string");
     }
-    final format = _rawStringValue(args[0]).toString();
+    final format = rawLuaSlot(args[0]).toString();
     final values = args.sublist(1);
 
     final bytes = <int>[];
@@ -2860,7 +2843,7 @@ class _StringPack extends BuiltinFunction {
           if (size == null) {
             throw LuaError("missing size for format option 'c'");
           }
-          final rawVal = _rawStringValue(getArg('string'));
+          final rawVal = rawLuaSlot(getArg('string'));
           final encoded = rawVal is LuaString
               ? rawVal.bytes
               : utf8.encode(rawVal.toString());
@@ -2948,14 +2931,14 @@ class _StringPack extends BuiltinFunction {
 
             // Handle float types differently from integer types
             if (opt.type == 'f') {
-              final value = NumberUtils.toDouble(_rawStringValue(getArg()));
+              final value = NumberUtils.toDouble(rawLuaSlot(getArg()));
               bytes.addAll(NumberUtils.packFloat32(value, endianness));
             } else if (opt.type == 'd' || opt.type == 'n') {
-              final value = NumberUtils.toDouble(_rawStringValue(getArg()));
+              final value = NumberUtils.toDouble(rawLuaSlot(getArg()));
               bytes.addAll(NumberUtils.packFloat64(value, endianness));
             } else {
               // Integer types with overflow detection
-              final v = NumberUtils.toBigInt(_rawStringValue(getArg()));
+              final v = NumberUtils.toBigInt(rawLuaSlot(getArg()));
               final isUnsigned =
                   opt.type == 'B' ||
                   opt.type == 'H' ||
@@ -2994,7 +2977,7 @@ class _StringPack extends BuiltinFunction {
           }
         case 's': // size-prefixed string with native integer size
           {
-            final rawVal = _rawStringValue(getArg('string'));
+            final rawVal = rawLuaSlot(getArg('string'));
             final encoded = rawVal is LuaString
                 ? rawVal.bytes
                 : utf8.encode(rawVal.toString());
@@ -3100,7 +3083,7 @@ class _StringPack extends BuiltinFunction {
           continue;
         case 'z':
           {
-            final rawVal = _rawStringValue(getArg('string'));
+            final rawVal = rawLuaSlot(getArg('string'));
             final encoded = rawVal is LuaString
                 ? rawVal.bytes
                 : utf8.encode(rawVal.toString());
@@ -3153,7 +3136,7 @@ class _StringPackSize extends BuiltinFunction {
     if (args.isEmpty) {
       throw LuaError.typeError("string.packsize requires format string");
     }
-    final format = _rawStringValue(args[0]).toString();
+    final format = rawLuaSlot(args[0]).toString();
 
     // Use the new parser instead of character-by-character parsing
     try {
@@ -3330,14 +3313,12 @@ class _StringUnpack extends BuiltinFunction {
         "string.unpack requires format string and binary string",
       );
     }
-    final format = _rawStringValue(args[0]).toString();
+    final format = rawLuaSlot(args[0]).toString();
     final binaryValue = args[1] as Value;
-    final pos = args.length > 2
-        ? NumberUtils.toInt(_rawStringValue(args[2]))
-        : 1;
+    final pos = args.length > 2 ? NumberUtils.toInt(rawLuaSlot(args[2])) : 1;
 
     final results = <Object?>[];
-    final rawBinaryValue = _rawStringValue(binaryValue);
+    final rawBinaryValue = rawLuaSlot(binaryValue);
     final bytes = rawBinaryValue is LuaString
         ? rawBinaryValue.bytes
         : LuaString.fromDartString(rawBinaryValue.toString()).bytes;
@@ -3697,7 +3678,7 @@ class _StringUpper extends BuiltinFunction {
     }
 
     final value = args[0] as Value;
-    final rawValue = _rawStringValue(value);
+    final rawValue = rawLuaSlot(value);
 
     // Handle LuaString specially to preserve byte representation
     if (rawValue is LuaString) {
@@ -3735,7 +3716,7 @@ class _StringUpper extends BuiltinFunction {
 }
 
 String _formatGeneral(_FormatContext ctx, bool uppercase) {
-  final rawValue = _rawStringValue(ctx.value);
+  final rawValue = rawLuaSlot(ctx.value);
   if (rawValue is! num && rawValue is! BigInt) {
     throw LuaError.typeError(
       "bad argument #${ctx.valueIndex} to 'format' (number expected, got ${NumberUtils.typeName(rawValue)})",

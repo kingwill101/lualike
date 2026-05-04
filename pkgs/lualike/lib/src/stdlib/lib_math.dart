@@ -74,7 +74,7 @@ dynamic _getFastNumber(Object? value, String funcName, int argNum) {
     return value;
   }
   if (value is Value && luaResultValues(value) == null) {
-    final rawNumber = _rawMathArg(value);
+    final rawNumber = rawLuaSlot(value);
     if (rawNumber is int || rawNumber is double || rawNumber is BigInt) {
       return rawNumber;
     }
@@ -82,17 +82,15 @@ dynamic _getFastNumber(Object? value, String funcName, int argNum) {
   return _getNumber(freshValueFromLuaSlot(null, value), funcName, argNum);
 }
 
-Object? _rawMathArg(Object? value) => value is Value ? value.raw : value;
-
 Object? _tryFastMinMaxNumericResult(
   Object? arg0,
   Object? arg1, {
   required bool wantMax,
 }) {
   if (arg0 is Value && luaResultValues(arg0) == null) {
-    final leftRaw = _rawMathArg(arg0);
+    final leftRaw = rawLuaSlot(arg0);
     if (arg1 is Value && luaResultValues(arg1) == null) {
-      final rightRaw = _rawMathArg(arg1);
+      final rightRaw = rawLuaSlot(arg1);
       if (leftRaw is num && rightRaw is num) {
         if (leftRaw is double && leftRaw.isNaN) return leftRaw;
         if (rightRaw is double && rightRaw.isNaN) return rightRaw;
@@ -337,7 +335,7 @@ class _MathLdexp extends _MathBuiltin {
     }
 
     final number = _getNumber(args[0] as Value, "ldexp", 1);
-    final exponentRaw = _rawMathArg(args[1]);
+    final exponentRaw = rawLuaSlot(args[1]);
     if (exponentRaw is! num && exponentRaw is! BigInt) {
       throw LuaError.typeError(
         "bad argument #2 to 'ldexp' "
@@ -717,7 +715,7 @@ class _MathTointeger extends _MathBuiltin {
       throw LuaError.typeError('math.tointeger requires one argument');
     }
 
-    final value = _rawMathArg(args[0]);
+    final value = rawLuaSlot(args[0]);
     final result = NumberUtils.tryToInteger(value);
     return primitiveValue(result);
   }
@@ -732,7 +730,7 @@ class _MathType extends _MathBuiltin {
       throw LuaError.typeError("math.type requires one argument");
     }
 
-    final value = _rawMathArg(args[0]);
+    final value = rawLuaSlot(args[0]);
     if (value is int || value is BigInt) {
       return dartStringValue("integer");
     } else if (value is double) {
@@ -752,8 +750,8 @@ class _MathUlt extends _MathBuiltin {
       throw LuaError.typeError('math.ult requires two integer arguments');
     }
 
-    final m = _rawMathArg(args[0]);
-    final n = _rawMathArg(args[1]);
+    final m = rawLuaSlot(args[0]);
+    final n = rawLuaSlot(args[1]);
 
     return primitiveValue(NumberUtils.unsignedLessThan(m, n));
   }
