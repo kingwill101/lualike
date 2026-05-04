@@ -1455,11 +1455,12 @@ class NextFunction extends BuiltinFunction {
   Object? call(List<Object?> args) {
     if (args.isEmpty) throw LuaError("next requires a table argument");
     final table = args[0] as Value;
-    if (table.raw is! Map) throw LuaError("next requires a table argument");
-    final map = table.raw as Map;
+    final rawTable = _rawBaseValue(table);
+    if (rawTable is! Map) throw LuaError("next requires a table argument");
+    final map = rawTable;
 
     final keyValue = args.length > 1 ? args[1] as Value : null;
-    final keyRaw = keyValue?.raw;
+    final keyRaw = _rawBaseValue(keyValue);
     if (keyValue != null &&
         keyRaw != null &&
         !_containsIterationKey(map, keyValue, keyRaw)) {
@@ -1514,9 +1515,11 @@ class NextFunction extends BuiltinFunction {
         if (Logger.enabled &&
             table.tableWeakMode != null &&
             (table.hasWeakKeys || table.hasWeakValues || table.isAllWeak)) {
+          final rawNextKey = _rawBaseValue(nextKey);
+          final rawNextValue = _rawBaseValue(nextValue);
           Logger.debugLazy(
             () =>
-                'next(pair): weak table (${table.tableWeakMode}) -> k=${nextKey.raw} (${nextKey.raw.runtimeType}) v=${nextValue.raw} (${nextValue.raw.runtimeType})',
+                'next(pair): weak table (${table.tableWeakMode}) -> k=$rawNextKey (${rawNextKey.runtimeType}) v=$rawNextValue (${rawNextValue.runtimeType})',
             category: 'GC',
           );
         }
@@ -1573,7 +1576,7 @@ class NextFunction extends BuiltinFunction {
           storage.hashEntries,
           table,
           wrapped.$1,
-          wrapped.$1.raw,
+          _rawBaseValue(wrapped.$1),
         );
       }
       return LuaResults([wrapped.$1, wrapped.$2]);
@@ -1591,7 +1594,7 @@ class NextFunction extends BuiltinFunction {
         storage.hashEntries,
         table,
         wrapped.$1,
-        wrapped.$1.raw,
+        _rawBaseValue(wrapped.$1),
       );
     }
     return LuaResults([wrapped.$1, wrapped.$2]);
