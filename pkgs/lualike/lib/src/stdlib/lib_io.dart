@@ -75,6 +75,16 @@ class IOLibrary extends Library {
 
 Object? _rawIOValue(Object? value) => value is Value ? value.raw : value;
 
+String _ioString(Object? value) => _rawIOValue(value).toString();
+
+List<String> _ioStringList(Iterable<Object?> values) =>
+    values.map(_ioString).toList();
+
+bool _isIOString(Object? value) {
+  final raw = _rawIOValue(value);
+  return raw is String || raw is LuaString;
+}
+
 LuaFile? extractLuaFile(dynamic value) {
   final raw = _rawIOValue(value);
   return raw is LuaFile ? raw : null;
@@ -423,12 +433,12 @@ class IOInput extends BuiltinFunction {
       result = args[0];
     } else {
       final argument = args[0] as Value;
-      if (argument.raw is! String && argument.raw is! LuaString) {
+      if (!_isIOString(argument)) {
         throw LuaError.typeError(
           "bad argument #1 to 'input' (FILE* expected, got ${getLuaType(argument)})",
         );
       }
-      final filename = argument.raw.toString();
+      final filename = _ioString(argument);
       Logger.debugLazy(
         () => 'Opening file for input: $filename',
         category: 'IO',
@@ -471,8 +481,9 @@ class IOLines extends BuiltinFunction {
     // Log the arguments
     for (int i = 0; i < args.length; i++) {
       final arg = args[i] as Value;
+      final rawArg = _rawIOValue(arg);
       Logger.debugLazy(
-        () => 'Arg $i: ${arg.raw} (type: ${arg.raw.runtimeType})',
+        () => 'Arg $i: $rawArg (type: ${rawArg.runtimeType})',
         category: 'IO',
       );
     }
@@ -501,16 +512,16 @@ class IOLines extends BuiltinFunction {
       Logger.debugLazy(() => 'Using provided file for lines', category: 'IO');
       fileValue = args[0] as Value;
       final luaFile = extractLuaFile(fileValue)!;
-      formats = args.skip(1).map((e) => (e as Value).raw.toString()).toList();
+      formats = _ioStringList(args.skip(1));
       if (formats.isEmpty) formats = ["l"];
       return await luaFile.lines(formats, false, fileValue);
-    } else if (args[0] is Value && (args[0] as Value).raw != null) {
+    } else if (_rawIOValue(args[0]) != null) {
       Logger.debugLazy(() => 'Opening new file for lines', category: 'IO');
-      final filename = (args[0] as Value).raw.toString();
+      final filename = _ioString(args[0]);
       try {
         final device = await IOLib.fileSystemProvider.openFile(filename, "r");
         final luaFile = LuaFile(device);
-        formats = args.skip(1).map((e) => (e as Value).raw.toString()).toList();
+        formats = _ioStringList(args.skip(1));
         if (formats.isEmpty) formats = ["l"];
         final toClose = wrapLuaFileValue(luaFile);
         final iterator = await luaFile.lines(
@@ -544,7 +555,7 @@ class IOLines extends BuiltinFunction {
         category: 'IO',
       );
       final luaFile = extractLuaFile(fileValue)!;
-      formats = args.skip(1).map((e) => (e as Value).raw.toString()).toList();
+      formats = _ioStringList(args.skip(1));
       if (formats.isEmpty) formats = ["l"];
       Logger.debugLazy(
         () =>
@@ -567,8 +578,8 @@ class IOOpen extends BuiltinFunction {
       return LuaResults([null, "missing filename"]);
     }
 
-    final filename = (args[0] as Value).raw.toString();
-    final mode = args.length > 1 ? (args[1] as Value).raw.toString() : "r";
+    final filename = _ioString(args[0]);
+    final mode = args.length > 1 ? _ioString(args[1]) : "r";
     Logger.debugLazy(
       () => 'Opening file: $filename with mode: $mode',
       category: 'IO',
@@ -620,12 +631,12 @@ class IOOutput extends BuiltinFunction {
       newFile = args[0] as Value;
     } else {
       final argument = args[0] as Value;
-      if (argument.raw is! String && argument.raw is! LuaString) {
+      if (!_isIOString(argument)) {
         throw LuaError.typeError(
           "bad argument #1 to 'output' (FILE* expected, got ${getLuaType(argument)})",
         );
       }
-      final filename = argument.raw.toString();
+      final filename = _ioString(argument);
       Logger.debugLazy(
         () => 'Arg is filename: $filename - opening file',
         category: 'IO',
@@ -696,8 +707,8 @@ class IOPopen extends BuiltinFunction {
       throw LuaError.typeError("io.popen requires a command string");
     }
 
-    final cmd = (args[0] as Value).raw.toString();
-    var mode = args.length > 1 ? (args[1] as Value).raw.toString() : 'r';
+    final cmd = _ioString(args[0]);
+    var mode = args.length > 1 ? _ioString(args[1]) : 'r';
 
     // Only 'r' or 'w' (optionally with trailing 'b') are valid for popen
     if (mode.endsWith('b')) {
@@ -729,9 +740,7 @@ class IORead extends BuiltinFunction {
   Future<Object?> call(List<Object?> args) async {
     Logger.debugLazy(() => 'Executing IO read', category: 'IO');
 
-    final formats = args.isEmpty
-        ? ["l"]
-        : args.map((e) => (e as Value).raw.toString()).toList();
+    final formats = args.isEmpty ? ["l"] : _ioStringList(args);
     Logger.debugLazy(() => 'Reading with formats: $formats', category: 'IO');
     final results = <Object?>[];
     bool encounteredFailure = false;
@@ -870,11 +879,12 @@ class IOWrite extends BuiltinFunction {
 
     for (final arg in args) {
       final val = arg as Value;
+      final rawVal = _rawIOValue(val);
       try {
         final defaultOutput = IOLib.defaultOutput;
         final luaFile = extractLuaFile(defaultOutput)!;
-        if (val.raw is LuaString) {
-          final bytes = (val.raw as LuaString).bytes;
+        if (rawVal is LuaString) {
+          final bytes = rawVal.bytes;
           Logger.debugLazy(
             () => 'Writing ${bytes.length} raw bytes',
             category: 'IO',
@@ -887,8 +897,8 @@ class IOWrite extends BuiltinFunction {
             );
             return LuaResults(result);
           }
-        } else if (val.raw is String || val.raw is num || val.raw is BigInt) {
-          final str = val.raw.toString();
+        } else if (rawVal is String || rawVal is num || rawVal is BigInt) {
+          final str = rawVal.toString();
           Logger.debugLazy(() => 'Writing string: $str', category: 'IO');
           final result = await luaFile.write(str);
           if (result[0] == null) {
@@ -1013,9 +1023,7 @@ class FileRead extends BuiltinFunction {
 
     // Skip the self parameter
     final actualArgs = args.skip(1).toList();
-    final formats = actualArgs.isNotEmpty
-        ? actualArgs.map((e) => (e as Value).raw.toString()).toList()
-        : ["l"];
+    final formats = actualArgs.isNotEmpty ? _ioStringList(actualArgs) : ["l"];
 
     final luaFile = extractLuaFile(file)!;
     final results = <Object?>[];
@@ -1068,16 +1076,17 @@ class FileWrite extends BuiltinFunction {
     final luaFile = extractLuaFile(file)!;
     for (final arg in actualArgs) {
       final val = arg as Value;
+      final rawVal = _rawIOValue(val);
       List<Object?> result;
-      if (val.raw is LuaString) {
-        final bytes = (val.raw as LuaString).bytes;
+      if (rawVal is LuaString) {
+        final bytes = rawVal.bytes;
         Logger.debugLazy(
           () => 'File:write raw ${bytes.length} bytes',
           category: 'IO',
         );
         result = await luaFile.writeBytes(bytes);
       } else {
-        final str = val.raw.toString();
+        final str = rawVal.toString();
         result = await luaFile.write(str);
       }
       if (result[0] == null) {
@@ -1103,11 +1112,9 @@ class FileSeek extends BuiltinFunction {
 
     // Skip the self parameter
     final actualArgs = args.skip(1).toList();
-    final whence = actualArgs.isNotEmpty
-        ? (actualArgs[0] as Value).raw.toString()
-        : "cur";
+    final whence = actualArgs.isNotEmpty ? _ioString(actualArgs[0]) : "cur";
     final offset = actualArgs.length > 1
-        ? (actualArgs[1] as Value).raw as int
+        ? _rawIOValue(actualArgs[1]) as int
         : 0;
 
     final result = await extractLuaFile(file)!.seek(whence, offset);
@@ -1128,9 +1135,7 @@ class FileLines extends BuiltinFunction {
 
     // Skip the self parameter
     final actualArgs = args.skip(1).toList();
-    final formats = actualArgs.isNotEmpty
-        ? actualArgs.map((e) => (e as Value).raw.toString()).toList()
-        : ["l"];
+    final formats = actualArgs.isNotEmpty ? _ioStringList(actualArgs) : ["l"];
 
     final result = await extractLuaFile(
       file,
@@ -1155,11 +1160,9 @@ class FileSetvbuf extends BuiltinFunction {
 
     // Skip self parameter
     final actualArgs = args.skip(1).toList();
-    final mode = actualArgs.isNotEmpty
-        ? (actualArgs[0] as Value).raw.toString()
-        : 'full';
+    final mode = actualArgs.isNotEmpty ? _ioString(actualArgs[0]) : 'full';
     final size = actualArgs.length > 1
-        ? NumberUtils.toInt((actualArgs[1] as Value).raw)
+        ? NumberUtils.toInt(_rawIOValue(actualArgs[1]))
         : null;
 
     final result = await extractLuaFile(file)!.setvbuf(mode, size);
