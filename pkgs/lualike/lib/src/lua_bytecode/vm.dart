@@ -470,7 +470,6 @@ final class LuaBytecodeVm {
                 .toList(growable: false),
           );
           final callee = prepared.callee;
-          callee.interpreter ??= runtime;
           final tailNameInfo = _decodeTailCallNameInfo(tail.callName);
           if (callee.raw case final LuaBytecodeClosure nextClosure) {
             currentClosure = nextClosure;
@@ -781,7 +780,6 @@ final class LuaBytecodeVm {
               .toList(growable: false),
         );
         final callee = prepared.callee;
-        callee.interpreter ??= runtime;
         if (callee.raw case final LuaBytecodeClosure nextClosure) {
           try {
             return await invoke(
@@ -2025,7 +2023,6 @@ final class LuaBytecodeVm {
                 final tailNameInfo = _decodeTailCallNameInfo(tailName);
                 final prepared = _flattenTailCallable(call.callee, call.args);
                 final callee = prepared.callee;
-                callee.interpreter ??= runtime;
                 if (callee.raw case LuaBytecodeClosure()) {
                   await _closeFrameForCoroutine(frame, error: null);
                   throw TailCallException(
@@ -3514,7 +3511,6 @@ final class LuaBytecodeVm {
     callee = prepared.callee;
     args = prepared.args;
     extraArgs += prepared.extraArgs;
-    callee.interpreter ??= runtime;
     if (_debugInterpreter?.debugHookFunction == null) {
       final rawCallee = callee.raw;
       if (rawCallee is BuiltinFunction &&
