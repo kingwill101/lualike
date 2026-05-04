@@ -426,6 +426,13 @@ Future<void> main(List<String> args) async {
       'lua-bytecode',
       negatable: false,
       help: 'Run tests using the lua_bytecode engine (passes --lua-bytecode).',
+    )
+    ..addFlag(
+      'all-engines',
+      negatable: false,
+      help:
+          'Run all tests under every engine in sequence: AST (default), IR, and lua-bytecode. '
+          'Supersedes --ir and --lua-bytecode when present.',
     );
 
   ArgResults r;
@@ -603,24 +610,95 @@ Future<void> main(List<String> args) async {
     console.resetColorAttributes();
   }
 
-  final results = await runTests(
-    tests: execCode == null ? testsToRun : const <String>[],
-    inlineCode: execCode,
-    lualikeBinaryPath: lualikeBinaryPath,
-    verbose: verboseEnabled,
-    soft: r['soft'] as bool, // default true  => _soft = true
-    port: r['port'] as bool, // default true  => _port = true
-    debug: debugEnabled, // new debug flag
-    ir: r['ir'] as bool,
-    luaBytecode: r['lua-bytecode'] as bool,
-    timeoutSeconds: timeoutSeconds,
-  );
+  final allEngines = r['all-engines'] as bool;
 
-  printTestSummary(results);
+  if (allEngines) {
+    // Run the full suite under each engine in turn and print a combined report.
+    final engines = <(String, bool, bool)>[
+      ('AST (default)', false, false),
+      ('IR', true, false),
+      ('lua-bytecode', false, true),
+    ];
 
-  // Exit with non-zero code if any test failed
-  if (results.any((result) => !result.passed)) {
-    exit(1);
+    final engineResults = <String, List<TestResult>>{};
+    var anyFailed = false;
+
+    for (final (label, ir, luaBytecode) in engines) {
+      console.writeLine();
+      console.setForegroundColor(ConsoleColor.cyan);
+      console.setTextStyle(bold: true);
+      console.write('═══ Engine: $label ═══');
+      console.resetColorAttributes();
+      console.writeLine();
+
+      final results = await runTests(
+        tests: execCode == null ? testsToRun : const <String>[],
+        inlineCode: execCode,
+        lualikeBinaryPath: lualikeBinaryPath,
+        verbose: verboseEnabled,
+        soft: r['soft'] as bool,
+        port: r['port'] as bool,
+        debug: debugEnabled,
+        ir: ir,
+        luaBytecode: luaBytecode,
+        timeoutSeconds: timeoutSeconds,
+      );
+
+      engineResults[label] = results;
+      printTestSummary(results);
+
+      if (results.any((result) => !result.passed)) {
+        anyFailed = true;
+      }
+    }
+
+    // Cross-engine summary table
+    console.writeLine();
+    console.setTextStyle(bold: true);
+    console.write('Cross-engine Summary:');
+    console.resetColorAttributes();
+    console.writeLine();
+
+    for (final entry in engineResults.entries) {
+      final passed = entry.value.where((r) => r.passed).length;
+      final total = entry.value.length;
+      final allPassed = passed == total;
+      console.setForegroundColor(
+        allPassed ? ConsoleColor.green : ConsoleColor.red,
+      );
+      console.write('  ${entry.key}: $passed/$total passed');
+      if (!allPassed) {
+        final failed =
+            entry.value.where((r) => !r.passed).map((r) => r.fileName);
+        console.write('  [FAILED: ${failed.join(', ')}]');
+      }
+      console.resetColorAttributes();
+      console.writeLine();
+    }
+
+    if (anyFailed) {
+      exit(1);
+    }
+  } else {
+    final results = await runTests(
+      tests: execCode == null ? testsToRun : const <String>[],
+      inlineCode: execCode,
+      lualikeBinaryPath: lualikeBinaryPath,
+      verbose: verboseEnabled,
+      soft: r['soft'] as bool, // default true  => _soft = true
+      port: r['port'] as bool, // default true  => _port = true
+      debug: debugEnabled,
+      ir: r['ir'] as bool,
+      luaBytecode: r['lua-bytecode'] as bool,
+      timeoutSeconds: timeoutSeconds,
+    );
+
+    printTestSummary(results);
+
+    // Exit with non-zero code if any test failed
+    if (results.any((result) => !result.passed)) {
+      exit(1);
+    }
   }
 }
 
