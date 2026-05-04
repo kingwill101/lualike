@@ -666,7 +666,7 @@ class _StringByte extends BuiltinFunction {
       throw LuaError.typeError("string.byte requires a string argument");
     }
 
-    final value = args[0] as Value;
+    final value = args[0];
     final rawValue = rawLuaSlot(value);
     final bytes = rawValue is LuaString
         ? rawValue.bytes
@@ -2353,7 +2353,7 @@ class _StringLen extends BuiltinFunction {
     if (args.isEmpty) {
       throw LuaError.typeError("string.len requires a string argument");
     }
-    final value = args[0] as Value;
+    final value = args[0];
     final rawValue = rawLuaSlot(value);
     int len;
     if (rawValue is LuaString) {
@@ -2374,7 +2374,7 @@ class _StringLower extends BuiltinFunction {
       throw LuaError.typeError("string.lower requires a string argument");
     }
 
-    final value = args[0] as Value;
+    final value = args[0];
     final rawValue = rawLuaSlot(value);
 
     // Handle LuaString specially to preserve byte representation
@@ -2602,7 +2602,7 @@ class _StringRep extends BuiltinFunction {
     final value = args[0] as Value;
     final rawValue = rawLuaSlot(value);
     final count = _requireIntegerRepresentation(rawLuaSlot(args[1]));
-    final separatorValue = args.length > 2 ? (args[2] as Value) : null;
+    final separatorValue = args.length > 2 ? args[2] : null;
     final rawSeparator = rawLuaSlot(separatorValue);
 
     if (count <= 0) return _wrapRepeatedString('');
@@ -2710,7 +2710,7 @@ class _StringReverse extends BuiltinFunction {
       throw LuaError.typeError("string.reverse requires a string argument");
     }
 
-    final value = args[0] as Value;
+    final value = args[0];
     final rawValue = rawLuaSlot(value);
 
     if (rawValue is LuaString) {
@@ -3677,7 +3677,7 @@ class _StringUpper extends BuiltinFunction {
       throw LuaError.typeError("string.upper requires a string argument");
     }
 
-    final value = args[0] as Value;
+    final value = args[0];
     final rawValue = rawLuaSlot(value);
 
     // Handle LuaString specially to preserve byte representation
