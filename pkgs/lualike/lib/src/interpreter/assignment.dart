@@ -47,6 +47,11 @@ FutureOr<Object?> _resolveAssignmentFutureValue(
   return value;
 }
 
+bool _isRawMapValue(Value value) => _rawInterpreterValue(value) is Map;
+
+bool _isRawTableStorageValue(Value value) =>
+    _rawInterpreterValue(value) is TableStorage;
+
 Value _wrapMutableLocalReadValue(Interpreter interpreter, Object? value) {
   return cachedPrimitiveOrValue(interpreter, value);
 }
@@ -556,7 +561,7 @@ mixin InterpreterAssignmentMixin on AstVisitor<Object?> {
 
     if (tableValue is Value) {
       final storedValue = wrappedValue;
-      if (tableValue.raw is Map) {
+      if (_isRawMapValue(tableValue)) {
         if (target.index is! Identifier) {
           final table = await target.table.accept(this).toValue();
           if (!table.isNil) {
@@ -604,9 +609,10 @@ mixin InterpreterAssignmentMixin on AstVisitor<Object?> {
           try {
             // Try to get the identifier as a variable
             final variableValue = globals.get(identName);
-            if (variableValue is Value && variableValue.raw != null) {
+            final variableRaw = _rawInterpreterValue(variableValue);
+            if (variableValue is Value && variableRaw != null) {
               // Variable exists and has a non-nil value - use its value as key
-              identifier = variableValue.raw;
+              identifier = variableRaw;
             } else {
               // Variable is nil or doesn't exist - use identifier name as literal key
               identifier = identName;
@@ -630,7 +636,9 @@ mixin InterpreterAssignmentMixin on AstVisitor<Object?> {
 
         Logger.debugLazy(
           () =>
-              '_handleTableAccessAssignment: Assigned ${storedValue.raw} to ${(target.index as Identifier).name}',
+              '_handleTableAccessAssignment: Assigned '
+              '${_rawInterpreterValue(storedValue)} to '
+              '${(target.index as Identifier).name}',
           category: 'Interpreter',
           contextBuilder: () => {'key': (target.index as Identifier).name},
         );
@@ -993,7 +1001,7 @@ mixin InterpreterAssignmentMixin on AstVisitor<Object?> {
     }
 
     if (tableValue is Value) {
-      if (tableValue.raw is Map) {
+      if (_isRawMapValue(tableValue)) {
         final storedValue = wrappedValue;
         // For field access, always use the field name as literal string key
         final fieldKey = target.fieldName.name;
@@ -1032,7 +1040,9 @@ mixin InterpreterAssignmentMixin on AstVisitor<Object?> {
 
         Logger.debugLazy(
           () =>
-              '_handleTableFieldAssignment: Assigned ${storedValue.raw} to ${target.fieldName.name}',
+              '_handleTableFieldAssignment: Assigned '
+              '${_rawInterpreterValue(storedValue)} to '
+              '${target.fieldName.name}',
           category: 'Interpreter',
           contextBuilder: () => {'fieldName': target.fieldName.name},
         );
@@ -1073,7 +1083,7 @@ mixin InterpreterAssignmentMixin on AstVisitor<Object?> {
     }
 
     if (tableValue is Value) {
-      if (tableValue.raw is Map) {
+      if (_isRawMapValue(tableValue)) {
         final storedValue = wrappedValue;
         // For index access, always evaluate the index expression
         var indexResult = preIndex ?? await target.index.accept<Object?>(this);
@@ -1109,7 +1119,7 @@ mixin InterpreterAssignmentMixin on AstVisitor<Object?> {
         }
 
         int? positiveInteger(Value candidate) {
-          final raw = candidate.raw;
+          final raw = _rawInterpreterValue(candidate);
           if (raw is int) {
             return raw > 0 ? raw : null;
           }
@@ -1122,7 +1132,7 @@ mixin InterpreterAssignmentMixin on AstVisitor<Object?> {
           return null;
         }
 
-        if (tableValue.raw is TableStorage &&
+        if (_isRawTableStorageValue(tableValue) &&
             (!hasNewIndexMeta || keyExists) &&
             !tableValue.hasMetamethod('__index')) {
           final denseIndex = positiveInteger(keyValue);
@@ -1133,10 +1143,13 @@ mixin InterpreterAssignmentMixin on AstVisitor<Object?> {
             Logger.debugLazy(
               () =>
                   '_handleTableIndexAssignment: Assigned '
-                  '${storedValue.raw} to dense index ${keyValue.raw}',
+                  '${_rawInterpreterValue(storedValue)} to dense index '
+                  '${_rawInterpreterValue(keyValue)}',
               category: 'Interpreter',
               contextBuilder: () => {
-                'keyType': keyValue.raw.runtimeType.toString(),
+                'keyType': _rawInterpreterValue(
+                  keyValue,
+                ).runtimeType.toString(),
               },
             );
             return storedValue;
@@ -1150,11 +1163,12 @@ mixin InterpreterAssignmentMixin on AstVisitor<Object?> {
 
         Logger.debugLazy(
           () =>
-              '_handleTableIndexAssignment: Assigned ${storedValue.raw} '
-              'to index ${keyValue.raw}',
+              '_handleTableIndexAssignment: Assigned '
+              '${_rawInterpreterValue(storedValue)} to index '
+              '${_rawInterpreterValue(keyValue)}',
           category: 'Interpreter',
           contextBuilder: () => {
-            'keyType': keyValue.raw.runtimeType.toString(),
+            'keyType': _rawInterpreterValue(keyValue).runtimeType.toString(),
           },
         );
         return storedValue;
