@@ -2,7 +2,7 @@
   const aceScriptUrls = [
     'https://cdnjs.cloudflare.com/ajax/libs/ace/1.43.3/ace.js',
     'https://cdnjs.cloudflare.com/ajax/libs/ace/1.43.3/mode-lua.min.js',
-    'https://cdnjs.cloudflare.com/ajax/libs/ace/1.43.3/theme-tomorrow_night_bright.min.js',
+    'https://cdnjs.cloudflare.com/ajax/libs/ace/1.43.3/theme-dracula.min.js',
   ];
 
   let editor = null;
@@ -102,7 +102,7 @@
     }
 
     editor = window.ace.edit(container);
-    editor.setTheme('ace/theme/tomorrow_night_bright');
+    editor.setTheme('ace/theme/dracula');
     editor.session.setMode('ace/mode/lua');
     editor.setValue(initialValue, -1);
     editor.setOptions({
@@ -113,9 +113,9 @@
       fontFamily: '"JetBrains Mono", "Fira Code", monospace',
       fontSize: '14px',
       highlightActiveLine: true,
-      printMargin: 96,
+      printMargin: false,
+      showPrintMargin: false,
       scrollPastEnd: 0.25,
-      showPrintMargin: true,
       showGutter: true,
       tabSize: 2,
       useSoftTabs: true,

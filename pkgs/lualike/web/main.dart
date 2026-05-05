@@ -46,10 +46,16 @@ print("Hello from lualike!")
       web.document.querySelector('#clear') as web.HTMLButtonElement;
   late final web.HTMLButtonElement clearOutputBtn =
       web.document.querySelector('#clearOutput') as web.HTMLButtonElement;
-  late final web.HTMLSelectElement examplesSelect =
-      web.document.querySelector('#examples') as web.HTMLSelectElement;
+  late final web.HTMLUListElement examplesList =
+      web.document.querySelector('#examplesList') as web.HTMLUListElement;
+  late final web.HTMLSpanElement currentExampleName =
+      web.document.querySelector('#currentExampleName') as web.HTMLSpanElement;
   late final web.HTMLSpanElement runStatus =
       web.document.querySelector('#runStatus') as web.HTMLSpanElement;
+  late final web.HTMLElement sidebar =
+      web.document.querySelector('.sidebar') as web.HTMLElement;
+  late final web.HTMLButtonElement menuToggle =
+      web.document.querySelector('#menuToggle') as web.HTMLButtonElement;
   late final LuaLike luaLike;
   bool _plainEditorFallback = false;
 
@@ -69,36 +75,35 @@ print("Hello from lualike!")
     IOLib.defaultInput = createLuaFile(stdinDevice);
     IOLib.defaultOutput = createLuaFile(stdoutDevice);
 
-    // Populate examples dropdown
-    populateExamplesDropdown();
+    // Populate examples
+    populateExamplesList();
     unawaited(_mountEditor(_starterSnippet));
     _bindEditorEvents();
     _setRunStatus('Ready', 'ready');
+    _updateActiveExample('hello');
 
     runBtn.onClick.listen((_) => runCode());
     clearBtn.onClick.listen((_) => clearCode());
     clearOutputBtn.onClick.listen((_) => clearOutput());
-    examplesSelect.onChange.listen((_) {
-      loadExample();
-    });
+    menuToggle.onClick.listen((_) => _toggleMenu());
 
     // Show welcome message
     showWelcomeMessage();
   }
 
-  void populateExamplesDropdown() {
-    // Clear existing options (except the first placeholder)
-    while (examplesSelect.children.length > 1) {
-      examplesSelect.removeChild(examplesSelect.children.item(1)!);
-    }
+  void populateExamplesList() {
+    examplesList.textContent = '';
 
     // Add options for each example
     for (final entry in LuaExamples.allExamples) {
-      final option =
-          web.document.createElement('option') as web.HTMLOptionElement;
-      option.value = entry.key;
-      option.text = LuaExamples.getDisplayName(entry.key) ?? entry.key;
-      examplesSelect.appendChild(option);
+      final li = web.document.createElement('li') as web.HTMLLIElement;
+      li.className = 'example-item';
+      li.setAttribute('data-key', entry.key);
+      li.textContent = LuaExamples.getDisplayName(entry.key) ?? entry.key;
+      li.onClick.listen((_) {
+        loadExample(entry.key);
+      });
+      examplesList.appendChild(li);
     }
   }
 
@@ -109,7 +114,7 @@ print("Hello from lualike!")
       'info',
     );
     appendOutput(
-      'Choose an example from the dropdown to get started.\n',
+      'Explore the examples in the sidebar to get started.\n',
       'info',
     );
   }
@@ -132,10 +137,10 @@ print("Hello from lualike!")
       // Execute the code - print statements will automatically go to our WebOutputDevice
       await luaLike.execute(code);
 
-      appendOutput('✅ Code executed successfully!', 'success');
+      appendOutput('\n✅ Code executed successfully!', 'success');
       _setRunStatus('Completed', 'success');
     } catch (e) {
-      appendOutput('❌ Error: $e', 'error');
+      appendOutput('\n❌ Error: $e', 'error');
       _setRunStatus('Execution error', 'error');
     }
   }
@@ -144,6 +149,7 @@ print("Hello from lualike!")
     _setEditorValue('');
     _focusEditor();
     _setRunStatus('Ready', 'ready');
+    _updateActiveExample('');
   }
 
   void clearOutput() {
@@ -152,7 +158,7 @@ print("Hello from lualike!")
 
   void appendOutput(String text, String type) {
     final line = web.document.createElement('div') as web.HTMLDivElement;
-    line.className = type;
+    line.className = 'output-line $type';
     line.textContent = text;
     output.appendChild(line);
 
@@ -160,15 +166,38 @@ print("Hello from lualike!")
     output.scrollTop = output.scrollHeight;
   }
 
-  void loadExample() {
-    final selectedValue = examplesSelect.value;
-    if (selectedValue.isEmpty) return;
-
-    final example = LuaExamples.getExample(selectedValue);
+  void loadExample(String key) {
+    final example = LuaExamples.getExample(key);
     if (example != null) {
       _setEditorValue(example);
       _focusEditor();
       _setRunStatus('Ready', 'ready');
+      _updateActiveExample(key);
+      _closeMenu();
+    }
+  }
+
+  void _toggleMenu() {
+    sidebar.classList.toggle('open');
+  }
+
+  void _closeMenu() {
+    sidebar.classList.remove('open');
+  }
+
+  void _updateActiveExample(String key) {
+    currentExampleName.textContent = key.isEmpty
+        ? 'New Script'
+        : (LuaExamples.getDisplayName(key) ?? key);
+
+    final items = examplesList.querySelectorAll('.example-item');
+    for (var i = 0; i < items.length; i++) {
+      final item = items.item(i) as web.HTMLElement;
+      if (item.getAttribute('data-key') == key) {
+        item.classList.add('active');
+      } else {
+        item.classList.remove('active');
+      }
     }
   }
 
@@ -182,7 +211,7 @@ print("Hello from lualike!")
   }
 
   Future<void> _mountEditor(String initialValue) async {
-    sourceCode.dataset['ready'] = 'false';
+    sourceCode.setAttribute('data-ready', 'false');
     try {
       await _mountLuaLikeEditor(initialValue.toJS).toDart;
       _plainEditorFallback = false;
@@ -216,8 +245,8 @@ print("Hello from lualike!")
 
   void _activatePlainEditorFallback(String initialValue, Object error) {
     _plainEditorFallback = true;
-    sourceCode.dataset['ready'] = 'true';
-    sourceCode.dataset['mode'] = 'plain';
+    sourceCode.setAttribute('data-ready', 'true');
+    sourceCode.setAttribute('data-mode', 'plain');
     sourceCode.contentEditable = 'true';
     sourceCode.tabIndex = 0;
     sourceCode.textContent = initialValue;

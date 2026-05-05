@@ -1,59 +1,115 @@
 <!DOCTYPE html>
-<html>
+<html lang="en">
 
 <head>
     <meta charset="utf-8">
     <meta http-equiv="X-UA-Compatible" content="IE=edge">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <meta name="scaffolded-by" content="https://github.com/dart-lang/sdk">
-    <title>LuaLike Web REPL</title>
+    <meta name="description" content="LuaLike Web REPL - A Lua 5.4 compatible interpreter running in your browser.">
+    <title>LuaLike | Web REPL</title>
+
+    <!-- Fonts -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link
+        href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap"
+        rel="stylesheet">
+
     <link rel="stylesheet" href="styles.css">
     <script src="editor_bridge.js"></script>
     <script defer src="main.dart.js"></script>
 </head>
 
 <body>
-    <div class="container">
-        <header>
-            <h1>🌙 LuaLike Web REPL</h1>
-            <p>A Lua 5.4 compatible interpreter running in your browser!</p>
-        </header>
+    <div class="app-container">
+        <!-- Sidebar -->
+        <aside class="sidebar">
+            <header class="sidebar-header">
+                <div class="header-main">
+                    <span class="logo">🌙</span>
+                    <h1>LuaLike</h1>
+                </div>
+                <button id="menuToggle" class="menu-toggle" aria-label="Toggle Menu">
+                    <span class="hamburger-bar"></span>
+                    <span class="hamburger-bar"></span>
+                    <span class="hamburger-bar"></span>
+                </button>
+            </header>
 
-        <div class="main-content">
-            <div class="editor-section">
-                <div class="editor-header">
-                    <h3>Lua Code Editor</h3>
-                    <div class="editor-controls">
-                        <select id="examples" name="examples">
-                            <option value="">Choose an example...</option>
-                        </select>
-                        <button id="clear">Clear</button>
-                        <button id="run" class="run-button">▶ Run Code</button>
-                    </div>
+            <div class="sidebar-content">
+                <section class="sidebar-section">
+                    <h3>Examples</h3>
+                    <ul id="examplesList" class="examples-list">
+                        <!-- Populated by Dart -->
+                    </ul>
+                </section>
+
+                <section class="sidebar-section">
+                    <h3>Cheat Sheet</h3>
+                    <ul class="cheat-sheet">
+                        <li class="cheat-item"><span>Output</span><code>print("hi")</code></li>
+                        <li class="cheat-item"><span>Comment</span><code>-- note</code></li>
+                        <li class="cheat-item"><span>Function</span><code>function()</code></li>
+                        <li class="cheat-item"><span>Table</span><code>{a=1, b=2}</code></li>
+                        <li class="cheat-item"><span>Length</span><code>#list</code></li>
+                        <li class="cheat-item"><span>Concat</span><code>"a" .. "b"</code></li>
+                    </ul>
+                </section>
+
+                <div class="sidebar-footer">
+                    <a href="https://github.com/kingwill101/lualike" target="_blank">
+                        <svg height="16" width="16" viewBox="0 0 16 16" fill="currentColor">
+                            <path
+                                d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0016 8c0-4.42-3.58-8-8-8z">
+                            </path>
+                        </svg>
+                        GitHub
+                    </a>
                 </div>
-                <div class="code-editor-container">
-                    <div id="sourceCode" class="code-editor" aria-label="Lua code editor"></div>
-                </div>
-                <div class="editor-meta">
+            </div>
+        </aside>
+
+        <!-- Main Area -->
+        <main class="main-area">
+            <header class="top-bar">
+                <div class="status-group">
                     <span id="runStatus" class="status-pill ready">Ready</span>
-                    <span id="editorCursor" class="editor-cursor">Ln 1, Col 1</span>
-                    <span class="editor-hint">Ctrl/Cmd+Enter to run</span>
+                    <span id="currentExampleName">Starter Template</span>
                 </div>
-            </div>
-
-            <div class="output-section">
-                <div class="output-header">
-                    <h3>Output</h3>
-                    <button id="clearOutput">Clear Output</button>
+                <div class="actions">
+                    <button id="clear">Clear</button>
+                    <button id="run" class="run-button">
+                        <span class="icon">▶</span>
+                        Run Code
+                    </button>
                 </div>
-                <div id="output" class="output-content"></div>
-            </div>
-        </div>
+            </header>
 
-        <footer>
-            <p>Built with Dart and compiled to JavaScript. LuaLike interpreter running natively in the browser.</p>
-            <p><a href="https://github.com/kingwill101/lualike" target="_blank">View on GitHub</a></p>
-        </footer>
+            <div class="workspace">
+                <!-- Editor Pane -->
+                <section class="pane">
+                    <div class="pane-header">
+                        <h3>Editor</h3>
+                    </div>
+                    <div class="editor-container">
+                        <div id="sourceCode" class="code-editor"></div>
+                    </div>
+                    <div class="editor-footer">
+                        <span id="editorCursor">Ln 1, Col 1</span>
+                        <span>Ctrl+Enter to run</span>
+                    </div>
+                </section>
+
+                <!-- Console Pane -->
+                <section class="pane">
+                    <div class="pane-header">
+                        <h3>Console</h3>
+                        <button id="clearOutput" style="padding: 2px 8px; font-size: 0.7rem;">Clear</button>
+                    </div>
+                    <div id="output" class="output-content"></div>
+                </section>
+            </div>
+        </main>
     </div>
 </body>
 
