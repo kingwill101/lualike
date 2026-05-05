@@ -3162,6 +3162,22 @@ class Value with GCObject implements Map<String, dynamic> {
       }
     }
 
+    if (closureEnvironment != null) {
+      refs.add(closureEnvironment);
+    }
+
+    if (globalProxyEnvironment != null) {
+      refs.add(globalProxyEnvironment);
+    }
+
+    if (metatableRef != null) {
+      refs.add(metatableRef);
+    }
+
+    if (comparatorCounterBox != null) {
+      refs.add(comparatorCounterBox);
+    }
+
     if (functionBody != null) {
       // Function bodies contain AST nodes that may reference Values
       // For now, we don't traverse them as they're not GCObjects

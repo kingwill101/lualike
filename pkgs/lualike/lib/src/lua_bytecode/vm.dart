@@ -8914,7 +8914,7 @@ Value _canonicalizeBytecodeValue(Value value) {
     return value;
   }
 
-  final tracked = IOLib.trackedOpenFileWrapper(raw);
+  final tracked = IOLib.trackedOpenFileWrapper(raw, interpreter: value.interpreter);
   if (tracked == null || identical(tracked, value)) {
     return value;
   }
@@ -8927,7 +8927,7 @@ Value _canonicalizeBytecodeValue(Value value) {
 }
 
 Value _trackedLuaFileWrapper(LuaFile file, LuaRuntime runtime) {
-  final tracked = IOLib.trackedOpenFileWrapper(file);
+  final tracked = IOLib.trackedOpenFileWrapper(file, interpreter: runtime);
   if (tracked != null) {
     tracked.interpreter ??= runtime;
     return tracked;

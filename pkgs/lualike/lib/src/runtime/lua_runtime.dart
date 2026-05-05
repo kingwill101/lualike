@@ -143,6 +143,10 @@ abstract interface class LuaRuntime {
   FileManager get fileManager;
   LibraryRegistry get libraryRegistry;
 
+  /// Per-interpreter set of open (non-standard) file Value wrappers.
+  /// Used as GC roots so the lualike collector does not finalize live handles.
+  Set<Value> get openFiles;
+
   // Diagnostics
   void reportError(
     String message, {
