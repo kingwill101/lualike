@@ -1,5 +1,3 @@
-import 'dart:collection';
-
 import 'package:lualike/src/builtin_function.dart';
 import 'package:lualike/src/runtime/lua_runtime.dart';
 import 'package:lualike/src/logging/logger.dart';
@@ -105,18 +103,15 @@ class IOLib {
   static Value? _defaultOutput;
   static bool _defaultOutputExplicitlyClosed = false;
 
-  static final Set<Value> _openFiles = HashSet<Value>(
-    equals: identical,
-    hashCode: identityHashCode,
-  );
-
   static void _debugOpenFileLog(String message) {
     if (platform.getEnvironmentVariable('LUALIKE_DEBUG_FILE_OPS') == '1') {
       io_abs.stderr.writeln('[file-debug] $message');
     }
   }
 
-  static List<Object?> get gcRoots {
+  /// Returns GC roots for [runtime]'s IO state: standard handles plus every
+  /// open file registered with that interpreter instance.
+  static List<Object?> gcRootsFor(LuaRuntime runtime) {
     final roots = <Object?>[];
     final seen = Expando<bool>('ioGcRootsSeen');
 
@@ -131,42 +126,67 @@ class IOLib {
     add(_stdoutValue);
     add(_defaultInput);
     add(_defaultOutput);
+    // All open files registered to this interpreter are GC roots. Without
+    // this the lualike collector can mark a file Value as dead (no path from
+    // env roots) and run its __gc finalizer even though the file is still
+    // open and referenced by a global in a loaded chunk.
+    for (final v in runtime.openFiles) {
+      add(v);
+    }
     return roots;
   }
 
-  static void registerOpenFile(Value fileValue) {
+  static void registerOpenFile(Value fileValue, {LuaRuntime? interpreter}) {
     final luaFile = extractLuaFile(fileValue);
-    if (luaFile != null) {
-      if (!luaFile.isStandardFile) {
-        _openFiles.add(fileValue);
-        _debugOpenFileLog(
-          'register fileValue=${identityHashCode(fileValue)} '
-          'raw=${identityHashCode(luaFile)} '
-          'device=${identityHashCode(luaFile.device)} '
-          'openCount=${_openFiles.length}',
-        );
-      }
+    if (luaFile != null && !luaFile.isStandardFile) {
+      final rt = interpreter ?? fileValue.interpreter;
+      rt?.openFiles.add(fileValue);
+      _debugOpenFileLog(
+        'register fileValue=${identityHashCode(fileValue)} '
+        'raw=${identityHashCode(luaFile)} '
+        'device=${identityHashCode(luaFile.device)} '
+        'interpreter=${identityHashCode(rt)} '
+        'openCount=${rt?.openFiles.length ?? -1}',
+      );
     }
   }
 
-  static void unregisterOpenFile(Value fileValue) {
+  static void unregisterOpenFile(
+    Value fileValue, {
+    LuaRuntime? interpreter,
+  }) {
     if (extractLuaFile(fileValue) case final LuaFile luaFile) {
+      final rt = interpreter ?? fileValue.interpreter;
       _debugOpenFileLog(
         'unregister fileValue=${identityHashCode(fileValue)} '
         'raw=${identityHashCode(luaFile)} '
         'device=${identityHashCode(luaFile.device)} '
-        'before=${_openFiles.length}',
+        'interpreter=${identityHashCode(rt)} '
+        'before=${rt?.openFiles.length ?? -1}',
       );
+      rt?.openFiles.remove(fileValue);
     }
-    _openFiles.remove(fileValue);
   }
 
-  static void unregisterOpenFileForLuaFile(LuaFile file) {
-    _openFiles.removeWhere((value) => _isLuaFileWrapperFor(value, file));
+  static void unregisterOpenFileForLuaFile(
+    LuaFile file, {
+    LuaRuntime? interpreter,
+  }) {
+    interpreter?.openFiles.removeWhere(
+      (value) => _isLuaFileWrapperFor(value, file),
+    );
   }
 
-  static Value? trackedOpenFileWrapper(LuaFile file) {
-    for (final value in _openFiles) {
+  static Value? trackedOpenFileWrapper(LuaFile file, {LuaRuntime? interpreter}) {
+    final set = interpreter?.openFiles;
+    if (set == null) {
+      _debugOpenFileLog(
+        'tracked-miss (no interpreter) raw=${identityHashCode(file)} '
+        'device=${identityHashCode(file.device)}',
+      );
+      return null;
+    }
+    for (final value in set) {
       if (_isLuaFileWrapperFor(value, file)) {
         _debugOpenFileLog(
           'tracked-hit fileValue=${identityHashCode(value)} '
@@ -179,7 +199,7 @@ class IOLib {
     _debugOpenFileLog(
       'tracked-miss raw=${identityHashCode(file)} '
       'device=${identityHashCode(file.device)} '
-      'openCount=${_openFiles.length}',
+      'openCount=${set.length}',
     );
     return null;
   }
@@ -284,28 +304,37 @@ class IOLib {
   }
 
   static Future<void> reset() async {
-    final defaultInputFile = extractLuaFile(_defaultInput);
+    final defaultInputValue = _defaultInput;
+    final defaultInputFile = extractLuaFile(defaultInputValue);
     if (defaultInputFile != null) {
       final luaFile = defaultInputFile;
       if (luaFile.device is! StdinDevice) {
         await luaFile.close();
-        IOLib.unregisterOpenFileForLuaFile(luaFile);
+        IOLib.unregisterOpenFileForLuaFile(
+          luaFile,
+          interpreter: defaultInputValue?.interpreter,
+        );
       }
     }
     _defaultInput = null;
 
-    final defaultOutputFile = extractLuaFile(_defaultOutput);
+    final defaultOutputValue = _defaultOutput;
+    final defaultOutputFile = extractLuaFile(defaultOutputValue);
     if (defaultOutputFile != null) {
       final luaFile = defaultOutputFile;
       if (luaFile.device is! StdoutDevice) {
         await luaFile.close();
-        IOLib.unregisterOpenFileForLuaFile(luaFile);
+        IOLib.unregisterOpenFileForLuaFile(
+          luaFile,
+          interpreter: defaultOutputValue?.interpreter,
+        );
       }
     }
     _defaultOutput = null;
     _defaultOutputExplicitlyClosed = false;
     _stdinValue = null;
     _stdoutValue = null;
+    // openFiles is per-interpreter; no static set to clear.
   }
 }
 
@@ -327,7 +356,7 @@ class IOClose extends BuiltinFunction {
       );
       IOLib._defaultOutput = null; // Reset to stdout on next access
       if (result.isNotEmpty && result[0] == true) {
-        IOLib.unregisterOpenFileForLuaFile(luaFile);
+        IOLib.unregisterOpenFileForLuaFile(luaFile, interpreter: interpreter);
       }
       return LuaResults(result);
     }
@@ -371,10 +400,7 @@ class IOClose extends BuiltinFunction {
 
     final result = await luaFile.close();
     if (result.isNotEmpty && result[0] == true) {
-      IOLib.unregisterOpenFileForLuaFile(luaFile);
-    }
-    if (result.isNotEmpty && result[0] == true) {
-      IOLib.unregisterOpenFileForLuaFile(luaFile);
+      IOLib.unregisterOpenFileForLuaFile(luaFile, interpreter: interpreter);
     }
     if (_isLuaFileWrapperFor(IOLib._defaultOutput, luaFile)) {
       // When closing the current output file, revert to stdout
@@ -450,11 +476,14 @@ class IOInput extends BuiltinFunction {
 
     // Do not auto-close the previous default input (matches Lua semantics),
     // but once it is no longer the default handle it should not stay pinned as
-    // an interpreter-global GC root solely through _openFiles.
+    // an interpreter-global GC root solely through openFiles.
     final previousDefault = IOLib._defaultInput;
     if (!identical(previousDefault, newFile)) {
       if (previousDefault != null) {
-        IOLib.unregisterOpenFile(previousDefault);
+        IOLib.unregisterOpenFile(
+          previousDefault,
+          interpreter: interpreter,
+        );
       }
       IOLib._defaultInput = newFile;
     }
@@ -670,12 +699,12 @@ class IOOutput extends BuiltinFunction {
           category: 'IO',
         );
         await currentFile.close();
-        IOLib.unregisterOpenFileForLuaFile(currentFile);
+        IOLib.unregisterOpenFileForLuaFile(currentFile, interpreter: interpreter);
       }
     }
 
     if (previousDefault != null && !identical(previousDefault, newFile)) {
-      IOLib.unregisterOpenFile(previousDefault);
+      IOLib.unregisterOpenFile(previousDefault, interpreter: interpreter);
     }
 
     Logger.debugLazy(() => 'Setting new default output', category: 'IO');
@@ -964,6 +993,16 @@ class FileClose extends BuiltinFunction {
     }
 
     final result = await luaFile.close();
+
+    if (result.isNotEmpty && result[0] == true) {
+      // Unregister from the per-interpreter open-files set using the file
+      // Value's own interpreter reference (args[0] carries it).
+      final fileValue = file is Value ? file : null;
+      IOLib.unregisterOpenFileForLuaFile(
+        luaFile,
+        interpreter: fileValue?.interpreter ?? interpreter,
+      );
+    }
 
     // If this file was the current default output, reset it to stdout
     if (_isLuaFileWrapperFor(IOLib._defaultOutput, luaFile)) {

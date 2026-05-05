@@ -676,7 +676,10 @@ Future<LuaChunkLoadResult> loadChunkWithLegacyAstSupport(
                   rawLuaSlot(providedEnv) != null) {
                 upvalueValue = providedEnv;
               }
-              final box = Box<dynamic>(upvalueValue);
+              final box = Box<dynamic>(
+                upvalueValue,
+                interpreter: runtime,
+              );
               final upvalue = Upvalue(
                 valueBox: box,
                 name: upvalueName,
@@ -691,7 +694,7 @@ Future<LuaChunkLoadResult> loadChunkWithLegacyAstSupport(
               loadEnv,
             );
             for (final analyzed in analyzedUpvalues) {
-              final box = Box<dynamic>(null);
+              final box = Box<dynamic>(null, interpreter: runtime);
               final upvalue = Upvalue(
                 valueBox: box,
                 name: analyzed.name,
@@ -862,7 +865,10 @@ Future<LuaChunkLoadResult> loadChunkWithLegacyAstSupport(
                           i < originalUpvalueValues.length)
                       ? originalUpvalueValues[i]
                       : null;
-                  final box = Box<dynamic>(upvalueValue);
+                  final box = Box<dynamic>(
+                    upvalueValue,
+                    interpreter: runtime,
+                  );
                   final uv = Upvalue(
                     valueBox: box,
                     name: upvalueName,
@@ -925,7 +931,7 @@ Future<LuaChunkLoadResult> loadChunkWithLegacyAstSupport(
                 i < originalUpvalueValues.length)
             ? originalUpvalueValues[i]
             : null;
-        final box = Box<dynamic>(upvalueValue);
+        final box = Box<dynamic>(upvalueValue, interpreter: runtime);
         final upvalue = Upvalue(
           valueBox: box,
           name: upvalueName,
@@ -942,7 +948,7 @@ Future<LuaChunkLoadResult> loadChunkWithLegacyAstSupport(
           currentEnv.get('_ENV') ??
           currentEnv.root.get('_ENV');
       if (envValue != null) {
-        final envBox = Box<dynamic>(envValue);
+        final envBox = Box<dynamic>(envValue, interpreter: runtime);
         final envUpvalue = Upvalue(
           valueBox: envBox,
           name: '_ENV',

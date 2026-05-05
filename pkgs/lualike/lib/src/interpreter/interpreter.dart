@@ -9,6 +9,7 @@ import 'package:lualike/src/environment.dart';
 import 'package:lualike/src/file_manager.dart';
 import 'package:lualike/src/gc/generational_gc.dart' show GenerationalGCManager;
 import 'package:lualike/src/gc/gc_access.dart';
+import 'package:lualike/src/io/lua_file.dart';
 import 'package:lualike/src/logging/logger.dart';
 import 'package:lualike/src/lua_error.dart';
 import 'package:lualike/src/lua_bytecode/chunk.dart';
@@ -118,6 +119,15 @@ class Interpreter extends AstVisitor<Object?>
   /// File manager for handling source code loading.
   @override
   final FileManager fileManager;
+
+  /// Per-interpreter set of open (non-standard) file Value wrappers.
+  /// Included in the GC root set so the lualike collector never finalizes
+  /// a handle that is still open, regardless of environment reachability.
+  @override
+  final Set<Value> openFiles = HashSet<Value>(
+    equals: identical,
+    hashCode: identityHashCode,
+  );
 
   /// Library registry for this interpreter instance.
   @override
@@ -816,7 +826,7 @@ class Interpreter extends AstVisitor<Object?>
       _currentCoroutine, // Currently executing coroutine
       _mainThread, // Main thread coroutine
       debugRegistry, // Persistent debug registry
-      ...IOLib.gcRoots, // Current/default I/O handles live outside environments
+      ...IOLib.gcRootsFor(this), // Current/default I/O handles live outside environments
       if (activeFunction != null) activeFunction.closureEnvironment,
       if (activeFunction != null && activeFunction.upvalues != null) ...[
         ...activeFunction.upvalues!,

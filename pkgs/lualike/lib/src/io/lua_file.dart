@@ -61,11 +61,17 @@ final fileMetamethods = {
         () => 'GC: File already closed, skipping',
         category: 'IO',
       );
-      IOLib.unregisterOpenFile(args[0] as Value);
+      IOLib.unregisterOpenFile(
+        args[0] as Value,
+        interpreter: (args[0] as Value).interpreter,
+      );
       return _ioPrimitiveValue(null, fileValue);
     }
 
-    final trackedWrapper = IOLib.trackedOpenFileWrapper(luaFile);
+    final trackedWrapper = IOLib.trackedOpenFileWrapper(
+      luaFile,
+      interpreter: fileValue is Value ? fileValue.interpreter : null,
+    );
     if (trackedWrapper != null && !identical(trackedWrapper, fileValue)) {
       Logger.debugLazy(
         () => 'GC: Skipping close for non-canonical file wrapper',
@@ -98,7 +104,10 @@ final fileMetamethods = {
 
     // Not a default file and not closed, safe to close
     await luaFile.close();
-    IOLib.unregisterOpenFile(args[0] as Value);
+    IOLib.unregisterOpenFile(
+      args[0] as Value,
+      interpreter: (args[0] as Value).interpreter,
+    );
     Logger.debugLazy(() => 'GC: File closed successfully', category: 'IO');
     return _ioPrimitiveValue(null, fileValue);
   },
@@ -109,7 +118,10 @@ final fileMetamethods = {
     if (fileValue is Value && file != null) {
       final result = await file.close();
       if (result.isNotEmpty && result[0] == true) {
-        IOLib.unregisterOpenFile(fileValue);
+        IOLib.unregisterOpenFile(
+          fileValue,
+          interpreter: fileValue.interpreter,
+        );
       }
       return LuaResults(result);
     } else {
@@ -625,7 +637,7 @@ Value wrapLuaFileValue(LuaFile luaFile, {LuaRuntime? interpreter}) {
     metatable: fileMetamethods,
     interpreter: interpreter,
   );
-  IOLib.registerOpenFile(fileValue);
+  IOLib.registerOpenFile(fileValue, interpreter: interpreter);
   return fileValue;
 }
 

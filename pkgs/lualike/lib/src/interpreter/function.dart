@@ -248,6 +248,7 @@ Object? _snapshotReturnPayload(Object? value, LuaRuntime runtime) {
     // cases like events.lua's arithmetic metamethod checks.
     final raw = rawLuaSlot(original);
     if (raw is Map ||
+        raw is LuaFile ||
         original.metatable != null ||
         original.metatableRef != null) {
       return original;

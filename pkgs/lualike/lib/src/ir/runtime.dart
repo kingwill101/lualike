@@ -315,6 +315,9 @@ class LualikeIrRuntime implements LuaRuntime {
   FileManager get fileManager => _interpreter.fileManager;
 
   @override
+  Set<Value> get openFiles => _interpreter.openFiles;
+
+  @override
   LibraryRegistry get libraryRegistry => _libraryRegistry;
 
   @override
