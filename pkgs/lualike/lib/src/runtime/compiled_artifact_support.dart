@@ -1,3 +1,121 @@
+/// Chunk loading, execution, and dumping for the AST-based runtime.
+///
+/// This file implements Lua's `load()` / `loadfile()` / `string.dump()`
+/// lifecycle for the interpreter (AST) runtime. It is **not** involved in
+/// `lua_bytecode` or `lualike_ir` execution — those runtimes have their own
+/// load paths in `lib/src/lua_bytecode/runtime.dart` and
+/// `lib/src/ir/runtime.dart`.
+///
+/// ## Public API
+///
+/// - **`loadChunkWithLegacyAstSupport()`** — the central `load()`
+///   implementation. Accepts a `LuaChunkLoadRequest` (source string,
+///   `LuaString`, reader function, or binary blob) and returns a
+///   `LuaChunkLoadResult` containing a callable `Value` or an error message.
+///
+/// - **`dumpFunctionWithLegacyAstTransport()`** — implements `string.dump()`.
+///   Takes a function `Value` and produces a `LuaString` that `load()` can
+///   later reconstruct.
+///
+/// - **`defaultDebugInfoForFunction()`** — builds `LuaFunctionDebugInfo`
+///   for `debug.getinfo()`.
+///
+/// ## How `loadChunkWithLegacyAstSupport()` works
+///
+/// ### 1. Source extraction (lines 227-428)
+///
+/// The source argument can be one of four types:
+///
+/// | Type       | Handling                                                  |
+/// |------------|-----------------------------------------------------------|
+/// | `String`   | Check for `0x1B` (ESC) prefix → binary; otherwise text   |
+/// | `LuaString`| Same as `String`, using raw bytes                        |
+/// | `Function` | Call repeatedly (reader protocol) until `nil`/empty, concatenate chunks |
+/// | `List<int>`| Treat as text, decode as UTF-8                           |
+///
+/// Binary chunks (starting with `0x1B`) are passed through
+/// `LegacyAstChunkTransport.deserializeChunk()` to extract the
+/// original source or `FunctionBody`. Text chunks are decoded as UTF-8
+/// (falling back to `String.fromCharCodes` for malformed input).
+///
+/// ### 2. Mode validation (lines 419-428)
+///
+/// Lua's `load(source, chunkname, mode)` accepts a mode string:
+/// - `'b'` — binary only
+/// - `'t'` — text only
+/// - `'bt'` or `'tb'` — both (default)
+///
+/// The function rejects binary chunks when `'b'` is absent and text
+/// chunks when `'t'` is absent.
+///
+/// ### 3. AST acquisition (lines 430-553)
+///
+/// There are three ways the AST is obtained, in priority order:
+///
+/// 1. **Direct AST** — `LegacyAstChunkTransport` already reconstructed a
+///    `FunctionBody` from a dumped function. No parsing needed.
+///
+/// 2. **Anonymous text cache** — short text chunks loaded via `load()`
+///    (not from files) are cached by `(chunkname, source)` key to avoid
+///    re-parsing identical snippets.
+///
+/// 3. **Parse** — source text is parsed into an AST via `parse()`. For
+///    anonymous (non-file) chunks, compile-time checks run:
+///    - goto/label barrier validation
+///    - semantic limit checks (register count, local count, etc.)
+///
+/// ### 4. Execution wrapper creation (lines 555-974)
+///
+/// Regardless of how the AST was obtained, the result is wrapped in a
+/// callable `Value` closure. Three execution paths exist:
+///
+/// - **Direct AST execution** — For dumped functions with a preserved
+///   `FunctionBody`. Upvalues are re-bound from the serialized metadata.
+///   The closure evaluates the AST and invokes the resulting function.
+///
+/// - **Short-circuit optimization** — For patterns like
+///   `local k10 <const> = 10; if (cond) then IX = true end; return cond`,
+///   a pre-compiled expression evaluator bypasses the full interpreter.
+///
+/// - **Source execution** — Standard path: the parsed `Program` AST is
+///   wrapped in a `FunctionBody` and executed via `runtime.runAst()`.
+///
+/// Each path sets up an isolated environment with `_ENV`, `_G`, `_SCRIPT_PATH`,
+/// and varargs (`"..."`) before execution, then restores the ambient
+/// environment after.
+///
+/// ### 5. Upvalue binding (lines 921-974)
+///
+/// If the chunk was dumped with upvalue metadata, those upvalues are
+/// reconstructed and bound to the result closure. Otherwise a single
+/// `_ENV` upvalue is created.
+///
+/// ## How `dumpFunctionWithLegacyAstTransport()` works
+///
+/// Takes a function `Value` and serializes it for later `load()` round-trip:
+///
+/// 1. If the function was created from a source file and has span info,
+///    the original source is preserved (compact dump via `SRCJ:` marker).
+/// 2. Otherwise, the full AST is JSON-serialized (`AST:` marker).
+/// 3. If the function has no body, a stub `return function(...) end` is used.
+///
+/// In all cases the output is a `LuaString` with a fake Lua 5.5 binary
+/// header so it flows through the same `load` dispatch path.
+///
+/// ## Performance
+///
+/// - **`LUALIKE_PROFILE_LOAD=1`** enables timing instrumentation on every
+///   `load()` call, logging parse time and total time to the `LoadProfile`
+///   category.
+///
+/// - **Anonymous text load cache** — caches up to 128 parsed programs for
+///   short (<512 char) anonymous `load()` calls to avoid re-parsing.
+///
+/// - **Constructs short-circuit** — a regex-based fast path for specific
+///   test-suite patterns (`local k10 <const> = 10 ...`) compiles the
+///   condition into a direct Dart evaluator that skips the interpreter.
+library;
+
 import 'dart:collection';
 import 'dart:convert';
 import 'dart:typed_data';
@@ -13,11 +131,31 @@ import 'package:lualike/src/upvalue.dart';
 import 'package:path/path.dart' as path;
 import 'package:source_span/source_span.dart';
 
+// ─── Configuration & constants ───────────────────────────────────────────
+
+/// Whether load() profiling is enabled via the `LUALIKE_PROFILE_LOAD` env var.
 final bool _loadProfileEnabled =
     getEnvironmentVariable('LUALIKE_PROFILE_LOAD') == '1';
+
+/// Tokens that trigger compile-time semantic checks for anonymous `load()`
+/// chunks. Includes type annotations (`<const>`), `global` declarations,
+/// `for`/`return` keywords, and vararg usage (`...foo`).
 final RegExp _semanticLikeTokenPattern = RegExp(
   r'<[A-Za-z_][A-Za-z0-9_]*>|(^|[^A-Za-z0-9_])global\b|\bfor\b|\breturn\b|\.\.\.\s*[A-Za-z_][A-Za-z0-9_]*',
 );
+
+/// Pattern for the "constructs short-circuit" optimization.
+///
+/// Matches test-suite patterns like:
+/// ```lua
+/// local k10 <const> = 10
+/// if (condition) then IX = true end
+/// return condition
+/// ```
+///
+/// When matched, the condition is evaluated directly in Dart rather than
+/// going through the full interpreter, which is significantly faster for
+/// the large number of these chunks in the test suite.
 final RegExp _constructsShortCircuitChunkPattern = RegExp(
   r'^\s*local\s+(F|k10)\s+<const>\s*=\s*(false|10)\s*'
   r'if\s+(.+?)\s+then\s+IX\s*=\s*true\s+end\s*'
@@ -25,6 +163,30 @@ final RegExp _constructsShortCircuitChunkPattern = RegExp(
   dotAll: true,
 );
 
+/// Maximum number of cached anonymous text-load AST programs.
+const int _maxCachedAnonymousTextLoads = 128;
+
+/// Maximum source length for anonymous text-load caching.
+///
+/// Longer sources are not cached to avoid memory pressure.
+const int _maxCachedAnonymousTextLoadSourceLength = 512;
+
+/// Per-runtime cache for anonymous `load()` text chunks.
+final Expando<_AnonymousTextLoadCache> _anonymousTextLoadCaches =
+    Expando<_AnonymousTextLoadCache>('anonymousTextLoadCaches');
+
+/// Pattern matching standard Lua error format: `file:line: message` or
+/// `[string "chunk"]:line: message`.
+final RegExp _formattedLuaErrorMessagePattern = RegExp(
+  r'^(?:\[[^\n]+\]|[^:\n]+):(?:\d+|\?): ',
+);
+
+// ─── Varargs handling ────────────────────────────────────────────────────
+
+/// Unpacks varargs for a loaded chunk call.
+///
+/// If the caller passed a single `LuaResults` value, unwrap it to preserve
+/// Lua's multi-return semantics. Otherwise, pass the arguments as-is.
 Iterable<Object?> _loadedChunkVarargs(List<Object?> callArgs) {
   if (callArgs.length == 1) {
     final resultValues = luaResultValues(callArgs.first);
@@ -35,24 +197,27 @@ Iterable<Object?> _loadedChunkVarargs(List<Object?> callArgs) {
   return callArgs;
 }
 
-const int _maxCachedAnonymousTextLoads = 128;
-const int _maxCachedAnonymousTextLoadSourceLength = 512;
-final Expando<_AnonymousTextLoadCache> _anonymousTextLoadCaches =
-    Expando<_AnonymousTextLoadCache>('anonymousTextLoadCaches');
-final RegExp _formattedLuaErrorMessagePattern = RegExp(
-  r'^(?:\[[^\n]+\]|[^:\n]+):(?:\d+|\?): ',
-);
+// ─── Text chunk decoding ─────────────────────────────────────────────────
 
+/// Decodes raw chunk bytes to a string.
+///
+/// Tries UTF-8 first, then falls back to `String.fromCharCodes` to preserve
+/// raw bytes for malformed input so that `load()` can report byte-level
+/// errors like `<\255>`.
 String _decodeTextualChunkBytes(List<int> bytes) {
   try {
     return utf8.decode(bytes);
   } on FormatException {
-    // Preserve raw offending bytes for malformed textual chunks so load()
-    // diagnostics can still report byte-oriented errors like <\255>.
     return String.fromCharCodes(bytes);
   }
 }
 
+// ─── Call stack & environment management ─────────────────────────────────
+
+/// Restores the runtime's environment after a loaded chunk finishes.
+///
+/// Uses `restoreCurrentEnv` for the interpreter (which tracks nested env
+/// changes) and `setCurrentEnv` for other runtimes.
 void _restoreAmbientEnvironment(LuaRuntime runtime, Environment env) {
   if (runtime case Interpreter interpreter) {
     interpreter.restoreCurrentEnv(env);
@@ -61,6 +226,7 @@ void _restoreAmbientEnvironment(LuaRuntime runtime, Environment env) {
   runtime.setCurrentEnv(env);
 }
 
+/// Updates the top call stack frame with the loaded chunk's name and env.
 void _rebindActiveLoadedChunkFrame(
   LuaRuntime runtime,
   Value callable, {
@@ -78,6 +244,8 @@ void _rebindActiveLoadedChunkFrame(
   }
 }
 
+/// Saves the runtime's current function context and pushes a new one for
+/// the loaded chunk. Returns the saved context for restoration.
 ({Value? function, Map<String, Box<dynamic>>? fastLocals})?
 _pushLoadedChunkFunctionContext(LuaRuntime runtime, Value callable) {
   if (runtime case Interpreter interpreter) {
@@ -90,6 +258,7 @@ _pushLoadedChunkFunctionContext(LuaRuntime runtime, Value callable) {
   return null;
 }
 
+/// Restores a previously saved function context.
 void _popLoadedChunkFunctionContext(
   LuaRuntime runtime,
   ({Value? function, Map<String, Box<dynamic>>? fastLocals})? savedContext,
@@ -103,10 +272,18 @@ void _popLoadedChunkFunctionContext(
   }
 }
 
+// ─── Error formatting for loaded chunks ──────────────────────────────────
+
+/// Returns true if [message] already has the standard Lua error format
+/// (`source:line: message` or `?:?: message`).
 bool _looksFormattedLoadedChunkLuaErrorMessage(String message) {
   return _formattedLuaErrorMessagePattern.hasMatch(message);
 }
 
+/// Determines the line number for a loaded chunk error.
+///
+/// Checks in order: explicit `error.lineNumber`, `error.span`,
+/// `error.node.span`, then the call stack frames matching the chunk name.
 int _loadedChunkErrorLine(
   LuaRuntime runtime,
   String chunkName,
@@ -187,6 +364,19 @@ Never _rethrowLoadedChunkLuaError(
   );
 }
 
+// ─── load() implementation ───────────────────────────────────────────────
+
+/// Implements Lua's `load(source, chunkname, mode, env)` for the AST runtime.
+///
+/// Handles all four source types (`String`, `LuaString`, reader function,
+/// `List<int>`), binary/text mode validation, legacy AST chunk deserialization,
+/// anonymous text caching, compile-time checks, and execution wrapper creation.
+///
+/// This is called by `string_lib.luaLoad()` and `doFile()` when running
+/// under the interpreter runtime.
+///
+/// For real Lua 5.5 bytecode, the caller should first try
+/// `tryLoadLuaBytecodeArtifact()` from `lua_bytecode/runtime.dart`.
 Future<LuaChunkLoadResult> loadChunkWithLegacyAstSupport(
   LuaRuntime runtime,
   LuaChunkLoadRequest request,
@@ -676,10 +866,7 @@ Future<LuaChunkLoadResult> loadChunkWithLegacyAstSupport(
                   rawLuaSlot(providedEnv) != null) {
                 upvalueValue = providedEnv;
               }
-              final box = Box<dynamic>(
-                upvalueValue,
-                interpreter: runtime,
-              );
+              final box = Box<dynamic>(upvalueValue, interpreter: runtime);
               final upvalue = Upvalue(
                 valueBox: box,
                 name: upvalueName,
@@ -865,10 +1052,7 @@ Future<LuaChunkLoadResult> loadChunkWithLegacyAstSupport(
                           i < originalUpvalueValues.length)
                       ? originalUpvalueValues[i]
                       : null;
-                  final box = Box<dynamic>(
-                    upvalueValue,
-                    interpreter: runtime,
-                  );
+                  final box = Box<dynamic>(upvalueValue, interpreter: runtime);
                   final uv = Upvalue(
                     valueBox: box,
                     name: upvalueName,
@@ -974,6 +1158,24 @@ Future<LuaChunkLoadResult> loadChunkWithLegacyAstSupport(
   }
 }
 
+// ─── string.dump() implementation ────────────────────────────────────────
+
+/// Implements Lua's `string.dump(function)` for the AST runtime.
+///
+/// Produces a `LuaString` that `loadChunkWithLegacyAstSupport()` can later
+/// reconstruct. Uses one of three strategies:
+///
+/// 1. **Compact source dump** (`SRCJ:` marker) — if the function has span
+///    info and was created from source text, the original source is embedded
+///    with chunk name and string literals.
+///
+/// 2. **Full AST dump** (`AST:` marker) — JSON-serialized AST dump of the
+///    `FunctionBody`, including upvalue names and values.
+///
+/// 3. **Stub dump** (`SRC:` marker) — for functions with no body (e.g.
+///    built-in stubs), returns `return function(...) end`.
+///
+/// Throws `LuaError` for `BuiltinFunction` values that cannot be dumped.
 Object? dumpFunctionWithLegacyAstTransport(
   Value function, {
   bool stripDebugInfo = false,
@@ -1125,6 +1327,13 @@ Value _wrapStrippedLegacyFunction(LuaRuntime runtime, Value innerFunction) {
   );
 }
 
+// ─── debug.getinfo() support ─────────────────────────────────────────────
+
+/// Builds `LuaFunctionDebugInfo` for `debug.getinfo()` when no runtime-
+/// specific debug info is available.
+///
+/// Checks in order: stripped debug info flag, `LuaCallableArtifact.debugInfo`,
+/// function body span info, and heuristic detection of Lua vs C functions.
 LuaFunctionDebugInfo? defaultDebugInfoForFunction(
   LuaRuntime runtime,
   Value function,
@@ -1267,6 +1476,12 @@ bool _isTopLevelChunk(FunctionBody body) {
   return !(text.startsWith('function') || text.startsWith('local function'));
 }
 
+// ─── Environment creation for loaded chunks ──────────────────────────────
+
+/// Creates an isolated environment for direct AST execution.
+///
+/// When a custom `_ENV` is provided, creates a root-level env with that
+/// as `_ENV` plus `_G`. Otherwise, inherits from the global root.
 Environment _createDirectAstExecutionEnv({
   required LuaRuntime runtime,
   required Environment savedEnv,
@@ -1612,7 +1827,6 @@ final class _ConstructsEqualsExpr extends _ConstructsShortCircuitExpr {
   Object? evaluate(Environment env) =>
       rawLuaSlot(left.evaluate(env)) == rawLuaSlot(right.evaluate(env));
 }
-
 
 _ConstructsShortCircuitExpr? _compileConstructsShortCircuitExpr(AstNode node) {
   return switch (node) {
