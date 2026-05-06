@@ -1,41 +1,157 @@
+/// Legacy internal chunk transport for `string.dump` / `load` round-trips.
+///
+/// ## Purpose
+///
+/// When lualike's `string.dump()` serializes a function, it produces a binary
+/// string that `load()` can later reconstruct. This class handles that
+/// serialization and deserialization.
+///
+/// The format mimics a real Lua 5.4/5.5 bytecode chunk header so it passes
+/// through the same `load` dispatch path, but the payload is lualike's own
+/// internal format — not standard Lua bytecode.
+///
+/// ## Wire format
+///
+/// ```
+/// [Lua 5.5 binary chunk header]  (19 bytes)
+/// [payload marker]               ("AST:", "SRC:", or "SRCJ:")
+/// [payload data]                 (JSON or plain text)
+/// ```
+///
+/// Three payload types exist:
+///
+/// | Marker | Payload          | Used for                           |
+/// |--------|------------------|------------------------------------|
+/// | `AST:` | JSON AST dump    | Dumped function bodies (full round-trip with FunctionBody reconstruction) |
+/// | `SRC:` | Lua source text  | Serialized Lua source code         |
+/// | `SRCJ:`| JSON metadata    | Source + chunk name + string literals |
+///
+/// The "legacy" qualifier distinguishes this from:
+/// - **`lualike_ir`** — the newer IR-based serialization format
+/// - **`lua_bytecode`** — real Lua 5.5 bytecode
+///
+/// ## Deserialization flow
+///
+/// 1. Check for official Lua 5.5 header → strip header, read payload
+/// 2. Check for legacy Lua 5.4 header → strip header, validate LUAC_INT/LUAC_NUM sentinels, read payload
+/// 3. Check for bare ESC byte (`\x1B`) → legacy short format, skip ESC byte
+/// 4. No header → treat as plain Lua source text
+///
+/// After payload extraction, the marker prefix determines how the data is parsed.
+///
+/// ## Design context
+///
+/// This format predates a proper serializable AST. Early in lualike's
+/// development there was no canonical binary representation for function
+/// bodies, so `jsonEncode`/`jsonDecode` of the raw AST dump was a pragmatic
+/// solution to get `string.dump` / `load` round-trips working and the test
+/// suite passing.
+///
+/// The JSON approach works but has notable drawbacks:
+///
+/// - **Size** — JSON overhead makes dumped functions much larger than a
+///   compact binary representation would be.
+/// - **Fragility** — Source spans (`SourceSpan` objects) had to be stripped
+///   recursively before encoding because they don't serialize to JSON.
+///   This lost valuable debug information in dumped functions.
+/// - **Performance** — Repeated JSON parse/encode on every `load`/`dump`
+///   call, partially mitigated by the LRU cache for `SRC:`/`SRCJ:` payloads.
+///
+/// Newer code should prefer `lualike_ir` serialization or real Lua 5.5
+/// bytecode where possible. This transport layer is kept for backward
+/// compatibility with existing test fixtures and scripts that rely on
+/// the legacy format.
+///
+/// ## Caching
+///
+/// `SRC:` and `SRCJ:` payloads are cached in an LRU (64 entries) to avoid
+/// repeated JSON decoding. `AST:` payloads are intentionally not cached
+/// because they reconstruct a mutable `FunctionBody` that callers may
+/// modify (upvalue binding, span data, etc.).
+library;
+
 import 'dart:collection';
 import 'dart:convert';
 import 'dart:typed_data';
 import 'package:source_span/source_span.dart';
 
+import 'byte_data.dart' as b64;
+
 import 'ast.dart';
-import 'ast_dump.dart';
 import 'lua_string.dart';
 import 'binary_type_size.dart';
 import 'lua_bytecode/chunk.dart';
 import 'logging/logger.dart';
 
-/// Legacy AST/internal chunk transport used by `string.dump`/`load`.
+/// Serializes and deserializes lualike's internal chunk format used by
+/// `string.dump` and `load`.
 ///
-/// This preserves the current AST-backed compatibility path. It is not the
-/// `lualike_ir` serialization format and it is not real Lua bytecode.
+/// This format wraps internal payloads (AST dumps, source text, or source
+/// metadata) inside a fake Lua binary chunk header so they can flow through
+/// the same `load` dispatch path as real bytecode.
+///
+/// See the [library documentation](package:lualike/src/legacy_ast_chunk_transport.dart)
+/// for the wire format specification.
 class LegacyAstChunkTransport {
-  static const int _binaryPrefix = 0x1B; // ESC character
+  // ─── Constants ─────────────────────────────────────────────────────────
+
+  /// ESC character (`\x1B`) — the standard Lua binary chunk signature start.
+  static const int _binaryPrefix = 0x1B;
+
+  /// Payload marker for JSON-serialized AST function dumps.
+  ///
+  /// After deserialization, the `FunctionBody` is reconstructed and can
+  /// be executed directly. This is the format used by `string.dump(function)`.
   static const String _astMarker = "AST:";
+
+  /// Payload marker for plain Lua source text.
+  ///
+  /// Contains raw Lua source code without any metadata.
   static const String _sourceMarker = "SRC:";
+
+  /// Payload marker for source text with associated chunk metadata.
+  ///
+  /// The payload is JSON containing `source`, `sourceName`, `stringLiterals`,
+  /// and `strippedDebugInfo` fields.
   static const String _sourceWithNameMarker = "SRCJ:";
+
+  /// Key used in AST JSON to indicate debug metadata was stripped.
   static const String _stripDebugInfoKey = "__stripDebugInfo";
 
-  // LRU cache for deserialized chunks.  Only SRC:/SRCJ: payloads are cached
-  // because AST: payloads produce a mutable FunctionBody that callers may
-  // mutate (upvalue binding, span data, etc.).  Caching those would cause
-  // shared-state corruption across separate load() calls.
+  // ─── Cache ─────────────────────────────────────────────────────────────
+
+  /// Maximum number of deserialized chunks to keep in the LRU cache.
+  ///
+  /// Only `SRC:` and `SRCJ:` payloads are cached. `AST:` payloads produce
+  /// mutable `FunctionBody` instances that must not be shared.
   static const int _deserializeCacheMaxSize = 64;
+
+  /// LRU cache for deserialized `SRC:`/`SRCJ:` chunks.
+  ///
+  /// Uses `LinkedHashMap` so that iteration order reflects insertion order,
+  /// enabling O(1) LRU eviction via `remove` + re-insert.
   static final LinkedHashMap<_BytesKey, LegacyChunkInfo> _deserializeCache =
       LinkedHashMap();
+
+  // ─── Legacy Lua 5.4 header (historical format) ─────────────────────────
+
+  /// Total header size for the legacy Lua 5.4-style chunk format.
+  ///
+  /// Computed as 15 bytes of fixed header + `j` bytes for LUAC_INT +
+  /// `n` bytes for LUAC_NUM.
   static const int _legacyLua54HeaderSize =
       15 + BinaryTypeSize.j + BinaryTypeSize.n;
+
+  /// The full legacy Lua 5.4 header bytes used by older AST dumps.
+  ///
+  /// This is a historical format from when lualike targeted Lua 5.4
+  /// compatibility. Newer dumps use the official Lua 5.5 header.
   static final List<int> _legacyLua54HeaderPrefix = <int>[
-    0x1B,
-    0x4C,
-    0x75,
-    0x61,
-    0x54,
+    0x1B, // ESC
+    0x4C, // 'L'
+    0x75, // 'u'
+    0x61, // 'a'
+    0x54, // 'T' (lualike-specific signature variant)
     0x00,
     0x19,
     0x93,
@@ -43,58 +159,29 @@ class LegacyAstChunkTransport {
     0x0A,
     0x1A,
     0x0A,
-    BinaryTypeSize.i,
-    BinaryTypeSize.j,
-    BinaryTypeSize.n,
+    BinaryTypeSize.i, // int size
+    BinaryTypeSize.j, // size_t / LUAC_INT size
+    BinaryTypeSize.n, // lua_Number size
   ];
 
-  /// Recursively removes spans from a map to avoid JSON encoding issues
-  static void _removeSpansFromMap(Map<String, dynamic> map) {
-    for (final key in map.keys.toList()) {
-      final value = map[key];
-      if (value is Map<String, dynamic>) {
-        _removeSpansFromMap(value);
-      } else if (value is List) {
-        for (final item in value) {
-          if (item is Map<String, dynamic>) {
-            _removeSpansFromMap(item);
-          }
-        }
-      } else if (value is SourceSpan) {
-        // Remove span information
-        map.remove(key);
-      }
-    }
-  }
+  // ─── Public serialization API ──────────────────────────────────────────
 
-  static void _removeDebugMetadata(Map<String, dynamic> map) {
-    map.remove('span');
-    for (final entry in map.entries.toList()) {
-      final value = entry.value;
-      if (value is Map<String, dynamic>) {
-        _removeDebugMetadata(value);
-      } else if (value is List) {
-        for (final item in value) {
-          if (item is Map<String, dynamic>) {
-            _removeDebugMetadata(item);
-          }
-        }
-      }
-    }
-  }
-
-  /// Serializes a [FunctionBody] to a legacy AST/internal chunk string.
+  /// Serializes a [FunctionBody] to a legacy AST chunk string.
   ///
-  /// The format is: ESC + marker + payload
-  /// - For AST dumps: ESC + "AST:" + JSON
-  /// - For source fallback: ESC + "SRC:" + Lua source code
+  /// The output is:
+  /// ```
+  /// [Lua 5.5 header][AST:][JSON dump of FunctionBody]
+  /// ```
+  ///
+  /// If [upvalueNames] and [upvalueValues] are provided, they are embedded
+  /// in the JSON payload so the deserialized function has its upvalues
+  /// restored.
   static String serializeFunction(
     FunctionBody functionBody, [
     List<String>? upvalueNames,
     List<dynamic>? upvalueValues,
   ]) {
     try {
-      // Use AST serialization as the source of truth
       final dumpData = (functionBody as Dumpable).dump();
       Logger.debugLazy(
         () => 'dumpData keys: ${dumpData.keys.toList()}',
@@ -104,7 +191,7 @@ class LegacyAstChunkTransport {
       // Remove all spans to avoid JSON encoding issues
       _removeSpansFromMap(dumpData);
 
-      // Add upvalue information if provided
+      // Embed upvalue data so it survives the round-trip
       if (upvalueNames != null && upvalueNames.isNotEmpty) {
         dumpData['upvalueNames'] = upvalueNames;
         dumpData['upvalueValues'] = upvalueValues;
@@ -132,9 +219,13 @@ class LegacyAstChunkTransport {
     }
   }
 
-  /// Serializes a [FunctionBody] to a legacy AST/internal chunk [LuaString].
+  /// Serializes a [FunctionBody] to a legacy AST chunk [LuaString].
   ///
-  /// This preserves raw bytes without UTF-8 encoding issues.
+  /// Like [serializeFunction] but returns a [LuaString] to avoid UTF-8
+  /// encoding issues with raw binary bytes.
+  ///
+  /// When [stripDebugInfo] is true, span and debug metadata are removed
+  /// from the AST dump to reduce payload size.
   static LuaString serializeFunctionAsLuaString(
     FunctionBody functionBody, [
     List<String>? upvalueNames,
@@ -142,17 +233,14 @@ class LegacyAstChunkTransport {
     bool stripDebugInfo = false,
   ]) {
     try {
-      // Use AST serialization as the source of truth
       final dumpData = (functionBody as Dumpable).dump();
       Logger.debugLazy(
         () => 'dumpData keys: ${dumpData.keys.toList()}',
         category: 'LegacyAstChunkTransport',
       );
 
-      // Remove all spans to avoid JSON encoding issues
       _removeSpansFromMap(dumpData);
 
-      // Add upvalue information if provided
       if (upvalueNames != null && upvalueNames.isNotEmpty) {
         dumpData['upvalueNames'] = upvalueNames;
         dumpData['upvalueValues'] = upvalueValues;
@@ -184,12 +272,16 @@ class LegacyAstChunkTransport {
     }
   }
 
-  /// Serializes raw source fallback through the same legacy transport envelope.
+  /// Wraps raw Lua source text in the legacy chunk envelope.
+  ///
+  /// Output: `[Lua 5.5 header][SRC:][source text]`
   static LuaString serializeSourceAsLuaString(String source) {
     return _createLuaCompatibleChunkAsLuaString(_sourceMarker + source);
   }
 
-  /// Serializes source plus its original chunk name through the legacy envelope.
+  /// Wraps Lua source text plus chunk metadata in the legacy chunk envelope.
+  ///
+  /// Output: `[Lua 5.5 header][SRCJ:][JSON with source, sourceName, etc.]`
   static LuaString serializeSourceWithNameAsLuaString(
     String source, {
     String? sourceName,
@@ -210,14 +302,15 @@ class LegacyAstChunkTransport {
     );
   }
 
-  /// Deserializes a legacy AST/internal chunk [LuaString] back to Lua source.
+  // ─── Deserialization ───────────────────────────────────────────────────
+
+  /// Deserializes a legacy chunk [LuaString] back to source and metadata.
   ///
-  /// Returns a [LegacyChunkInfo] containing the reconstructed source and
-  /// metadata about whether this was originally a `string.dump` function.
+  /// Returns a [LegacyChunkInfo] with the reconstructed source and info
+  /// about whether this was a `string.dump` function.
   ///
-  /// Results for SRC:/SRCJ: payloads are memoized in an LRU cache (up to
-  /// [_deserializeCacheMaxSize] entries) to avoid repeated JSON parsing on
-  /// frequently-loaded chunks.
+  /// Results for `SRC:`/`SRCJ:` payloads are memoized in an LRU cache.
+  /// `AST:` payloads are never cached (mutable `FunctionBody`).
   static LegacyChunkInfo deserializeChunkFromLuaString(LuaString binaryChunk) {
     if (binaryChunk.bytes.isNotEmpty) {
       final cacheKey = _BytesKey(binaryChunk.bytes);
@@ -229,8 +322,7 @@ class LegacyAstChunkTransport {
         return cached;
       }
       final result = _deserializeChunkFromLuaStringUncached(binaryChunk);
-      // Only cache SRC:/SRCJ: results — AST: results contain a mutable
-      // FunctionBody that must not be shared across calls.
+      // Only cache SRC:/SRCJ: — AST: results contain a mutable FunctionBody.
       if (result.originalFunctionBody == null) {
         if (_deserializeCache.length >= _deserializeCacheMaxSize) {
           _deserializeCache.remove(_deserializeCache.keys.first);
@@ -242,10 +334,87 @@ class LegacyAstChunkTransport {
     return _deserializeChunkFromLuaStringUncached(binaryChunk);
   }
 
+  /// Deserializes a legacy chunk string back to source and metadata.
+  ///
+  /// String variant of [deserializeChunkFromLuaString]. Does not use caching.
+  static LegacyChunkInfo deserializeChunk(String binaryChunk) {
+    if (binaryChunk.isEmpty) {
+      return LegacyChunkInfo(
+        source: binaryChunk,
+        isStringDumpFunction: false,
+        originalFunctionBody: null,
+        upvalueNames: null,
+        upvalueValues: null,
+        strippedDebugInfo: false,
+      );
+    }
+
+    final bytes = binaryChunk.codeUnits;
+    String payload;
+
+    // Check for truncated binary chunk (starts with ESC but too short)
+    if (_looksLikeTruncatedLuaHeader(bytes)) {
+      throw Exception("Invalid binary chunk: truncated (too short)");
+    }
+
+    if (_hasOfficialLua55Header(bytes)) {
+      final totalHeaderSize = _officialLua55HeaderBytes().length;
+      if (bytes.length < totalHeaderSize) {
+        throw Exception("Invalid binary chunk: truncated (too short)");
+      }
+      if (bytes.length < totalHeaderSize + 4) {
+        throw Exception("Invalid binary chunk: truncated (no payload)");
+      }
+      payload = String.fromCharCodes(bytes.sublist(totalHeaderSize));
+    } else if (_hasLegacyLua54Header(bytes)) {
+      if (bytes.length < _legacyLua54HeaderSize) {
+        throw Exception("Invalid binary chunk: truncated (too short)");
+      }
+      if (bytes.length < _legacyLua54HeaderSize + 4) {
+        throw Exception("Invalid binary chunk: truncated (no payload)");
+      }
+
+      // Validate LUAC_INT and LUAC_NUM sentinels to confirm legacy format
+      final luacIntStart = 15;
+      final luacIntEnd = luacIntStart + BinaryTypeSize.j;
+      final luacNumStart = luacIntEnd;
+      final luacNumEnd = luacNumStart + BinaryTypeSize.n;
+
+      final luacIntBytes = bytes.sublist(luacIntStart, luacIntEnd);
+      final luacNumBytes = bytes.sublist(luacNumStart, luacNumEnd);
+
+      if (!_bytesEqual(luacIntBytes, _createLegacyLuacIntBytes())) {
+        throw Exception("Invalid binary chunk: truncated (LUAC_INT mismatch)");
+      }
+      if (!_bytesEqual(luacNumBytes, _createLegacyLuacNumBytes())) {
+        throw Exception("Invalid binary chunk: truncated (LUAC_NUM mismatch)");
+      }
+
+      payload = String.fromCharCodes(bytes.sublist(_legacyLua54HeaderSize));
+    } else if (binaryChunk.codeUnitAt(0) == _binaryPrefix) {
+      // Bare ESC byte — legacy short format: ESC + marker + payload
+      payload = binaryChunk.substring(1);
+    } else {
+      // No binary header → plain Lua source
+      return LegacyChunkInfo(
+        source: binaryChunk,
+        isStringDumpFunction: false,
+        originalFunctionBody: null,
+        upvalueNames: null,
+        upvalueValues: null,
+        strippedDebugInfo: false,
+      );
+    }
+
+    return _parsePayload(payload);
+  }
+
+  // ─── Internal: uncached LuaString deserialization ──────────────────────
+
   static LegacyChunkInfo _deserializeChunkFromLuaStringUncached(
-      LuaString binaryChunk) {
+    LuaString binaryChunk,
+  ) {
     if (binaryChunk.bytes.isEmpty) {
-      // Not a binary chunk, return as-is
       return LegacyChunkInfo(
         source: binaryChunk.toString(),
         isStringDumpFunction: false,
@@ -259,7 +428,6 @@ class LegacyAstChunkTransport {
     final bytes = binaryChunk.bytes;
     String payload;
 
-    // Check if this is a truncated chunk-like payload (starts with ESC but too short)
     if (_looksLikeTruncatedLuaHeader(bytes)) {
       throw Exception("Invalid binary chunk: truncated (too short)");
     }
@@ -269,8 +437,6 @@ class LegacyAstChunkTransport {
       if (bytes.length < totalHeaderSize) {
         throw Exception("Invalid binary chunk: truncated (too short)");
       }
-
-      // Check if there's any payload after the header (minimum 4 bytes for "AST:" or "SRC:")
       if (bytes.length < totalHeaderSize + 4) {
         throw Exception("Invalid binary chunk: truncated (no payload)");
       }
@@ -300,15 +466,13 @@ class LegacyAstChunkTransport {
 
       payload = String.fromCharCodes(bytes.sublist(_legacyLua54HeaderSize));
     } else if (bytes[0] == _binaryPrefix) {
-      // Any chunk starting with ESC should be treated as binary
+      // Bare ESC byte — legacy short format
       if (bytes.length < 2) {
         throw Exception("Invalid binary chunk: truncated (too short)");
       }
-
-      // Legacy fallback format: ESC + marker + payload
       payload = String.fromCharCodes(bytes.sublist(1));
     } else {
-      // Not a binary chunk, return as-is
+      // No binary header → plain Lua source
       return LegacyChunkInfo(
         source: binaryChunk.toString(),
         isStringDumpFunction: false,
@@ -319,203 +483,24 @@ class LegacyAstChunkTransport {
       );
     }
 
-    if (payload.startsWith(_astMarker)) {
-      // AST-based legacy chunk
-      final jsonString = payload.substring(_astMarker.length);
-      try {
-        final data = jsonDecode(jsonString) as Map<String, dynamic>;
-
-        // Extract upvalue information if present
-        List<String>? upvalueNames;
-        List<dynamic>? upvalueValues;
-        final strippedDebugInfo = data[_stripDebugInfoKey] == true;
-        if (data.containsKey('upvalueNames') &&
-            data.containsKey('upvalueValues')) {
-          upvalueNames = List<String>.from(data['upvalueNames']);
-          upvalueValues = data['upvalueValues'];
-        }
-        data.remove(_stripDebugInfoKey);
-
-        // Reconstruct the function body from the AST data
-        final functionBody = undumpAst(data) as FunctionBody;
-
-        return LegacyChunkInfo(
-          source: "return (${functionBody.toSource()})()",
-          isStringDumpFunction: true,
-          originalFunctionBody: functionBody,
-          upvalueNames: upvalueNames,
-          upvalueValues: upvalueValues,
-          strippedDebugInfo: strippedDebugInfo,
-        );
-      } catch (e) {
-        Logger.error(
-          'Failed to deserialize AST chunk: $e',
-          category: 'LegacyAstChunkTransport',
-        );
-        // Since this is a binary chunk, any failure should be treated as truncated
-        throw Exception("Invalid binary chunk: truncated (malformed payload)");
-      }
-    } else if (payload.startsWith(_sourceMarker)) {
-      // Source-based legacy chunk
-      final source = payload.substring(_sourceMarker.length);
-      return LegacyChunkInfo(
-        source: source,
-        isStringDumpFunction: true,
-        originalFunctionBody: null,
-        upvalueNames: null,
-        upvalueValues: null,
-        strippedDebugInfo: false,
-      );
-    } else if (payload.startsWith(_sourceWithNameMarker)) {
-      final jsonString = payload.substring(_sourceWithNameMarker.length);
-      try {
-        final data = jsonDecode(jsonString) as Map<String, dynamic>;
-        return LegacyChunkInfo(
-          source: data['source'] as String? ?? '',
-          sourceName: data['sourceName'] as String?,
-          isStringDumpFunction: true,
-          originalFunctionBody: null,
-          upvalueNames: null,
-          upvalueValues: null,
-          strippedDebugInfo: data['strippedDebugInfo'] == true,
-        );
-      } catch (_) {
-        throw Exception("Invalid binary chunk: truncated (malformed payload)");
-      }
-    } else {
-      // Unknown format, treat as source code
-      return LegacyChunkInfo(
-        source: payload,
-        isStringDumpFunction: true,
-        originalFunctionBody: null,
-        upvalueNames: null,
-        upvalueValues: null,
-        strippedDebugInfo: false,
-      );
-    }
+    return _parsePayload(payload);
   }
 
-  /// Deserializes a legacy AST/internal chunk string back to Lua source.
+  // ─── Internal: payload parsing ─────────────────────────────────────────
+
+  /// Parses a payload string based on its marker prefix.
   ///
-  /// Returns a [LegacyChunkInfo] containing the reconstructed source and
-  /// metadata about whether this was originally a `string.dump` function.
-  static LegacyChunkInfo deserializeChunk(String binaryChunk) {
-    if (binaryChunk.isEmpty) {
-      // Not a binary chunk, return as-is
-      return LegacyChunkInfo(
-        source: binaryChunk,
-        isStringDumpFunction: false,
-        originalFunctionBody: null,
-        upvalueNames: null,
-        upvalueValues: null,
-        strippedDebugInfo: false,
-      );
-    }
-
-    final bytes = binaryChunk.codeUnits;
-    String payload;
-
-    // Check if this is a truncated chunk-like payload (starts with ESC but too short)
-    if (_looksLikeTruncatedLuaHeader(bytes)) {
-      throw Exception("Invalid binary chunk: truncated (too short)");
-    }
-
-    if (_hasOfficialLua55Header(bytes)) {
-      final totalHeaderSize = _officialLua55HeaderBytes().length;
-      if (bytes.length < totalHeaderSize) {
-        throw Exception("Invalid binary chunk: truncated (too short)");
-      }
-      if (bytes.length < totalHeaderSize + 4) {
-        throw Exception("Invalid binary chunk: truncated (no payload)");
-      }
-      payload = String.fromCharCodes(bytes.sublist(totalHeaderSize));
-    } else if (_hasLegacyLua54Header(bytes)) {
-      if (bytes.length < _legacyLua54HeaderSize) {
-        throw Exception("Invalid binary chunk: truncated (too short)");
-      }
-      if (bytes.length < _legacyLua54HeaderSize + 4) {
-        throw Exception("Invalid binary chunk: truncated (no payload)");
-      }
-      payload = String.fromCharCodes(bytes.sublist(_legacyLua54HeaderSize));
-    } else if (binaryChunk.codeUnitAt(0) == _binaryPrefix) {
-      // Legacy fallback format: ESC + marker + payload
-      payload = binaryChunk.substring(1);
-    } else {
-      // Not a binary chunk, return as-is
-      return LegacyChunkInfo(
-        source: binaryChunk,
-        isStringDumpFunction: false,
-        originalFunctionBody: null,
-        upvalueNames: null,
-        upvalueValues: null,
-        strippedDebugInfo: false,
-      );
-    }
-
+  /// Recognized markers: `AST:`, `SRC:`, `SRCJ:`.
+  /// Unknown payloads are treated as raw source text.
+  static LegacyChunkInfo _parsePayload(String payload) {
     if (payload.startsWith(_astMarker)) {
-      // AST-based legacy chunk
-      final jsonString = payload.substring(_astMarker.length);
-      try {
-        final data = jsonDecode(jsonString) as Map<String, dynamic>;
-
-        // Extract upvalue information if present
-        final upvalueNames = (data['upvalueNames'] as List?)?.cast<String>();
-        final upvalueValues = data['upvalueValues'] as List<dynamic>?;
-        final strippedDebugInfo = data[_stripDebugInfoKey] == true;
-
-        // Remove upvalue data from the AST data
-        data.remove('upvalueNames');
-        data.remove('upvalueValues');
-        data.remove(_stripDebugInfoKey);
-
-        // Reconstruct the function body from AST
-        final functionBody = FunctionBody.fromDump(data);
-
-        // Generate source from the reconstructed function body.
-        // For `string.dump` functions, we need to execute the function and
-        // return its result.
-        final source = "return (${functionBody.toSource()})()";
-        return LegacyChunkInfo(
-          source: source,
-          isStringDumpFunction: true,
-          originalFunctionBody: functionBody,
-          upvalueNames: upvalueNames,
-          upvalueValues: upvalueValues,
-          strippedDebugInfo: strippedDebugInfo,
-        );
-      } catch (e) {
-        // Since this is a binary chunk, any failure should be treated as truncated
-        throw Exception("Invalid binary chunk: truncated (malformed payload)");
-      }
+      return _parseAstPayload(payload);
     } else if (payload.startsWith(_sourceMarker)) {
-      // Source-based legacy chunk
-      final source = payload.substring(_sourceMarker.length);
-      return LegacyChunkInfo(
-        source: source,
-        isStringDumpFunction: true,
-        originalFunctionBody: null,
-        upvalueNames: null,
-        upvalueValues: null,
-        strippedDebugInfo: false,
-      );
+      return _parseSourcePayload(payload);
     } else if (payload.startsWith(_sourceWithNameMarker)) {
-      final jsonString = payload.substring(_sourceWithNameMarker.length);
-      try {
-        final data = jsonDecode(jsonString) as Map<String, dynamic>;
-        return LegacyChunkInfo(
-          source: data['source'] as String? ?? '',
-          sourceName: data['sourceName'] as String?,
-          isStringDumpFunction: true,
-          originalFunctionBody: null,
-          upvalueNames: null,
-          upvalueValues: null,
-          strippedDebugInfo: data['strippedDebugInfo'] == true,
-        );
-      } catch (_) {
-        throw Exception("Invalid binary chunk: truncated (malformed payload)");
-      }
+      return _parseSourceWithNamePayload(payload);
     } else {
-      // Unknown format, treat as source
+      // Unknown marker — treat as raw source
       return LegacyChunkInfo(
         source: payload,
         isStringDumpFunction: true,
@@ -527,7 +512,114 @@ class LegacyAstChunkTransport {
     }
   }
 
-  /// Helper method to compare two byte arrays for equality.
+  static LegacyChunkInfo _parseAstPayload(String payload) {
+    final jsonString = payload.substring(_astMarker.length);
+    try {
+      final data = jsonDecode(jsonString) as Map<String, dynamic>;
+
+      final upvalueNames = (data['upvalueNames'] as List?)?.cast<String>();
+      final upvalueValues = data['upvalueValues'] as List<dynamic>?;
+      final strippedDebugInfo = data[_stripDebugInfoKey] == true;
+
+      data.remove('upvalueNames');
+      data.remove('upvalueValues');
+      data.remove(_stripDebugInfoKey);
+
+      // Use FunctionBody.fromDump for the string-based deserializer
+      final functionBody = FunctionBody.fromDump(data);
+
+      // Wrap in a return statement so load() executes it
+      final source = "return (${functionBody.toSource()})()";
+      return LegacyChunkInfo(
+        source: source,
+        isStringDumpFunction: true,
+        originalFunctionBody: functionBody,
+        upvalueNames: upvalueNames,
+        upvalueValues: upvalueValues,
+        strippedDebugInfo: strippedDebugInfo,
+      );
+    } catch (e) {
+      Logger.error(
+        'Failed to deserialize AST chunk: $e',
+        category: 'LegacyAstChunkTransport',
+      );
+      throw Exception("Invalid binary chunk: truncated (malformed payload)");
+    }
+  }
+
+  static LegacyChunkInfo _parseSourcePayload(String payload) {
+    final source = payload.substring(_sourceMarker.length);
+    return LegacyChunkInfo(
+      source: source,
+      isStringDumpFunction: true,
+      originalFunctionBody: null,
+      upvalueNames: null,
+      upvalueValues: null,
+      strippedDebugInfo: false,
+    );
+  }
+
+  static LegacyChunkInfo _parseSourceWithNamePayload(String payload) {
+    final jsonString = payload.substring(_sourceWithNameMarker.length);
+    try {
+      final data = jsonDecode(jsonString) as Map<String, dynamic>;
+      return LegacyChunkInfo(
+        source: data['source'] as String? ?? '',
+        sourceName: data['sourceName'] as String?,
+        isStringDumpFunction: true,
+        originalFunctionBody: null,
+        upvalueNames: null,
+        upvalueValues: null,
+        strippedDebugInfo: data['strippedDebugInfo'] == true,
+      );
+    } catch (_) {
+      throw Exception("Invalid binary chunk: truncated (malformed payload)");
+    }
+  }
+
+  // ─── Internal: AST helper methods ──────────────────────────────────────
+
+  /// Recursively removes [SourceSpan] objects from a map to avoid JSON
+  /// encoding issues (spans are not serializable).
+  static void _removeSpansFromMap(Map<String, dynamic> map) {
+    for (final key in map.keys.toList()) {
+      final value = map[key];
+      if (value is Map<String, dynamic>) {
+        _removeSpansFromMap(value);
+      } else if (value is List) {
+        for (final item in value) {
+          if (item is Map<String, dynamic>) {
+            _removeSpansFromMap(item);
+          }
+        }
+      } else if (value is SourceSpan) {
+        map.remove(key);
+      }
+    }
+  }
+
+  /// Recursively removes all debug metadata (`span` fields) from a map.
+  ///
+  /// More aggressive than [_removeSpansFromMap] — removes any key named
+  /// `'span'` at any depth.
+  static void _removeDebugMetadata(Map<String, dynamic> map) {
+    map.remove('span');
+    for (final entry in map.entries.toList()) {
+      final value = entry.value;
+      if (value is Map<String, dynamic>) {
+        _removeDebugMetadata(value);
+      } else if (value is List) {
+        for (final item in value) {
+          if (item is Map<String, dynamic>) {
+            _removeDebugMetadata(item);
+          }
+        }
+      }
+    }
+  }
+
+  // ─── Internal: header detection ────────────────────────────────────────
+
   static bool _bytesEqual(List<int> bytes1, List<int> bytes2) {
     if (bytes1.length != bytes2.length) return false;
     for (int i = 0; i < bytes1.length; i++) {
@@ -536,27 +628,39 @@ class LegacyAstChunkTransport {
     return true;
   }
 
-  /// Creates the legacy 5.4-style LUAC_INT bytes used by older AST dumps.
+  /// Returns the expected LUAC_INT sentinel bytes for the legacy 5.4 format.
+  ///
+  /// These bytes encode the integer `0x5678` in little-endian, padded to
+  /// `BinaryTypeSize.j` bytes.
   static List<int> _createLegacyLuacIntBytes() {
     return <int>[0x78, 0x56, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00];
   }
 
-  /// Creates the legacy 5.4-style LUAC_NUM bytes used by older AST dumps.
+  /// Returns the expected LUAC_NUM sentinel bytes for the legacy 5.4 format.
+  ///
+  /// These bytes encode the double `123456.0` (historical Lua sentinel value)
+  /// in little-endian IEEE 754.
   static List<int> _createLegacyLuacNumBytes() {
     return <int>[0x00, 0x00, 0x00, 0x00, 0x00, 0x28, 0x77, 0x40];
   }
 
+  /// Checks if [bytes] starts with the official Lua 5.5 binary chunk header.
   static bool _hasOfficialLua55Header(List<int> bytes) {
     final header = _officialLua55HeaderBytes();
     return bytes.length >= header.length &&
         _bytesEqual(bytes.take(header.length).toList(), header);
   }
 
+  /// Checks if [bytes] matches the legacy Lua 5.4 header prefix.
   static bool _hasLegacyLua54Header(List<int> bytes) {
     return bytes.length >= _legacyLua54HeaderPrefix.length &&
         _matchesHeaderPrefix(bytes, _legacyLua54HeaderPrefix);
   }
 
+  /// Returns true if [bytes] looks like a truncated Lua header (starts with
+  /// ESC but is shorter than a complete header).
+  ///
+  /// Used to detect corrupt or incomplete binary chunks early.
   static bool _looksLikeTruncatedLuaHeader(List<int> bytes) {
     if (bytes.isEmpty || bytes[0] != _binaryPrefix) {
       return false;
@@ -569,6 +673,7 @@ class LegacyAstChunkTransport {
             _matchesHeaderPrefix(bytes, _legacyLua54HeaderPrefix));
   }
 
+  /// Checks if [bytes] matches the first `bytes.length` bytes of [header].
   static bool _matchesHeaderPrefix(List<int> bytes, List<int> header) {
     if (bytes.length > header.length) {
       return false;
@@ -581,6 +686,13 @@ class LegacyAstChunkTransport {
     return true;
   }
 
+  // ─── Internal: header construction ─────────────────────────────────────
+
+  /// Constructs the official Lua 5.5 binary chunk header bytes.
+  ///
+  /// This is a real Lua 5.5 header (not lualike-specific) so the chunk
+  /// is recognized by the bytecode parser as a valid Lua binary chunk.
+  /// The actual payload after the header is lualike's internal format.
   static List<int> _officialLua55HeaderBytes() {
     return <int>[
       ...LuaBytecodeChunkSentinels.signature,
@@ -617,7 +729,7 @@ class LegacyAstChunkTransport {
         data.setInt32(0, value, Endian.little);
         return data.buffer.asUint8List();
       case 8:
-        data.setInt64(0, value, Endian.little);
+        b64.writeInt64(data, 0, value);
         return data.buffer.asUint8List();
       default:
         throw ArgumentError.value(size, 'size', 'unsupported signed int size');
@@ -631,7 +743,7 @@ class LegacyAstChunkTransport {
         data.setUint32(0, value, Endian.little);
         return data.buffer.asUint8List();
       case 8:
-        data.setUint64(0, value, Endian.little);
+        b64.writeUint64(data, 0, value);
         return data.buffer.asUint8List();
       default:
         throw ArgumentError.value(
@@ -650,24 +762,21 @@ class LegacyAstChunkTransport {
     return data.buffer.asUint8List();
   }
 
-  /// Creates a legacy AST/internal chunk with a Lua-compatible header.
+  // ─── Internal: chunk creation ──────────────────────────────────────────
+
+  /// Wraps a payload string in a Lua 5.5 binary chunk header.
   ///
-  /// This keeps the historical AST payload while mimicking Lua's binary-chunk
-  /// header shape for compatibility with the current `load` path.
+  /// Returns a raw string containing `[header][payload]` bytes.
   static String _createLuaCompatibleChunk(String payload) {
-    // Combine header, LUAC values, and our legacy AST payload.
     final allBytes = <int>[
       ..._officialLua55HeaderBytes(),
       ...payload.codeUnits,
     ];
-    // Use String.fromCharCodes to preserve raw bytes
     return String.fromCharCodes(allBytes);
   }
 
-  /// Creates a legacy AST/internal chunk [LuaString] with a Lua-compatible
-  /// header.
+  /// Wraps a payload string in a Lua 5.5 binary chunk header as [LuaString].
   static LuaString _createLuaCompatibleChunkAsLuaString(String payload) {
-    // Combine header, LUAC values, and our legacy AST payload as raw bytes.
     final allBytes = <int>[
       ..._officialLua55HeaderBytes(),
       ...payload.codeUnits,
@@ -676,14 +785,48 @@ class LegacyAstChunkTransport {
   }
 }
 
-/// Information about a deserialized legacy AST/internal chunk.
+/// Result of deserializing a legacy chunk.
+///
+/// Contains the reconstructed Lua source and metadata about the original
+/// chunk type.
 class LegacyChunkInfo {
+  /// Reconstructed Lua source code ready for execution.
+  ///
+  /// For `AST:` payloads, this is `return (<function body>)()` so that
+  /// `load()` executes the function immediately.
   final String source;
+
+  /// Original chunk name, if available (from `SRCJ:` payloads).
   final String? sourceName;
+
+  /// True if this chunk was produced by `string.dump` (binary format).
+  ///
+  /// False for plain source text that never went through serialization.
   final bool isStringDumpFunction;
+
+  /// The reconstructed [FunctionBody] for `AST:` payloads.
+  ///
+  /// Null for `SRC:`, `SRCJ:`, and plain source payloads.
+  ///
+  /// This is the authoritative in-memory representation of the dumped
+  /// function and can be used directly without going through source
+  /// parsing.
   final FunctionBody? originalFunctionBody;
+
+  /// Names of upvalues captured by the dumped function.
+  ///
+  /// Only populated for `AST:` payloads that were serialized with upvalue
+  /// data. Null otherwise.
   final List<String>? upvalueNames;
+
+  /// Runtime values of upvalues at the time of dumping.
+  ///
+  /// Only populated for `AST:` payloads that were serialized with upvalue
+  /// data. Null otherwise.
   final List<dynamic>? upvalueValues;
+
+  /// True if debug metadata (spans, line info) was stripped during
+  /// serialization.
   final bool strippedDebugInfo;
 
   LegacyChunkInfo({
