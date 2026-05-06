@@ -1,3 +1,6 @@
+@TestOn('!browser')
+library;
+
 import 'package:lualike/src/table_storage.dart';
 import 'package:lualike/src/lua_string.dart';
 import 'package:test/test.dart';

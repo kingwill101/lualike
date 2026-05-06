@@ -1,3 +1,6 @@
+@TestOn('!browser')
+library;
+
 import 'dart:io';
 
 import 'package:lualike/src/io/io_device.dart';

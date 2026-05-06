@@ -1,3 +1,6 @@
+@TestOn('!browser')
+library;
+
 import 'package:lualike/lualike.dart';
 import 'package:test/test.dart';
 
