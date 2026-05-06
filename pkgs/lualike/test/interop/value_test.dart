@@ -1,3 +1,6 @@
+@TestOn('!browser')
+library;
+
 import 'package:lualike_test/test.dart';
 
 void main() {
@@ -278,7 +281,6 @@ void main() {
       // Negative infinity comparisons
       expect(nInf < zero, isTrue, reason: '-inf < 0 should be true');
       expect(zero > nInf, isTrue, reason: '0 > -inf should be true');
-      //TODO verify these comparisons they are currently failing
       expect(nInf <= zero, isTrue, reason: '-inf <= 0 should be true');
       expect(zero >= nInf, isTrue, reason: '0 >= -inf should be true');
     });

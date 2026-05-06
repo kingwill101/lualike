@@ -1,3 +1,4 @@
+@TestOn('!browser')
 @Tags(['legacy_chunk'])
 library;
 
