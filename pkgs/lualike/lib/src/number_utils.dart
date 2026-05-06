@@ -695,10 +695,14 @@ class NumberUtils {
   /// Convert a signed integer to its unsigned 64-bit representation
   /// This is used for formatting negative numbers as unsigned values (%u, %x, %o)
   static BigInt toUnsigned64(int value) {
+    // Guard for non-finite values (can reach via dart2js type unsoundness where
+    // Infinity is typed as int at runtime)
+    if (!value.isFinite) {
+      throw LuaError('number has no integer representation');
+    }
     if (value >= 0) {
       return BigInt.from(value);
     }
-    // For negative values, add 2^NumberLimits.sizeInBits to get the unsigned representation
     return (BigInt.one << NumberLimits.sizeInBits) + BigInt.from(value);
   }
 

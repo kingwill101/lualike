@@ -381,6 +381,17 @@ mixin InterpreterControlFlowMixin on AstVisitor<Object?> {
       int step,
     ) {
       final numericLimit = parseNumericValue(limitValue, 'limit');
+      // On the JS runtime, Infinity can pass `is int`. Guard non-finite first.
+      if (numericLimit is num && !numericLimit.isFinite) {
+        if (numericLimit.isNegative) {
+          return step > 0
+              ? (skip: true, limit: NumberLimits.minInteger)
+              : (skip: false, limit: NumberLimits.minInteger);
+        }
+        return step < 0
+            ? (skip: true, limit: NumberLimits.maxInteger)
+            : (skip: false, limit: NumberLimits.maxInteger);
+      }
       if (numericLimit is int) {
         return (
           skip: step > 0 ? init > numericLimit : init < numericLimit,
@@ -402,17 +413,6 @@ mixin InterpreterControlFlowMixin on AstVisitor<Object?> {
             : (skip: false, limit: NumberLimits.maxInteger);
       }
       if (numericLimit is double) {
-        if (!numericLimit.isFinite) {
-          if (numericLimit.isNegative) {
-            return step > 0
-                ? (skip: true, limit: NumberLimits.minInteger)
-                : (skip: false, limit: NumberLimits.minInteger);
-          }
-          return step < 0
-              ? (skip: true, limit: NumberLimits.maxInteger)
-              : (skip: false, limit: NumberLimits.maxInteger);
-        }
-
         if (numericLimit < NumberLimits.minInteger) {
           return step > 0
               ? (skip: true, limit: NumberLimits.minInteger)

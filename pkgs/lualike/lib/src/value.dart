@@ -1538,6 +1538,12 @@ class Value with GCObject implements Map<String, dynamic> {
   }
 
   static BigInt? _canonicalNumericHashKey(Object? value) {
+    // Guard non-finite numerics BEFORE the int check.
+    // On the JS runtime (web), Infinity may pass `is int` because JavaScript
+    // has only one numeric type, causing BigInt.from(Infinity) to throw.
+    if (value is num && !value.isFinite) {
+      return null;
+    }
     if (value is int) {
       return BigInt.from(value);
     }
