@@ -128,7 +128,7 @@ void main() {
       final errValue = values[1];
 
       expect(okValue, isFalse);
-      expect(errValue, contains("field 'huge'"));
+      expect(errValue, contains("no integer representation"));
     });
 
     test('string colon methods resolve via lualike IR runtime', () async {
