@@ -1,3 +1,6 @@
+@TestOn('!browser')
+library;
+
 import 'package:lualike_test/test.dart';
 
 void main() {
@@ -24,7 +27,7 @@ void main() {
     ''';
 
     final result = await lua.execute(script) as Value;
-    final message = result.raw as String;
+    final message = unwrapRaw(result) as String;
 
     expect(message, contains('[string "local a = 2.0^100; x = a << 2"]:1:'));
     expect(message, contains('number has no integer representation'));
