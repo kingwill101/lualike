@@ -6858,7 +6858,7 @@ final class _LuaBytecodeFrame implements LuaBytecodeGCRootProvider {
           : Value.toBeClose(rawValue);
       setRegister(registerIndex, closable);
       _toBeClosedRegisters.add(registerIndex);
-    } on UnsupportedError catch (error, stackTrace) {
+    } on UnsupportedError catch (error) {
       final localName = localNameForError(registerIndex);
       final baseMessage = error.message ?? error.toString();
       final message =

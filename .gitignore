@@ -34,3 +34,4 @@ build
 
 # Keep vendored love2d third_party dependencies out of commits.
 /pkgs/love2d/third_party/
+pkgs/lualike/luac.out

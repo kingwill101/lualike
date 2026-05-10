@@ -1,4 +1,5 @@
-import 'package:dart_console/dart_console.dart';
+import 'package:artisanal/artisanal.dart' show Console;
+import 'package:artisanal/bubbles.dart';
 import 'package:lualike/history.dart';
 import 'package:lualike/lualike.dart';
 import 'package:lualike/src/io/io_device.dart';
@@ -94,8 +95,8 @@ class InteractiveMode {
       }
     }
 
-    // Create a console for terminal control with scrolling support
-    final console = Console.scrolling(recordBlanks: false);
+    // Create a console for terminal control
+    final console = Console();
 
     // Set up virtual devices for REPL I/O
     final stdinDevice = VirtualIODevice();
@@ -133,17 +134,10 @@ class InteractiveMode {
         // Determine prompt based on whether we're in multiline mode
         String prompt = multilineBuffer != null ? '>> ' : basePrompt;
 
-        // Read input line using console.readLine which supports history navigation
-        console.write(prompt);
-        final line = console.readLine(
-          cancelOnBreak: true,
-          callback: (text, lastPressed) {
-            if (lastPressed.isControl) {
-              if (lastPressed.controlChar == ControlCharacter.ctrlC) {
-                running = false;
-              }
-            }
-          },
+        // Read input line using artisanal bubbles
+        final line = await runTextInputPrompt(
+          TextInputModel(prompt: prompt),
+          console.promptTerminal,
         );
 
         // Check for exit or EOF

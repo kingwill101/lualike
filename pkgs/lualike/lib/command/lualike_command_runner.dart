@@ -1,6 +1,6 @@
 import 'dart:io';
 
-import 'package:args/command_runner.dart';
+import 'package:artisanal/args.dart';
 import 'package:lualike/command/version_command.dart';
 import 'package:lualike/src/config.dart';
 import 'package:lualike/src/lua_bytecode/runtime.dart';
@@ -21,214 +21,198 @@ class LuaLikeCommandRunner extends CommandRunner {
 
   bool debugMode = false;
 
+  @override
+  String get invocation => '$executableName [options] [script [args]]';
+
   LuaLikeCommandRunner()
     : super(
         'lualike',
         'LuaLike $lualikeVersion - A Lua-like scripting language for Dart\n'
-            'Lua $luaCompatVersion compatible\n'
-            'Usage: lualike [options] [script [args]]',
+            'Lua $luaCompatVersion compatible',
       ) {
-    argParser.addFlag(
-      'debug',
-      help: 'Enable debug mode with detailed logging',
-      negatable: false,
-    );
-
-    // argParser.addFlag('help', help: 'Show help', negatable: false);
-
-    argParser.addOption(
-      'level',
-      help: 'Set log level (FINE, INFO, WARNING, SEVERE, etc)',
-    );
-
-    argParser.addMultiOption(
-      'category',
-      help: 'Set log category filter (repeatable or comma-separated)',
-      splitCommas: true,
-    );
-
-    argParser.addFlag(
-      'ast',
-      help: 'Use AST interpreter (default)',
-      defaultsTo: true,
-    );
-
-    argParser.addFlag('ir', help: 'Use lualike IR runtime', defaultsTo: false);
-
-    argParser.addFlag(
-      'lua-bytecode',
-      help: 'Use the opt-in lua_bytecode source engine',
-      defaultsTo: false,
-    );
-
-    argParser.addFlag(
-      'dump-ir',
-      help: 'Print IR instructions and exit without executing (IR mode)',
-      negatable: false,
-      defaultsTo: false,
-    );
-
-    // Add standard Lua options
-    argParser.addMultiOption(
-      'execute',
-      abbr: 'e',
-      help: 'Execute string',
-      valueHelp: 'code',
-      splitCommas: false,
-    );
-
-    argParser.addMultiOption(
-      'require',
-      abbr: 'l',
-      help: 'Require file',
-      valueHelp: 'file',
-      splitCommas: false,
-    );
-
-    argParser.addFlag(
-      'interactive',
-      abbr: 'i',
-      help: 'Enter interactive mode after running script',
-      negatable: false,
-    );
-
-    argParser.addFlag(
-      'version',
-      abbr: 'v',
-      help: 'Print version information',
-      negatable: false,
-    );
-
-    argParser.addFlag(
-      'stdin',
-      help: 'Execute stdin as a file (use - on command line)',
-      negatable: false,
-      hide: true,
-    );
+    argParser
+      ..addFlag(
+        'debug',
+        help: 'Enable debug mode with detailed logging',
+        negatable: false,
+      )
+      ..addOption(
+        'level',
+        help: 'Set log level (FINE, INFO, WARNING, SEVERE, etc)',
+      )
+      ..addMultiOption(
+        'category',
+        help: 'Set log category filter (repeatable or comma-separated)',
+        splitCommas: true,
+      )
+      ..addFlag(
+        'ast',
+        help: 'Use AST interpreter (default)',
+        defaultsTo: true,
+      )
+      ..addFlag('ir', help: 'Use lualike IR runtime', defaultsTo: false)
+      ..addFlag(
+        'lua-bytecode',
+        help: 'Use the opt-in lua_bytecode source engine',
+        defaultsTo: false,
+      )
+      ..addFlag(
+        'dump-ir',
+        help: 'Print IR instructions and exit without executing (IR mode)',
+        negatable: false,
+        defaultsTo: false,
+      )
+      ..addMultiOption(
+        'execute',
+        abbr: 'e',
+        help: 'Execute string',
+        valueHelp: 'code',
+        splitCommas: false,
+      )
+      ..addMultiOption(
+        'require',
+        abbr: 'l',
+        help: 'Require file',
+        valueHelp: 'file',
+        splitCommas: false,
+      )
+      ..addFlag(
+        'interactive',
+        abbr: 'i',
+        help: 'Enter interactive mode after running script',
+        negatable: false,
+      )
+      ..addFlag(
+        'version',
+        help: 'Print version information',
+        negatable: false,
+      )      ..addFlag(
+        'stdin',
+        help: 'Execute stdin as a file (use - on command line)',
+        negatable: false,
+        hide: true,
+      );
   }
 
   @override
   Future<void> run(Iterable<String> args) async {
-    // Contextual backend is used by default; no hierarchical setup required.
+    // artisanal.run(args) handles global setup and catches UsageException.
+    // However, it expects subcommands. Since Lua uses flags for logic,
+    // we need to handle the parsed results if no command matches.
+    
+    // Setup renderer etc by calling artisanal's run logic via super.run
+    // But super.run will likely throw if we have no commands.
+    
+    // Let's use artisanal's public properties to mimic its behavior.
+    
+    final argResults = argParser.parse(args);
+    
+    if (argResults['help'] as bool) {
+      printUsage();
+      return;
+    }
+    
+    if (argResults['version'] as bool) {
+      final versionCmd = VersionCommand();
+      await versionCmd.run();
+      if (args.length == 1) return;
+    }
 
-    try {
-      // Parse arguments
-      final argResults = argParser.parse(args);
-      final restArgs = argResults.rest;
+    final restArgs = argResults.rest;
+    final config = LuaLikeConfig();
+    final useIr = argResults['ir'] as bool;
+    final useLuaBytecode = argResults['lua-bytecode'] as bool;
+    final useAst = argResults['ast'] as bool;
+    final autoUseLuaBytecode =
+        restArgs.isNotEmpty &&
+        _looksLikeTrackedLuaBytecodeScript(restArgs.first);
+    if (useLuaBytecode || autoUseLuaBytecode) {
+      config.defaultEngineMode = EngineMode.luaBytecode;
+    } else if (useIr || !useAst) {
+      config.defaultEngineMode = EngineMode.ir;
+    } else {
+      config.defaultEngineMode = EngineMode.ast;
+    }
+    config.dumpIr = argResults['dump-ir'] as bool;
+    BaseCommand.resetBridge();
 
-      if (argResults['help'] as bool) {
-        throw UsageException(usage, usage);
-      }
+    // Handle debug mode
+    if (argResults['debug'] as bool) {
+      debugMode = true;
+      io.writeln('Debug mode enabled');
+    }
 
-      final config = LuaLikeConfig();
-      final useIr = argResults['ir'] as bool;
-      final useLuaBytecode = argResults['lua-bytecode'] as bool;
-      final useAst = argResults['ast'] as bool;
-      final autoUseLuaBytecode =
-          restArgs.isNotEmpty &&
-          _looksLikeTrackedLuaBytecodeScript(restArgs.first);
-      if (useLuaBytecode || autoUseLuaBytecode) {
-        config.defaultEngineMode = EngineMode.luaBytecode;
-      } else if (useIr || !useAst) {
-        config.defaultEngineMode = EngineMode.ir;
-      } else {
-        config.defaultEngineMode = EngineMode.ast;
-      }
-      config.dumpIr = argResults['dump-ir'] as bool;
-      BaseCommand.resetBridge();
+    // Set up logging
+    final logLevel = argResults['level'] as String?;
+    final logCategories =
+        (argResults['category'] as List<String>?) ?? const <String>[];
 
-      // Handle debug mode
-      if (argResults['debug'] as bool) {
-        debugMode = true;
-        print('Debug mode enabled');
-      }
+    ctx.Level? cliLevel;
+    if (logLevel != null && logLevel.isNotEmpty) {
+      cliLevel = parseLogLevel(logLevel) ?? ctx.Level.warning;
+    }
 
-      // Set up logging
-      final logLevel = argResults['level'] as String?;
-      final logCategories =
-          (argResults['category'] as List<String>?) ?? const <String>[];
+    setLualikeLogging(
+      enabled: debugMode,
+      level: cliLevel,
+      categories: logCategories.isEmpty ? null : logCategories,
+    );
 
-      ctx.Level? cliLevel;
-      if (logLevel != null && logLevel.isNotEmpty) {
-        cliLevel = parseLogLevel(logLevel) ?? ctx.Level.warning;
-      }
-
-      setLualikeLogging(
-        enabled: debugMode,
-        level: cliLevel,
-        categories: logCategories.isEmpty ? null : logCategories,
-      );
-
-      // Note: execution mode is handled by individual commands
-
-      // Handle special case where no arguments provided
-      if (args.isEmpty) {
-        if (stdin.hasTerminal) {
-          // Terminal mode: show version and enter interactive mode
-          final versionCmd = VersionCommand();
-          await versionCmd.run();
-          final interactiveCmd = InteractiveCommandWrapper(
-            debugMode: debugMode,
-          );
-          await interactiveCmd.run();
-        } else {
-          // Non-terminal mode: read from stdin
-          final stdinCmd = StdinCommand([], args.toList());
-          await stdinCmd.run();
-        }
-        return;
-      }
-
-      // Handle special case for single '-' argument (stdin)
-      if (args.length == 1 && args.first == '-') {
-        final stdinCmd = StdinCommand([], args.toList());
-        await stdinCmd.run();
-        return;
-      }
-
-      // Handle version flag
-      if (argResults['version'] as bool) {
+    // Handle special case where no arguments provided
+    if (args.isEmpty) {
+      if (stdin.hasTerminal) {
+        // Terminal mode: show version and enter interactive mode
         final versionCmd = VersionCommand();
         await versionCmd.run();
-      }
-
-      // Handle LUA_INIT using BaseCommand functionality
-      final baseCmd = _LuaInitCommand();
-      await baseCmd.handleLuaInit();
-
-      // Handle require files (-l)
-      final requireFiles = argResults['require'] as List<String>;
-      for (final file in requireFiles) {
-        final requireCmd = RequireCommand(file, args.toList());
-        await requireCmd.run();
-      }
-
-      // Handle execute strings (-e)
-      final executeStrings = argResults['execute'] as List<String>;
-      for (final code in executeStrings) {
-        final executeCmd = ExecuteCommand(code, args.toList());
-        await executeCmd.run();
-      }
-
-      // Handle script file and arguments
-      if (restArgs.isNotEmpty) {
-        final scriptPath = restArgs.first;
-        final scriptArgs = restArgs.skip(1).toList();
-        final scriptCmd = ScriptCommand(scriptPath, scriptArgs, args.toList());
-        await scriptCmd.run();
-      }
-
-      // Handle interactive mode (-i)
-      if (argResults['interactive'] as bool) {
-        final interactiveCmd = InteractiveCommandWrapper(debugMode: debugMode);
+        final interactiveCmd = InteractiveCommandWrapper(
+          debugMode: debugMode,
+        );
         await interactiveCmd.run();
+      } else {
+        // Non-terminal mode: read from stdin
+        final stdinCmd = StdinCommand([], args.toList());
+        await stdinCmd.run();
       }
-    } catch (e) {
-      if (e is UsageException) {
-        print(usage);
-        exit(1);
-      }
-      rethrow;
+      return;
+    }
+
+    // Handle special case for single '-' argument (stdin)
+    if (args.length == 1 && args.first == '-') {
+      final stdinCmd = StdinCommand([], args.toList());
+      await stdinCmd.run();
+      return;
+    }
+
+    // Handle LUA_INIT using BaseCommand functionality
+    final baseCmd = _LuaInitCommand();
+    await baseCmd.handleLuaInit();
+
+    // Handle require files (-l)
+    final requireFiles = argResults['require'] as List<String>;
+    for (final file in requireFiles) {
+      final requireCmd = RequireCommand(file, args.toList());
+      await requireCmd.run();
+    }
+
+    // Handle execute strings (-e)
+    final executeStrings = argResults['execute'] as List<String>;
+    for (final code in executeStrings) {
+      final executeCmd = ExecuteCommand(code, args.toList());
+      await executeCmd.run();
+    }
+
+    // Handle script file and arguments
+    if (restArgs.isNotEmpty) {
+      final scriptPath = restArgs.first;
+      final scriptArgs = restArgs.skip(1).toList();
+      final scriptCmd = ScriptCommand(scriptPath, scriptArgs, args.toList());
+      await scriptCmd.run();
+    }
+
+    // Handle interactive mode (-i)
+    if (argResults['interactive'] as bool) {
+      final interactiveCmd = InteractiveCommandWrapper(debugMode: debugMode);
+      await interactiveCmd.run();
     }
   }
 }
