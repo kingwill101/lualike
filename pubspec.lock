@@ -53,18 +53,18 @@ packages:
     dependency: transitive
     description:
       name: artisanal
-      sha256: "6f68c755838fdcdc44699c177feb978c73757af89ccb745eef53f71d0966c1ab"
+      sha256: ff67fd9dea58a603dea7c4073427c30f7ddeebba5da6a05a40cb7a8777ec1b8c
       url: "https://pub.dev"
     source: hosted
-    version: "0.2.0+1"
+    version: "0.3.0"
   artisanal_widgets:
     dependency: transitive
     description:
       name: artisanal_widgets
-      sha256: "42afcd9f57f41f684cdf149837212df24cb36388b2d445f74faf8ef617e206dd"
+      sha256: d32b5e41689c9853241437ff9644a5272fbf341e938154fe502601c69009fa0a
       url: "https://pub.dev"
     source: hosted
-    version: "0.1.0+1"
+    version: "0.2.0"
   async:
     dependency: transitive
     description:
@@ -241,14 +241,6 @@ packages:
       url: "https://pub.dev"
     source: hosted
     version: "1.0.2"
-  dart_console:
-    dependency: transitive
-    description:
-      name: dart_console
-      sha256: bf62b8016530fef83557c1f01867c281d0937dceb84204128819e6e925ddf73f
-      url: "https://pub.dev"
-    source: hosted
-    version: "4.1.4"
   dart_mappable:
     dependency: transitive
     description:
@@ -273,6 +265,14 @@ packages:
       url: "https://pub.dev"
     source: hosted
     version: "3.1.9"
+  decimal:
+    dependency: transitive
+    description:
+      name: decimal
+      sha256: fc706a5618b81e5b367b01dd62621def37abc096f2b46a9bd9068b64c1fa36d0
+      url: "https://pub.dev"
+    source: hosted
+    version: "3.2.4"
   devtools_profiler_protocol:
     dependency: transitive
     description:
@@ -457,6 +457,14 @@ packages:
       url: "https://pub.dev"
     source: hosted
     version: "4.1.0"
+  json_schema_builder:
+    dependency: transitive
+    description:
+      name: json_schema_builder
+      sha256: "65035d48d028401ad0ffc8c2f173209c7b1441e465a942a0f909070fae33170c"
+      url: "https://pub.dev"
+    source: hosted
+    version: "0.1.3"
   lints:
     dependency: transitive
     description:
@@ -617,6 +625,14 @@ packages:
       url: "https://pub.dev"
     source: hosted
     version: "1.5.0"
+  rational:
+    dependency: transitive
+    description:
+      name: rational
+      sha256: cb808fb6f1a839e6fc5f7d8cb3b0a10e1db48b3be102de73938c627f0b636336
+      url: "https://pub.dev"
+    source: hosted
+    version: "2.2.3"
   scratch_space:
     dependency: transitive
     description:
@@ -773,10 +789,10 @@ packages:
     dependency: transitive
     description:
       name: ultraviolet
-      sha256: "1fbe71dc9a1ff9b7b04e89eb958628cae42a3dcfa251e8c5b0a8a3988766dbe2"
+      sha256: eddf41c6a43976d8d0de9059a789fc7b4013915fc658a2e596cb7cf56ffc0cd5
       url: "https://pub.dev"
     source: hosted
-    version: "0.1.1+1"
+    version: "0.2.0"
   unified_analytics:
     dependency: transitive
     description:
@@ -857,14 +873,6 @@ packages:
       url: "https://pub.dev"
     source: hosted
     version: "1.2.1"
-  win32:
-    dependency: transitive
-    description:
-      name: win32
-      sha256: d7cb55e04cd34096cd3a79b3330245f54cb96a370a1c27adb3c84b917de8b08e
-      url: "https://pub.dev"
-    source: hosted
-    version: "5.15.0"
   xml:
     dependency: transitive
     description:

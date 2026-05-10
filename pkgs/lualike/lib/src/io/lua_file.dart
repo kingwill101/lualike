@@ -70,7 +70,7 @@ final fileMetamethods = {
 
     final trackedWrapper = IOLib.trackedOpenFileWrapper(
       luaFile,
-      interpreter: fileValue is Value ? fileValue.interpreter : null,
+      interpreter: fileValue.interpreter,
     );
     if (trackedWrapper != null && !identical(trackedWrapper, fileValue)) {
       Logger.debugLazy(
@@ -472,12 +472,6 @@ final class _LuaFileLineIterator extends BuiltinFunction with GCObject {
 
   bool hasBeenClosed = false;
   int iterationCount = 0;
-
-  @override
-  bool marked = false;
-
-  @override
-  bool isOld = false;
 
   @override
   int get estimatedSize => 96;

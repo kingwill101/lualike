@@ -24,6 +24,8 @@ The guides in this directory explain how to use and extend LuaLike from Dart.
   Covers numeric semantics and `NumberUtils`.
 - [String handling](./string_handling.md)
   Covers `LuaString`, byte semantics, and string interop.
+- [Intermediate Representation (IR) Format](./ir-format.md)
+  Technical reference for the Lualike internal bytecode and instruction set.
 
 ## Suggested order
 
