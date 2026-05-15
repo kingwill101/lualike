@@ -5,6 +5,24 @@ import 'package:lualike/src/io/filesystem_provider.dart';
 import 'package:lualike/src/io/lua_file.dart';
 import 'package:lualike/src/io/io_device.dart';
 import 'package:lualike/src/io/memory_io_device.dart';
+import 'package:lualike/src/runtime/lua_results.dart';
+
+List<Object?> _ioResultValues(Object? result) {
+  if (result is LuaResults) {
+    return result.values;
+  }
+  if (result is Value) {
+    final multiResults = result.multiResults;
+    if (multiResults != null) {
+      return multiResults;
+    }
+    final raw = result.raw;
+    if (raw is List) {
+      return List<Object?>.of(raw);
+    }
+  }
+  fail('Expected IO result carrier, got $result');
+}
 
 /// Mock IODevice for testing
 class MockIODevice extends BaseIODevice {
@@ -590,12 +608,8 @@ void main() {
             Value('nonexistent_file.txt'),
             Value('r'),
           ]);
-          // Should get here - io.open returns error tuple instead of throwing
-          // IOOpen returns Value.multi([null, error_message]) for errors
-          expect(result, isA<Value>());
-          final value = result as Value;
-          expect(value.raw, isA<List>());
-          final resultList = value.raw as List;
+          // Should get here - io.open returns error tuple instead of throwing.
+          final resultList = _ioResultValues(result);
           expect(
             resultList[0],
             isNull,

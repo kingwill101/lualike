@@ -1,3 +1,4 @@
+import '../runtime/lua_slot.dart';
 import '../value.dart';
 
 /// Extension methods for dynamic objects to simplify Value conversion
@@ -13,15 +14,16 @@ extension DynamicValueExtension on dynamic {
   Value toValue() {
     if (this is Value) {
       final val = this as Value;
+      final raw = rawLuaSlot(val);
 
       // If the underlying raw is a Map, recursively convert each entry.
-      if (val.raw is Map) {
-        final rawMap = (val.raw as Map).map((k, v) => MapEntry(k, v.toValue()));
+      if (raw is Map) {
+        final rawMap = raw.map((k, v) => MapEntry(k, v.toValue()));
         return Value(rawMap, metatable: val.metatable);
       }
       // If the underlying raw is a List, recursively convert each element.
-      else if (val.raw is List) {
-        final rawList = (val.raw as List).map((e) => e.toValue()).toList();
+      else if (raw is List) {
+        final rawList = raw.map((e) => e.toValue()).toList();
         return Value(rawList, metatable: val.metatable);
       }
 
@@ -37,12 +39,12 @@ extension DynamicValueExtension on dynamic {
       return Value(list);
     }
     // For any other type, simply wrap it.
-    return Value(this);
+    return Value.wrap(this);
   }
 
   /// Safely unwrap a Value or return the original object
   dynamic unwrapValue() {
-    if (this is Value) return (this as Value).raw;
+    if (this is Value) return rawLuaSlot(this as Value);
     return this;
   }
 

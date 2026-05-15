@@ -1,6 +1,7 @@
 ## 0.1.0
  - Add a production-ready Lua bytecode engine, including source execution, direct chunk loading, coroutine support, and full stock-suite coverage.
  - Expand Lua 5.5 language and runtime compatibility across the parser, interpreter, standard library, and vendored suite coverage.
+ - Improve parser throughput with scanner-backed Lua fast paths, direct dispatch for statement/call/suffix parsing, faster literal and format-string parsing, and committed profiling snapshots/tooling.
  - Improve runtime correctness and performance with substantial GC, coroutine, debug, load, table, and string-path fixes.
  - Refresh the web REPL and browser support, including a fallback editor path and browser-safe numeric helper behavior.
  - Export and document more of the public embedding surface, including parser utilities, library registration helpers, and refreshed guides/reference docs.

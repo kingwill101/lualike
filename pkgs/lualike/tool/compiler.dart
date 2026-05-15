@@ -2,7 +2,7 @@ import 'dart:convert' show utf8, LineSplitter;
 import 'dart:io';
 
 import 'package:crypto/crypto.dart' show sha256;
-import 'package:dart_console/dart_console.dart';
+import 'package:artisanal/style.dart';
 import 'package:path/path.dart' as path;
 
 import 'test.dart' show console;
@@ -205,15 +205,14 @@ class SmartCompiler {
 
   /// Perform the actual compilation
   Future<bool> _compile() async {
-    console.setForegroundColor(ConsoleColor.cyan);
-    console.write('Compiling $binaryName...');
-    console.resetColorAttributes();
-    console.writeLine();
+    console.writeln(
+      Style().foreground(Colors.cyan).render('Compiling $binaryName...'),
+    );
 
-    console.setForegroundColor(ConsoleColor.blue);
-    console.write('Using Dart executable: ');
-    console.resetColorAttributes();
-    console.writeLine(dartPath);
+    console.write(
+      Style().foreground(Colors.blue).render('Using Dart executable: '),
+    );
+    console.writeln(dartPath);
 
     final stopwatch = Stopwatch()..start();
 
@@ -229,33 +228,33 @@ class SmartCompiler {
     process.stdout
         .transform(utf8.decoder)
         .transform(const LineSplitter())
-        .listen((line) => console.writeLine('  $line'));
+        .listen((line) => console.writeln('  $line'));
 
     process.stderr
         .transform(utf8.decoder)
         .transform(const LineSplitter())
         .listen((line) {
-          console.setForegroundColor(ConsoleColor.red);
-          console.writeLine('  ERROR: $line');
-          console.resetColorAttributes();
+          console.writeln(
+            Style().foreground(Colors.red).render('  ERROR: $line'),
+          );
         });
 
     final exitCode = await process.exitCode;
     stopwatch.stop();
 
     if (exitCode == 0) {
-      console.setForegroundColor(ConsoleColor.green);
-      console.write(
-        '✓ Compilation successful in ${stopwatch.elapsed.inMilliseconds}ms',
+      console.writeln(
+        Style()
+            .foreground(Colors.green)
+            .render(
+              '✓ Compilation successful in ${stopwatch.elapsed.inMilliseconds}ms',
+            ),
       );
-      console.resetColorAttributes();
-      console.writeLine();
       return true;
     } else {
-      console.setForegroundColor(ConsoleColor.red);
-      console.write('✗ Compilation failed');
-      console.resetColorAttributes();
-      console.writeLine();
+      console.writeln(
+        Style().foreground(Colors.red).render('✗ Compilation failed'),
+      );
       return false;
     }
   }
@@ -263,10 +262,9 @@ class SmartCompiler {
   /// Smart compile: only recompile if source files have changed
   Future<SmartCompileResult> smartCompile({bool force = false}) async {
     if (force) {
-      console.setForegroundColor(ConsoleColor.yellow);
-      console.write('Force compilation requested');
-      console.resetColorAttributes();
-      console.writeLine();
+      console.writeln(
+        Style().foreground(Colors.yellow).render('Force compilation requested'),
+      );
       final compileStopwatch = Stopwatch()..start();
       final success = await _compile();
       compileStopwatch.stop();
@@ -279,10 +277,11 @@ class SmartCompiler {
       return SmartCompileResult(success: success, recompiled: true);
     }
 
-    console.setForegroundColor(ConsoleColor.cyan);
-    console.write('Checking if recompilation is needed...');
-    console.resetColorAttributes();
-    console.writeLine();
+    console.writeln(
+      Style()
+          .foreground(Colors.cyan)
+          .render('Checking if recompilation is needed...'),
+    );
 
     final stopwatch = Stopwatch()..start();
 
@@ -310,25 +309,30 @@ class SmartCompiler {
     if (currentHash == cachedHash) {
       // Additional check: ensure binary exists and is up to date
       if (await _isBinaryUpToDate()) {
-        console.setForegroundColor(ConsoleColor.green);
-        console.write('✓ Source files unchanged, using existing binary');
+        final style = Style().foreground(Colors.green);
+        console.write(
+          style.render('✓ Source files unchanged, using existing binary'),
+        );
         if (cachedCompileTime != null) {
-          console.write(' (saved ${cachedCompileTime.inSeconds}s)');
+          console.info(
+            style.render(' (saved ${cachedCompileTime.inSeconds}s)'),
+          );
         }
-        console.resetColorAttributes();
-        console.writeLine();
+        console.writeln('');
         return const SmartCompileResult(success: true, recompiled: false);
       } else {
-        console.setForegroundColor(ConsoleColor.yellow);
-        console.write('Binary missing or outdated, recompiling...');
-        console.resetColorAttributes();
-        console.writeLine();
+        console.writeln(
+          Style()
+              .foreground(Colors.yellow)
+              .render('Binary missing or outdated, recompiling...'),
+        );
       }
     } else {
-      console.setForegroundColor(ConsoleColor.yellow);
-      console.write('Source files changed, recompiling...');
-      console.resetColorAttributes();
-      console.writeLine();
+      console.writeln(
+        Style()
+            .foreground(Colors.yellow)
+            .render('Source files changed, recompiling...'),
+      );
     }
 
     // Recompile
@@ -351,9 +355,7 @@ class SmartCompiler {
     Duration? compileTime,
     Duration? lastCompileTime,
   }) {
-    console.setForegroundColor(ConsoleColor.cyan);
-    console.write('📊 Stats: ');
-    console.resetColorAttributes();
+    console.write(Style().foreground(Colors.cyan).render('📊 Stats: '));
 
     // Main stats
     console.write('${stats['total_files']} files, ${stats['total_size_kb']}KB');
@@ -366,9 +368,11 @@ class SmartCompiler {
     console.write(' [$dirInfo]');
 
     if (stats['skipped_files'] > 0) {
-      console.setForegroundColor(ConsoleColor.yellow);
-      console.write(' (${stats['skipped_files']} skipped)');
-      console.resetColorAttributes();
+      console.write(
+        Style()
+            .foreground(Colors.yellow)
+            .render(' (${stats['skipped_files']} skipped)'),
+      );
     }
 
     if (hashTime != null) {
@@ -379,25 +383,21 @@ class SmartCompiler {
       console.write(', cache: ');
       switch (cacheStatus) {
         case 'hit':
-          console.setForegroundColor(ConsoleColor.green);
-          console.write('HIT');
+          console.write(Style().foreground(Colors.green).render('HIT'));
           break;
         case 'miss':
-          console.setForegroundColor(ConsoleColor.yellow);
-          console.write('MISS');
+          console.write(Style().foreground(Colors.yellow).render('MISS'));
           break;
         case 'no-cache':
-          console.setForegroundColor(ConsoleColor.red);
-          console.write('NONE');
+          console.write(Style().foreground(Colors.red).render('NONE'));
           break;
       }
-      console.resetColorAttributes();
     }
 
     if (compileTime != null) {
       console.write(', compile: ${compileTime.inSeconds}s');
     }
 
-    console.writeLine();
+    console.writeln('');
   }
 }

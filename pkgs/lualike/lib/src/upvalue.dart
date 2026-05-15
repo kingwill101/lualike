@@ -12,7 +12,7 @@ import 'package:lualike/src/gc/gc_access.dart';
 /// went out of scope (closed).
 ///
 /// In Lua 5.4, upvalues are collectible objects managed by the GC.
-class Upvalue extends GCObject {
+class Upvalue with GCObject {
   /// A direct reference to the Box holding the variable in its defining environment.
   final Box<dynamic> valueBox;
 
@@ -86,9 +86,16 @@ class Upvalue extends GCObject {
     }
 
     if (_isOpen) {
-      // TODO: Consider const checking here eventually, based on valueBox.isConst
+      if (valueBox.preventsAssignment) {
+        final label = name ?? valueBox.debugName ?? 'upvalue';
+        throw LuaError("attempt to assign to const variable '$label'");
+      }
       valueBox.value = newValue;
     } else {
+      if (valueBox.preventsAssignment) {
+        final label = name ?? valueBox.debugName ?? 'upvalue';
+        throw LuaError("attempt to assign to const variable '$label'");
+      }
       _closedValue = newValue;
       valueBox.value = newValue;
     }

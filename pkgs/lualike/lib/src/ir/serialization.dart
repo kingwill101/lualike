@@ -2,6 +2,7 @@ import 'dart:convert';
 import 'dart:typed_data';
 
 import 'package:lualike/src/lua_string.dart';
+import '../byte_data.dart' as b64;
 
 import 'instruction.dart';
 import 'opcode.dart';
@@ -474,7 +475,8 @@ class _LualikeIrWriter {
   }
 
   void writeInt64(int value) {
-    final data = ByteData(8)..setInt64(0, value, Endian.little);
+    final data = ByteData(8);
+    b64.writeInt64(data, 0, value);
     _buffer.add(data.buffer.asUint8List());
   }
 
@@ -544,11 +546,8 @@ class _LualikeIrReader {
 
   int readInt64() {
     _requireAvailable(8);
-    final value = ByteData.sublistView(
-      _bytes,
-      _offset,
-      _offset + 8,
-    ).getInt64(0, Endian.little);
+    final view = ByteData.sublistView(_bytes, _offset, _offset + 8);
+    final value = b64.readInt64(view, 0);
     _offset += 8;
     return value;
   }

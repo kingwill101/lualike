@@ -1,5 +1,6 @@
 import 'package:lualike/src/value.dart';
 import 'package:lualike/src/logging/logger.dart';
+import 'package:lualike/src/runtime/lua_slot.dart';
 
 /// Handler for upvalue assignments in functions
 class UpvalueAssignmentHandler {
@@ -17,16 +18,17 @@ class UpvalueAssignmentHandler {
 
     for (final upvalue in currentFunction.upvalues!) {
       if (upvalue.name == varName) {
+        final rawNewValue = rawLuaSlot(newValue);
         Logger.debugLazy(
           () =>
-              'UpvalueAssignment: Updating upvalue $varName from ${upvalue.getValue()} to ${newValue.raw}',
+              'UpvalueAssignment: Updating upvalue $varName from ${upvalue.getValue()} to $rawNewValue',
           category: 'UpvalueAssignment',
           contextBuilder: () => {
             'varName': varName,
             'hasValue': upvalue.getValue() != null,
           },
         );
-        upvalue.setValue(newValue.raw);
+        upvalue.setValue(rawNewValue);
         return true;
       }
     }

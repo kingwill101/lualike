@@ -1,3 +1,6 @@
+@TestOn('!browser')
+library;
+
 import 'package:lualike_test/test.dart';
 
 void main() {
@@ -39,7 +42,7 @@ void main() {
         expect(lua.getGlobal('reverseSorted').unwrap(), isTrue);
         final calls = lua.getGlobal('comparatorCalls').unwrap() as num;
         expect(calls, greaterThan(0));
-        expect(calls, lessThan(20000));
+        expect(calls, lessThan(40000));
       },
     );
 

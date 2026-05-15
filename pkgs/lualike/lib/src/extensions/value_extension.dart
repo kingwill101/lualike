@@ -3,12 +3,16 @@ import 'package:lualike/src/intern.dart';
 import '../logging/logger.dart';
 import '../lua_error.dart';
 import '../lua_string.dart';
+import '../runtime/lua_slot.dart';
 import '../value.dart';
+
+Value _extensionValue(Object? value) => valueFromOptionalLuaSlot(null, value);
 
 dynamic fromLuaValue(dynamic obj) {
   if (obj is Value) {
-    if (obj.raw is Map) {
-      final rawMap = obj.raw as Map;
+    final raw = rawLuaSlot(obj);
+    if (raw is Map) {
+      final rawMap = raw;
       final unwrappedMap = <dynamic, dynamic>{};
 
       rawMap.forEach((key, value) {
@@ -37,15 +41,15 @@ dynamic fromLuaValue(dynamic obj) {
       return unwrappedMap;
     }
     // 2) If the underlying raw is a List, then recursively unwrap each element.
-    else if (obj.raw is List) {
-      return (obj.raw as List).map((e) => fromLuaValue(e)).toList();
+    else if (raw is List) {
+      return raw.map((e) => fromLuaValue(e)).toList();
     }
 
     // 3) Otherwise, it's a primitive or something else; just return its raw value.
-    if (obj.raw is LuaString) {
-      return obj.raw.toLatin1String();
+    if (raw is LuaString) {
+      return raw.toLatin1String();
     }
-    return obj.raw;
+    return raw;
   }
 
   // If it's not a Value, return it as-is.
@@ -59,15 +63,16 @@ Value toLuaValue(dynamic dy) {
 
   if (dy is Value) {
     final val = dy;
+    final raw = rawLuaSlot(val);
 
     // If the underlying raw is a Map, recursively convert each entry.
-    if (val.raw is Map) {
-      final rawMap = (val.raw as Map).map((k, v) => MapEntry(k, v.toValue()));
+    if (raw is Map) {
+      final rawMap = raw.map((k, v) => MapEntry(k, v.toValue()));
       return Value(rawMap, metatable: val.metatable);
     }
     // If the underlying raw is a List, recursively convert each element.
-    else if (val.raw is List) {
-      final rawList = (val.raw as List).map((e) => e.toValue()).toList();
+    else if (raw is List) {
+      final rawList = raw.map((e) => e.toValue()).toList();
       return Value(rawList, metatable: val.metatable);
     }
 
@@ -83,25 +88,26 @@ Value toLuaValue(dynamic dy) {
     return Value(list);
   }
   // For any other type, simply wrap it.
-  return Value(dy);
+  return Value.wrap(dy);
 }
 
 /// Extension methods for the Value class to simplify common operations
 extension ValueExtension<T> on T {
-  dynamic get raw => this is Value ? (this as Value).raw : this;
+  dynamic get raw => rawLuaSlot(this);
 
   bool get isValue => this is Value;
 
-  Value get value => this is Value ? this as Value : Value(this);
+  Value get value => _extensionValue(this);
 
   /// Unwraps a Value to its raw content if it is a Value, otherwise returns the object itself
   dynamic get unwrapped {
-    if (raw is Value) {
-      return (raw as Value).completeUnwrap();
-    } else if (raw is LuaString) {
-      return (raw as LuaString).toLatin1String();
+    final rawValue = raw;
+    if (rawValue is Value) {
+      return rawValue.completeUnwrap();
+    } else if (rawValue is LuaString) {
+      return rawValue.toLatin1String();
     }
-    return raw;
+    return rawValue;
   }
 
   dynamic unwrap() {
@@ -150,7 +156,7 @@ extension ValueExtension<T> on T {
   /// Handles string and table concatenation with metamethods.
   /// Returns a new Value representing the concatenated result.
   Value concat(dynamic other) {
-    final wrappedOther = other is Value ? other : Value(other);
+    final wrappedOther = _extensionValue(other);
 
     // Check for __concat metamethod
     var metamethod =
@@ -162,14 +168,14 @@ extension ValueExtension<T> on T {
         dynamic result;
         if (metamethod is Function) {
           result = metamethod([this, wrappedOther]);
-        } else if (metamethod is Value && metamethod.raw is Function) {
-          result = metamethod.raw([this, wrappedOther]);
+        } else if (metamethod is Value && rawLuaSlot(metamethod) is Function) {
+          result = (rawLuaSlot(metamethod) as Function)([this, wrappedOther]);
         } else {
           throw UnsupportedError(
             "Metamethod __concat exists but is not callable: $metamethod",
           );
         }
-        return result is Value ? result : Value(result);
+        return result is Value ? result : Value.wrap(result);
       } catch (e) {
         Logger.error('Error invoking __concat metamethod: $e', error: e);
         rethrow;
@@ -177,18 +183,20 @@ extension ValueExtension<T> on T {
     }
 
     // Default string concatenation behavior
+    final rawSelf = raw;
+    final rawOther = rawLuaSlot(wrappedOther);
     if (isString || wrappedOther.isString) {
-      final String leftStr = raw is LuaString
-          ? (raw as LuaString).toLatin1String()
-          : raw.toString();
-      final String rightStr = wrappedOther.raw is LuaString
-          ? (wrappedOther.raw as LuaString).toLatin1String()
-          : wrappedOther.raw.toString();
+      final String leftStr = rawSelf is LuaString
+          ? rawSelf.toLatin1String()
+          : rawSelf.toString();
+      final String rightStr = rawOther is LuaString
+          ? rawOther.toLatin1String()
+          : rawOther.toString();
       return StringInterning.createStringValue(leftStr + rightStr);
     }
 
     throw LuaError.typeError(
-      "attempt to concatenate a ${raw.runtimeType} with a ${wrappedOther.raw.runtimeType}",
+      "attempt to concatenate a ${rawSelf.runtimeType} with a ${rawOther.runtimeType}",
     );
   }
 }

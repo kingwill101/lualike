@@ -1,14 +1,14 @@
+import '../runtime/lua_slot.dart';
 import '../value.dart';
 
 /// Extension methods for Lists to simplify Value operations
 extension ListValueExtension on List<dynamic> {
   /// Convert all elements in a list to Values
   List<Value> toValueList() =>
-      map((item) => item is Value ? item : Value(item)).toList();
+      map((item) => item is Value ? item : Value.wrap(item)).toList();
 
   /// Unwrap all Value objects in a list
-  List<dynamic> unwrapValueList() =>
-      map((item) => item is Value ? item.raw : item).toList();
+  List<dynamic> unwrapValueList() => map(rawLuaSlot).toList();
 
   /// Convert to a Lua-style multi-return Value
   Value toMultiValue() => Value.multi(this);
@@ -20,7 +20,7 @@ extension MapValueExtension on Map<dynamic, dynamic> {
   Map<dynamic, Value> toValueMap() {
     final result = <dynamic, Value>{};
     forEach((key, value) {
-      result[key] = value is Value ? value : Value(value);
+      result[key] = value is Value ? value : Value.wrap(value);
     });
     return result;
   }
@@ -29,7 +29,7 @@ extension MapValueExtension on Map<dynamic, dynamic> {
   Value toValueTable() {
     final table = Value(<dynamic, dynamic>{});
     forEach((key, value) {
-      table[key] = value is Value ? value : Value(value);
+      table[key] = value is Value ? value : Value.wrap(value);
     });
     return table;
   }

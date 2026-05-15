@@ -188,6 +188,7 @@ class Logger {
     );
   }
 
+  @pragma('vm:prefer-inline')
   static void debugLazy(
     String Function() messageBuilder, {
     String? category,
@@ -196,6 +197,8 @@ class Logger {
     AstNode? node,
     LuaStackTrace? luaStackTrace,
   }) {
+    // Fast-path: skip all work when logging is disabled (common case in prod).
+    if (!enabled) return;
     if (!_shouldLog(Level.debug, category, categories)) return;
     _log(
       level: Level.debug,

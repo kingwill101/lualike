@@ -19,19 +19,21 @@ class _TableIndexInlineCache {
 final Expando<_TableIndexInlineCache> _tableIndexAccessCache =
     Expando<_TableIndexInlineCache>('tableIndexAccessCache');
 
-Object? _tableIndexCacheKey(Value index) => index.raw;
+Object? _tableIndexCacheKey(Value index) => rawLuaSlot(index);
 
 Object? _wrapDirectTableLookup(
   Interpreter interpreter,
   Value table,
   Object? result,
 ) {
-  if (table.raw is VirtualLuaTable) {
+  final tableRaw = rawLuaSlot(table);
+  if (tableRaw is VirtualLuaTable) {
     return result;
   }
   if (result is Value) {
-    if (result.raw is Map) {
-      final canon = Value.lookupCanonicalTableWrapper(result.raw);
+    final resultRaw = rawLuaSlot(result);
+    if (resultRaw is Map) {
+      final canon = Value.lookupCanonicalTableWrapper(resultRaw);
       if (canon != null && !identical(canon, result)) {
         return canon;
       }
@@ -42,7 +44,7 @@ Object? _wrapDirectTableLookup(
   if (canon != null) {
     return canon;
   }
-  return interpreter.wrapRuntimeValue(result);
+  return valueFromLuaSlot(interpreter, result);
 }
 
 mixin InterpreterTableMixin on AstVisitor<Object?> {
@@ -61,11 +63,12 @@ mixin InterpreterTableMixin on AstVisitor<Object?> {
     final tableFutureOr = node.table.accept(this);
     Object? table;
     table = await tableFutureOr;
-    if (table is Value && table.isMulti) {
-      final values = table.raw as List;
+    final tableResults = luaResultValues(table);
+    if (tableResults != null) {
+      final values = tableResults;
       table = values.isNotEmpty
           ? values.first
-          : interpreter.wrapRuntimeValue(null);
+          : valueFromLuaSlot(interpreter, null);
     } else if (table is List && table.isNotEmpty) {
       table = table.first;
     }
@@ -87,7 +90,7 @@ mixin InterpreterTableMixin on AstVisitor<Object?> {
       }
 
       // If the lookup result is nil, use the name as a direct key
-      if ((indexResult is Value && indexResult.raw == null)) {
+      if ((indexResult is Value && rawLuaSlot(indexResult) == null)) {
         indexResult = identName;
       }
     } else {
@@ -96,26 +99,27 @@ mixin InterpreterTableMixin on AstVisitor<Object?> {
       indexResult = await indexFutureOr;
 
       // If the index is a multi-value (like from varargs), use only the first value
-      if (indexResult is Value && indexResult.isMulti) {
-        final values = indexResult.raw as List;
-        indexResult = values.isNotEmpty ? values[0] : Value(null);
+      final indexResults = luaResultValues(indexResult);
+      if (indexResults != null) {
+        indexResult = indexResults.isNotEmpty
+            ? indexResults[0]
+            : valueFromLuaSlot(interpreter, null);
       }
     }
 
     // Ensure proper Value wrapping
-    final tableVal = table is Value
-        ? table
-        : interpreter.wrapRuntimeValue(table);
+    final tableVal = valueFromLuaSlot(interpreter, table);
     // Mark simple string/number indices as temporary keys to avoid GC tracking overhead
     final indexVal = indexResult is Value
         ? indexResult
-        : Value(
+        : freshValueFromLuaSlot(
+            interpreter,
             indexResult,
             isTempKey: indexResult is String || indexResult is num,
           );
 
     int? positiveInteger(Value candidate) {
-      final raw = candidate.raw;
+      final raw = rawLuaSlot(candidate);
       if (raw is int) {
         return raw > 0 ? raw : null;
       }
@@ -128,24 +132,24 @@ mixin InterpreterTableMixin on AstVisitor<Object?> {
       return null;
     }
 
-    if (tableVal.raw is TableStorage && !tableVal.hasMetamethod('__index')) {
+    final tableRaw = rawLuaSlot(tableVal);
+    if (tableRaw is TableStorage && !tableVal.hasMetamethod('__index')) {
       final denseIndex = positiveInteger(indexVal);
       if (denseIndex != null) {
-        final storage = tableVal.raw as TableStorage;
-        final stored = storage.arrayValueAt(denseIndex);
+        final stored = tableRaw.arrayValueAt(denseIndex);
         if (stored != null) {
           if (stored is Value) {
             return stored;
           }
-          return interpreter.wrapRuntimeValue(stored);
+          return valueFromLuaSlot(interpreter, stored);
         }
       }
     }
 
-    if (tableVal.raw is! Map) {
+    if (tableRaw is! Map) {
       final sourceLabel = _sourceLabelForAst(globals, node.table);
       final type = getLuaType(tableVal);
-      if (tableVal.raw == null) {
+      if (tableRaw == null) {
         throw LuaError.typeError(
           sourceLabel != null
               ? "attempt to index a nil value ($sourceLabel)"
@@ -160,8 +164,9 @@ mixin InterpreterTableMixin on AstVisitor<Object?> {
     }
 
     var result = tableVal[indexVal];
-    if (result is Value && result.raw is Map) {
-      final canon = Value.lookupCanonicalTableWrapper(result.raw);
+    final resultRaw = rawLuaSlot(result);
+    if (result is Value && resultRaw is Map) {
+      final canon = Value.lookupCanonicalTableWrapper(resultRaw);
       if (canon != null && !identical(canon, result)) {
         result = canon;
       }
@@ -181,11 +186,12 @@ mixin InterpreterTableMixin on AstVisitor<Object?> {
     final tableFutureOr = node.table.accept(this);
     Object? table;
     table = await tableFutureOr;
-    if (table is Value && table.isMulti) {
-      final values = table.raw as List;
+    final tableResults = luaResultValues(table);
+    if (tableResults != null) {
+      final values = tableResults;
       table = values.isNotEmpty
           ? values.first
-          : interpreter.wrapRuntimeValue(null);
+          : valueFromLuaSlot(interpreter, null);
     } else if (table is List && table.isNotEmpty) {
       table = table.first;
     }
@@ -194,24 +200,27 @@ mixin InterpreterTableMixin on AstVisitor<Object?> {
     final fieldKey = node.fieldName.name;
 
     // Ensure proper Value wrapping
-    final tableVal = table is Value
-        ? table
-        : interpreter.wrapRuntimeValue(table);
+    final tableVal = valueFromLuaSlot(interpreter, table);
     final hasIndexMetamethod = tableVal.hasMetamethod('__index');
     final bool tableIsOriginalValue = identical(tableVal, table);
+    final tableRaw = rawLuaSlot(tableVal);
 
-    if (tableVal.raw is! Map) {
+    if (tableRaw is! Map) {
       final sourceLabel = _sourceLabelForAst(globals, node.table);
       final type = getLuaType(tableVal);
       if (hasIndexMetamethod) {
-        final indexVal = Value(fieldKey, isTempKey: true);
+        final indexVal = freshValueFromLuaSlot(
+          interpreter,
+          fieldKey,
+          isTempKey: true,
+        );
         final result = await tableVal.callMetamethodAsync('__index', [
           tableVal,
           indexVal,
         ]);
         return result;
       }
-      if (tableVal.raw == null) {
+      if (tableRaw == null) {
         throw LuaError.typeError(
           sourceLabel != null
               ? "attempt to index a nil value ($sourceLabel)"
@@ -228,7 +237,7 @@ mixin InterpreterTableMixin on AstVisitor<Object?> {
     final bool canUseCache =
         tableIsOriginalValue &&
         !hasIndexMetamethod &&
-        tableVal.raw is! VirtualLuaTable;
+        tableRaw is! VirtualLuaTable;
     _TableFieldInlineCache? cache;
     if (canUseCache) {
       cache = _tableFieldAccessCache[node];
@@ -250,7 +259,7 @@ mixin InterpreterTableMixin on AstVisitor<Object?> {
       }
     }
 
-    final rawTable = tableVal.raw as Map;
+    final rawTable = tableRaw;
 
     if (Logger.enabled) {
       Logger.debugLazy(
@@ -282,7 +291,7 @@ mixin InterpreterTableMixin on AstVisitor<Object?> {
           ..tableVersion = tableVal.tableVersion
           ..value = result is Value
               ? result
-              : interpreter.wrapRuntimeValue(result);
+              : valueFromLuaSlot(interpreter, result);
         _tableFieldAccessCache[node] = cache;
         if (Logger.enabled) {
           Logger.debugLazy(
@@ -305,7 +314,11 @@ mixin InterpreterTableMixin on AstVisitor<Object?> {
 
     // Key doesn't exist, check for __index metamethod
     if (hasIndexMetamethod) {
-      final indexVal = Value(fieldKey, isTempKey: true);
+      final indexVal = freshValueFromLuaSlot(
+        interpreter,
+        fieldKey,
+        isTempKey: true,
+      );
       Logger.debugLazy(
         () => 'Key not found, calling __index metamethod',
         category: 'TableAccess',
@@ -337,7 +350,7 @@ mixin InterpreterTableMixin on AstVisitor<Object?> {
         contextBuilder: () => {},
       );
     }
-    return interpreter.wrapRuntimeValue(null);
+    return valueFromLuaSlot(interpreter, null);
   }
 
   /// Evaluates a table index access expression, as in `table[expr]`.
@@ -362,26 +375,24 @@ mixin InterpreterTableMixin on AstVisitor<Object?> {
     Object? indexResult = await node.index.accept(this);
 
     // If the index is a multi-value (like from varargs), use only the first value
-    if (indexResult is Value && indexResult.isMulti) {
-      final values = indexResult.raw as List;
+    final indexResults = luaResultValues(indexResult);
+    if (indexResults != null) {
+      final values = indexResults;
       indexResult = values.isNotEmpty
           ? values[0]
-          : interpreter.wrapRuntimeValue(null);
+          : valueFromLuaSlot(interpreter, null);
     }
 
     // Ensure proper Value wrapping
-    final tableVal = table is Value
-        ? table
-        : interpreter.wrapRuntimeValue(table);
-    final indexVal = indexResult is Value
-        ? indexResult
-        : interpreter.wrapRuntimeValue(indexResult);
+    final tableVal = valueFromLuaSlot(interpreter, table);
+    final indexVal = valueFromLuaSlot(interpreter, indexResult);
 
     // Check if we can use caching (table is not transformed and has no __index metamethod)
     final bool tableIsOriginalValue = identical(table, tableVal);
+    final tableRaw = rawLuaSlot(tableVal);
     final bool canUseCache =
         tableIsOriginalValue &&
-        tableVal.raw is Map &&
+        tableRaw is Map &&
         !tableVal.hasMetamethod('__index');
 
     if (canUseCache) {
@@ -433,7 +444,7 @@ mixin InterpreterTableMixin on AstVisitor<Object?> {
       );
     }
 
-    if (tableVal.raw is! Map) {
+    if (tableRaw is! Map) {
       final sourceLabel = _sourceLabelForAst(globals, node.table);
       final type = getLuaType(tableVal);
       if (tableVal.hasMetamethod('__index')) {
@@ -443,7 +454,7 @@ mixin InterpreterTableMixin on AstVisitor<Object?> {
         ]);
         return result;
       }
-      if (tableVal.raw == null) {
+      if (tableRaw == null) {
         throw LuaError.typeError(
           sourceLabel != null
               ? "attempt to index a nil value ($sourceLabel)"
@@ -519,7 +530,7 @@ mixin InterpreterTableMixin on AstVisitor<Object?> {
     } else {
       key = await node.key.accept(this);
       if (key is Value) {
-        key = key.raw;
+        key = rawLuaSlot(key);
       }
     }
     final value = await node.value.accept(this);
@@ -544,7 +555,7 @@ mixin InterpreterTableMixin on AstVisitor<Object?> {
     // For indexed entries, always evaluate the key expression
     Object? key = await node.key.accept(this);
     if (key is Value) {
-      key = key.raw;
+      key = rawLuaSlot(key);
     }
     final value = await node.value.accept(this);
     return [key, value];
@@ -577,7 +588,8 @@ mixin InterpreterTableMixin on AstVisitor<Object?> {
   Future<Object?> visitAssignmentIndexAccessExpr(
     AssignmentIndexAccessExpr node,
   ) async {
-    (this is Interpreter) ? (this as Interpreter).recordTrace(node) : null;
+    final interpreter = this as Interpreter;
+    interpreter.recordTrace(node);
     Logger.debugLazy(
       () => 'Visiting AssignmentIndexAccessExpr',
       category: 'Table',
@@ -593,12 +605,12 @@ mixin InterpreterTableMixin on AstVisitor<Object?> {
     Object? value;
     value = await valueFutureOr;
 
-    final targetVal = target is Value ? target : Value(target);
-    final indexVal = index is Value ? index : Value(index);
-    final valueVal = value is Value ? value : Value(value);
+    final targetVal = valueFromLuaSlot(interpreter, target);
+    final indexVal = valueFromLuaSlot(interpreter, index);
+    final valueVal = valueFromLuaSlot(interpreter, value);
 
     int? positiveInteger(Value candidate) {
-      final raw = candidate.raw;
+      final raw = rawLuaSlot(candidate);
       if (raw is int) {
         return raw > 0 ? raw : null;
       }
@@ -611,13 +623,17 @@ mixin InterpreterTableMixin on AstVisitor<Object?> {
       return null;
     }
 
-    if (targetVal.raw is TableStorage &&
+    final targetRaw = rawLuaSlot(targetVal);
+    if (targetRaw is TableStorage &&
         !targetVal.hasMetamethod('__newindex') &&
         !targetVal.hasMetamethod('__index')) {
       assert(() {
         // ignore: avoid_print
         if (Logger.enabled) {
-          print('fast path check raw key type: ${indexVal.raw.runtimeType}');
+          print(
+            'fast path check raw key type: '
+            '${rawLuaSlot(indexVal).runtimeType}',
+          );
         }
         return true;
       }());
@@ -628,7 +644,7 @@ mixin InterpreterTableMixin on AstVisitor<Object?> {
       }
     }
 
-    final rawKey = indexVal.raw;
+    final rawKey = rawLuaSlot(indexVal);
     if (rawKey == null) {
       throw LuaError.typeError('table index is nil');
     }
@@ -636,7 +652,7 @@ mixin InterpreterTableMixin on AstVisitor<Object?> {
       throw LuaError.typeError('table index is NaN');
     }
 
-    if (targetVal.raw is! Map) {
+    if (targetRaw is! Map) {
       throw UnsupportedError(
         'Cannot assign to index of non-table value: $targetVal',
       );
@@ -661,7 +677,8 @@ mixin InterpreterTableMixin on AstVisitor<Object?> {
   /// Returns the constructed table.
   @override
   Future<Object?> visitTableConstructor(TableConstructor node) async {
-    (this is Interpreter) ? (this as Interpreter).recordTrace(node) : null;
+    final interpreter = this as Interpreter;
+    interpreter.recordTrace(node);
 
     Logger.debugLazy(
       () => 'Visiting TableConstructor',
@@ -671,10 +688,8 @@ mixin InterpreterTableMixin on AstVisitor<Object?> {
 
     if (node.entries.isEmpty) {
       final tbl = ValueClass.table();
-      if (this is Interpreter) {
-        tbl.interpreter = this as Interpreter;
-        (this as Interpreter).gc.register(tbl);
-      }
+      tbl.interpreter = interpreter;
+      interpreter.gc.register(tbl);
       return tbl;
     }
 
@@ -703,6 +718,7 @@ mixin InterpreterTableMixin on AstVisitor<Object?> {
     }
 
     int arrayIndex = 1;
+    Value wrapTableValue(Object? value) => valueFromLuaSlot(interpreter, value);
 
     // Process all fields
     for (int i = 0; i < node.entries.length; i++) {
@@ -717,7 +733,7 @@ mixin InterpreterTableMixin on AstVisitor<Object?> {
           rawKey = await entry.key.accept(this);
         }
 
-        final keyForCheck = rawKey is Value ? rawKey.raw : rawKey;
+        final keyForCheck = rawLuaSlot(rawKey);
         if (keyForCheck == null) {
           throw LuaError.typeError('table index is nil');
         }
@@ -728,14 +744,14 @@ mixin InterpreterTableMixin on AstVisitor<Object?> {
         var valueResult = await entry.value.accept(this);
 
         // Keyed entries always use only the first return value
-        if (valueResult is Value && valueResult.isMulti) {
-          final values = valueResult.raw as List;
-          valueResult = values.isNotEmpty ? values[0] : Value(null);
+        final resultValues = luaResultValues(valueResult);
+        if (resultValues != null) {
+          valueResult = resultValues.isNotEmpty
+              ? resultValues[0]
+              : valueFromLuaSlot(interpreter, null);
         }
 
-        final rawValue = valueResult is Value
-            ? valueResult
-            : Value(valueResult);
+        final rawValue = wrapTableValue(valueResult);
 
         final mapKey = _normalizeTableKey(rawKey);
 
@@ -748,9 +764,7 @@ mixin InterpreterTableMixin on AstVisitor<Object?> {
       } else if (entry is IndexedTableEntry) {
         // Indexed key-value pair: [key] = value
         final evaluatedKey = await entry.key.accept(this);
-        final keyForCheck = evaluatedKey is Value
-            ? evaluatedKey.raw
-            : evaluatedKey;
+        final keyForCheck = rawLuaSlot(evaluatedKey);
         if (keyForCheck == null) {
           throw LuaError.typeError('table index is nil');
         }
@@ -761,14 +775,14 @@ mixin InterpreterTableMixin on AstVisitor<Object?> {
         var valueResult = await entry.value.accept(this);
 
         // Indexed entries always use only the first return value
-        if (valueResult is Value && valueResult.isMulti) {
-          final values = valueResult.raw as List;
-          valueResult = values.isNotEmpty ? values[0] : Value(null);
+        final resultValues = luaResultValues(valueResult);
+        if (resultValues != null) {
+          valueResult = resultValues.isNotEmpty
+              ? resultValues[0]
+              : valueFromLuaSlot(interpreter, null);
         }
 
-        final rawValue = valueResult is Value
-            ? valueResult
-            : Value(valueResult);
+        final rawValue = wrapTableValue(valueResult);
         final mapKey = _normalizeTableKey(evaluatedKey);
         tableMap[mapKey] = rawValue;
 
@@ -780,18 +794,13 @@ mixin InterpreterTableMixin on AstVisitor<Object?> {
         // Array-like entry without explicit key
         if (entry.expr is VarArg) {
           // Handle vararg expansion: {...}
-          final args = _resolveCurrentVarargSource(
-            this as Interpreter,
-            globals,
-          );
+          final args = _resolveCurrentVarargSource(interpreter, globals);
           final varargs = _expandVarargValue(args);
           if (varargs.isNotEmpty) {
             tableMap.ensureArrayCapacity(arrayIndex - 1 + varargs.length);
           }
           for (var j = 0; j < varargs.length; j++) {
-            tableMap[arrayIndex++] = varargs[j] is Value
-                ? varargs[j]
-                : Value(varargs[j]);
+            tableMap[arrayIndex++] = wrapTableValue(varargs[j]);
           }
         } else if (entry.expr is GroupedExpression) {
           // Handle grouped expressions in table constructors
@@ -799,37 +808,28 @@ mixin InterpreterTableMixin on AstVisitor<Object?> {
           final result = await innerExpr.accept(this);
 
           // Grouped expressions in table constructors should only use the first return value
-          if (result is Value && result.isMulti) {
-            final values = result.raw as List;
-            if (values.isNotEmpty) {
-              tableMap[arrayIndex++] = values[0] is Value
-                  ? values[0]
-                  : Value(values[0]);
-            } else {
-              tableMap[arrayIndex++] = Value(null);
-            }
-          } else if (result is List && result.isNotEmpty) {
-            tableMap[arrayIndex++] = result[0] is Value
-                ? result[0]
-                : Value(result[0]);
+          if (luaResultValues(result) != null || result is List) {
+            final first = _firstLuaResultOrNil(
+              result,
+              interpreter: interpreter,
+            );
+            tableMap[arrayIndex++] = wrapTableValue(first);
           } else {
-            tableMap[arrayIndex++] = result is Value ? result : Value(result);
+            tableMap[arrayIndex++] = wrapTableValue(result);
           }
         } else if ((entry.expr is FunctionCall || entry.expr is MethodCall) &&
             i == node.entries.length - 1) {
           // Handle function call at the end of the constructor: {1, 2, f()}
           // This should include all return values
           final result = await entry.expr.accept(this);
-          if (result is Value && result.isMulti) {
+          final results = luaResultValues(result);
+          if (results != null) {
             // Multiple return values
-            final values = result.raw as List;
-            if (values.isNotEmpty) {
-              tableMap.ensureArrayCapacity(arrayIndex - 1 + values.length);
+            if (results.isNotEmpty) {
+              tableMap.ensureArrayCapacity(arrayIndex - 1 + results.length);
             }
-            for (var j = 0; j < values.length; j++) {
-              tableMap[arrayIndex++] = values[j] is Value
-                  ? values[j]
-                  : Value(values[j]);
+            for (var j = 0; j < results.length; j++) {
+              tableMap[arrayIndex++] = wrapTableValue(results[j]);
             }
           } else if (result is List) {
             // Direct list of values
@@ -837,58 +837,48 @@ mixin InterpreterTableMixin on AstVisitor<Object?> {
               tableMap.ensureArrayCapacity(arrayIndex - 1 + result.length);
             }
             for (var j = 0; j < result.length; j++) {
-              tableMap[arrayIndex++] = result[j] is Value
-                  ? result[j]
-                  : Value(result[j]);
+              tableMap[arrayIndex++] = wrapTableValue(result[j]);
             }
           } else {
             // Single return value
-            tableMap[arrayIndex++] = result is Value ? result : Value(result);
+            tableMap[arrayIndex++] = wrapTableValue(result);
           }
         } else if (entry.expr is FunctionCall || entry.expr is MethodCall) {
           // Handle function call in the middle: {1, f(), 3}
           // This should only include the first return value
           final result = await entry.expr.accept(this);
 
-          if (result is Value && result.isMulti) {
+          if (luaResultValues(result) != null) {
             // Take only first value from multi-return
-            final values = result.raw as List;
-            if (values.isNotEmpty) {
-              tableMap[arrayIndex++] = values[0] is Value
-                  ? values[0]
-                  : Value(values[0]);
-            } else {
-              tableMap[arrayIndex++] = Value(null);
-            }
+            final first = _firstLuaResultOrNil(
+              result,
+              interpreter: interpreter,
+            );
+            tableMap[arrayIndex++] = wrapTableValue(first);
           } else if (result is List && result.isNotEmpty) {
             // Take only first value from list
-            tableMap[arrayIndex++] = result[0] is Value
-                ? result[0]
-                : Value(result[0]);
+            tableMap[arrayIndex++] = wrapTableValue(result[0]);
           } else {
             // Single value or empty result
-            tableMap[arrayIndex++] = result is Value ? result : Value(result);
+            tableMap[arrayIndex++] = wrapTableValue(result);
           }
         } else {
           // Regular expression
           final value = await entry.expr.accept(this);
-          final valueVal = value is Value ? value : Value(value);
-          tableMap[arrayIndex++] = valueVal;
+          tableMap[arrayIndex++] = wrapTableValue(value);
         }
       }
     }
 
     final tbl = ValueClass.table(tableMap);
-    if (this is Interpreter) {
-      tbl.interpreter = this as Interpreter;
-      (this as Interpreter).gc.register(tbl);
-    }
+    tbl.interpreter = interpreter;
+    interpreter.gc.register(tbl);
     return tbl;
   }
 
   dynamic _normalizeTableKey(dynamic rawKey) {
     if (rawKey is Value) {
-      final inner = rawKey.raw;
+      final inner = rawLuaSlot(rawKey);
       if (inner is LuaString) {
         return inner.toString();
       }

@@ -5,6 +5,7 @@ import 'dart:math' as math;
 import 'package:lualike/lualike.dart';
 import 'package:lualike/src/gc/gc.dart';
 import 'package:lualike/src/gc/memory_credits.dart';
+import 'package:lualike/src/runtime/lua_slot.dart';
 
 /// Phases of incremental garbage collection
 enum GCPhase { idle, marking, sweeping, finalizing }
@@ -71,6 +72,8 @@ class Generation {
   }
 }
 
+Map _rawGcTableMap(Value table) => rawLuaSlot(table) as Map;
+
 /// Implementation of a generational garbage collector as described in Lua 5.4 reference manual.
 ///
 /// The generational garbage collector divides objects into two generations:
@@ -97,36 +100,22 @@ class GenerationalGCManager {
 
   GenerationalGCManager(this._runtime);
 
-  final Expando<GCGenerationSpace> _trackedSpaces = Expando<GCGenerationSpace>(
-    'trackedGenerationSpace',
-  );
-
   void bindRuntime(LuaRuntime runtime) {
     _runtime = runtime;
   }
 
-  GCGenerationSpace? _trackedSpace(GCObject obj) => _trackedSpaces[obj];
-
-  void _setTrackedSpace(GCObject obj, GCGenerationSpace space) {
-    _trackedSpaces[obj] = space;
-  }
-
-  void _clearTrackedSpace(GCObject obj) {
-    _trackedSpaces[obj] = null;
-  }
-
   void _trackYoung(GCObject obj) {
     youngGen.add(obj);
-    _setTrackedSpace(obj, GCGenerationSpace.young);
+    obj.gcSpace = GCGenerationSpace.young;
   }
 
   void _trackOld(GCObject obj) {
     oldGen.add(obj);
-    _setTrackedSpace(obj, GCGenerationSpace.old);
+    obj.gcSpace = GCGenerationSpace.old;
   }
 
   void _untrack(GCObject obj) {
-    switch (_trackedSpace(obj)) {
+    switch (obj.gcSpace) {
       case GCGenerationSpace.young:
         youngGen.remove(obj);
       case GCGenerationSpace.old:
@@ -134,7 +123,7 @@ class GenerationalGCManager {
       case null:
         break;
     }
-    _clearTrackedSpace(obj);
+    obj.gcSpace = null;
   }
 
   /// Whether garbage collection is currently stopped.
@@ -1080,7 +1069,7 @@ class GenerationalGCManager {
   }
 
   void ensureTracked(GCObject obj) {
-    if (_trackedSpace(obj) != null) {
+    if (obj.gcSpace != null) {
       return;
     }
 
@@ -1106,7 +1095,7 @@ class GenerationalGCManager {
   }
 
   bool _isTracked(GCObject obj) {
-    return _trackedSpace(obj) != null;
+    return obj.gcSpace != null;
   }
 
   /// Registers a new object with the garbage collector.
@@ -1114,7 +1103,7 @@ class GenerationalGCManager {
   /// New objects are always placed in the young generation (nursery).
   void register(GCObject obj, {bool countAllocation = true}) {
     // Prevent duplicate registrations - if object is already tracked, skip
-    if (_trackedSpace(obj) != null) {
+    if (obj.gcSpace != null) {
       Logger.debugLazy(
         () =>
             'Skipping duplicate registration: '
@@ -1326,7 +1315,7 @@ class GenerationalGCManager {
       () => 'Promote: ${obj.runtimeType} ${obj.hashCode}',
       category: 'GC',
     );
-    if (_trackedSpace(obj) == GCGenerationSpace.young) {
+    if (obj.gcSpace == GCGenerationSpace.young) {
       youngGen.remove(obj);
     }
     _trackOld(obj);
@@ -1603,7 +1592,7 @@ class GenerationalGCManager {
       }
 
       if (_inMajorCollection && isNewEphemeronTable) {
-        final tableMap = table.raw as Map;
+        final tableMap = _rawGcTableMap(table);
         for (final entry in tableMap.entries) {
           final key = entry.key;
           if (key is Value) {
@@ -1668,7 +1657,7 @@ class GenerationalGCManager {
     );
 
     for (final table in weakValuesTables) {
-      final tableMap = table.raw as Map;
+      final tableMap = _rawGcTableMap(table);
       final entriesToRemove = <dynamic>[];
 
       Logger.debugLazy(
@@ -1698,7 +1687,9 @@ class GenerationalGCManager {
         // even if the value wrapper itself is unmarked.
         bool sameObject = false;
         if (key is Value && value is Value) {
-          sameObject = identical(key, value) || identical(key.raw, value.raw);
+          sameObject =
+              identical(key, value) ||
+              identical(rawLuaSlot(key), rawLuaSlot(value));
         }
 
         if (!sameObject &&
@@ -1730,7 +1721,7 @@ class GenerationalGCManager {
           // Re-mark the key to keep it alive during this collection
           preservedKey.marked = true;
           // Add the key back to the appropriate generation so it survives separation
-          final preservedSpace = _trackedSpace(preservedKey);
+          final preservedSpace = preservedKey.gcSpace;
           if (preservedSpace == GCGenerationSpace.young) {
             // Key is already in young generation, just keep it marked
           } else if (preservedSpace == GCGenerationSpace.old) {
@@ -1771,7 +1762,7 @@ class GenerationalGCManager {
   /// Called after marking phase during major collection.
   void _clearAllWeak() {
     for (final table in allWeakTables) {
-      final tableMap = table.raw as Map;
+      final tableMap = _rawGcTableMap(table);
       final keysToRemove = <dynamic>[];
       for (final entry in tableMap.entries) {
         final key = entry.key;
@@ -1848,7 +1839,7 @@ class GenerationalGCManager {
       );
 
       for (final table in ephemeronTables) {
-        final tableMap = table.raw as Map;
+        final tableMap = _rawGcTableMap(table);
 
         for (final entry in tableMap.entries) {
           final key = entry.key;
@@ -1913,7 +1904,7 @@ class GenerationalGCManager {
     if (key.isPrimitiveLike) {
       return key;
     }
-    final canonical = Value.lookupCanonicalTableWrapper(key.raw);
+    final canonical = Value.lookupCanonicalTableWrapper(rawLuaSlot(key));
     return canonical ?? key;
   }
 
@@ -1946,7 +1937,7 @@ class GenerationalGCManager {
   void _applyPendingWeakRemovals() {
     void apply(Map<Value, Set<dynamic>> pending) {
       pending.forEach((table, keys) {
-        final tableMap = table.raw as Map;
+        final tableMap = _rawGcTableMap(table);
         for (final key in keys) {
           Logger.debugLazy(
             () =>
@@ -1977,13 +1968,13 @@ class GenerationalGCManager {
     if (_toBeFinalized.isEmpty) return;
     for (final obj in _toBeFinalized) {
       if (obj is! Value) continue;
-      final rawMetaOwner = Value.rawMetatableOwnerForTable(obj.raw);
+      final rawMetaOwner = Value.rawMetatableOwnerForTable(rawLuaSlot(obj));
       final metaTable = rawMetaOwner is Map ? rawMetaOwner : obj.getMetatable();
       if (metaTable == null) continue;
       final metaVal = obj.metatableRef;
       final canonicalOwner = switch (metaVal) {
         final Value value =>
-          Value.lookupCanonicalTableWrapper(value.raw) ?? value,
+          Value.lookupCanonicalTableWrapper(rawLuaSlot(value)) ?? value,
         _ => null,
       };
       final isWeakV = Value.tableObjectHasWeakValues(metaTable);
@@ -2008,7 +1999,7 @@ class GenerationalGCManager {
         if (k is String) ks = k;
         if (k is LuaString) ks = k.toString();
         if (k is Value) {
-          final kr = k.raw;
+          final kr = rawLuaSlot(k);
           if (kr is String) ks = kr;
           if (kr is LuaString) ks = kr.toString();
         }
@@ -2076,12 +2067,12 @@ class GenerationalGCManager {
       if (obj is! Value) continue;
       final metaVal = obj.metatableRef;
       if (metaVal is! Value || !metaVal.isTable) continue;
-      final metaMap = metaVal.raw as Map;
+      final metaMap = _rawGcTableMap(metaVal);
       for (final entry in metaMap.entries) {
         final val = entry.value;
         if (val is! Value || !val.isTable) continue;
         if (val.tableWeakMode != 'kv') continue;
-        final tableMap = val.raw as Map;
+        final tableMap = _rawGcTableMap(val);
         final keysToRemove = <dynamic>[];
         for (final e in tableMap.entries) {
           final k = e.key;
@@ -2136,7 +2127,7 @@ class GenerationalGCManager {
     );
 
     for (final table in ephemeronTables) {
-      final tableMap = table.raw as Map;
+      final tableMap = _rawGcTableMap(table);
 
       Logger.debugLazy(
         () =>
@@ -2235,7 +2226,7 @@ class GenerationalGCManager {
           final metaOwner = obj.metatableRef;
           final Value? canonicalOwner = switch (metaOwner) {
             final Value value =>
-              Value.lookupCanonicalTableWrapper(value.raw) ?? value,
+              Value.lookupCanonicalTableWrapper(rawLuaSlot(value)) ?? value,
             _ => null,
           };
           final ownerWeakV = obj.metatableOwnerHasWeakValues;
@@ -2283,7 +2274,7 @@ class GenerationalGCManager {
           );
           MemoryCredits.instance.onFree(obj);
           obj.free();
-          _clearTrackedSpace(obj);
+          obj.gcSpace = null;
         }
       }
     }
@@ -2337,7 +2328,8 @@ class GenerationalGCManager {
         if (metaOwner is Value) {
           try {
             canonicalOwner =
-                Value.lookupCanonicalTableWrapper(metaOwner.raw) ?? metaOwner;
+                Value.lookupCanonicalTableWrapper(rawLuaSlot(metaOwner)) ??
+                metaOwner;
           } catch (_) {
             canonicalOwner = metaOwner;
           }

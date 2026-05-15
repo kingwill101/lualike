@@ -12,9 +12,9 @@ mixin InterpreterControlFlowMixin on AstVisitor<Object?> {
   // return values behaves like nil in `if`/`while`/`repeat`, not like a truthy
   // multi container.
   bool _luaConditionValue(Object? condition) {
-    if (condition is Value && condition.isMulti) {
-      final values = condition.raw as List;
-      condition = values.isNotEmpty ? values.first : Value(null);
+    final results = luaResultValues(condition);
+    if (results != null) {
+      condition = results.isNotEmpty ? results.first : null;
     }
 
     return switch (condition) {
@@ -328,8 +328,8 @@ mixin InterpreterControlFlowMixin on AstVisitor<Object?> {
     final startResult = await node.start.accept(this);
     final endResult = await node.endExpr.accept(this);
     final stepResult = await node.stepExpr.accept(this);
-    final rawStart = startResult is Value ? startResult.raw : startResult;
-    final rawStep = stepResult is Value ? stepResult.raw : stepResult;
+    final rawStart = rawLuaSlot(startResult);
+    final rawStep = rawLuaSlot(stepResult);
 
     Never throwForLoopTypeError(String role, Object? value) {
       throw LuaError(
@@ -338,7 +338,7 @@ mixin InterpreterControlFlowMixin on AstVisitor<Object?> {
     }
 
     dynamic parseNumericValue(Object? value, String role) {
-      final rawValue = value is Value ? value.raw : value;
+      final rawValue = rawLuaSlot(value);
       if (rawValue is num) {
         return rawValue;
       }
@@ -381,6 +381,17 @@ mixin InterpreterControlFlowMixin on AstVisitor<Object?> {
       int step,
     ) {
       final numericLimit = parseNumericValue(limitValue, 'limit');
+      // On the JS runtime, Infinity can pass `is int`. Guard non-finite first.
+      if (numericLimit is num && !numericLimit.isFinite) {
+        if (numericLimit.isNegative) {
+          return step > 0
+              ? (skip: true, limit: NumberLimits.minInteger)
+              : (skip: false, limit: NumberLimits.minInteger);
+        }
+        return step < 0
+            ? (skip: true, limit: NumberLimits.maxInteger)
+            : (skip: false, limit: NumberLimits.maxInteger);
+      }
       if (numericLimit is int) {
         return (
           skip: step > 0 ? init > numericLimit : init < numericLimit,
@@ -402,17 +413,6 @@ mixin InterpreterControlFlowMixin on AstVisitor<Object?> {
             : (skip: false, limit: NumberLimits.maxInteger);
       }
       if (numericLimit is double) {
-        if (!numericLimit.isFinite) {
-          if (numericLimit.isNegative) {
-            return step > 0
-                ? (skip: true, limit: NumberLimits.minInteger)
-                : (skip: false, limit: NumberLimits.minInteger);
-          }
-          return step < 0
-              ? (skip: true, limit: NumberLimits.maxInteger)
-              : (skip: false, limit: NumberLimits.maxInteger);
-        }
-
         if (numericLimit < NumberLimits.minInteger) {
           return step > 0
               ? (skip: true, limit: NumberLimits.minInteger)
@@ -508,7 +508,7 @@ mixin InterpreterControlFlowMixin on AstVisitor<Object?> {
     );
     final prevEnv = globals;
     final loopVarName = node.varName.name;
-    loopEnv.declare(loopVarName, Value(start));
+    loopEnv.declare(loopVarName, _mutableLocalStorageValue(start));
 
     final bytecodeChunk = integerLoop
         ? null
@@ -800,15 +800,17 @@ mixin InterpreterControlFlowMixin on AstVisitor<Object?> {
     }
 
     // Handle direct table iteration case
-    if (iterComponents.length == 1 &&
-        iterComponents[0] is Value &&
-        (iterComponents[0] as Value).raw is Map) {
+    final directTableCandidate = iterComponents.length == 1
+        ? iterComponents[0]
+        : null;
+    final directTableRaw = rawLuaSlot(directTableCandidate);
+    if (directTableCandidate is Value && directTableRaw is Map) {
       Logger.debugLazy(
         () => 'ForInLoop: Direct table iteration',
         category: 'ControlFlow',
         contextBuilder: () => {'iterationType': 'direct_table'},
       );
-      final table = (iterComponents[0] as Value).raw as Map;
+      final table = directTableRaw;
       final entries = table.entries.toList();
 
       final loopEnv = Environment(
@@ -894,12 +896,10 @@ mixin InterpreterControlFlowMixin on AstVisitor<Object?> {
       try {
         for (final entry in entries) {
           await fireHeaderHook(force: true);
-          final key = entry.key is Value ? entry.key : entry.key;
-          final value = entry.value is Value ? entry.value : entry.value;
 
           setCurrentEnv(loopEnv);
           try {
-            assignLoopValues([key, value]);
+            assignLoopValues([entry.key, entry.value]);
             final bodyResult = await _executeBlockStatements(node.body);
             if (bodyResult is TailCallSignal) {
               await resetLoopEnvironment();
@@ -937,15 +937,16 @@ mixin InterpreterControlFlowMixin on AstVisitor<Object?> {
       return null;
     }
 
-    // Handle the case where the first component is a Value.multi
+    // Handle the case where the first component is a multi-result carrier.
     List<Object?> components;
-    if (iterComponents[0] is Value && (iterComponents[0] as Value).isMulti) {
+    final firstComponentResults = luaResultValues(iterComponents[0]);
+    if (firstComponentResults != null) {
       Logger.debugLazy(
-        () => 'ForInLoop: Found Value.multi, unwrapping',
+        () => 'ForInLoop: Found multi-result carrier, unwrapping',
         category: 'ControlFlow',
         contextBuilder: () => {},
       );
-      components = (iterComponents[0] as Value).raw as List<Object?>;
+      components = firstComponentResults;
       Logger.debugLazy(
         () => 'ForInLoop: Unwrapped components: $components',
         category: 'ControlFlow',
@@ -968,7 +969,10 @@ mixin InterpreterControlFlowMixin on AstVisitor<Object?> {
     // - control variable
     var iterFunc = components[0];
     var state = components.length > 1 ? components[1] : null;
-    var control = components.length > 2 ? components[2] : Value(null);
+    final interpreter = this as Interpreter;
+    var control = components.length > 2
+        ? valueFromLuaSlot(interpreter, components[2])
+        : valueFromLuaSlot(interpreter, null);
 
     // Optional 4th component: a to-be-closed variable (Lua 5.4 semantics)
     // Used by io.lines(filename) to close the file when the loop ends.
@@ -977,9 +981,7 @@ mixin InterpreterControlFlowMixin on AstVisitor<Object?> {
       try {
         toCloseVar = Value.toBeClose(components[3]);
       } on UnsupportedError {
-        final v = components[3] is Value
-            ? components[3] as Value
-            : Value(components[3]);
+        final v = valueFromLuaSlot(interpreter, components[3]);
         if (v.isToBeClose || v.hasMetamethod('__close')) {
           toCloseVar = v;
         }
@@ -1005,32 +1007,26 @@ mixin InterpreterControlFlowMixin on AstVisitor<Object?> {
         }
       }
     }
-
     // Record “(for state)” locals for debug.getlocal enumeration
-    final frame = (this as Interpreter).callStack.top;
+    final frame = interpreter.callStack.top;
     if (frame != null) {
       frame.debugLocals
         ..clear()
-        ..add(
-          MapEntry(
-            '(for state)',
-            iterFunc is Value ? iterFunc : Value(iterFunc),
-          ),
-        )
-        ..add(MapEntry('(for state)', state is Value ? state : Value(state)))
+        ..add(MapEntry('(for state)', valueFromLuaSlot(interpreter, iterFunc)))
+        ..add(MapEntry('(for state)', valueFromLuaSlot(interpreter, state)))
         ..addAll(
           toCloseVar != null
               ? <MapEntry<String, Value>>[
                   MapEntry('(for state)', toCloseVar),
                   MapEntry(
                     '(for state)',
-                    control is Value ? control : Value(control),
+                    valueFromLuaSlot(interpreter, control),
                   ),
                 ]
               : <MapEntry<String, Value>>[
                   MapEntry(
                     '(for state)',
-                    control is Value ? control : Value(control),
+                    valueFromLuaSlot(interpreter, control),
                   ),
                 ],
         );
@@ -1054,7 +1050,7 @@ mixin InterpreterControlFlowMixin on AstVisitor<Object?> {
       );
       iterCallable = iterFunc;
     } else if (iterFunc is Function || iterFunc is BuiltinFunction) {
-      iterCallable = Value(iterFunc);
+      iterCallable = valueFromLuaSlot(interpreter, iterFunc);
     }
 
     if (iterCallable == null) {
@@ -1083,7 +1079,6 @@ mixin InterpreterControlFlowMixin on AstVisitor<Object?> {
     final baseBindings = Map<String, Box<dynamic>>.from(loopEnv.values);
     final baseKeys = baseBindings.keys.toSet();
     final baseToBeClosedLen = loopEnv.toBeClosedVars.length;
-    final interpreter = this as Interpreter;
 
     // Generic-for iterator state is stored in these Dart locals rather than a
     // Lua-visible environment. If a coroutine yields inside the loop body, the
@@ -1195,7 +1190,7 @@ mixin InterpreterControlFlowMixin on AstVisitor<Object?> {
 
         if (items == null ||
             (items is List && items.isEmpty) ||
-            (items is Value && items.raw == null)) {
+            (items is Value && rawLuaSlot(items) == null)) {
           Logger.debugLazy(
             () => 'ForInLoop: Iterator returned null/empty, breaking loop',
             category: 'ControlFlow',
@@ -1211,13 +1206,14 @@ mixin InterpreterControlFlowMixin on AstVisitor<Object?> {
         }
 
         List<Object?> values;
-        if (items is Value && items.isMulti) {
+        final resultItems = luaResultValues(items);
+        if (resultItems != null) {
           Logger.debugLazy(
-            () => 'ForInLoop: Unwrapping Value.multi result',
+            () => 'ForInLoop: Unwrapping multi-result carrier',
             category: 'ControlFlow',
             contextBuilder: () => {},
           );
-          values = items.raw as List<Object?>;
+          values = resultItems;
         } else if (items is List) {
           Logger.debugLazy(
             () => 'ForInLoop: Using List result directly',
@@ -1241,7 +1237,7 @@ mixin InterpreterControlFlowMixin on AstVisitor<Object?> {
         );
 
         final rawControl = values.isNotEmpty ? values[0] : null;
-        control = rawControl is Value ? rawControl : Value(rawControl);
+        control = valueFromLuaSlot(interpreter, rawControl);
         Logger.debugLazy(
           () => 'ForInLoop: Updated control to: $control',
           category: 'ControlFlow',
@@ -1254,7 +1250,7 @@ mixin InterpreterControlFlowMixin on AstVisitor<Object?> {
           }
         }
 
-        if (control.raw == null) {
+        if (rawLuaSlot(control) == null) {
           Logger.debugLazy(
             () => 'ForInLoop: Control is null, breaking loop',
             category: 'ControlFlow',
@@ -1521,23 +1517,25 @@ mixin InterpreterControlFlowMixin on AstVisitor<Object?> {
   }
 
   Value? _directPairsState(Object? iterFunc, Object? state) {
-    if (state is! Value || state.raw is! Map || state.tableWeakMode != null) {
+    final stateRaw = rawLuaSlot(state);
+    if (state is! Value || stateRaw is! Map || state.tableWeakMode != null) {
       return null;
     }
 
     final nextGlobal = globals.get('next');
-    final nextValue = nextGlobal is Value ? nextGlobal : Value(nextGlobal);
+    final nextValue = valueFromLuaSlot(this as Interpreter, nextGlobal);
+    final nextRaw = rawLuaSlot(nextValue);
     return switch (iterFunc) {
       final Value value
           when identical(value, nextValue) ||
-              identical(value.raw, nextValue.raw) =>
+              identical(rawLuaSlot(value), nextRaw) =>
         state,
       _ => null,
     };
   }
 
   List<MapEntry<dynamic, dynamic>> _snapshotPairsEntries(Value table) {
-    final raw = table.raw;
+    final raw = rawLuaSlot(table);
     if (raw case final TableStorage storage) {
       final entries = <MapEntry<dynamic, dynamic>>[];
       for (var index = 1; index <= storage.arrayLength; index++) {

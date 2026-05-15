@@ -3,10 +3,11 @@ import 'dart:typed_data';
 import 'package:lualike/src/lua_string.dart';
 import 'package:lualike/src/lua_error.dart';
 import 'package:lualike/src/runtime/lua_runtime.dart';
+import 'package:lualike/src/runtime/lua_slot.dart';
 import 'package:lualike/src/value.dart';
 
 List<int>? compiledArtifactSourceBytes(Value source) {
-  return switch (source.raw) {
+  return switch (rawLuaSlot(source)) {
     final LuaString luaString => luaString.bytes,
     final String text => text.codeUnits,
     final List<int> bytes => bytes,
@@ -20,7 +21,7 @@ normalizeChunkLoadRequest(
   LuaChunkLoadRequest request,
 ) async {
   final source = request.source;
-  final raw = source.raw;
+  final raw = rawLuaSlot(source);
   if (raw is String || raw is LuaString || raw is List<int>) {
     return (request: request, failure: null);
   }
@@ -76,7 +77,7 @@ Future<({Value? source, String? errorMessage})> _materializeReaderSource(
       );
     }
 
-    final raw = chunk.raw;
+    final raw = rawLuaSlot(chunk);
     if (raw == null) {
       break;
     }
@@ -127,10 +128,9 @@ Future<({Value? source, String? errorMessage})> _materializeReaderSource(
     for (final chunk in byteChunks) {
       bytes.add(chunk);
     }
-    sourceValue = Value(LuaString.fromBytes(bytes.takeBytes()))
-      ..interpreter = runtime;
+    sourceValue = runtime.constantStringValue(bytes.takeBytes());
   } else {
-    sourceValue = Value(textChunks.join())..interpreter = runtime;
+    sourceValue = runtime.constantDartStringValue(textChunks.join());
   }
 
   return (source: sourceValue, errorMessage: null);

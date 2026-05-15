@@ -149,6 +149,7 @@ class Logger {
     );
   }
 
+  @pragma('vm:prefer-inline')
   static void debugLazy(
     String Function() messageBuilder, {
     String? category,
@@ -157,6 +158,7 @@ class Logger {
     AstNode? node,
     LuaStackTrace? luaStackTrace,
   }) {
+    if (!enabled) return;
     if (!_shouldLog(Level.debug, category, categories)) return;
     _log(
       level: Level.debug,

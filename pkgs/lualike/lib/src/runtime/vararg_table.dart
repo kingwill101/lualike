@@ -3,30 +3,39 @@ import 'dart:collection';
 import 'package:lualike/src/lua_error.dart';
 import 'package:lualike/src/number_limits.dart';
 import 'package:lualike/src/number_utils.dart';
+import 'package:lualike/src/runtime/lua_slot.dart';
+import 'package:lualike/src/runtime/lua_runtime.dart';
+import 'package:lualike/src/table_storage.dart' show isLuaNilValue;
 import 'package:lualike/src/value.dart';
 
-Value packVarargsTable(List<Object?> varargs) {
-  return Value(PackedVarargTable(varargs, copyValues: false));
+Value packVarargsTable(List<Object?> varargs, {LuaRuntime? runtime}) {
+  return Value(
+    PackedVarargTable(varargs, copyValues: false, runtime: runtime),
+    interpreter: runtime,
+  );
 }
 
 final class PackedVarargTable extends MapBase<dynamic, dynamic>
     implements VirtualLuaTable {
-  PackedVarargTable(List<Object?> values, {bool copyValues = true})
-    : _values = copyValues
-          ? List<Object?>.from(values, growable: false)
-          : values;
+  PackedVarargTable(
+    List<Object?> values, {
+    bool copyValues = true,
+    this.runtime,
+  }) : _values = copyValues
+           ? List<Object?>.from(values, growable: false)
+           : values;
 
   final List<Object?> _values;
   final Map<dynamic, dynamic> _extra = <dynamic, dynamic>{};
+  final LuaRuntime? runtime;
 
   int get _count => _values.length;
 
-  static Object? _rawKey(Object? key) {
-    return switch (key) {
-      final Value wrapped => wrapped.raw,
-      _ => key,
-    };
-  }
+  Value _nilValue() => cachedPrimitiveOrValue(runtime, null);
+
+  Value _wrapValue(Object? value) => cachedPrimitiveOrValue(runtime, value);
+
+  static Object? _rawKey(Object? key) => rawLuaSlot(key);
 
   static int? _normalizeIndex(Object? key) {
     final rawKey = _rawKey(key);
@@ -66,10 +75,10 @@ final class PackedVarargTable extends MapBase<dynamic, dynamic>
   @override
   void operator []=(dynamic key, dynamic value) {
     final rawKey = _rawKey(key);
-    final wrapped = value is Value ? value : Value(value);
+    final wrapped = _wrapValue(value);
 
     if (rawKey == 'n') {
-      if (value == null || (value is Value && value.raw == null)) {
+      if (isLuaNilValue(value)) {
         _extra.remove('n');
       } else {
         _extra['n'] = wrapped;
@@ -83,7 +92,7 @@ final class PackedVarargTable extends MapBase<dynamic, dynamic>
       return;
     }
 
-    if (value == null || (value is Value && value.raw == null)) {
+    if (isLuaNilValue(value)) {
       _extra.remove(rawKey);
     } else {
       _extra[rawKey] = wrapped;
@@ -104,7 +113,7 @@ final class PackedVarargTable extends MapBase<dynamic, dynamic>
     final rawCount = _extra['n'];
     final normalizedCount = switch (rawCount) {
       null => _count,
-      final Value wrapped => wrapped.raw,
+      final Value wrapped => rawLuaSlot(wrapped),
       _ => rawCount,
     };
     if (normalizedCount is! int && normalizedCount is! BigInt) {
@@ -120,12 +129,12 @@ final class PackedVarargTable extends MapBase<dynamic, dynamic>
   Object? expandedValueAt(int oneBasedIndex) {
     final count = expandedCount();
     if (oneBasedIndex < 1 || oneBasedIndex > count) {
-      return Value(null);
+      return _nilValue();
     }
     if (oneBasedIndex <= _count) {
       return _values[oneBasedIndex - 1];
     }
-    return _extra[oneBasedIndex] ?? Value(null);
+    return _extra[oneBasedIndex] ?? _nilValue();
   }
 
   @override

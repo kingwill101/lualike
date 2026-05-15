@@ -1,6 +1,7 @@
 // Standard library initialization
 // All libraries have been migrated to the Library system
 import 'package:lualike/src/runtime/lua_runtime.dart';
+import 'package:lualike/src/runtime/lua_slot.dart';
 
 import '../value.dart' show Value;
 import 'package:lualike/src/environment.dart' show Environment;
@@ -21,6 +22,7 @@ import 'lib_utf8.dart';
 import 'library.dart' show LibraryRegistry, LazyLibraryMap;
 import 'metatables.dart';
 // import 'lib_convert.dart';
+
 
 /// Initialize standard libraries using the Library system
 /// All libraries have been migrated to the new system with proper metamethod handling
@@ -77,33 +79,35 @@ void initializeStandardLibrary({required LuaRuntime vm}) {
 
 void _populatePackageLoaded(Environment env, LibraryRegistry registry) {
   final packageTable = env.get("package");
-  if (packageTable != null &&
-      packageTable is Value &&
-      packageTable.raw is Map) {
-    final packageMap = packageTable.raw as Map;
+  final packageMap = rawLuaSlot(packageTable);
+  if (packageMap is! Map) {
+    return;
+  }
 
-    if (!packageMap.containsKey("loaded")) {
-      packageMap["loaded"] = Value({});
+  if (!packageMap.containsKey("loaded")) {
+    packageMap["loaded"] = valueFromOptionalLuaSlot(
+      env.interpreter,
+      <dynamic, dynamic>{},
+    );
+  }
+
+  final loadedMap = rawLuaSlot(packageMap["loaded"]);
+  if (loadedMap is Map) {
+    for (final library in registry.libraries.where(
+      (lib) => lib.name.isNotEmpty,
+    )) {
+      final tableValue = env.get(library.name);
+      if (tableValue != null) {
+        loadedMap[library.name] = cachedPrimitiveOrValue(
+          env.interpreter,
+          tableValue,
+        );
+      }
     }
 
-    final loadedTable = packageMap["loaded"];
-    if (loadedTable is Value && loadedTable.raw is Map) {
-      final loadedMap = loadedTable.raw as Map;
-
-      for (final library in registry.libraries.where(
-        (lib) => lib.name.isNotEmpty,
-      )) {
-        final tableValue = env.get(library.name);
-        if (tableValue != null) {
-          final value = tableValue is Value ? tableValue : Value(tableValue);
-          loadedMap[library.name] = value;
-        }
-      }
-
-      final packageValue = env.get('package');
-      if (packageValue is Value) {
-        loadedMap['package'] = packageValue;
-      }
+    final packageValue = env.get('package');
+    if (packageValue is Value) {
+      loadedMap['package'] = packageValue;
     }
   }
 }
@@ -113,39 +117,43 @@ void _populatePackageLoaded(Environment env, LibraryRegistry registry) {
 void _ensureGlobalTable(Environment env) {
   // If a correct _G is already in place we do nothing.
   final existing = env.get('_G');
-  if (existing is Value && existing.raw is Map) return;
+  if (existing is Value && rawLuaSlot(existing) is Map) return;
 
   final gBacking = <String, dynamic>{};
 
   final proxyMetatable = <String, dynamic>{
     '__index': (List<Object?> args) {
-      final key = args[1] as Value;
-      final keyStr = key.raw.toString();
-      return env.get(keyStr) ?? Value(null);
+      final key = args[1];
+      final keyStr = rawLuaSlot(key).toString();
+      return env.get(keyStr) ??
+          env.interpreter?.constantPrimitiveValue(null) ??
+          Value.primitive(null);
     },
     '__newindex': (List<Object?> args) {
       final self = args[0] as Value;
       final key = args[1] as Value;
       final value = args[2] as Value;
-      final keyStr = key.raw.toString();
+      final keyStr = rawLuaSlot(key).toString();
 
       // update the real environment
       env.define(keyStr, value);
 
       // keep the shadow table in sync
-      if (self.raw is Map) {
-        if (value.raw == null) {
-          (self.raw as Map).remove(keyStr);
+      final rawSelf = rawLuaSlot(self);
+      if (rawSelf is Map) {
+        if (isLuaNilSlot(value)) {
+          rawSelf.remove(keyStr);
         } else {
-          (self.raw as Map)[keyStr] = value;
+          rawSelf[keyStr] = value;
         }
         self.markTableModified();
       }
-      return Value(null);
+      return env.interpreter?.constantPrimitiveValue(null) ??
+          Value.primitive(null);
     },
   };
 
-  final gValue = Value(gBacking)
+  final gValue = Value(gBacking, interpreter: env.interpreter)
     ..setMetatable(proxyMetatable)
     ..globalProxyEnvironment = env;
 
@@ -162,11 +170,11 @@ void _ensureGlobalTable(Environment env) {
       continue;
     }
     final boxedValue = box.value;
-    if (boxedValue is Value ? boxedValue.raw == null : boxedValue == null) {
+    if (isLuaNilSlot(boxedValue)) {
       gBacking.remove(name);
       continue;
     }
-    gBacking[name] = boxedValue is Value ? boxedValue : Value(boxedValue);
+    gBacking[name] = cachedPrimitiveOrValue(env.interpreter, boxedValue);
   }
   gValue.markTableModified();
 }
@@ -177,7 +185,7 @@ void _installLazyLibraryStub({
   required String libraryName,
 }) {
   final existing = env.get(libraryName);
-  if (existing is Value && existing.raw is! LazyLibraryMap) {
+  if (existing is Value && rawLuaSlot(existing) is! LazyLibraryMap) {
     // Already initialized or overridden.
     return;
   }
@@ -193,5 +201,5 @@ void _installLazyLibraryStub({
     return;
   }
 
-  env.define(libraryName, Value(lazyMap));
+  env.define(libraryName, Value(lazyMap, interpreter: env.interpreter));
 }

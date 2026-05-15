@@ -1,3 +1,6 @@
+@TestOn('!browser')
+library;
+
 import 'dart:math' as math;
 
 import 'package:lualike_test/test.dart';

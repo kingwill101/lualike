@@ -4,6 +4,8 @@ import 'package:lualike/src/coroutine.dart';
 import 'package:lualike/src/gc/memory_credits.dart';
 import 'package:lualike/src/io/lua_file.dart';
 import 'package:lualike/src/lua_bytecode/vm.dart';
+import 'package:lualike/src/runtime/lua_results.dart';
+import 'package:lualike/src/runtime/lua_slot.dart';
 import 'package:lualike/src/stdlib/lib_io.dart';
 import 'package:lualike/src/stdlib/metatables.dart';
 import 'package:lualike/src/upvalue.dart';
@@ -129,6 +131,7 @@ CallFrame? _resolveDebugCoroutineFrame(Coroutine coroutine, int level) {
         ? frame.callable!
         : Value(
             () => null,
+            interpreter: coroutine.functionValue.interpreter,
             closureEnvironment: coroutine.closureEnvironment,
             functionBody: coroutine.functionBody,
             functionName: coroutine.functionValue.functionName,
@@ -156,6 +159,20 @@ CallFrame? _resolveDebugCoroutineFrame(Coroutine coroutine, int level) {
   return frame;
 }
 
+Value _debugPrimitiveValue(LuaRuntime? runtime, Object? raw) {
+  return cachedPrimitiveOrValue(runtime, raw);
+}
+
+Value _debugNilValue(LuaRuntime? runtime) =>
+    _debugPrimitiveValue(runtime, null);
+
+Value _debugTableValue(LuaRuntime? runtime, Map<dynamic, dynamic> raw) {
+  return valueFromOptionalLuaSlot(runtime, raw);
+}
+
+LuaRuntime? _debugFrameRuntime(CallFrame frame) =>
+    frame.env?.interpreter ?? frame.callable?.interpreter;
+
 class DebugLib {
   static Map<String, BuiltinFunction> functions = {};
 }
@@ -172,22 +189,22 @@ class DebugLibrary extends Library {
     context.define("gethook", _GetHook(interpreter));
     context.define("getinfo", _GetInfoImpl(interpreter!));
     context.define("getlocal", _GetLocal(interpreter!));
-    context.define("getmetatable", _GetMetatable());
+    context.define("getmetatable", _GetMetatable(interpreter));
     context.define("getregistry", _GetRegistry(interpreter));
     context.define("getupvalue", _GetUpvalue(interpreter!));
-    context.define("getuservalue", _GetUserValue());
+    context.define("getuservalue", _GetUserValue(interpreter));
     context.define("sethook", _SetHook(interpreter));
     context.define("setlocal", _SetLocal(interpreter!));
-    context.define("setmetatable", _SetMetatable());
-    context.define("setupvalue", _SetUpvalue());
-    context.define("setuservalue", _SetUserValue());
+    context.define("setmetatable", _SetMetatable(interpreter));
+    context.define("setupvalue", _SetUpvalue(interpreter));
+    context.define("setuservalue", _SetUserValue(interpreter));
     context.define("traceback", _Traceback(interpreter));
-    context.define("upvalueid", _UpvalueId());
-    context.define("upvaluejoin", _UpvalueJoin());
+    context.define("upvalueid", _UpvalueId(interpreter));
+    context.define("upvaluejoin", _UpvalueJoin(interpreter));
 
     // Memory debugging functions
-    context.define("memtrace", _MemTrace());
-    context.define("memtree", _MemTree());
+    context.define("memtrace", _MemTrace(interpreter));
+    context.define("memtree", _MemTree(interpreter));
   }
 }
 
@@ -204,11 +221,11 @@ class _DebugInteractive extends BuiltinFunction {
 
     while (true) {
       final defaultOutput = IOLib.defaultOutput;
-      final outputLuaFile = defaultOutput.raw as LuaFile;
+      final outputLuaFile = rawLuaSlot(defaultOutput) as LuaFile;
       await outputLuaFile.write('debug> ');
 
       final defaultInput = IOLib.defaultInput;
-      final inputLuaFile = defaultInput.raw as LuaFile;
+      final inputLuaFile = rawLuaSlot(defaultInput) as LuaFile;
       final result = await inputLuaFile.read('l');
       final input = result[0]?.toString();
 
@@ -228,13 +245,16 @@ class _GetHook extends BuiltinFunction {
   Object? call(List<Object?> args) {
     final runtime = _resolveDebugInterpreter(interpreter);
     if (runtime == null) {
-      return Value.multi([Value(null), Value(null), Value(0)]);
+      return LuaResults([
+        primitiveValue(null),
+        primitiveValue(null),
+        primitiveValue(0),
+      ]);
     }
     Coroutine? thread;
-    if (args.isNotEmpty &&
-        args[0] is Value &&
-        (args[0] as Value).raw is Coroutine) {
-      thread = (args[0] as Value).raw as Coroutine;
+    final firstRaw = args.isNotEmpty ? rawLuaSlot(args[0]) : null;
+    if (firstRaw is Coroutine) {
+      thread = firstRaw;
     } else {
       final current = runtime.getCurrentCoroutine();
       final main = runtime.getMainThread();
@@ -244,12 +264,16 @@ class _GetHook extends BuiltinFunction {
     }
     final hook = thread?.debugHookFunction ?? runtime.debugHookFunction;
     if (hook == null) {
-      return Value.multi([Value(null), Value(null), Value(0)]);
+      return LuaResults([
+        primitiveValue(null),
+        primitiveValue(null),
+        primitiveValue(0),
+      ]);
     }
-    return Value.multi([
+    return LuaResults([
       hook,
-      Value(thread?.debugHookMask ?? runtime.debugHookMask),
-      Value(thread?.debugHookCount ?? runtime.debugHookCount),
+      primitiveValue(thread?.debugHookMask ?? runtime.debugHookMask),
+      primitiveValue(thread?.debugHookCount ?? runtime.debugHookCount),
     ]);
   }
 }
@@ -266,10 +290,11 @@ class _GetLocal extends BuiltinFunction {
   }
 
   int _requireInt(Value value, String name) {
-    if (value.raw is! num) {
+    final raw = rawLuaSlot(value);
+    if (raw is! num) {
       throw LuaError("bad argument to 'debug.getlocal' ($name expected)");
     }
-    return (value.raw as num).toInt();
+    return raw.toInt();
   }
 
   CallFrame _resolveVisibleFrame(
@@ -324,6 +349,7 @@ class _GetLocal extends BuiltinFunction {
     if (_frameHasStrippedDebugInfo(frame)) {
       final locals = <MapEntry<String, Value>>[];
       final envs = _activeLocalEnvironments(frame);
+      final runtime = _debugFrameRuntime(frame);
       final preferred = <String>{};
       Value? visibleLocalValue(String name) {
         for (final env in envs) {
@@ -334,8 +360,7 @@ class _GetLocal extends BuiltinFunction {
           if (_isInheritedClosureBinding(frame, env, name, box)) {
             continue;
           }
-          final rawValue = box.value;
-          return rawValue is Value ? rawValue : Value(rawValue);
+          return cachedPrimitiveOrValue(runtime, box.value);
         }
         return null;
       }
@@ -351,7 +376,9 @@ class _GetLocal extends BuiltinFunction {
 
       if (frame.callable?.functionBody?.isVararg == true &&
           envs.any((env) => env.values.containsKey('...'))) {
-        locals.add(MapEntry('(vararg table)', Value(null)));
+        locals.add(
+          MapEntry('(vararg table)', _debugNilValue(_debugFrameRuntime(frame))),
+        );
       }
       for (final entry in frame.debugLocals) {
         locals.add(
@@ -373,8 +400,7 @@ class _GetLocal extends BuiltinFunction {
               preferred.contains(entry.key)) {
             continue;
           }
-          final rawValue = box.value;
-          final value = rawValue is Value ? rawValue : Value(rawValue);
+          final value = cachedPrimitiveOrValue(runtime, box.value);
           locals.add(MapEntry('(temporary)', value));
         }
       }
@@ -395,6 +421,7 @@ class _GetLocal extends BuiltinFunction {
 
     final locals = <MapEntry<String, Value>>[];
     final envs = _activeLocalEnvironments(frame);
+    final runtime = _debugFrameRuntime(frame);
     final preferred = <String>{};
     final exposesVarargTable =
         frame.callable?.functionBody?.isVararg == true &&
@@ -409,7 +436,9 @@ class _GetLocal extends BuiltinFunction {
     }
 
     if (exposesVarargTable) {
-      locals.add(MapEntry('(vararg table)', Value(null)));
+      locals.add(
+        MapEntry('(vararg table)', _debugNilValue(_debugFrameRuntime(frame))),
+      );
     }
     for (final entry in frame.debugLocals) {
       locals.add(entry);
@@ -428,8 +457,7 @@ class _GetLocal extends BuiltinFunction {
           continue;
         }
         if (preferred.contains(entry.key)) continue;
-        final rawValue = entry.value.value;
-        final value = rawValue is Value ? rawValue : Value(rawValue);
+        final value = cachedPrimitiveOrValue(runtime, entry.value.value);
         locals.add(MapEntry(entry.key, value));
       }
     }
@@ -445,17 +473,16 @@ class _GetLocal extends BuiltinFunction {
 
   List<Object?>? _frameVarargs(CallFrame frame) {
     final rawValue = _findFrameVarargValue(frame);
-    if (rawValue is Value && rawValue.isMulti && rawValue.raw is List) {
-      return List<Object?>.from(rawValue.raw as List);
-    }
-    return null;
+    final values = luaResultValues(rawValue);
+    return values == null ? null : List<Object?>.from(values);
   }
 
   Value? _functionLocalName(Value functionValue, int index) {
     if (index <= 0) {
       return null;
     }
-    if (functionValue.raw case final LuaBytecodeClosure closure) {
+    final functionRaw = rawLuaSlot(functionValue);
+    if (functionRaw case final LuaBytecodeClosure closure) {
       if (index > closure.prototype.parameterCount) {
         return null;
       }
@@ -465,14 +492,14 @@ class _GetLocal extends BuiltinFunction {
         if (local.register == register &&
             name != null &&
             !name.startsWith('(')) {
-          return Value(name);
+          return dartStringValue(name);
         }
       }
       return null;
     }
     final functionBody =
         functionValue.functionBody ??
-        switch (functionValue.raw) {
+        switch (functionRaw) {
           final FunctionDef def => def.body,
           final FunctionLiteral literal => literal.funcBody,
           final FunctionBody body => body,
@@ -482,12 +509,12 @@ class _GetLocal extends BuiltinFunction {
     if (parameters == null || index > parameters.length) {
       return null;
     }
-    return Value(parameters[index - 1].name);
+    return dartStringValue(parameters[index - 1].name);
   }
 
   Value _transferLocalName(CallFrame frame) {
     final isLuaFrame = frame.callable?.functionBody != null;
-    return Value(isLuaFrame ? '(temporary)' : '(C temporary)');
+    return dartStringValue(isLuaFrame ? '(temporary)' : '(C temporary)');
   }
 
   @override
@@ -499,7 +526,7 @@ class _GetLocal extends BuiltinFunction {
     }
     final runtime = _resolveDebugInterpreter(interpreter);
     if (runtime == null) {
-      return Value.multi([Value(null), Value(null)]);
+      return LuaResults([primitiveValue(null), primitiveValue(null)]);
     }
 
     Value threadArg;
@@ -511,20 +538,24 @@ class _GetLocal extends BuiltinFunction {
       targetArg = args[1] as Value;
       indexArg = args[2] as Value;
     } else {
-      threadArg = Value(null);
+      threadArg = primitiveValue(null);
       targetArg = args[0] as Value;
       indexArg = args[1] as Value;
     }
 
     final index = _requireInt(indexArg, 'number');
+    final targetRaw = rawLuaSlot(targetArg);
 
-    if (!hasThread && targetArg.raw is num) {
+    if (!hasThread && targetRaw is num) {
       final level = _requireInt(targetArg, 'number');
       if (level == 0) {
         if (index <= 0 || index > args.length) {
-          return Value.multi([Value(null), Value(null)]);
+          return LuaResults([primitiveValue(null), primitiveValue(null)]);
         }
-        return Value.multi([Value("(C temporary)"), args[index - 1] as Value]);
+        return LuaResults([
+          dartStringValue("(C temporary)"),
+          args[index - 1] as Value,
+        ]);
       }
       final frame = _resolveVisibleFrame(
         runtime,
@@ -536,36 +567,37 @@ class _GetLocal extends BuiltinFunction {
         final varargs = _frameVarargs(frame);
         final varargIndex = -index;
         if (varargs == null || varargIndex > varargs.length) {
-          return Value.multi([Value(null), Value(null)]);
+          return LuaResults([primitiveValue(null), primitiveValue(null)]);
         }
         final value = varargs[varargIndex - 1];
-        return Value.multi([
-          Value('(vararg)'),
-          value is Value ? value : Value(value),
+        return LuaResults([
+          dartStringValue('(vararg)'),
+          cachedPrimitiveOrValue(_debugFrameRuntime(frame), value),
         ]);
       }
       if (frame.ntransfer > 0 &&
           index >= frame.ftransfer &&
           index < frame.ftransfer + frame.ntransfer) {
         final transferValue = frame.transferValues[index - frame.ftransfer];
-        return Value.multi([_transferLocalName(frame), transferValue]);
+        return LuaResults([_transferLocalName(frame), transferValue]);
       }
       final locals = _enumerateFrameLocals(frame);
       if (index <= 0 || index > locals.length) {
-        return Value.multi([Value(null), Value(null)]);
+        return LuaResults([primitiveValue(null), primitiveValue(null)]);
       }
       final entry = locals[index - 1];
-      return Value.multi([Value(entry.key), entry.value]);
+      return LuaResults([dartStringValue(entry.key), entry.value]);
     }
 
-    if (hasThread && threadArg.raw is Coroutine && targetArg.raw is num) {
+    final threadRaw = rawLuaSlot(threadArg);
+    if (hasThread && threadRaw is Coroutine && targetRaw is num) {
       final level = _requireInt(targetArg, 'number');
       if (level <= 0) {
         throw LuaError(
           "bad argument #2 to 'debug.getlocal' (level out of range)",
         );
       }
-      final coroutine = threadArg.raw as Coroutine;
+      final coroutine = threadRaw;
       final bytecodeFrames = coroutine.status == CoroutineStatus.suspended
           ? bytecodeSuspendedCoroutineFrames(coroutine, startLevel: level)
           : const <CallFrame>[];
@@ -582,39 +614,39 @@ class _GetLocal extends BuiltinFunction {
           index >= frame.ftransfer &&
           index < frame.ftransfer + frame.ntransfer) {
         final transferValue = frame.transferValues[index - frame.ftransfer];
-        return Value.multi([_transferLocalName(frame), transferValue]);
+        return LuaResults([_transferLocalName(frame), transferValue]);
       }
       if (index < 0) {
         final varargs = _frameVarargs(frame);
         final varargIndex = -index;
         if (varargs == null || varargIndex > varargs.length) {
-          return Value.multi([Value(null), Value(null)]);
+          return LuaResults([primitiveValue(null), primitiveValue(null)]);
         }
         final value = varargs[varargIndex - 1];
-        return Value.multi([
-          Value('(vararg)'),
-          value is Value ? value : Value(value),
+        return LuaResults([
+          dartStringValue('(vararg)'),
+          cachedPrimitiveOrValue(_debugFrameRuntime(frame), value),
         ]);
       }
       final locals = _enumerateFrameLocals(frame);
       if (index <= 0 || index > locals.length) {
-        return Value.multi([Value(null), Value(null)]);
+        return LuaResults([primitiveValue(null), primitiveValue(null)]);
       }
       final entry = locals[index - 1];
-      return Value.multi([Value(entry.key), entry.value]);
+      return LuaResults([dartStringValue(entry.key), entry.value]);
     }
 
     final functionValue = hasThread ? targetArg : targetArg;
     final name = _functionLocalName(functionValue, index);
     if (name == null) {
-      return Value.multi([Value(null), Value(null)]);
+      return LuaResults([primitiveValue(null), primitiveValue(null)]);
     }
-    return Value.multi([name, Value(null)]);
+    return LuaResults([name, primitiveValue(null)]);
   }
 }
 
 class _GetMetatable extends BuiltinFunction {
-  _GetMetatable() : super();
+  _GetMetatable([super.interpreter]);
 
   @override
   Object? call(List<Object?> args) {
@@ -622,15 +654,15 @@ class _GetMetatable extends BuiltinFunction {
     final value = args[0] as Value;
     final meta = value.getMetatable();
     if (meta == null) {
-      return Value(null);
+      return primitiveValue(null);
     }
     if (meta.containsKey('__metatable')) {
-      return meta['__metatable'];
+      return valueFromOptionalLuaSlot(interpreter, meta['__metatable']);
     }
     if (value.metatableRef != null) {
       return value.metatableRef;
     }
-    return Value(meta);
+    return _debugTableValue(interpreter, meta);
   }
 }
 
@@ -639,7 +671,8 @@ class _GetRegistry extends BuiltinFunction {
 
   @override
   Object? call(List<Object?> args) {
-    return interpreter?.debugRegistry ?? Value({});
+    return interpreter?.debugRegistry ??
+        _debugTableValue(interpreter, <Object?, Object?>{});
   }
 }
 
@@ -653,25 +686,26 @@ class _GetUpvalue extends BuiltinFunction {
     }
 
     final functionArg = args[0] as Value;
-    final indexArg = args[1] as Value;
+    final indexArg = args[1];
 
     // Validate that index is a number
-    if (indexArg.raw is! num) {
-      return Value.multi([Value(null), Value(null)]);
+    final indexRaw = rawLuaSlot(indexArg);
+    if (indexRaw is! num) {
+      return LuaResults([primitiveValue(null), primitiveValue(null)]);
     }
 
-    final index = (indexArg.raw as num).toInt();
+    final index = indexRaw.toInt();
 
-    if (functionArg.raw case final LuaBytecodeClosure closure) {
+    final functionRaw = rawLuaSlot(functionArg);
+    if (functionRaw case final LuaBytecodeClosure closure) {
       if (index < 1 || index > closure.upvalueCount) {
-        return Value.multi([Value(null), Value(null)]);
+        return LuaResults([primitiveValue(null), primitiveValue(null)]);
       }
-      return Value.multi([
-        Value(
-          functionArg.strippedDebugInfo
-              ? '(no name)'
-              : closure.upvalueName(index - 1),
-        ),
+      final name = functionArg.strippedDebugInfo
+          ? '(no name)'
+          : closure.upvalueName(index - 1);
+      return LuaResults([
+        name == null ? primitiveValue(null) : dartStringValue(name),
         closure.readUpvalue(index - 1),
       ]);
     }
@@ -682,10 +716,14 @@ class _GetUpvalue extends BuiltinFunction {
         index <= functionArg.upvalues!.length) {
       final upvalue = functionArg.upvalues![index - 1];
       final name = upvalue.name;
-      final rawValue = upvalue.getValue();
-      final value = rawValue is Value ? rawValue : Value(rawValue);
-      return Value.multi([
-        Value(functionArg.strippedDebugInfo ? '(no name)' : (name ?? '')),
+      final value = cachedPrimitiveOrValue(
+        functionArg.interpreter ?? interpreter,
+        upvalue.getValue(),
+      );
+      return LuaResults([
+        dartStringValue(
+          functionArg.strippedDebugInfo ? '(no name)' : (name ?? ''),
+        ),
         value,
       ]);
     }
@@ -702,20 +740,20 @@ class _GetUpvalue extends BuiltinFunction {
           functionArg.closureEnvironment?.get('_G') ??
           interpreter?.getCurrentEnv().get('_ENV') ??
           interpreter?.getCurrentEnv().get('_G') ??
-          Value(functionArg.closureEnvironment);
-      return Value.multi([
-        Value(functionArg.strippedDebugInfo ? '(no name)' : '_ENV'),
+          valueFromOptionalLuaSlot(interpreter, functionArg.closureEnvironment);
+      return LuaResults([
+        dartStringValue(functionArg.strippedDebugInfo ? '(no name)' : '_ENV'),
         envValue,
       ]);
     }
 
     // For functions without upvalues, return null
-    return Value.multi([Value(null), Value(null)]);
+    return LuaResults([primitiveValue(null), primitiveValue(null)]);
   }
 }
 
 class _GetUserValue extends BuiltinFunction {
-  _GetUserValue() : super();
+  _GetUserValue([super.interpreter]);
 
   @override
   Object? call(List<Object?> args) {
@@ -725,7 +763,7 @@ class _GetUserValue extends BuiltinFunction {
       );
     }
     // Return nth user value
-    return Value(null);
+    return primitiveValue(null);
   }
 }
 
@@ -736,15 +774,14 @@ class _SetHook extends BuiltinFunction {
   Object? call(List<Object?> args) {
     final runtime = _resolveDebugInterpreter(interpreter);
     if (runtime == null) {
-      return Value(null);
+      return primitiveValue(null);
     }
     Coroutine? thread;
     var index = 0;
 
-    if (args.isNotEmpty &&
-        args[0] is Value &&
-        (args[0] as Value).raw is Coroutine) {
-      thread = (args[0] as Value).raw as Coroutine;
+    final firstRaw = args.isNotEmpty ? rawLuaSlot(args[0]) : null;
+    if (firstRaw is Coroutine) {
+      thread = firstRaw;
       index = 1;
     } else {
       final current = runtime.getCurrentCoroutine();
@@ -755,8 +792,9 @@ class _SetHook extends BuiltinFunction {
     }
 
     final targetHook = index < args.length ? args[index] : null;
+    final targetHookRaw = rawLuaSlot(targetHook);
     if (targetHook == null ||
-        (targetHook is Value && (targetHook.isNil || targetHook.raw == null))) {
+        (targetHook is Value && (targetHook.isNil || targetHookRaw == null))) {
       if (thread != null) {
         thread.debugHookFunction = null;
         thread.debugHookMask = '';
@@ -769,7 +807,7 @@ class _SetHook extends BuiltinFunction {
         runtime.debugHookCountRemaining = 0;
         runtime.rememberDebugHookLine(-1);
       }
-      return Value(null);
+      return primitiveValue(null);
     }
 
     if (targetHook is! Value || !targetHook.isCallable()) {
@@ -777,13 +815,17 @@ class _SetHook extends BuiltinFunction {
     }
 
     final hook = targetHook;
-    final mask = switch (args.length > index + 1 ? args[index + 1] : null) {
-      final Value value when value.raw != null => value.raw.toString(),
+    final maskArg = args.length > index + 1 ? args[index + 1] : null;
+    final maskRaw = rawLuaSlot(maskArg);
+    final mask = switch (maskArg) {
+      final Value _ when maskRaw != null => maskRaw.toString(),
       null => '',
       _ => throw LuaError("debug.sethook mask must be a string"),
     };
-    final count = switch (args.length > index + 2 ? args[index + 2] : null) {
-      final Value value when value.raw is num => (value.raw as num).toInt(),
+    final countArg = args.length > index + 2 ? args[index + 2] : null;
+    final countRaw = rawLuaSlot(countArg);
+    final count = switch (countArg) {
+      final Value _ when countRaw is num => countRaw.toInt(),
       null => 0,
       _ => throw LuaError("debug.sethook count must be a number"),
     };
@@ -806,7 +848,7 @@ class _SetHook extends BuiltinFunction {
         );
       }
     }
-    return Value(null);
+    return primitiveValue(null);
   }
 }
 
@@ -817,10 +859,11 @@ class _SetLocal extends BuiltinFunction {
   bool get isBytecodeDebugSetLocalBuiltin => true;
 
   int _requireInt(Value value) {
-    if (value.raw is! num) {
+    final raw = rawLuaSlot(value);
+    if (raw is! num) {
       throw LuaError("bad argument to 'debug.setlocal' (number expected)");
     }
-    return (value.raw as num).toInt();
+    return raw.toInt();
   }
 
   CallFrame _resolveVisibleFrame(Interpreter runtime, int level) {
@@ -839,6 +882,7 @@ class _SetLocal extends BuiltinFunction {
   List<MapEntry<String, Value>> _enumerateFrameLocals(CallFrame frame) {
     final locals = <MapEntry<String, Value>>[];
     final envs = _activeLocalEnvironments(frame);
+    final runtime = _debugFrameRuntime(frame);
     final preferred = <String>{};
     bool envHasVisibleLocal(String name) {
       return envs.any((env) {
@@ -851,7 +895,9 @@ class _SetLocal extends BuiltinFunction {
 
     if (frame.callable?.functionBody?.isVararg == true &&
         envs.any((env) => env.values.containsKey('...'))) {
-      locals.add(MapEntry('(vararg table)', Value(null)));
+      locals.add(
+        MapEntry('(vararg table)', _debugNilValue(_debugFrameRuntime(frame))),
+      );
     }
     for (final entry in frame.debugLocals) {
       locals.add(entry);
@@ -870,8 +916,7 @@ class _SetLocal extends BuiltinFunction {
           continue;
         }
         if (preferred.contains(entry.key)) continue;
-        final rawValue = entry.value.value;
-        final value = rawValue is Value ? rawValue : Value(rawValue);
+        final value = cachedPrimitiveOrValue(runtime, entry.value.value);
         locals.add(MapEntry(entry.key, value));
       }
     }
@@ -894,7 +939,7 @@ class _SetLocal extends BuiltinFunction {
     }
     final runtime = _resolveDebugInterpreter(interpreter);
     if (runtime == null) {
-      return Value(null);
+      return primitiveValue(null);
     }
 
     Value targetArg;
@@ -902,13 +947,14 @@ class _SetLocal extends BuiltinFunction {
     Value valueArg;
     CallFrame? frame;
 
-    if (args.length >= 4 && (args[0] as Value).raw is Coroutine) {
-      final thread = args[0] as Value;
+    final firstRaw = args.isNotEmpty ? rawLuaSlot(args[0]) : null;
+    if (args.length >= 4 && firstRaw is Coroutine) {
       targetArg = args[1] as Value;
       indexArg = args[2] as Value;
       valueArg = args[3] as Value;
-      if (targetArg.raw is! num) {
-        return Value(null);
+      final targetRaw = rawLuaSlot(targetArg);
+      if (targetRaw is! num) {
+        return primitiveValue(null);
       }
       final level = _requireInt(targetArg);
       if (level <= 0) {
@@ -916,7 +962,7 @@ class _SetLocal extends BuiltinFunction {
           "bad argument #2 to 'debug.setlocal' (level out of range)",
         );
       }
-      final coroutine = thread.raw as Coroutine;
+      final coroutine = firstRaw;
       final bytecodeFrames = coroutine.status == CoroutineStatus.suspended
           ? bytecodeSuspendedCoroutineFrames(coroutine, startLevel: level)
           : const <CallFrame>[];
@@ -932,8 +978,9 @@ class _SetLocal extends BuiltinFunction {
       targetArg = args[0] as Value;
       indexArg = args[1] as Value;
       valueArg = args[2] as Value;
-      if (targetArg.raw is! num) {
-        return Value(null);
+      final targetRaw = rawLuaSlot(targetArg);
+      if (targetRaw is! num) {
+        return primitiveValue(null);
       }
       final level = _requireInt(targetArg);
       if (level <= 0) {
@@ -947,24 +994,21 @@ class _SetLocal extends BuiltinFunction {
     final index = _requireInt(indexArg);
     if (index < 0) {
       final rawVarargs = _findFrameVarargValue(frame);
-      if (rawVarargs is! Value ||
-          !rawVarargs.isMulti ||
-          rawVarargs.raw is! List) {
-        return Value(null);
+      final rawVarargValues = luaResultValues(rawVarargs);
+      if (rawVarargValues == null) {
+        return primitiveValue(null);
       }
-      final list = List<Object?>.from(rawVarargs.raw as List);
       final varargIndex = -index;
-      if (varargIndex <= 0 || varargIndex > list.length) {
-        return Value(null);
+      if (varargIndex <= 0 || varargIndex > rawVarargValues.length) {
+        return primitiveValue(null);
       }
-      list[varargIndex - 1] = valueArg;
-      rawVarargs.raw = list;
-      return Value('(vararg)');
+      rawVarargValues[varargIndex - 1] = valueArg;
+      return dartStringValue('(vararg)');
     }
 
     final locals = _enumerateFrameLocals(frame);
     if (index <= 0 || index > locals.length) {
-      return Value(null);
+      return primitiveValue(null);
     }
     final entry = locals[index - 1];
     final envBox = frame.env?.values[entry.key];
@@ -975,27 +1019,29 @@ class _SetLocal extends BuiltinFunction {
           frame.debugLocals[i] = MapEntry(entry.key, valueArg);
         }
       }
-      return Value(entry.key);
+      return dartStringValue(entry.key);
     }
 
     for (var i = 0; i < frame.debugLocals.length; i++) {
       final local = frame.debugLocals[i];
       if (local.key == entry.key && identical(local.value, entry.value)) {
-        local.value.raw = valueArg.raw;
-        local.value.metatable = valueArg.metatable;
-        local.value.metatableRef = valueArg.metatableRef;
-        local.value.upvalues = valueArg.upvalues;
-        local.value.interpreter = valueArg.interpreter;
-        local.value.functionBody = valueArg.functionBody;
-        local.value.closureEnvironment = valueArg.closureEnvironment;
-        local.value.functionName = valueArg.functionName;
-        local.value.debugLineDefined = valueArg.debugLineDefined;
+        if (!local.value.isSharedPrimitive) {
+          local.value.raw = rawLuaSlot(valueArg);
+          local.value.metatable = valueArg.metatable;
+          local.value.metatableRef = valueArg.metatableRef;
+          local.value.upvalues = valueArg.upvalues;
+          local.value.interpreter = valueArg.interpreter;
+          local.value.functionBody = valueArg.functionBody;
+          local.value.closureEnvironment = valueArg.closureEnvironment;
+          local.value.functionName = valueArg.functionName;
+          local.value.debugLineDefined = valueArg.debugLineDefined;
+        }
         frame.debugLocals[i] = MapEntry(entry.key, valueArg);
-        return Value(entry.key);
+        return dartStringValue(entry.key);
       }
     }
 
-    return Value(null);
+    return primitiveValue(null);
   }
 }
 
@@ -1032,16 +1078,30 @@ List<MapEntry<String, Value>> _staticFrameLocals(CallFrame frame) {
             if (expr is FunctionLiteral &&
                 endLine != null &&
                 currentLine < endLine) {
-              locals.add(MapEntry('(temporary)', Value(null)));
+              locals.add(
+                MapEntry(
+                  '(temporary)',
+                  _debugNilValue(_debugFrameRuntime(frame)),
+                ),
+              );
             } else {
-              locals.add(MapEntry(name.name, Value(null)));
+              locals.add(
+                MapEntry(name.name, _debugNilValue(_debugFrameRuntime(frame))),
+              );
             }
           }
         case LocalFunctionDef(name: final name):
           if (endLine != null && currentLine < endLine) {
-            locals.add(MapEntry('(temporary)', Value(null)));
+            locals.add(
+              MapEntry(
+                '(temporary)',
+                _debugNilValue(_debugFrameRuntime(frame)),
+              ),
+            );
           } else {
-            locals.add(MapEntry(name.name, Value(null)));
+            locals.add(
+              MapEntry(name.name, _debugNilValue(_debugFrameRuntime(frame))),
+            );
           }
         default:
           break;
@@ -1088,7 +1148,7 @@ dynamic _findFrameVarargValue(CallFrame frame) {
 }
 
 class _SetMetatable extends BuiltinFunction {
-  _SetMetatable() : super();
+  _SetMetatable([super.interpreter]);
 
   @override
   Object? call(List<Object?> args) {
@@ -1097,32 +1157,34 @@ class _SetMetatable extends BuiltinFunction {
     }
     final value = args[0] as Value;
     final meta = args[1] as Value;
-    if (value.raw is! Map) {
-      final type = _typeOf(value.raw);
-      if (meta.raw == null) {
+    final rawValue = rawLuaSlot(value);
+    final rawMeta = rawLuaSlot(meta);
+    if (rawValue is! Map) {
+      final type = _typeOf(rawValue);
+      if (rawMeta == null) {
         MetaTable().registerDefaultMetatable(type, null);
-        return Value(true);
+        return primitiveValue(true);
       }
-      if (meta.raw is Map) {
+      if (rawMeta is Map) {
         MetaTable().registerDefaultMetatable(
           type,
           ValueClass.create(
-            Map.castFrom<dynamic, dynamic, String, dynamic>(meta.raw as Map),
+            Map.castFrom<dynamic, dynamic, String, dynamic>(rawMeta),
           ),
           meta,
         );
-        return Value(true);
+        return primitiveValue(true);
       }
     } else {
-      if (meta.raw == null) {
+      if (rawMeta == null) {
         value.metatable = null;
         value.metatableRef = null;
-        return Value(true);
+        return primitiveValue(true);
       }
-      if (meta.raw is Map) {
+      if (rawMeta is Map) {
         value.metatableRef = meta;
-        value.setMetatable((meta.raw as Map).cast());
-        return Value(true);
+        value.setMetatable(rawMeta.cast());
+        return primitiveValue(true);
       }
     }
     throw LuaError("metatable must be a table or nil");
@@ -1141,7 +1203,7 @@ class _SetMetatable extends BuiltinFunction {
 }
 
 class _SetUpvalue extends BuiltinFunction {
-  _SetUpvalue() : super();
+  _SetUpvalue([super.interpreter]);
 
   @override
   Object? call(List<Object?> args) {
@@ -1150,23 +1212,27 @@ class _SetUpvalue extends BuiltinFunction {
     }
 
     final functionArg = args[0] as Value;
-    final indexArg = args[1] as Value;
+    final indexArg = args[1];
     final newValue = args[2] as Value;
 
     // Validate that index is a number
-    if (indexArg.raw is! num) {
-      return Value(null);
+    final indexRaw = rawLuaSlot(indexArg);
+    if (indexRaw is! num) {
+      return primitiveValue(null);
     }
 
-    final index = (indexArg.raw as num).toInt();
+    final index = indexRaw.toInt();
 
-    if (functionArg.raw case final LuaBytecodeClosure closure) {
+    final functionRaw = rawLuaSlot(functionArg);
+    final newRaw = rawLuaSlot(newValue);
+    if (functionRaw case final LuaBytecodeClosure closure) {
       if (index < 1 || index > closure.upvalueCount) {
-        return Value(null);
+        return primitiveValue(null);
       }
       final oldName = closure.upvalueName(index - 1);
       closure.writeUpvalue(index - 1, newValue);
-      return Value(functionArg.strippedDebugInfo ? '(no name)' : oldName);
+      final name = functionArg.strippedDebugInfo ? '(no name)' : oldName;
+      return name == null ? primitiveValue(null) : dartStringValue(name);
     }
 
     // Check if the function has explicit upvalues
@@ -1176,16 +1242,18 @@ class _SetUpvalue extends BuiltinFunction {
       final upvalue = functionArg.upvalues![index - 1];
       Logger.debugLazy(
         () =>
-            'debug.setupvalue explicit: name=${upvalue.name} value=${newValue.raw} open=${upvalue.isOpen}',
+            'debug.setupvalue explicit: name=${upvalue.name} value=$newRaw open=${upvalue.isOpen}',
         category: 'DebugLib',
       );
       final oldName = upvalue.name ?? '';
-      upvalue.setValue(newValue.raw);
-      return Value(functionArg.strippedDebugInfo ? '(no name)' : oldName);
+      upvalue.setValue(newRaw);
+      return dartStringValue(
+        functionArg.strippedDebugInfo ? '(no name)' : oldName,
+      );
     }
 
     // For AST-based interpreter, only modify existing upvalues
-    if (functionArg.raw is Function) {
+    if (functionRaw is Function) {
       // Check if upvalues exist and if the index is valid
       if (functionArg.upvalues != null &&
           index > 0 &&
@@ -1193,21 +1261,23 @@ class _SetUpvalue extends BuiltinFunction {
         final upvalue = functionArg.upvalues![index - 1];
         Logger.debugLazy(
           () =>
-              'debug.setupvalue raw: name=${upvalue.name} value=${newValue.raw} open=${upvalue.isOpen}',
+              'debug.setupvalue raw: name=${upvalue.name} value=$newRaw open=${upvalue.isOpen}',
           category: 'DebugLib',
         );
         final oldName = upvalue.name ?? '';
-        upvalue.setValue(newValue.raw);
-        return Value(functionArg.strippedDebugInfo ? '(no name)' : oldName);
+        upvalue.setValue(newRaw);
+        return dartStringValue(
+          functionArg.strippedDebugInfo ? '(no name)' : oldName,
+        );
       }
     }
 
-    return Value(null);
+    return primitiveValue(null);
   }
 }
 
 class _SetUserValue extends BuiltinFunction {
-  _SetUserValue() : super();
+  _SetUserValue([super.interpreter]);
 
   @override
   Object? call(List<Object?> args) {
@@ -1217,8 +1287,10 @@ class _SetUserValue extends BuiltinFunction {
 
     final target = args[0];
     final userValue = args[1];
-    final index = switch (args.length > 2 ? args[2] : null) {
-      final Value value when value.raw is num => (value.raw as num).toInt(),
+    final indexArg = args.length > 2 ? args[2] : null;
+    final indexRaw = rawLuaSlot(indexArg);
+    final index = switch (indexArg) {
+      final Value _ when indexRaw is num => indexRaw.toInt(),
       final num value => value.toInt(),
       null => 1,
       _ => throw LuaError("debug.setuservalue index must be a number"),
@@ -1230,8 +1302,9 @@ class _SetUserValue extends BuiltinFunction {
       );
     }
 
-    if (target.raw is LuaFile) {
-      return Value(null);
+    final targetRaw = rawLuaSlot(target);
+    if (targetRaw is LuaFile) {
+      return primitiveValue(null);
     }
 
     if (!_isFullUserdata(target)) {
@@ -1242,20 +1315,21 @@ class _SetUserValue extends BuiltinFunction {
     }
 
     if (index < 1) {
-      return Value(null);
+      return primitiveValue(null);
     }
 
-    if (target.raw is Map) {
-      final rawMap = target.raw as Map<dynamic, dynamic>;
-      rawMap['__uservalue$index'] = userValue is Value
-          ? userValue
-          : Value(userValue);
+    if (targetRaw is Map) {
+      final rawMap = targetRaw;
+      rawMap['__uservalue$index'] = valueFromOptionalLuaSlot(
+        interpreter,
+        userValue,
+      );
     }
     return target;
   }
 
   bool _isFullUserdata(Value value) {
-    final raw = value.raw;
+    final raw = rawLuaSlot(value);
     if (raw == null ||
         raw is bool ||
         raw is num ||
@@ -1278,8 +1352,8 @@ class _SetUserValue extends BuiltinFunction {
 class _Traceback extends BuiltinFunction {
   _Traceback(super.interpreter);
 
-  int _intArg(Value value, int fallback) {
-    final raw = value.raw;
+  int _intArg(Object? value, int fallback) {
+    final raw = rawLuaSlot(value);
     if (raw == null) {
       return fallback;
     }
@@ -1373,7 +1447,7 @@ class _Traceback extends BuiltinFunction {
 
   bool _includeTracebackFrame(CallFrame frame) {
     final callable = frame.callable;
-    final rawCallable = callable?.raw;
+    final rawCallable = rawLuaSlot(callable);
     final hasOpaqueName =
         frame.functionName.isEmpty ||
         frame.functionName == 'function' ||
@@ -1511,26 +1585,28 @@ class _Traceback extends BuiltinFunction {
   @override
   Object? call(List<Object?> args) {
     Coroutine? thread;
-    Value? messageArg;
+    Object? messageArg;
     var level = 1;
 
-    if (args.isNotEmpty && (args[0] as Value).raw is Coroutine) {
-      thread = (args[0] as Value).raw as Coroutine;
-      messageArg = args.length > 1 ? args[1] as Value : null;
-      level = args.length > 2 ? _intArg(args[2] as Value, 0) : 0;
+    final firstRaw = args.isNotEmpty ? rawLuaSlot(args[0]) : null;
+    if (firstRaw is Coroutine) {
+      thread = firstRaw;
+      messageArg = args.length > 1 ? args[1] : null;
+      level = args.length > 2 ? _intArg(args[2], 0) : 0;
     } else {
-      messageArg = args.isNotEmpty ? args[0] as Value : null;
-      level = args.length > 1 ? _intArg(args[1] as Value, 1) : 1;
+      messageArg = args.isNotEmpty ? args[0] : null;
+      level = args.length > 1 ? _intArg(args[1], 1) : 1;
     }
 
+    final messageRaw = rawLuaSlot(messageArg);
     if (messageArg != null &&
-        messageArg.raw != null &&
-        messageArg.raw is! String &&
-        messageArg.raw is! LuaString) {
+        messageRaw != null &&
+        messageRaw is! String &&
+        messageRaw is! LuaString) {
       return messageArg;
     }
 
-    final message = messageArg?.raw?.toString() ?? "";
+    final message = messageRaw?.toString() ?? "";
     final trace = StringBuffer();
     if (message.isNotEmpty) {
       trace.writeln(message);
@@ -1546,9 +1622,9 @@ class _Traceback extends BuiltinFunction {
           coroutineError.luaStackTrace != null) {
         final formatted = coroutineError.luaStackTrace!.format();
         if (message.isEmpty) {
-          return Value(formatted);
+          return dartStringValue(formatted);
         }
-        return Value('$message\n$formatted');
+        return dartStringValue('$message\n$formatted');
       }
       final rawTopFrame = coroutine.rawDebugFrameAtLevel(1);
       final rawTopIsError =
@@ -1572,12 +1648,12 @@ class _Traceback extends BuiltinFunction {
         trace,
         _coroutineFrames(coroutine, startLevel).toList(growable: false),
       );
-      return Value(trace.toString().trimRight());
+      return dartStringValue(trace.toString().trimRight());
     }
 
     final runtime = _resolveDebugInterpreter(interpreter);
     if (runtime == null) {
-      return Value(trace.toString().trimRight());
+      return dartStringValue(trace.toString().trimRight());
     }
     final currentCoroutine = runtime.getCurrentCoroutine();
     final mainCoroutine = runtime.getMainThread();
@@ -1604,19 +1680,34 @@ class _Traceback extends BuiltinFunction {
         trace,
         _coroutineFrames(coroutine, startLevel).toList(growable: false),
       );
-      return Value(trace.toString().trimRight());
+      return dartStringValue(trace.toString().trimRight());
     }
     final startLevel = (level < 0 ? 0 : level) + 1;
     _appendTracebackFrames(
       trace,
       _currentFrames(runtime, startLevel).toList(growable: false),
     );
-    return Value(trace.toString().trimRight());
+    return dartStringValue(trace.toString().trimRight());
   }
 }
 
 class _UpvalueId extends BuiltinFunction {
-  _UpvalueId() : super();
+  _UpvalueId([super.interpreter]);
+
+  static final Expando<Value> _identityValues = Expando<Value>(
+    'debugUpvalueIdValues',
+  );
+
+  Value _identityValue(Object identity) {
+    final existing = _identityValues[identity];
+    if (existing != null) {
+      existing.interpreter ??= interpreter;
+      return existing;
+    }
+    final wrapped = valueFromOptionalLuaSlot(interpreter, identity);
+    _identityValues[identity] = wrapped;
+    return wrapped;
+  }
 
   @override
   Object? call(List<Object?> args) {
@@ -1624,36 +1715,38 @@ class _UpvalueId extends BuiltinFunction {
       throw LuaError("debug.upvalueid requires function and index");
     }
     final functionArg = args[0] as Value;
-    final indexArg = args[1] as Value;
+    final indexArg = args[1];
 
-    if (indexArg.raw is! num) {
+    final indexRaw = rawLuaSlot(indexArg);
+    if (indexRaw is! num) {
       throw LuaError("debug.upvalueid index must be a number");
     }
 
-    final index = (indexArg.raw as num).toInt();
+    final index = indexRaw.toInt();
     if (index < 1) {
-      return Value(null);
+      return primitiveValue(null);
     }
 
-    if (functionArg.raw case final LuaBytecodeClosure closure) {
+    final functionRaw = rawLuaSlot(functionArg);
+    if (functionRaw case final LuaBytecodeClosure closure) {
       if (index > closure.upvalueCount) {
-        return Value(null);
+        return primitiveValue(null);
       }
-      return Value(closure.upvalueIdentity(index - 1));
+      return _identityValue(closure.upvalueIdentity(index - 1));
     }
 
     final upvalues = functionArg.upvalues;
     if (upvalues == null || index > upvalues.length) {
-      return Value(null);
+      return primitiveValue(null);
     }
 
     final Upvalue upvalue = upvalues[index - 1];
-    return Value(upvalue.canonicalBox);
+    return _identityValue(upvalue.canonicalBox);
   }
 }
 
 class _UpvalueJoin extends BuiltinFunction {
-  _UpvalueJoin() : super();
+  _UpvalueJoin([super.interpreter]);
 
   @override
   Object? call(List<Object?> args) {
@@ -1662,25 +1755,29 @@ class _UpvalueJoin extends BuiltinFunction {
     }
 
     final f1Arg = args[0] as Value;
-    final n1Arg = args[1] as Value;
+    final n1Arg = args[1];
     final f2Arg = args[2] as Value;
-    final n2Arg = args[3] as Value;
+    final n2Arg = args[3];
 
     // Validate that indices are numbers
-    if (n1Arg.raw is! num || n2Arg.raw is! num) {
+    final n1Raw = rawLuaSlot(n1Arg);
+    final n2Raw = rawLuaSlot(n2Arg);
+    if (n1Raw is! num || n2Raw is! num) {
       throw LuaError("debug.upvaluejoin indices must be numbers");
     }
 
-    final n1 = (n1Arg.raw as num).toInt();
-    final n2 = (n2Arg.raw as num).toInt();
+    final n1 = n1Raw.toInt();
+    final n2 = n2Raw.toInt();
 
-    if (f1Arg.raw case final LuaBytecodeClosure f1Closure) {
-      if (f2Arg.raw is! LuaBytecodeClosure) {
+    final f1Raw = rawLuaSlot(f1Arg);
+    final f2Raw = rawLuaSlot(f2Arg);
+    if (f1Raw case final LuaBytecodeClosure f1Closure) {
+      if (f2Raw is! LuaBytecodeClosure) {
         throw LuaError(
           "debug.upvaluejoin: functions must both be bytecode closures",
         );
       }
-      final f2Closure = f2Arg.raw as LuaBytecodeClosure;
+      final f2Closure = f2Raw;
       if (n1 < 1 || n1 > f1Closure.upvalueCount) {
         throw LuaError("debug.upvaluejoin: f1 upvalue index $n1 out of bounds");
       }
@@ -1688,7 +1785,7 @@ class _UpvalueJoin extends BuiltinFunction {
         throw LuaError("debug.upvaluejoin: f2 upvalue index $n2 out of bounds");
       }
       f1Closure.joinUpvalueWith(n1 - 1, f2Closure, n2 - 1);
-      return Value(null);
+      return primitiveValue(null);
     }
 
     // Validate that both functions have upvalues
@@ -1716,7 +1813,7 @@ class _UpvalueJoin extends BuiltinFunction {
       category: 'Debug',
     );
 
-    return Value(null);
+    return primitiveValue(null);
   }
 }
 
@@ -1790,9 +1887,12 @@ class _GetInfoImpl extends BuiltinFunction {
 
     var argIndex = 0;
     Coroutine? thread;
-    final firstValue = args[0] is Value ? args[0] as Value : Value(args[0]);
-    if (firstValue.raw is Coroutine) {
-      thread = firstValue.raw as Coroutine;
+    final firstValue = args[0] is Value
+        ? args[0] as Value
+        : valueFromOptionalLuaSlot(interpreter, args[0]);
+    final firstValueRaw = rawLuaSlot(firstValue);
+    if (firstValueRaw is Coroutine) {
+      thread = firstValueRaw;
       argIndex = 1;
       if (args.length <= argIndex) {
         throw ArgumentError('debug.getinfo requires a level or function');
@@ -1801,7 +1901,7 @@ class _GetInfoImpl extends BuiltinFunction {
 
     final firstArg = args[argIndex] as Value;
     String? what = args.length > argIndex + 1
-        ? (args[argIndex + 1] as Value).raw.toString()
+        ? rawLuaSlot(args[argIndex + 1]).toString()
         : "flnSrtu";
 
     final optionError = _validateGetInfoOptions(what);
@@ -1827,10 +1927,11 @@ class _GetInfoImpl extends BuiltinFunction {
     }
 
     // Handle level-based lookup (when first arg is a number)
-    if (firstArg.raw is num) {
-      final level = (firstArg.raw as num).toInt();
+    final firstArgRaw = rawLuaSlot(firstArg);
+    if (firstArgRaw is num) {
+      final level = firstArgRaw.toInt();
       if (level < 0) {
-        return Value(null);
+        return primitiveValue(null);
       }
       final actualLevel = thread != null ? level : level + 1;
 
@@ -1871,6 +1972,7 @@ class _GetInfoImpl extends BuiltinFunction {
                       frame.callable?.functionBody == null)
               ? Value(
                   () => null,
+                  interpreter: interpreter,
                   closureEnvironment: thread.closureEnvironment,
                   functionBody: thread.functionBody,
                   functionName: thread.functionValue.functionName,
@@ -1887,6 +1989,7 @@ class _GetInfoImpl extends BuiltinFunction {
           final syntheticMainCallable = isMainChunkFrame && frame.env != null
               ? Value(
                   () => null,
+                  interpreter: interpreter,
                   closureEnvironment: frame.env,
                   functionName: '_MAIN_CHUNK',
                 )
@@ -1901,11 +2004,13 @@ class _GetInfoImpl extends BuiltinFunction {
               : interpreterInstance.debugInfoForFunction(callableValue);
 
           if (what.contains('n')) {
-            debugInfo['name'] = Value(frameNameInfo.name);
-            debugInfo['namewhat'] = Value(frameNameInfo.namewhat);
+            debugInfo['name'] = frameNameInfo.name == null
+                ? primitiveValue(null)
+                : dartStringValue(frameNameInfo.name!);
+            debugInfo['namewhat'] = dartStringValue(frameNameInfo.namewhat);
           }
           if (what.contains('S')) {
-            debugInfo['what'] = Value(
+            debugInfo['what'] = dartStringValue(
               isMainChunkFrame ? 'main' : (metadata?.what ?? 'Lua'),
             );
 
@@ -2002,19 +2107,19 @@ class _GetInfoImpl extends BuiltinFunction {
               }
             }
 
-            debugInfo['source'] = Value(sourceValue);
-            debugInfo['short_src'] = Value(shortSrc);
+            debugInfo['source'] = dartStringValue(sourceValue);
+            debugInfo['short_src'] = dartStringValue(shortSrc);
             final strippedLineDefined = metadata?.lineDefined ?? 1;
             final strippedLastLineDefined =
                 metadata?.lastLineDefined ?? metadata?.lineDefined ?? 1;
-            debugInfo['linedefined'] = Value(
+            debugInfo['linedefined'] = primitiveValue(
               isMainChunkFrame
                   ? 0
                   : (_frameHasStrippedDebugInfo(frame)
                         ? (strippedLineDefined > 0 ? strippedLineDefined : 1)
                         : (metadata?.lineDefined ?? -1)),
             );
-            debugInfo['lastlinedefined'] = Value(
+            debugInfo['lastlinedefined'] = primitiveValue(
               isMainChunkFrame
                   ? 0
                   : (_frameHasStrippedDebugInfo(frame)
@@ -2033,50 +2138,53 @@ class _GetInfoImpl extends BuiltinFunction {
                       frame.callNode!.span!.start.line + 1,
                     _ => -1,
                   };
-            debugInfo['currentline'] = Value(line);
+            debugInfo['currentline'] = primitiveValue(line);
           }
           if (what.contains('t')) {
-            debugInfo['istailcall'] = Value(frame.isTailCall);
-            debugInfo['extraargs'] = Value(frame.extraArgs);
+            debugInfo['istailcall'] = primitiveValue(frame.isTailCall);
+            debugInfo['extraargs'] = primitiveValue(frame.extraArgs);
           }
           if (what.contains('u')) {
-            debugInfo['nups'] = Value(
+            debugInfo['nups'] = primitiveValue(
               isMainChunkFrame ? (metadata?.nups ?? 1) : (metadata?.nups ?? 0),
             );
-            debugInfo['nparams'] = Value(
+            debugInfo['nparams'] = primitiveValue(
               isMainChunkFrame ? 0 : (metadata?.nparams ?? 0),
             );
-            debugInfo['isvararg'] = Value(
+            debugInfo['isvararg'] = primitiveValue(
               isMainChunkFrame ? true : (metadata?.isVararg ?? true),
             );
           }
           if (what.contains('r')) {
-            debugInfo['ftransfer'] = Value(frame.ftransfer);
-            debugInfo['ntransfer'] = Value(frame.ntransfer);
+            debugInfo['ftransfer'] = primitiveValue(frame.ftransfer);
+            debugInfo['ntransfer'] = primitiveValue(frame.ntransfer);
           }
           if (what.contains('f')) {
-            debugInfo['func'] = callableValue ?? Value(null);
+            debugInfo['func'] = callableValue ?? primitiveValue(null);
           }
           if (what.contains('L')) {
             final activeLines =
                 callableValue == null || _frameHasStrippedDebugInfo(frame)
-                ? Value(null)
+                ? primitiveValue(null)
                 : _collectActiveLines(callableValue);
             final whatKind = isMainChunkFrame
                 ? 'main'
                 : (metadata?.what ?? 'Lua');
-            if (activeLines.raw == null && whatKind != 'C') {
-              debugInfo['activelines'] = Value(<Object?, Object?>{});
+            if (rawLuaSlot(activeLines) == null && whatKind != 'C') {
+              debugInfo['activelines'] = _debugTableValue(
+                interpreter,
+                <Object?, Object?>{},
+              );
             } else {
               debugInfo['activelines'] = activeLines;
             }
           }
 
-          return Value(debugInfo);
+          return _debugTableValue(interpreter, debugInfo);
         }
       }
 
-      return Value(null);
+      return primitiveValue(null);
     }
 
     // Function-based lookup
@@ -2087,65 +2195,70 @@ class _GetInfoImpl extends BuiltinFunction {
 
       final debugInfo = <String, Value>{};
       if (what.contains('n')) {
-        debugInfo['name'] = Value(null);
-        debugInfo['namewhat'] = Value("");
+        debugInfo['name'] = primitiveValue(null);
+        debugInfo['namewhat'] = dartStringValue("");
       }
       if (what.contains('S')) {
-        debugInfo['what'] = Value(whatKind);
-        debugInfo['source'] = Value(src);
-        debugInfo['short_src'] = Value(
+        debugInfo['what'] = dartStringValue(whatKind);
+        debugInfo['source'] = dartStringValue(src);
+        debugInfo['short_src'] = dartStringValue(
           metadata?.shortSource ??
               (src.split('/').isNotEmpty ? src.split('/').last : src),
         );
-        debugInfo['linedefined'] = Value(metadata?.lineDefined ?? -1);
-        debugInfo['lastlinedefined'] = Value(metadata?.lastLineDefined ?? -1);
+        debugInfo['linedefined'] = primitiveValue(metadata?.lineDefined ?? -1);
+        debugInfo['lastlinedefined'] = primitiveValue(
+          metadata?.lastLineDefined ?? -1,
+        );
       }
       if (what.contains('l')) {
-        debugInfo['currentline'] = Value(-1);
+        debugInfo['currentline'] = primitiveValue(-1);
       }
       if (what.contains('u')) {
-        debugInfo['nups'] = Value(metadata?.nups ?? 0);
-        debugInfo['nparams'] = Value(metadata?.nparams ?? 0);
-        debugInfo['isvararg'] = Value(metadata?.isVararg ?? true);
+        debugInfo['nups'] = primitiveValue(metadata?.nups ?? 0);
+        debugInfo['nparams'] = primitiveValue(metadata?.nparams ?? 0);
+        debugInfo['isvararg'] = primitiveValue(metadata?.isVararg ?? true);
       }
       if (what.contains('r')) {
-        debugInfo['ftransfer'] = Value(0);
-        debugInfo['ntransfer'] = Value(0);
+        debugInfo['ftransfer'] = primitiveValue(0);
+        debugInfo['ntransfer'] = primitiveValue(0);
       }
       if (what.contains('t')) {
-        debugInfo['istailcall'] = Value(false);
-        debugInfo['extraargs'] = Value(0);
+        debugInfo['istailcall'] = primitiveValue(false);
+        debugInfo['extraargs'] = primitiveValue(0);
       }
       if (what.contains('f')) {
         debugInfo['func'] = firstArg;
       }
       if (what.contains('L')) {
         final activeLines = firstArg.strippedDebugInfo
-            ? Value(<Object?, Object?>{})
+            ? _debugTableValue(interpreter, <Object?, Object?>{})
             : _collectActiveLines(firstArg);
-        if (activeLines.raw == null && (whatKind != 'C')) {
-          debugInfo['activelines'] = Value(<Object?, Object?>{});
+        if (rawLuaSlot(activeLines) == null && (whatKind != 'C')) {
+          debugInfo['activelines'] = _debugTableValue(
+            interpreter,
+            <Object?, Object?>{},
+          );
         } else {
           debugInfo['activelines'] = activeLines;
         }
       }
-      return Value(debugInfo);
+      return _debugTableValue(interpreter, debugInfo);
     }
 
     // Fallback: unknown type
-    return Value({
-      'name': Value(null),
-      'namewhat': Value(""),
-      'what': Value("C"),
-      'source': Value("=[C]"),
-      'short_src': Value("[C]"),
-      'currentline': Value(-1),
-      'linedefined': Value(-1),
-      'lastlinedefined': Value(-1),
-      'nups': Value(0),
-      'nparams': Value(0),
-      'isvararg': Value(false),
-      'istailcall': Value(false),
+    return _debugTableValue(interpreter, {
+      'name': primitiveValue(null),
+      'namewhat': dartStringValue(""),
+      'what': dartStringValue("C"),
+      'source': dartStringValue("=[C]"),
+      'short_src': dartStringValue("[C]"),
+      'currentline': primitiveValue(-1),
+      'linedefined': primitiveValue(-1),
+      'lastlinedefined': primitiveValue(-1),
+      'nups': primitiveValue(0),
+      'nparams': primitiveValue(0),
+      'isvararg': primitiveValue(false),
+      'istailcall': primitiveValue(false),
     });
   }
 }
@@ -2166,29 +2279,30 @@ String? _validateGetInfoOptions(String what) {
 }
 
 Value _collectActiveLines(Value function) {
+  final runtime = function.interpreter;
   if (function.strippedDebugInfo) {
-    return Value(<Object?, Object?>{});
+    return _debugTableValue(runtime, <Object?, Object?>{});
   }
-  if (function.raw case final LuaBytecodeClosure closure) {
+  if (rawLuaSlot(function) case final LuaBytecodeClosure closure) {
     final prototype = closure.prototype;
     if (!prototype.hasDebugInfo) {
-      return Value(<Object?, Object?>{});
+      return _debugTableValue(runtime, <Object?, Object?>{});
     }
     final lines = <Object?, Object?>{};
     for (var pc = 0; pc < prototype.code.length; pc++) {
       final line = prototype.lineForPc(pc);
       if (line != null && line > 0) {
-        lines[line] = Value(true);
+        lines[line] = _debugPrimitiveValue(runtime, true);
       }
     }
     if (prototype.lastLineDefined > 0) {
-      lines[prototype.lastLineDefined] = Value(true);
+      lines[prototype.lastLineDefined] = _debugPrimitiveValue(runtime, true);
     }
-    return Value(lines);
+    return _debugTableValue(runtime, lines);
   }
   final body = function.functionBody;
   if (body == null) {
-    return Value(null);
+    return _debugNilValue(runtime);
   }
 
   final lines = <int>{};
@@ -2369,14 +2483,14 @@ Value _collectActiveLines(Value function) {
   }
 
   if (!hasDebugInfo) {
-    return Value(<Object?, Object?>{});
+    return _debugTableValue(runtime, <Object?, Object?>{});
   }
 
   final activeLines = <Object?, Object?>{};
   for (final line in lines.toList()..sort()) {
-    activeLines[line] = Value(true);
+    activeLines[line] = _debugPrimitiveValue(runtime, true);
   }
-  return Value(activeLines);
+  return _debugTableValue(runtime, activeLines);
 }
 
 /// Helper method to extract source URL from child AST nodes
@@ -2494,23 +2608,23 @@ Map<String, BuiltinFunction> createDebugLib(LuaRuntime? astVm) {
     'gethook': _GetHook(astVm),
     'getinfo': createGetInfoFunction(astVm), // Use new optimized implementation
     'getlocal': _GetLocal(astVm!),
-    'getmetatable': _GetMetatable(),
+    'getmetatable': _GetMetatable(astVm),
     'getregistry': _GetRegistry(astVm),
     'getupvalue': _GetUpvalue(astVm),
-    'getuservalue': _GetUserValue(),
+    'getuservalue': _GetUserValue(astVm),
     'sethook': _SetHook(astVm),
     'setlocal': _SetLocal(astVm),
-    'setmetatable': _SetMetatable(),
-    'setupvalue': _SetUpvalue(),
-    'setuservalue': _SetUserValue(),
+    'setmetatable': _SetMetatable(astVm),
+    'setupvalue': _SetUpvalue(astVm),
+    'setuservalue': _SetUserValue(astVm),
     'traceback': _Traceback(astVm),
-    'upvalueid': _UpvalueId(),
-    'upvaluejoin': _UpvalueJoin(),
+    'upvalueid': _UpvalueId(astVm),
+    'upvaluejoin': _UpvalueJoin(astVm),
 
     // Memory debugging functions
-    'memtrace': _MemTrace(),
-    'memtree': _MemTree(),
-    'memclear': _MemClear(),
+    'memtrace': _MemTrace(astVm),
+    'memtree': _MemTree(astVm),
+    'memclear': _MemClear(astVm),
   };
 }
 
@@ -2531,24 +2645,24 @@ void defineDebugLibrary({required Environment env, LuaRuntime? vm}) {
 
   // Create and define the debug table
   DebugLib.functions = createDebugLib(vm);
-  final debugTable = Value(DebugLib.functions);
+  final debugTable = Value(DebugLib.functions, interpreter: vm);
   env.define("debug", debugTable);
 
   // Ensure the same object is stored in package.loaded for require() equality
   final packageTable = env.get("package");
   if (packageTable != null &&
       packageTable is Value &&
-      packageTable.raw is Map) {
-    final packageMap = packageTable.raw as Map;
+      rawLuaSlot(packageTable) is Map) {
+    final packageMap = rawLuaSlot(packageTable) as Map;
 
     // Ensure package.loaded exists
     if (!packageMap.containsKey("loaded")) {
-      packageMap["loaded"] = Value({});
+      packageMap["loaded"] = valueFromOptionalLuaSlot(vm, <dynamic, dynamic>{});
     }
 
     final loadedTable = packageMap["loaded"];
-    if (loadedTable is Value && loadedTable.raw is Map) {
-      final loadedMap = loadedTable.raw as Map;
+    if (loadedTable is Value && rawLuaSlot(loadedTable) is Map) {
+      final loadedMap = rawLuaSlot(loadedTable) as Map;
       // Store the same debug table object to ensure require("debug") == debug
       loadedMap["debug"] = debugTable;
       Logger.debugLazy(
@@ -2625,43 +2739,43 @@ String _inferIdentifierNameWhat(Environment? env, String name) {
 
 /// Enable/disable memory allocation stack trace tracking
 class _MemTrace extends BuiltinFunction {
-  _MemTrace() : super();
+  _MemTrace([super.interpreter]);
 
   @override
   Object? call(List<Object?> args) {
     if (args.isEmpty) {
-      return Value(MemoryCredits.enableStackTraces);
+      return primitiveValue(MemoryCredits.enableStackTraces);
     }
 
     final enable = args[0];
     if (enable is Value) {
-      MemoryCredits.enableStackTraces = enable.raw == true;
+      MemoryCredits.enableStackTraces = rawLuaSlot(enable) == true;
     } else {
       MemoryCredits.enableStackTraces = enable == true;
     }
 
-    return Value(null);
+    return primitiveValue(null);
   }
 }
 
 /// Print memory allocation tree
 class _MemTree extends BuiltinFunction {
-  _MemTree() : super();
+  _MemTree([super.interpreter]);
 
   @override
   Object? call(List<Object?> args) {
     MemoryCredits.instance.printAllocationTree();
-    return Value(null);
+    return primitiveValue(null);
   }
 }
 
 /// Clear tracked objects list for debugging specific allocations
 class _MemClear extends BuiltinFunction {
-  _MemClear() : super();
+  _MemClear([super.interpreter]);
 
   @override
   Object? call(List<Object?> args) {
     MemoryCredits.instance.clearTrackedObjects();
-    return Value(null);
+    return primitiveValue(null);
   }
 }

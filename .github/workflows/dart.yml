@@ -21,12 +21,15 @@ jobs:
         sdk: [stable, beta]
     steps:
       - uses: actions/checkout@v4
-      - uses: subosito/flutter-action@v2
+      - uses: leafo/gh-actions-lua@v13
         with:
-          channel: ${{ matrix.sdk }}
+          luaVersion: "5.5"
+      - uses: dart-lang/setup-dart@v1
+        with:
+          sdk: ${{ matrix.sdk }}
 
       - name: Install dependencies
-        run: flutter pub get
+        run: dart pub get
 
       - run: dart format --output=none --set-exit-if-changed .
 

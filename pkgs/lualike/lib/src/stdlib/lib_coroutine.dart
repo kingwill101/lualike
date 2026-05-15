@@ -5,6 +5,8 @@ import 'package:lualike/src/environment.dart';
 import 'package:lualike/src/runtime/lua_runtime.dart';
 import 'package:lualike/src/lua_error.dart';
 import 'package:lualike/src/number_utils.dart';
+import 'package:lualike/src/runtime/lua_results.dart';
+import 'package:lualike/src/runtime/lua_slot.dart';
 import 'package:lualike/src/value.dart';
 
 import 'library.dart';
@@ -13,27 +15,24 @@ Value _threadValue(LuaRuntime interpreter, Coroutine coroutine) =>
     Value(coroutine, interpreter: interpreter);
 
 Coroutine _expectCoroutine(Object? raw, String functionName, int index) {
-  final value = raw is Value ? raw : Value(raw);
-  if (value.raw is! Coroutine) {
+  final target = rawLuaSlot(raw);
+  if (target is! Coroutine) {
     throw LuaError.typeError(
       "bad argument #$index to '$functionName' "
-      "(thread expected, got ${NumberUtils.typeName(value.raw)})",
+      "(thread expected, got ${NumberUtils.typeName(target)})",
     );
   }
-  return value.raw as Coroutine;
+  return target;
 }
 
 FunctionBody? _requireFunctionBody(Value functionValue, String functionName) {
+  final raw = rawLuaSlot(functionValue);
   final FunctionBody? body =
-      functionValue.functionBody ??
-      (functionValue.raw is FunctionBody
-          ? functionValue.raw as FunctionBody
-          : null);
+      functionValue.functionBody ?? (raw is FunctionBody ? raw : null);
   if (body != null) {
     return body;
   }
 
-  final raw = functionValue.raw;
   // Bytecode-backed Lua callables (LuaCallableArtifact) are produced by the
   // bytecode VM and must be treated as callable for coroutine creation, even
   // though they don't carry an AST FunctionBody. Narrowing this check would
@@ -63,10 +62,6 @@ Environment _resolveClosureEnvironment(
 List<Object?> _cloneArgs(List<Object?> args) =>
     args.isEmpty ? const [] : List<Object?>.from(args);
 
-bool _isTrue(Object? value) {
-  final dynamic raw = value is Value ? value.raw : value;
-  return raw != null && raw != false;
-}
 
 String _statusToString(LuaRuntime interpreter, Coroutine coroutine) {
   final Coroutine main = interpreter.getMainThread();
@@ -99,12 +94,12 @@ CoroutineStatus _closeStatus(LuaRuntime interpreter, Coroutine coroutine) {
   };
 }
 
-Value _resumeResultToValue(Value resumeResult) {
-  if (!resumeResult.isMulti) {
+Object? _resumeResultToValue(Object? resumeResult) {
+  final resultValues = luaResultValues(resumeResult);
+  if (resultValues == null) {
     return resumeResult;
   }
-  final raw = resumeResult.raw as List<Object?>;
-  return Value.multi(raw);
+  return LuaResults(resultValues);
 }
 
 /// Coroutine library implementation using the Library system.
@@ -115,11 +110,9 @@ class CoroutineLibrary extends Library {
   @override
   Map<String, Function>? getMetamethods(LuaRuntime interpreter) => {
     "__index": (List<Object?> args) {
-      final _ = args[0] as Value;
-      final keyValue = args[1] as Value;
-      final key = keyValue.raw is String
-          ? keyValue.raw as String
-          : keyValue.toString();
+      final keyValue = args[1];
+      final rawKey = rawLuaSlot(keyValue);
+      final key = rawKey is String ? rawKey : keyValue.toString();
 
       switch (key) {
         case "running":
@@ -139,7 +132,7 @@ class CoroutineLibrary extends Library {
         case "isyieldable":
           return _CoroutineIsYieldable(interpreter);
         default:
-          return Value(null);
+          return interpreter.constantPrimitiveValue(null);
       }
     },
   };
@@ -168,7 +161,7 @@ class _CoroutineRunning extends BuiltinFunction {
     final Coroutine main = _interpreter.getMainThread();
     final Coroutine current = Coroutine.active ?? main;
     final isMain = identical(current, main);
-    return Value.multi([_threadValue(_interpreter, current), Value(isMain)]);
+    return LuaResults([_threadValue(_interpreter, current), isMain]);
   }
 }
 
@@ -186,7 +179,10 @@ class _CoroutineStatus extends BuiltinFunction {
     }
 
     final Coroutine coroutine = _expectCoroutine(args[0], "status", 1);
-    return Value(_statusToString(_interpreter, coroutine));
+    return valueFromLuaSlot(
+      _interpreter,
+      _statusToString(_interpreter, coroutine),
+    );
   }
 }
 
@@ -203,13 +199,12 @@ class _CoroutineCreate extends BuiltinFunction {
       );
     }
 
-    final Value functionValue = args[0] is Value
-        ? args[0] as Value
-        : Value(args[0]);
+    final functionValue = valueFromLuaSlot(_interpreter, args[0]);
     if (!functionValue.isCallable()) {
       throw LuaError.typeError(
         "bad argument #1 to 'create' "
-        "(function expected, got ${NumberUtils.typeName(functionValue.raw)})",
+        "(function expected, got "
+        "${NumberUtils.typeName(rawLuaSlot(functionValue))})",
       );
     }
 
@@ -237,7 +232,7 @@ class _CoroutineResume extends BuiltinFunction {
     final Coroutine coroutine = _expectCoroutine(args[0], "resume", 1);
     final Coroutine main = _interpreter.getMainThread();
     if (identical(coroutine, main)) {
-      return Value.multi([Value(false), Value("cannot resume main thread")]);
+      return LuaResults([false, "cannot resume main thread"]);
     }
 
     final Coroutine? previous = _interpreter.getCurrentCoroutine();
@@ -249,7 +244,7 @@ class _CoroutineResume extends BuiltinFunction {
     }
 
     final resumeArgs = _cloneArgs(args.length > 1 ? args.sublist(1) : const []);
-    final Value result = await coroutine.resume(resumeArgs);
+    final result = await coroutine.resume(resumeArgs);
     return _resumeResultToValue(result);
   }
 }
@@ -274,7 +269,8 @@ class _CoroutineYield extends BuiltinFunction {
     }
 
     await current.yield_(args);
-    return Value(null); // Unreachable, included for completeness
+    // Unreachable, included for completeness.
+    return _interpreter.constantPrimitiveValue(null);
   }
 }
 
@@ -291,13 +287,12 @@ class _CoroutineWrap extends BuiltinFunction {
       );
     }
 
-    final Value functionValue = args[0] is Value
-        ? args[0] as Value
-        : Value(args[0]);
+    final functionValue = valueFromLuaSlot(_interpreter, args[0]);
     if (!functionValue.isCallable()) {
       throw LuaError.typeError(
         "bad argument #1 to 'wrap' "
-        "(function expected, got ${NumberUtils.typeName(functionValue.raw)})",
+        "(function expected, got "
+        "${NumberUtils.typeName(rawLuaSlot(functionValue))})",
       );
     }
 
@@ -305,14 +300,18 @@ class _CoroutineWrap extends BuiltinFunction {
     final closureEnv = _resolveClosureEnvironment(_interpreter, functionValue);
     final coroutine = Coroutine(functionValue, body, closureEnv);
     _interpreter.registerCoroutine(coroutine);
-    return Value(_WrappedCoroutineFunction(coroutine));
+    return valueFromLuaSlot(
+      _interpreter,
+      _WrappedCoroutineFunction(_interpreter, coroutine),
+    );
   }
 }
 
 class _WrappedCoroutineFunction extends BuiltinFunction
     implements BuiltinFunctionGcRefs {
-  _WrappedCoroutineFunction(this._coroutine);
+  _WrappedCoroutineFunction(this._interpreter, this._coroutine);
 
+  final LuaRuntime _interpreter;
   final Coroutine _coroutine;
 
   @override
@@ -322,47 +321,46 @@ class _WrappedCoroutineFunction extends BuiltinFunction
 
   @override
   Future<Object?> call(List<Object?> callArgs) async {
-    final Value resumeResult = await _coroutine.resume(_cloneArgs(callArgs));
+    final resumeResult = await _coroutine.resume(_cloneArgs(callArgs));
 
-    if (!resumeResult.isMulti) {
+    final resultValues = luaResultValues(resumeResult);
+    if (resultValues == null) {
       return resumeResult;
     }
 
-    final raw = resumeResult.raw as List<Object?>;
+    final raw = resultValues;
     if (raw.isEmpty) {
-      return Value(null);
+      return _interpreter.constantPrimitiveValue(null);
     }
 
-    final success = _isTrue(raw.first);
+    final success = isLuaTruthy(raw.first);
     if (!success) {
-      final Object? errValue = raw.length > 1 ? raw[1] : Value(null);
-      throw errValue is Value ? errValue : Value(errValue);
+      final Object? errValue = raw.length > 1
+          ? raw[1]
+          : _interpreter.constantPrimitiveValue(null);
+      throw valueFromLuaSlot(_interpreter, errValue);
     }
 
     if (raw.length == 1) {
-      return Value.multi(const <Object?>[]);
+      return const LuaResults.empty();
     }
 
-    final values = raw
-        .sublist(1)
-        .map((v) => v is Value ? v : Value(v))
-        .toList();
+    final values = raw.sublist(1);
     if (values.length == 1) {
       return values.first;
     }
-    return Value.multi(values);
+    return LuaResults(values);
   }
 }
 
 class _CoroutineClose extends BuiltinFunction {
   _CoroutineClose([super.interpreter]);
 
-  Object? _closeResultToValue(List<Object?> result) {
+  Object? _closeResultToValue(LuaRuntime runtime, List<Object?> result) {
     if (result.length == 1) {
-      final value = result.first;
-      return value is Value ? value : Value(value);
+      return valueFromLuaSlot(runtime, result.first);
     }
-    return Value.multi(result);
+    return LuaResults(result);
   }
 
   @override
@@ -380,14 +378,14 @@ class _CoroutineClose extends BuiltinFunction {
         : args.length > 1
         ? args[1]
         : null;
-    final normalizedError = error is Value ? error.raw : error;
+    final normalizedError = rawLuaSlot(error);
     final CoroutineStatus status = _closeStatus(runtime, coroutine);
 
     switch (status) {
       case CoroutineStatus.dead:
       case CoroutineStatus.suspended:
         final List<Object?> result = await coroutine.close(normalizedError);
-        return _closeResultToValue(result);
+        return _closeResultToValue(runtime, result);
       case CoroutineStatus.normal:
         throw LuaError(
           "cannot close a ${_statusToString(runtime, coroutine)} coroutine",
@@ -400,7 +398,7 @@ class _CoroutineClose extends BuiltinFunction {
         if (identical(coroutine, current)) {
           throw CoroutineCloseSignal(result);
         }
-        return _closeResultToValue(result);
+        return _closeResultToValue(runtime, result);
     }
   }
 }
@@ -414,10 +412,10 @@ class _CoroutineIsYieldable extends BuiltinFunction {
 
     if (args.isEmpty) {
       final Coroutine current = Coroutine.active ?? main;
-      return Value(current.isYieldable(main));
+      return primitiveValue(current.isYieldable(main));
     }
 
     final Coroutine coroutine = _expectCoroutine(args[0], "isyieldable", 1);
-    return Value(coroutine.isYieldable(main));
+    return primitiveValue(coroutine.isYieldable(main));
   }
 }

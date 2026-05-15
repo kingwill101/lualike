@@ -3,6 +3,7 @@ import 'dart:collection';
 import 'package:lualike/src/builtin_function.dart';
 import 'package:lualike/src/environment.dart';
 import 'package:lualike/src/runtime/lua_runtime.dart';
+import 'package:lualike/src/runtime/lua_slot.dart';
 import 'package:lualike/src/value.dart';
 import 'metatables.dart' show MetaTable;
 
@@ -96,7 +97,7 @@ class BuiltinFunctionBuilder {
 class _BuiltinFunctionImpl extends BuiltinFunction {
   final Object? Function(List<Object?> args) _implementation;
 
-  _BuiltinFunctionImpl(LuaRuntime interpreter, this._implementation);
+  _BuiltinFunctionImpl(super.interpreter, this._implementation);
 
   @override
   Object? call(List<Object?> args) {
@@ -210,18 +211,23 @@ class LibraryRegistry {
         ? library.getMetamethods(context.interpreter!)
         : null;
     final libraryValue = metamethods != null
-        ? Value(libraryTable, metatable: metamethods)
-        : Value(libraryTable);
+        ? Value(
+            libraryTable,
+            metatable: metamethods,
+            interpreter: context.interpreter,
+          )
+        : Value(libraryTable, interpreter: context.interpreter);
 
     final existing = context.environment.get(library.name);
-    if (existing is Value && existing.raw is LazyLibraryMap) {
+    final rawExisting = rawLuaSlot(existing);
+    if (existing is Value && rawExisting is LazyLibraryMap) {
       // Reuse the existing Value so any cached references continue to work.
-      final lazyMap = existing.raw as LazyLibraryMap;
-      lazyMap.attach(libraryValue);
-      existing.raw = libraryValue.raw;
+      rawExisting.attach(libraryValue);
+      existing.raw = rawLuaSlot(libraryValue);
       existing.metatable = libraryValue.metatable;
       existing.metatableRef = libraryValue.metatableRef;
       existing.functionName = libraryValue.functionName;
+      existing.interpreter ??= context.interpreter;
       context.environment.define(library.name, existing);
       _updatePackageLoaded(context.environment, library.name, existing);
       return existing;
@@ -242,15 +248,15 @@ void _updatePackageLoaded(
     return;
   }
   final packageValue = env.get('package');
-  if (packageValue is! Value || packageValue.raw is! Map) {
+  final packageMap = rawLuaSlot(packageValue);
+  if (packageMap is! Map) {
     return;
   }
-  final packageMap = packageValue.raw as Map;
   final loaded = packageMap['loaded'];
-  if (loaded is! Value || loaded.raw is! Map) {
+  final loadedMap = rawLuaSlot(loaded);
+  if (loadedMap is! Map) {
     return;
   }
-  final loadedMap = loaded.raw as Map;
   loadedMap[libraryName] = libraryValue;
   if (libraryName == 'string') {
     MetaTable.refreshStringCache();
@@ -281,16 +287,18 @@ class LazyLibraryMap extends MapBase<String, dynamic> {
     }
     _loading = true;
     final initialized = registry.initializeLibraryByName(libraryName);
-    if (initialized is Value && initialized.raw is Map) {
-      _resolved = initialized.raw as Map<String, dynamic>;
+    final rawInitialized = rawLuaSlot(initialized);
+    if (rawInitialized is Map) {
+      _resolved = rawInitialized as Map<String, dynamic>;
     }
     if (_resolved != null) {
       _loading = false;
       return _resolved!;
     }
     final value = env.get(libraryName);
-    if (value is Value && value.raw is Map) {
-      _resolved = value.raw as Map<String, dynamic>;
+    final rawValue = rawLuaSlot(value);
+    if (rawValue is Map) {
+      _resolved = rawValue as Map<String, dynamic>;
     } else {
       _resolved = <String, dynamic>{};
     }
@@ -299,8 +307,9 @@ class LazyLibraryMap extends MapBase<String, dynamic> {
   }
 
   void attach(Value value) {
-    if (value.raw is Map) {
-      _resolved = value.raw as Map<String, dynamic>;
+    final rawValue = rawLuaSlot(value);
+    if (rawValue is Map) {
+      _resolved = rawValue as Map<String, dynamic>;
     }
   }
 
@@ -345,7 +354,11 @@ class LibraryRegistrationContext extends LibraryContext {
     // This prevents temporary Value allocations that affect collectgarbage("count").
     if ((function is BuiltinFunction || function is Function) &&
         function is! Value) {
-      _functionMap[name] = Value(function, functionName: name);
+      _functionMap[name] = Value(
+        function,
+        functionName: name,
+        interpreter: interpreter,
+      );
     } else {
       _functionMap[name] = function;
     }

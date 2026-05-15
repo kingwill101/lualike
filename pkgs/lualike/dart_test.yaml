@@ -1,7 +1,7 @@
-concurrency: 4
+#concurrency: 4
 timeout: 30s
-reporter: expanded
-
+#reporter: expanded
+#
 tags:
   # Artifact-family tags
   ir: {}

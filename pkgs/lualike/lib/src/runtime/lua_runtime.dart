@@ -21,6 +21,9 @@ String luaStringCacheKey(List<int> bytes) {
 /// represent the intended Lua byte sequence.
 String luaStringCacheKeyFromRawString(String value) => 'b:$value';
 
+/// Produces a cache key for public Dart-string [Value] wrappers.
+String dartStringCacheKey(String value) => 's:$value';
+
 /// Result of loading a chunk through the active runtime engine.
 class LuaChunkLoadResult {
   const LuaChunkLoadResult.success(this.chunk) : errorMessage = null;
@@ -101,7 +104,9 @@ abstract interface class LuaRuntime {
   LuaFunctionDebugInfo? debugInfoForFunction(Value function);
   Value constantStringValue(List<int> bytes);
   Value constantRawStringValue(String value);
+  Value constantDartStringValue(String value);
   Value constantPrimitiveValue(Object? raw);
+  Value wrapRuntimeValue(Object? raw);
 
   // Call stack & debugging
   CallStack get callStack;
@@ -137,6 +142,10 @@ abstract interface class LuaRuntime {
   // IO / modules
   FileManager get fileManager;
   LibraryRegistry get libraryRegistry;
+
+  /// Per-interpreter set of open (non-standard) file Value wrappers.
+  /// Used as GC roots so the lualike collector does not finalize live handles.
+  Set<Value> get openFiles;
 
   // Diagnostics
   void reportError(
