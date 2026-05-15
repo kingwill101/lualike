@@ -1,11 +1,11 @@
-import 'dart:collection';
-
 import 'package:lualike/src/builtin_function.dart';
 import 'package:lualike/src/runtime/lua_runtime.dart';
 import 'package:lualike/src/logging/logger.dart';
 import 'package:lualike/src/lua_error.dart';
 import 'package:lualike/src/lua_string.dart';
 import 'package:lualike/src/number_utils.dart';
+import 'package:lualike/src/runtime/lua_results.dart';
+import 'package:lualike/src/runtime/lua_slot.dart';
 import 'package:lualike/src/utils/io_abstractions.dart' as io_abs;
 import 'package:lualike/src/utils/platform_utils.dart' as platform;
 import 'package:lualike/src/utils/type.dart' show getLuaType;
@@ -72,22 +72,21 @@ class IOLibrary extends Library {
   }
 }
 
+String _ioString(Object? value) => rawLuaSlotString(value);
+
+List<String> _ioStringList(Iterable<Object?> values) =>
+    values.map(_ioString).toList();
+
 LuaFile? extractLuaFile(dynamic value) {
-  if (value is LuaFile) {
-    // already a LuaFile
-    return value;
-  }
-  if (value is Value && value.raw is LuaFile) {
-    // wrapped in a Value
-    return value.raw as LuaFile;
-  }
-  return null;
+  final raw = rawLuaSlot(value);
+  return raw is LuaFile ? raw : null;
 }
 
 /// Helper function to check if a value represents a LuaFile
-bool isLuaFile(dynamic value) {
-  return value is LuaFile || (value is Value && value.raw is LuaFile);
-}
+bool isLuaFile(dynamic value) => extractLuaFile(value) != null;
+
+bool _isLuaFileWrapperFor(Value? value, LuaFile file) =>
+    identical(extractLuaFile(value), file);
 
 class IOLib {
   // Singleton instances for standard devices
@@ -104,18 +103,15 @@ class IOLib {
   static Value? _defaultOutput;
   static bool _defaultOutputExplicitlyClosed = false;
 
-  static final Set<Value> _openFiles = HashSet<Value>(
-    equals: identical,
-    hashCode: identityHashCode,
-  );
-
   static void _debugOpenFileLog(String message) {
     if (platform.getEnvironmentVariable('LUALIKE_DEBUG_FILE_OPS') == '1') {
       io_abs.stderr.writeln('[file-debug] $message');
     }
   }
 
-  static List<Object?> get gcRoots {
+  /// Returns GC roots for [runtime]'s IO state: standard handles plus every
+  /// open file registered with that interpreter instance.
+  static List<Object?> gcRootsFor(LuaRuntime runtime) {
     final roots = <Object?>[];
     final seen = Expando<bool>('ioGcRootsSeen');
 
@@ -130,43 +126,68 @@ class IOLib {
     add(_stdoutValue);
     add(_defaultInput);
     add(_defaultOutput);
+    // All open files registered to this interpreter are GC roots. Without
+    // this the lualike collector can mark a file Value as dead (no path from
+    // env roots) and run its __gc finalizer even though the file is still
+    // open and referenced by a global in a loaded chunk.
+    for (final v in runtime.openFiles) {
+      add(v);
+    }
     return roots;
   }
 
-  static void registerOpenFile(Value fileValue) {
-    if (fileValue.raw is LuaFile) {
-      final luaFile = fileValue.raw as LuaFile;
-      if (!luaFile.isStandardFile) {
-        _openFiles.add(fileValue);
-        _debugOpenFileLog(
-          'register fileValue=${identityHashCode(fileValue)} '
-          'raw=${identityHashCode(luaFile)} '
-          'device=${identityHashCode(luaFile.device)} '
-          'openCount=${_openFiles.length}',
-        );
-      }
+  static void registerOpenFile(Value fileValue, {LuaRuntime? interpreter}) {
+    final luaFile = extractLuaFile(fileValue);
+    if (luaFile != null && !luaFile.isStandardFile) {
+      final rt = interpreter ?? fileValue.interpreter;
+      rt?.openFiles.add(fileValue);
+      _debugOpenFileLog(
+        'register fileValue=${identityHashCode(fileValue)} '
+        'raw=${identityHashCode(luaFile)} '
+        'device=${identityHashCode(luaFile.device)} '
+        'interpreter=${identityHashCode(rt)} '
+        'openCount=${rt?.openFiles.length ?? -1}',
+      );
     }
   }
 
-  static void unregisterOpenFile(Value fileValue) {
-    if (fileValue.raw case final LuaFile luaFile) {
+  static void unregisterOpenFile(
+    Value fileValue, {
+    LuaRuntime? interpreter,
+  }) {
+    if (extractLuaFile(fileValue) case final LuaFile luaFile) {
+      final rt = interpreter ?? fileValue.interpreter;
       _debugOpenFileLog(
         'unregister fileValue=${identityHashCode(fileValue)} '
         'raw=${identityHashCode(luaFile)} '
         'device=${identityHashCode(luaFile.device)} '
-        'before=${_openFiles.length}',
+        'interpreter=${identityHashCode(rt)} '
+        'before=${rt?.openFiles.length ?? -1}',
       );
+      rt?.openFiles.remove(fileValue);
     }
-    _openFiles.remove(fileValue);
   }
 
-  static void unregisterOpenFileForLuaFile(LuaFile file) {
-    _openFiles.removeWhere((value) => value.raw == file);
+  static void unregisterOpenFileForLuaFile(
+    LuaFile file, {
+    LuaRuntime? interpreter,
+  }) {
+    interpreter?.openFiles.removeWhere(
+      (value) => _isLuaFileWrapperFor(value, file),
+    );
   }
 
-  static Value? trackedOpenFileWrapper(LuaFile file) {
-    for (final value in _openFiles) {
-      if (identical(value.raw, file)) {
+  static Value? trackedOpenFileWrapper(LuaFile file, {LuaRuntime? interpreter}) {
+    final set = interpreter?.openFiles;
+    if (set == null) {
+      _debugOpenFileLog(
+        'tracked-miss (no interpreter) raw=${identityHashCode(file)} '
+        'device=${identityHashCode(file.device)}',
+      );
+      return null;
+    }
+    for (final value in set) {
+      if (_isLuaFileWrapperFor(value, file)) {
         _debugOpenFileLog(
           'tracked-hit fileValue=${identityHashCode(value)} '
           'raw=${identityHashCode(file)} '
@@ -178,14 +199,14 @@ class IOLib {
     _debugOpenFileLog(
       'tracked-miss raw=${identityHashCode(file)} '
       'device=${identityHashCode(file.device)} '
-      'openCount=${_openFiles.length}',
+      'openCount=${set.length}',
     );
     return null;
   }
 
   static bool isCurrentDefaultFile(LuaFile file) {
-    return identical(_defaultInput?.raw, file) ||
-        identical(_defaultOutput?.raw, file);
+    return _isLuaFileWrapperFor(_defaultInput, file) ||
+        _isLuaFileWrapperFor(_defaultOutput, file);
   }
 
   // Get singleton instances
@@ -283,26 +304,37 @@ class IOLib {
   }
 
   static Future<void> reset() async {
-    if (_defaultInput != null && _defaultInput!.raw is LuaFile) {
-      final luaFile = _defaultInput!.raw as LuaFile;
+    final defaultInputValue = _defaultInput;
+    final defaultInputFile = extractLuaFile(defaultInputValue);
+    if (defaultInputFile != null) {
+      final luaFile = defaultInputFile;
       if (luaFile.device is! StdinDevice) {
         await luaFile.close();
-        IOLib.unregisterOpenFileForLuaFile(luaFile);
+        IOLib.unregisterOpenFileForLuaFile(
+          luaFile,
+          interpreter: defaultInputValue?.interpreter,
+        );
       }
     }
     _defaultInput = null;
 
-    if (_defaultOutput != null && _defaultOutput!.raw is LuaFile) {
-      final luaFile = _defaultOutput!.raw as LuaFile;
+    final defaultOutputValue = _defaultOutput;
+    final defaultOutputFile = extractLuaFile(defaultOutputValue);
+    if (defaultOutputFile != null) {
+      final luaFile = defaultOutputFile;
       if (luaFile.device is! StdoutDevice) {
         await luaFile.close();
-        IOLib.unregisterOpenFileForLuaFile(luaFile);
+        IOLib.unregisterOpenFileForLuaFile(
+          luaFile,
+          interpreter: defaultOutputValue?.interpreter,
+        );
       }
     }
     _defaultOutput = null;
     _defaultOutputExplicitlyClosed = false;
     _stdinValue = null;
     _stdoutValue = null;
+    // openFiles is per-interpreter; no static set to clear.
   }
 }
 
@@ -315,7 +347,7 @@ class IOClose extends BuiltinFunction {
     if (args.isEmpty) {
       Logger.debugLazy(() => 'Closing default output', category: 'IO');
       final defaultOutput = IOLib.defaultOutput;
-      final luaFile = defaultOutput.raw as LuaFile;
+      final luaFile = extractLuaFile(defaultOutput)!;
       final result = await luaFile.close();
       IOLib._defaultOutputExplicitlyClosed = true;
       Logger.debugLazy(
@@ -324,9 +356,9 @@ class IOClose extends BuiltinFunction {
       );
       IOLib._defaultOutput = null; // Reset to stdout on next access
       if (result.isNotEmpty && result[0] == true) {
-        IOLib.unregisterOpenFileForLuaFile(luaFile);
+        IOLib.unregisterOpenFileForLuaFile(luaFile, interpreter: interpreter);
       }
-      return Value.multi(result);
+      return LuaResults(result);
     }
 
     final file = args[0];
@@ -335,7 +367,7 @@ class IOClose extends BuiltinFunction {
         () => 'Attempt to close non-file object',
         category: 'IO',
       );
-      return Value.multi([null, "attempt to close a non-file object"]);
+      return LuaResults([null, "attempt to close a non-file object"]);
     }
 
     Logger.debugLazy(() => 'Closing file', category: 'IO');
@@ -344,7 +376,7 @@ class IOClose extends BuiltinFunction {
     // Check if this is a standard file (stdin, stdout, stderr)
     if (luaFile.isStandardFile) {
       Logger.debugLazy(() => 'Cannot close standard file', category: 'IO');
-      return Value(false); // Standard files cannot be closed
+      return primitiveValue(false); // Standard files cannot be closed
     }
 
     // Check if file is already closed
@@ -354,15 +386,12 @@ class IOClose extends BuiltinFunction {
       // Special handling for default input/output files
       // If this is the default input or output file that was closed (e.g., by GC),
       // we should return success rather than throwing an error
-      if ((IOLib._defaultInput != null &&
-              IOLib._defaultInput!.raw == luaFile) ||
-          (IOLib._defaultOutput != null &&
-              IOLib._defaultOutput!.raw == luaFile)) {
+      if (IOLib.isCurrentDefaultFile(luaFile)) {
         Logger.debugLazy(
           () => 'Default input/output file already closed, returning success',
           category: 'IO',
         );
-        return Value.multi([true]);
+        return LuaResults([true]);
       }
 
       // For other files, throw an error as expected
@@ -371,12 +400,9 @@ class IOClose extends BuiltinFunction {
 
     final result = await luaFile.close();
     if (result.isNotEmpty && result[0] == true) {
-      IOLib.unregisterOpenFileForLuaFile(luaFile);
+      IOLib.unregisterOpenFileForLuaFile(luaFile, interpreter: interpreter);
     }
-    if (result.isNotEmpty && result[0] == true) {
-      IOLib.unregisterOpenFileForLuaFile(luaFile);
-    }
-    if (IOLib._defaultOutput != null && IOLib._defaultOutput!.raw == luaFile) {
+    if (_isLuaFileWrapperFor(IOLib._defaultOutput, luaFile)) {
       // When closing the current output file, revert to stdout
       Logger.debugLazy(
         () => 'Resetting default output to stdout',
@@ -387,7 +413,7 @@ class IOClose extends BuiltinFunction {
 
     // Note: We don't reset _defaultInput to null here because we want
     // subsequent io.read calls to detect the closed file and throw an error
-    return Value.multi(result);
+    return LuaResults(result);
   }
 }
 
@@ -398,9 +424,9 @@ class IOFlush extends BuiltinFunction {
   Future<Object?> call(List<Object?> args) async {
     Logger.debugLazy(() => 'Executing IO flush', category: 'IO');
     final defaultOutput = IOLib.defaultOutput;
-    final luaFile = defaultOutput.raw as LuaFile;
+    final luaFile = extractLuaFile(defaultOutput)!;
     final result = await luaFile.flush();
-    return Value.multi(result);
+    return LuaResults(result);
   }
 }
 
@@ -426,13 +452,13 @@ class IOInput extends BuiltinFunction {
       newFile = args[0] as Value;
       result = args[0];
     } else {
-      final argument = args[0] as Value;
-      if (argument.raw is! String && argument.raw is! LuaString) {
+      final argument = args[0];
+      if (!isLuaStringSlot(argument)) {
         throw LuaError.typeError(
           "bad argument #1 to 'input' (FILE* expected, got ${getLuaType(argument)})",
         );
       }
-      final filename = argument.raw.toString();
+      final filename = _ioString(argument);
       Logger.debugLazy(
         () => 'Opening file for input: $filename',
         category: 'IO',
@@ -450,11 +476,14 @@ class IOInput extends BuiltinFunction {
 
     // Do not auto-close the previous default input (matches Lua semantics),
     // but once it is no longer the default handle it should not stay pinned as
-    // an interpreter-global GC root solely through _openFiles.
+    // an interpreter-global GC root solely through openFiles.
     final previousDefault = IOLib._defaultInput;
     if (!identical(previousDefault, newFile)) {
       if (previousDefault != null) {
-        IOLib.unregisterOpenFile(previousDefault);
+        IOLib.unregisterOpenFile(
+          previousDefault,
+          interpreter: interpreter,
+        );
       }
       IOLib._defaultInput = newFile;
     }
@@ -474,9 +503,10 @@ class IOLines extends BuiltinFunction {
 
     // Log the arguments
     for (int i = 0; i < args.length; i++) {
-      final arg = args[i] as Value;
+      final arg = args[i];
+      final rawArg = rawLuaSlot(arg);
       Logger.debugLazy(
-        () => 'Arg $i: ${arg.raw} (type: ${arg.raw.runtimeType})',
+        () => 'Arg $i: $rawArg (type: ${rawArg.runtimeType})',
         category: 'IO',
       );
     }
@@ -499,22 +529,22 @@ class IOLines extends BuiltinFunction {
       Logger.debugLazy(() => 'Got defaultInput: $fileValue', category: 'IO');
       formats = ["l"];
       Logger.debugLazy(() => 'About to call file.lines()...', category: 'IO');
-      final luaFile = fileValue.raw as LuaFile;
+      final luaFile = extractLuaFile(fileValue)!;
       return await luaFile.lines(formats, false, fileValue);
     } else if (isLuaFile(args[0])) {
       Logger.debugLazy(() => 'Using provided file for lines', category: 'IO');
       fileValue = args[0] as Value;
-      final luaFile = fileValue.raw as LuaFile;
-      formats = args.skip(1).map((e) => (e as Value).raw.toString()).toList();
+      final luaFile = extractLuaFile(fileValue)!;
+      formats = _ioStringList(args.skip(1));
       if (formats.isEmpty) formats = ["l"];
       return await luaFile.lines(formats, false, fileValue);
-    } else if (args[0] is Value && (args[0] as Value).raw != null) {
+    } else if (rawLuaSlot(args[0]) != null) {
       Logger.debugLazy(() => 'Opening new file for lines', category: 'IO');
-      final filename = (args[0] as Value).raw.toString();
+      final filename = _ioString(args[0]);
       try {
         final device = await IOLib.fileSystemProvider.openFile(filename, "r");
         final luaFile = LuaFile(device);
-        formats = args.skip(1).map((e) => (e as Value).raw.toString()).toList();
+        formats = _ioStringList(args.skip(1));
         if (formats.isEmpty) formats = ["l"];
         final toClose = wrapLuaFileValue(luaFile);
         final iterator = await luaFile.lines(
@@ -522,7 +552,12 @@ class IOLines extends BuiltinFunction {
           true,
           toClose,
         ); // closeOnEof = true for io.lines(filename)
-        return Value.multi([iterator, Value(null), Value(null), toClose]);
+        return LuaResults([
+          iterator,
+          primitiveValue(null),
+          primitiveValue(null),
+          toClose,
+        ]);
       } catch (e) {
         Logger.debugLazy(() => 'Error opening file: $e', category: 'IO');
         throw LuaError(e.toString());
@@ -542,8 +577,8 @@ class IOLines extends BuiltinFunction {
         () => 'Got defaultInput for nil case: $fileValue',
         category: 'IO',
       );
-      final luaFile = fileValue.raw as LuaFile;
-      formats = args.skip(1).map((e) => (e as Value).raw.toString()).toList();
+      final luaFile = extractLuaFile(fileValue)!;
+      formats = _ioStringList(args.skip(1));
       if (formats.isEmpty) formats = ["l"];
       Logger.debugLazy(
         () =>
@@ -563,11 +598,11 @@ class IOOpen extends BuiltinFunction {
     Logger.debugLazy(() => 'Executing IO open', category: 'IO');
     if (args.isEmpty) {
       Logger.debugLazy(() => 'Missing filename', category: 'IO');
-      return Value.multi([null, "missing filename"]);
+      return LuaResults([null, "missing filename"]);
     }
 
-    final filename = (args[0] as Value).raw.toString();
-    final mode = args.length > 1 ? (args[1] as Value).raw.toString() : "r";
+    final filename = _ioString(args[0]);
+    final mode = args.length > 1 ? _ioString(args[1]) : "r";
     Logger.debugLazy(
       () => 'Opening file: $filename with mode: $mode',
       category: 'IO',
@@ -586,7 +621,7 @@ class IOOpen extends BuiltinFunction {
 
       // File system errors should return tuple
       final errno = io_abs.extractOsErrorCode(e);
-      return Value.multi([null, e.toString(), errno]);
+      return LuaResults([null, e.toString(), errno]);
     }
   }
 }
@@ -618,13 +653,13 @@ class IOOutput extends BuiltinFunction {
       );
       newFile = args[0] as Value;
     } else {
-      final argument = args[0] as Value;
-      if (argument.raw is! String && argument.raw is! LuaString) {
+      final argument = args[0];
+      if (!isLuaStringSlot(argument)) {
         throw LuaError.typeError(
           "bad argument #1 to 'output' (FILE* expected, got ${getLuaType(argument)})",
         );
       }
-      final filename = argument.raw.toString();
+      final filename = _ioString(argument);
       Logger.debugLazy(
         () => 'Arg is filename: $filename - opening file',
         category: 'IO',
@@ -656,20 +691,20 @@ class IOOutput extends BuiltinFunction {
     );
     // Avoid hanging - just set the new output without closing problematic files
     final previousDefault = IOLib._defaultOutput;
-    if (previousDefault != null && previousDefault.raw is LuaFile) {
-      final currentFile = previousDefault.raw as LuaFile;
+    final currentFile = extractLuaFile(previousDefault);
+    if (currentFile != null) {
       if (currentFile.device is! StdoutDevice) {
         Logger.debugLazy(
           () => 'Closing previous default output before replacement',
           category: 'IO',
         );
         await currentFile.close();
-        IOLib.unregisterOpenFileForLuaFile(currentFile);
+        IOLib.unregisterOpenFileForLuaFile(currentFile, interpreter: interpreter);
       }
     }
 
     if (previousDefault != null && !identical(previousDefault, newFile)) {
-      IOLib.unregisterOpenFile(previousDefault);
+      IOLib.unregisterOpenFile(previousDefault, interpreter: interpreter);
     }
 
     Logger.debugLazy(() => 'Setting new default output', category: 'IO');
@@ -695,8 +730,8 @@ class IOPopen extends BuiltinFunction {
       throw LuaError.typeError("io.popen requires a command string");
     }
 
-    final cmd = (args[0] as Value).raw.toString();
-    var mode = args.length > 1 ? (args[1] as Value).raw.toString() : 'r';
+    final cmd = _ioString(args[0]);
+    var mode = args.length > 1 ? _ioString(args[1]) : 'r';
 
     // Only 'r' or 'w' (optionally with trailing 'b') are valid for popen
     if (mode.endsWith('b')) {
@@ -710,13 +745,13 @@ class IOPopen extends BuiltinFunction {
       final device = await ProcessIODevice.start(cmd, mode);
 
       final file = PopenLuaFile(device);
-      return wrapLuaFileValue(file);
+      return wrapLuaFileValue(file, interpreter: interpreter);
     } catch (e) {
       Logger.debugLazy(
         () => 'Error starting popen process: $e',
         category: 'IO',
       );
-      return Value.multi([null, e.toString()]);
+      return LuaResults([null, e.toString()]);
     }
   }
 }
@@ -728,9 +763,7 @@ class IORead extends BuiltinFunction {
   Future<Object?> call(List<Object?> args) async {
     Logger.debugLazy(() => 'Executing IO read', category: 'IO');
 
-    final formats = args.isEmpty
-        ? ["l"]
-        : args.map((e) => (e as Value).raw.toString()).toList();
+    final formats = args.isEmpty ? ["l"] : _ioStringList(args);
     Logger.debugLazy(() => 'Reading with formats: $formats', category: 'IO');
     final results = <Object?>[];
     bool encounteredFailure = false;
@@ -746,7 +779,7 @@ class IORead extends BuiltinFunction {
 
       try {
         final defaultInput = IOLib.defaultInput;
-        final luaFile = defaultInput.raw as LuaFile;
+        final luaFile = extractLuaFile(defaultInput)!;
         final result = await luaFile.read(format);
         if (format == '1') {
           final v = result.isNotEmpty ? result[0] : null;
@@ -771,7 +804,7 @@ class IORead extends BuiltinFunction {
             () => 'Error reading format: ${result[1]}',
             category: 'IO',
           );
-          return Value.multi(result);
+          return LuaResults(result);
         }
 
         if (result[0] == null) {
@@ -800,7 +833,7 @@ class IORead extends BuiltinFunction {
       }
     }
 
-    return Value.multi(results);
+    return LuaResults(results);
   }
 }
 
@@ -818,7 +851,7 @@ class IOTmpfile extends BuiltinFunction {
         () => 'Error creating temporary file: $e',
         category: 'IO',
       );
-      return Value.multi([null, e.toString()]);
+      return LuaResults([null, e.toString()]);
     }
   }
 }
@@ -829,15 +862,15 @@ class IOType extends BuiltinFunction {
   @override
   Future<Object?> call(List<Object?> args) async {
     Logger.debugLazy(() => 'Executing IO type', category: 'IO');
-    if (args.isEmpty) return Value(null);
+    if (args.isEmpty) return primitiveValue(null);
 
     final obj = args[0];
-    if (!isLuaFile(obj)) return Value(null);
+    if (!isLuaFile(obj)) return primitiveValue(null);
 
     final file = extractLuaFile(obj)!;
     final type = file.isClosed ? "closed file" : "file";
     Logger.debugLazy(() => 'File type: $type', category: 'IO');
-    return Value(type);
+    return dartStringValue(type);
   }
 }
 
@@ -864,16 +897,16 @@ class IOWrite extends BuiltinFunction {
 
     if (args.isEmpty) {
       Logger.debugLazy(() => 'No arguments to write', category: 'IO');
-      return Value.multi([true]);
+      return LuaResults([true]);
     }
 
     for (final arg in args) {
-      final val = arg as Value;
+      final rawVal = rawLuaSlot(arg);
       try {
         final defaultOutput = IOLib.defaultOutput;
-        final luaFile = defaultOutput.raw as LuaFile;
-        if (val.raw is LuaString) {
-          final bytes = (val.raw as LuaString).bytes;
+        final luaFile = extractLuaFile(defaultOutput)!;
+        if (rawVal is LuaString) {
+          final bytes = rawVal.bytes;
           Logger.debugLazy(
             () => 'Writing ${bytes.length} raw bytes',
             category: 'IO',
@@ -884,10 +917,10 @@ class IOWrite extends BuiltinFunction {
               () => 'Error writing raw bytes: ${result[1]}',
               category: 'IO',
             );
-            return Value.multi(result);
+            return LuaResults(result);
           }
-        } else if (val.raw is String || val.raw is num || val.raw is BigInt) {
-          final str = val.raw.toString();
+        } else if (rawVal is String || rawVal is num || rawVal is BigInt) {
+          final str = rawVal.toString();
           Logger.debugLazy(() => 'Writing string: $str', category: 'IO');
           final result = await luaFile.write(str);
           if (result[0] == null) {
@@ -895,11 +928,11 @@ class IOWrite extends BuiltinFunction {
               () => 'Error writing: ${result[1]}',
               category: 'IO',
             );
-            return Value.multi(result);
+            return LuaResults(result);
           }
         } else {
           throw LuaError.typeError(
-            "bad argument #1 to 'io.write' (string expected, got ${getLuaType(val)})",
+            "bad argument #1 to 'io.write' (string expected, got ${getLuaType(arg)})",
           );
         }
       } catch (e) {
@@ -956,13 +989,23 @@ class FileClose extends BuiltinFunction {
     // Check if this is a standard file (stdin, stdout, stderr)
     if (luaFile.isStandardFile) {
       Logger.debugLazy(() => 'Cannot close standard file', category: 'IO');
-      return Value(false); // Standard files cannot be closed
+      return primitiveValue(false); // Standard files cannot be closed
     }
 
     final result = await luaFile.close();
 
+    if (result.isNotEmpty && result[0] == true) {
+      // Unregister from the per-interpreter open-files set using the file
+      // Value's own interpreter reference (args[0] carries it).
+      final fileValue = file is Value ? file : null;
+      IOLib.unregisterOpenFileForLuaFile(
+        luaFile,
+        interpreter: fileValue?.interpreter ?? interpreter,
+      );
+    }
+
     // If this file was the current default output, reset it to stdout
-    if (IOLib._defaultOutput != null && IOLib._defaultOutput!.raw == luaFile) {
+    if (_isLuaFileWrapperFor(IOLib._defaultOutput, luaFile)) {
       Logger.debugLazy(
         () => 'Resetting default output to stdout after file close',
         category: 'IO',
@@ -972,7 +1015,7 @@ class FileClose extends BuiltinFunction {
     }
 
     // Similarly for default input
-    if (IOLib._defaultInput != null && IOLib._defaultInput!.raw == luaFile) {
+    if (_isLuaFileWrapperFor(IOLib._defaultInput, luaFile)) {
       Logger.debugLazy(
         () => 'Resetting default input to stdin after file close',
         category: 'IO',
@@ -980,7 +1023,7 @@ class FileClose extends BuiltinFunction {
       IOLib._defaultInput = null;
     }
 
-    return Value.multi(result);
+    return LuaResults(result);
   }
 }
 
@@ -995,7 +1038,7 @@ class FileFlush extends BuiltinFunction {
       throw LuaError.typeError("file expected");
     }
     final result = await extractLuaFile(file)!.flush();
-    return Value.multi(result);
+    return LuaResults(result);
   }
 }
 
@@ -1012,9 +1055,7 @@ class FileRead extends BuiltinFunction {
 
     // Skip the self parameter
     final actualArgs = args.skip(1).toList();
-    final formats = actualArgs.isNotEmpty
-        ? actualArgs.map((e) => (e as Value).raw.toString()).toList()
-        : ["l"];
+    final formats = actualArgs.isNotEmpty ? _ioStringList(actualArgs) : ["l"];
 
     final luaFile = extractLuaFile(file)!;
     final results = <Object?>[];
@@ -1030,7 +1071,7 @@ class FileRead extends BuiltinFunction {
       final result = await luaFile.read(format);
       if (result[0] == null && result.length > 1 && result[1] != null) {
         // This is an error (not just EOF), return the error immediately
-        return Value.multi(result);
+        return LuaResults(result);
       }
 
       if (result[0] == null) {
@@ -1041,7 +1082,7 @@ class FileRead extends BuiltinFunction {
       results.add(result[0]);
     }
 
-    return Value.multi(results);
+    return LuaResults(results);
   }
 }
 
@@ -1066,22 +1107,22 @@ class FileWrite extends BuiltinFunction {
 
     final luaFile = extractLuaFile(file)!;
     for (final arg in actualArgs) {
-      final val = arg as Value;
+      final rawVal = rawLuaSlot(arg);
       List<Object?> result;
-      if (val.raw is LuaString) {
-        final bytes = (val.raw as LuaString).bytes;
+      if (rawVal is LuaString) {
+        final bytes = rawVal.bytes;
         Logger.debugLazy(
           () => 'File:write raw ${bytes.length} bytes',
           category: 'IO',
         );
         result = await luaFile.writeBytes(bytes);
       } else {
-        final str = val.raw.toString();
+        final str = rawVal.toString();
         result = await luaFile.write(str);
       }
       if (result[0] == null) {
         // On failure, propagate the (nil, errmsg[, errno]) tuple.
-        return Value.multi(result);
+        return LuaResults(result);
       }
     }
     // Success: return the file handle (self) for chaining.
@@ -1102,15 +1143,11 @@ class FileSeek extends BuiltinFunction {
 
     // Skip the self parameter
     final actualArgs = args.skip(1).toList();
-    final whence = actualArgs.isNotEmpty
-        ? (actualArgs[0] as Value).raw.toString()
-        : "cur";
-    final offset = actualArgs.length > 1
-        ? (actualArgs[1] as Value).raw as int
-        : 0;
+    final whence = actualArgs.isNotEmpty ? _ioString(actualArgs[0]) : "cur";
+    final offset = actualArgs.length > 1 ? rawLuaSlot(actualArgs[1]) as int : 0;
 
     final result = await extractLuaFile(file)!.seek(whence, offset);
-    return Value.multi(result);
+    return LuaResults(result);
   }
 }
 
@@ -1127,9 +1164,7 @@ class FileLines extends BuiltinFunction {
 
     // Skip the self parameter
     final actualArgs = args.skip(1).toList();
-    final formats = actualArgs.isNotEmpty
-        ? actualArgs.map((e) => (e as Value).raw.toString()).toList()
-        : ["l"];
+    final formats = actualArgs.isNotEmpty ? _ioStringList(actualArgs) : ["l"];
 
     final result = await extractLuaFile(
       file,
@@ -1154,15 +1189,13 @@ class FileSetvbuf extends BuiltinFunction {
 
     // Skip self parameter
     final actualArgs = args.skip(1).toList();
-    final mode = actualArgs.isNotEmpty
-        ? (actualArgs[0] as Value).raw.toString()
-        : 'full';
+    final mode = actualArgs.isNotEmpty ? _ioString(actualArgs[0]) : 'full';
     final size = actualArgs.length > 1
-        ? NumberUtils.toInt((actualArgs[1] as Value).raw)
+        ? NumberUtils.toInt(rawLuaSlot(actualArgs[1]))
         : null;
 
     final result = await extractLuaFile(file)!.setvbuf(mode, size);
-    return Value.multi(result);
+    return LuaResults(result);
   }
 }
 

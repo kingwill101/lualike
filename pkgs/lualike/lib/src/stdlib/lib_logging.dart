@@ -3,9 +3,10 @@ import 'package:lualike/src/logging/level.dart' as ctx;
 import 'package:lualike/src/logging/logger.dart';
 import 'package:lualike/src/lua_error.dart';
 import 'package:lualike/src/lua_string.dart';
-import 'package:lualike/src/value.dart';
+import 'package:lualike/src/runtime/lua_slot.dart';
 
 import 'library.dart';
+
 
 /// Enhanced Lua logging library that exposes the full power of contextual logging
 ///
@@ -27,26 +28,27 @@ class LoggingLibrary extends Library {
 
   @override
   void registerFunctions(LibraryRegistrationContext context) {
+    final interpreter = context.vm;
     // Configuration functions
-    context.define("enable", _LoggingEnable());
-    context.define("disable", _LoggingDisable());
-    context.define("is_enabled", _LoggingIsEnabled());
-    context.define("set_level", _LoggingSetLevel());
-    context.define("get_level", _LoggingGetLevel());
-    context.define("set_category", _LoggingSetCategory());
-    context.define("set_categories", _LoggingSetCategories());
-    context.define("reset_filters", _LoggingResetFilters());
+    context.define("enable", _LoggingEnable(interpreter));
+    context.define("disable", _LoggingDisable(interpreter));
+    context.define("is_enabled", _LoggingIsEnabled(interpreter));
+    context.define("set_level", _LoggingSetLevel(interpreter));
+    context.define("get_level", _LoggingGetLevel(interpreter));
+    context.define("set_category", _LoggingSetCategory(interpreter));
+    context.define("set_categories", _LoggingSetCategories(interpreter));
+    context.define("reset_filters", _LoggingResetFilters(interpreter));
 
     // Logging functions with full context support
-    context.define("debug", _LoggingDebug());
-    context.define("info", _LoggingInfo());
-    context.define("warning", _LoggingWarning());
-    context.define("error", _LoggingError());
+    context.define("debug", _LoggingDebug(interpreter));
+    context.define("info", _LoggingInfo(interpreter));
+    context.define("warning", _LoggingWarning(interpreter));
+    context.define("error", _LoggingError(interpreter));
   }
 }
 
 class _LoggingEnable extends BuiltinFunction {
-  _LoggingEnable() : super();
+  _LoggingEnable([super.interpreter]);
 
   @override
   Object? call(List<Object?> args) {
@@ -63,31 +65,31 @@ class _LoggingEnable extends BuiltinFunction {
     Logger.setLevelFilter(level);
     Logger.setEnabled(true);
 
-    return Value(true);
+    return primitiveValue(true);
   }
 }
 
 class _LoggingDisable extends BuiltinFunction {
-  _LoggingDisable() : super();
+  _LoggingDisable([super.interpreter]);
 
   @override
   Object? call(List<Object?> args) {
     Logger.setEnabled(false);
-    return Value(true);
+    return primitiveValue(true);
   }
 }
 
 class _LoggingIsEnabled extends BuiltinFunction {
-  _LoggingIsEnabled() : super();
+  _LoggingIsEnabled([super.interpreter]);
 
   @override
   Object? call(List<Object?> args) {
-    return Value(Logger.enabled);
+    return primitiveValue(Logger.enabled);
   }
 }
 
 class _LoggingSetLevel extends BuiltinFunction {
-  _LoggingSetLevel() : super();
+  _LoggingSetLevel([super.interpreter]);
 
   @override
   Object? call(List<Object?> args) {
@@ -97,25 +99,25 @@ class _LoggingSetLevel extends BuiltinFunction {
     final level = _extractLevel(args[0]);
     Logger.initialize();
     Logger.setLevelFilter(level);
-    return Value(true);
+    return primitiveValue(true);
   }
 }
 
 class _LoggingGetLevel extends BuiltinFunction {
-  _LoggingGetLevel() : super();
+  _LoggingGetLevel([super.interpreter]);
 
   @override
   Object? call(List<Object?> args) {
     final level = Logger.logLevelFilter;
     if (level == null) {
-      return Value(null);
+      return primitiveValue(null);
     }
-    return Value(_levelToString(level));
+    return dartStringValue(_levelToString(level));
   }
 }
 
 class _LoggingSetCategory extends BuiltinFunction {
-  _LoggingSetCategory() : super();
+  _LoggingSetCategory([super.interpreter]);
 
   @override
   Object? call(List<Object?> args) {
@@ -124,48 +126,47 @@ class _LoggingSetCategory extends BuiltinFunction {
     }
     final category = _extractString(args[0], allowNull: true);
     Logger.setCategoryFilter(category);
-    return Value(true);
+    return primitiveValue(true);
   }
 }
 
 class _LoggingSetCategories extends BuiltinFunction {
-  _LoggingSetCategories() : super();
+  _LoggingSetCategories([super.interpreter]);
 
   @override
   Object? call(List<Object?> args) {
     if (args.isEmpty) {
       Logger.setCategoryFilters(null);
-      return Value(true);
+      return primitiveValue(true);
     }
 
     final categoriesArg = args[0];
-    if (categoriesArg == null ||
-        (categoriesArg is Value && categoriesArg.raw == null)) {
+    if (isLuaNilSlot(categoriesArg)) {
       Logger.setCategoryFilters(null);
-      return Value(true);
+      return primitiveValue(true);
     }
 
     final categories = _extractCategories(categoriesArg);
     Logger.setCategoryFilters(categories);
-    return Value(true);
+    return primitiveValue(true);
   }
 }
 
 class _LoggingResetFilters extends BuiltinFunction {
-  _LoggingResetFilters() : super();
+  _LoggingResetFilters([super.interpreter]);
 
   @override
   Object? call(List<Object?> args) {
     Logger.setCategoryFilter(null);
     Logger.setLevelFilter(null);
-    return Value(true);
+    return primitiveValue(true);
   }
 }
 
 // ========== Logging Functions ==========
 
 class _LoggingDebug extends BuiltinFunction {
-  _LoggingDebug() : super();
+  _LoggingDebug([super.interpreter]);
 
   @override
   Object? call(List<Object?> args) {
@@ -186,12 +187,12 @@ class _LoggingDebug extends BuiltinFunction {
           : () => logContext.context!,
     );
 
-    return Value(true);
+    return primitiveValue(true);
   }
 }
 
 class _LoggingInfo extends BuiltinFunction {
-  _LoggingInfo() : super();
+  _LoggingInfo([super.interpreter]);
 
   @override
   Object? call(List<Object?> args) {
@@ -210,12 +211,12 @@ class _LoggingInfo extends BuiltinFunction {
       context: logContext.context,
     );
 
-    return Value(true);
+    return primitiveValue(true);
   }
 }
 
 class _LoggingWarning extends BuiltinFunction {
-  _LoggingWarning() : super();
+  _LoggingWarning([super.interpreter]);
 
   @override
   Object? call(List<Object?> args) {
@@ -234,12 +235,12 @@ class _LoggingWarning extends BuiltinFunction {
       context: logContext.context,
     );
 
-    return Value(true);
+    return primitiveValue(true);
   }
 }
 
 class _LoggingError extends BuiltinFunction {
-  _LoggingError() : super();
+  _LoggingError([super.interpreter]);
 
   @override
   Object? call(List<Object?> args) {
@@ -258,7 +259,7 @@ class _LoggingError extends BuiltinFunction {
       context: logContext.context,
     );
 
-    return Value(true);
+    return primitiveValue(true);
   }
 }
 
@@ -319,16 +320,11 @@ String _levelToString(ctx.Level level) {
 }
 
 String? _extractString(Object? arg, {bool allowNull = false}) {
-  if (arg == null) {
+  final raw = rawLuaSlot(arg);
+  if (raw == null) {
     return allowNull ? null : '';
   }
-  if (arg is Value) {
-    if (arg.raw == null) {
-      return allowNull ? null : '';
-    }
-    return _stringFromRaw(arg.raw);
-  }
-  return _stringFromRaw(arg);
+  return _stringFromRaw(raw);
 }
 
 String _stringFromRaw(Object? raw) {
@@ -350,7 +346,7 @@ Set<String> _extractCategories(Object? arg) {
 
   if (arg == null) return categories;
 
-  final raw = arg is Value ? arg.raw : arg;
+  final raw = rawLuaSlot(arg);
 
   if (raw is Map) {
     // Iterate through table (array-like or key-value)
@@ -398,7 +394,7 @@ _LogContext _extractLogContext(Object? opts) {
     return _LogContext();
   }
 
-  final raw = opts is Value ? opts.raw : opts;
+  final raw = rawLuaSlot(opts);
 
   if (raw is! Map) {
     // Not a table, no context
@@ -412,7 +408,7 @@ _LogContext _extractLogContext(Object? opts) {
   for (final entry in raw.entries) {
     final key = _stringFromRaw(entry.key);
     final value = entry.value;
-    final rawValue = value is Value ? value.raw : value;
+    final rawValue = rawLuaSlot(value);
 
     if (key == 'category') {
       // Single category
@@ -451,15 +447,13 @@ Object? _luaValueToDartValue(Object? raw) {
     for (final entry in raw.entries) {
       final key = _stringFromRaw(entry.key);
       final value = entry.value;
-      map[key] = _luaValueToDartValue(value is Value ? value.raw : value);
+      map[key] = _luaValueToDartValue(rawLuaSlot(value));
     }
     return map;
   }
 
   if (raw is List) {
-    return raw
-        .map((item) => _luaValueToDartValue(item is Value ? item.raw : item))
-        .toList();
+    return raw.map((item) => _luaValueToDartValue(rawLuaSlot(item))).toList();
   }
 
   return raw.toString();

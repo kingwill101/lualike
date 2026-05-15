@@ -1,10 +1,13 @@
+#!/bin/env dart
+
 import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
 import 'package:archive/archive.dart';
 import 'package:artisanal/args.dart';
-import 'package:dart_console/dart_console.dart';
+import 'package:artisanal/artisanal.dart' show Console;
+import 'package:artisanal/style.dart';
 import 'package:http/http.dart' as http;
 import 'package:path/path.dart' as path;
 
@@ -47,7 +50,7 @@ final testFiles = [
 ];
 
 /// Console instance for colored output
-final console = Console();
+Console console = Console();
 
 /// Test result class to store information about each test run
 class TestResult {
@@ -75,7 +78,7 @@ class TestResult {
 Future<List<String>> collectProcessOutput(
   Stream<List<int>> stream, {
   bool streaming = false,
-  ConsoleColor? color,
+  Color? color,
   String prefix = "  ", // Prefix for each line when streaming
 }) async {
   final output = <String>[];
@@ -86,12 +89,12 @@ Future<List<String>> collectProcessOutput(
     // If streaming is enabled, print the line immediately
     if (streaming) {
       if (color != null) {
-        console.setForegroundColor(color);
-      }
-      console.write(prefix);
-      console.writeLine(line);
-      if (color != null) {
-        console.resetColorAttributes();
+        final style = Style().foreground(color);
+        console.write(style.render(prefix));
+        console.writeln(style.render(line));
+      } else {
+        console.write(prefix);
+        console.writeln(line);
       }
     }
   }
@@ -108,47 +111,34 @@ Future<void> downloadLuaTestSuite({
   final destinationPath = Directory(testSuitePath);
 
   if (destinationPath.existsSync() && !force) {
-    console.setForegroundColor(ConsoleColor.yellow);
-    console.write('Test suite already exists at ');
-    console.setTextStyle(bold: true);
-    console.write(destinationPath.path);
-    console.resetColorAttributes();
+    console.write(Style().foreground(Colors.yellow).render('Test suite already exists at '));
+    console.write(Style().bold().render(destinationPath.path));
     console.write(' (use --force to override)');
-    console.writeLine();
+    console.writeln('');
     return;
   }
 
   if (force && destinationPath.existsSync()) {
-    console.setForegroundColor(ConsoleColor.yellow);
-    console.write('Removing existing test suite at ');
-    console.setTextStyle(bold: true);
-    console.write(destinationPath.path);
-    console.resetColorAttributes();
-    console.writeLine();
+    console.write(Style().foreground(Colors.yellow).render('Removing existing test suite at '));
+    console.write(Style().bold().render(destinationPath.path));
+    console.writeln('');
     destinationPath.deleteSync(recursive: true);
   }
 
-  console.setForegroundColor(ConsoleColor.cyan);
-  console.write('Downloading test suite from ');
-  console.setTextStyle(bold: true);
-  console.write(url.toString());
-  console.resetColorAttributes();
+  console.write(Style().foreground(Colors.cyan).render('Downloading test suite from '));
+  console.write(Style().bold().render(url.toString()));
   console.write(' to ');
-  console.setTextStyle(bold: true);
-  console.write(destinationPath.path);
-  console.resetColorAttributes();
-  console.writeLine();
+  console.write(Style().bold().render(destinationPath.path));
+  console.writeln('');
 
   try {
     final request = http.Request('GET', url);
     final streamedResponse = await http.Client().send(request);
     if (streamedResponse.statusCode == 200) {
       final bytes = await streamedResponse.stream.toBytes();
-      console.setForegroundColor(ConsoleColor.green);
-      console.write('✓ Download complete. ');
-      console.resetColorAttributes();
+      console.write(Style().foreground(Colors.green).render('✓ Download complete. '));
       console.write('Extracting...');
-      console.writeLine();
+      console.writeln('');
 
       // Create the destination directory if it doesn't exist
       if (!destinationPath.existsSync()) {
@@ -179,25 +169,19 @@ Future<void> downloadLuaTestSuite({
         }
       }
 
-      console.setForegroundColor(ConsoleColor.green);
-      console.write('✓ Extraction complete.');
-      console.resetColorAttributes();
-      console.writeLine();
+      console.write(Style().foreground(Colors.green).render('✓ Extraction complete.'));
+      console.writeln('');
     } else {
-      console.setForegroundColor(ConsoleColor.red);
-      console.write('✗ Error downloading test suite. Status code: ');
+      console.write(Style().foreground(Colors.red).render('✗ Error downloading test suite. Status code: '));
       console.write(streamedResponse.statusCode.toString());
-      console.resetColorAttributes();
-      console.writeLine();
+      console.writeln('');
       exit(1);
     }
   } catch (e, stackTrace) {
-    console.setForegroundColor(ConsoleColor.red);
-    console.write('✗ Error downloading or extracting test suite: ');
+    console.write(Style().foreground(Colors.red).render('✗ Error downloading or extracting test suite: '));
     console.write(e.toString());
-    console.resetColorAttributes();
-    console.writeLine();
-    console.writeLine('Stack trace: $stackTrace');
+    console.writeln('');
+    console.writeln('Stack trace: $stackTrace');
     exit(1);
   }
 }
@@ -218,11 +202,8 @@ Future<SmartCompileResult> compile({
 
   final result = await compiler.smartCompile(force: force);
   if (!result.success) {
-    console.setForegroundColor(ConsoleColor.red);
-    console.setTextStyle(bold: true);
-    console.write("Compilation failed");
-    console.resetColorAttributes();
-    console.writeLine();
+    console.write(Style().foreground(Colors.red).bold().render("Compilation failed"));
+    console.writeln('');
     exit(1);
   }
   return result;
@@ -240,11 +221,8 @@ String _getDartExecutablePath() {
 
 /// Compile the test runner itself into a standalone executable
 Future<void> _compileTestRunner(String? dartPath) async {
-  console.setForegroundColor(ConsoleColor.cyan);
-  console.setTextStyle(bold: true);
-  console.write("Compiling test runner...");
-  console.resetColorAttributes();
-  console.writeLine();
+  console.write(Style().foreground(Colors.cyan).bold().render("Compiling test runner..."));
+  console.writeln('');
 
   final currentDir = Directory.current.path;
   final testRunnerPath = path.join(currentDir, 'tool', 'test.dart');
@@ -260,10 +238,8 @@ Future<void> _compileTestRunner(String? dartPath) async {
     // Get the absolute path to the dart executable
     final dartExecutablePath = dartPath ?? _getDartExecutablePath();
 
-    console.setForegroundColor(ConsoleColor.blue);
-    console.write("Using Dart executable: ");
-    console.resetColorAttributes();
-    console.writeLine(dartExecutablePath);
+    console.write(Style().foreground(Colors.blue).render("Using Dart executable: "));
+    console.writeln(dartExecutablePath);
 
     // Compile the test runner with define to inject the dart path
     final result = await Process.run(dartExecutablePath, [
@@ -276,353 +252,27 @@ Future<void> _compileTestRunner(String? dartPath) async {
     ]);
 
     if (result.exitCode == 0) {
-      console.setForegroundColor(ConsoleColor.green);
-      console.write("✓ Test runner compiled successfully: ");
-      console.resetColorAttributes();
-      console.writeLine(outputPath);
+      console.write(Style().foreground(Colors.green).render("✓ Test runner compiled successfully: "));
+      console.writeln(outputPath);
 
       // Make it executable on Unix systems
       if (!Platform.isWindows) {
         await Process.run('chmod', ['+x', outputPath]);
       }
     } else {
-      console.setForegroundColor(ConsoleColor.red);
-      console.write("✗ Failed to compile test runner");
-      console.resetColorAttributes();
-      console.writeLine();
-      console.writeLine("Error output:");
-      console.writeLine(result.stderr);
+      console.write(Style().foreground(Colors.red).render("✗ Failed to compile test runner"));
+      console.writeln('');
+      console.writeln("Error output:");
+      console.writeln(result.stderr);
       exit(1);
     }
   } catch (e) {
-    console.setForegroundColor(ConsoleColor.red);
-    console.write("✗ Error compiling test runner: $e");
-    console.resetColorAttributes();
-    console.writeLine();
+    console.write(Style().foreground(Colors.red).render("✗ Error compiling test runner: $e"));
+    console.writeln('');
     exit(1);
   }
 }
 
-Future<void> main(List<String> args) async {
-  // Get the injected Dart executable path from compilation
-  const injectedDartPath = String.fromEnvironment('DART_EXECUTABLE_PATH');
-  final defaultDartPath = injectedDartPath.isNotEmpty
-      ? injectedDartPath
-      : _getDartExecutablePath();
-
-  final parser = ArgParser()
-    ..addFlag(
-      'help',
-      abbr: 'h',
-      negatable: false,
-      help: 'Show this help message.',
-    )
-    ..addFlag(
-      'force',
-      abbr: 'f',
-      negatable: false,
-      help: 'Force operations (compile, download) ignoring existing files',
-    )
-    ..addFlag(
-      'download-suite',
-      abbr: 'd',
-      negatable: false,
-      help: 'Download the Lua test suite',
-    )
-    ..addOption(
-      'suite-url',
-      help: 'URL to download the Lua test suite from',
-      defaultsTo: 'https://www.lua.org/tests/lua-5.4.7-tests.tar.gz',
-    )
-    ..addOption(
-      'suite-path',
-      help: 'Path where the test suite will be stored',
-      defaultsTo: '.lua-tests',
-    )
-    ..addFlag(
-      'skip-compile',
-      abbr: 's',
-      negatable: false,
-      help: 'Skip compile if lualike binary exists',
-    )
-    ..addOption(
-      'timeout-seconds',
-      help:
-          'Per-test timeout in seconds. Defaults to 45 when reusing an existing binary; set to 0 to disable.',
-    )
-    ..addFlag(
-      'verbose',
-      abbr: 'v',
-      negatable: false,
-      help: 'Show verbose output for each test.',
-    )
-    ..addFlag(
-      'soft',
-      negatable: true,
-      defaultsTo: true,
-      help:
-          'Enable soft mode (sets _soft = true). Enabled by default; use --no-soft to disable.',
-    )
-    ..addFlag(
-      'port',
-      negatable: true,
-      defaultsTo: true,
-      help:
-          'Enable portability mode (sets _port = true). Enabled by default; use --no-port to disable.',
-    )
-    ..addFlag(
-      'skip-heavy',
-      negatable: true,
-      defaultsTo: true,
-      help:
-          'Skip heavy tests (sets _skip_heavy = true). Enabled by default; use --no-skip-heavy to include heavy tests.',
-    )
-    ..addMultiOption(
-      'test',
-      abbr: 't',
-      help: 'Run specific test(s) by name (e.g., --test=bitwise.lua,math.lua)',
-      splitCommas: true,
-    )
-    ..addMultiOption(
-      'tests',
-      help: 'Alias for --test; accepts comma-separated names',
-      splitCommas: true,
-    )
-    ..addOption(
-      'exec',
-      abbr: 'e',
-      help: 'Execute inline Lua code (bypasses test list).',
-    )
-    ..addFlag(
-      'compile-runner',
-      negatable: false,
-      help: 'Compile the test runner itself into a standalone executable',
-    )
-    ..addOption(
-      'dart-path',
-      help: 'Path to the Dart executable (defaults to "dart" in PATH)',
-    )
-    ..addOption(
-      'lualike-bin',
-      help:
-          'Path to the lualike executable to compile/use instead of ./lualike',
-    )
-    ..addOption(
-      'lualike-cache-dir',
-      help: 'Directory to store compiled lualike binary cache metadata',
-      defaultsTo: '.build_cache',
-    )
-    ..addFlag(
-      'debug',
-      negatable: false,
-      help: 'Pass --debug flag to the lualike binary when running tests.',
-    )
-    ..addFlag(
-      'ir',
-      negatable: false,
-      help: 'Run tests using the IR engine (passes --ir).',
-    )
-    ..addFlag(
-      'lua-bytecode',
-      negatable: false,
-      help: 'Run tests using the lua_bytecode engine (passes --lua-bytecode).',
-    );
-
-  ArgResults r;
-  try {
-    r = parser.parse(args);
-  } on FormatException catch (e) {
-    // Provide a friendlier error message for CLI parsing issues
-    console.setForegroundColor(ConsoleColor.red);
-    console.setTextStyle(bold: true);
-
-    final msg = e.message;
-    console.writeLine();
-    console.write('Argument error');
-    console.resetColorAttributes();
-    console.writeLine();
-    console.writeLine();
-
-    console.writeLine("   $msg");
-    console.writeLine();
-    console.setForegroundColor(ConsoleColor.cyan);
-    console.setTextStyle(bold: true);
-    console.write('Usage');
-    console.resetColorAttributes();
-    console.writeLine();
-    console.writeLine(parser.usage);
-    exit(64); // EX_USAGE
-  }
-
-  if (r['help'] as bool) {
-    console.setForegroundColor(ConsoleColor.cyan);
-    console.setTextStyle(bold: true);
-    console.write("Lualike Test Runner");
-    console.resetColorAttributes();
-    console.writeLine();
-    console.writeLine(parser.usage);
-    exit(0);
-  }
-
-  var dartPath = r['dart-path'] as String? ?? defaultDartPath;
-  if (path.basename(dartPath).startsWith('test_runner')) {
-    dartPath = _getDartExecutablePath();
-  }
-  final configuredBinary = r['lualike-bin'] as String?;
-  final lualikeBinaryPath = configuredBinary == null
-      ? path.join(Directory.current.path, getExecutableName('lualike'))
-      : path.normalize(
-          path.isAbsolute(configuredBinary)
-              ? configuredBinary
-              : path.join(Directory.current.path, configuredBinary),
-        );
-  final lualikeCacheDir = r['lualike-cache-dir'] as String;
-  final force = r['force'] as bool;
-  // Handle download-suite flag
-  if (r['download-suite'] as bool) {
-    await downloadLuaTestSuite(
-      downloadUrl: r['suite-url'] as String,
-      testSuitePath: r['suite-path'] as String,
-      force: force,
-    );
-    exit(0);
-  }
-
-  // Handle compile-runner flag
-  if (r['compile-runner'] as bool) {
-    await _compileTestRunner(dartPath);
-    exit(0);
-  }
-
-  final binaryExists = File(lualikeBinaryPath).existsSync();
-  final shouldSkipCompile = (r['skip-compile'] as bool) && binaryExists;
-
-  final compileResult = shouldSkipCompile
-      ? const SmartCompileResult(success: true, recompiled: false)
-      : await compile(
-          force: force,
-          dartPath: dartPath,
-          binaryPath: lualikeBinaryPath,
-          cacheDir: lualikeCacheDir,
-        );
-  if (shouldSkipCompile) {
-    console.setForegroundColor(ConsoleColor.yellow);
-    console.write("Skip-compile flag specified, using existing binary");
-    console.resetColorAttributes();
-    console.writeLine();
-  }
-
-  int? timeoutSeconds;
-  final timeoutOption = r['timeout-seconds'] as String?;
-  if (timeoutOption != null) {
-    final parsedTimeout = int.tryParse(timeoutOption);
-    if (parsedTimeout == null || parsedTimeout < 0) {
-      console.setForegroundColor(ConsoleColor.red);
-      console.writeLine('Invalid --timeout-seconds value: $timeoutOption');
-      console.resetColorAttributes();
-      exit(64);
-    }
-    timeoutSeconds = parsedTimeout == 0 ? null : parsedTimeout;
-  } else {
-    timeoutSeconds = compileResult.recompiled ? null : 45;
-  }
-
-  if (timeoutSeconds != null) {
-    console.setForegroundColor(ConsoleColor.yellow);
-    console.write('Per-test timeout enabled: ${timeoutSeconds}s');
-    if (!compileResult.recompiled) {
-      console.write(' (reused binary)');
-    }
-    console.resetColorAttributes();
-    console.writeLine();
-  }
-
-  console.writeLine();
-  console.setForegroundColor(ConsoleColor.cyan);
-  console.setTextStyle(bold: true);
-  console.write("Running tests...");
-  console.resetColorAttributes();
-  console.writeLine();
-
-  final execCode = r['exec'] as String?;
-
-  final t1 = (r['test'] as List<String>?) ?? const <String>[];
-  final t2 = (r['tests'] as List<String>?) ?? const <String>[];
-  final combinedTests = <String>[...t1, ...t2];
-  var testsToRun = combinedTests.isNotEmpty
-      ? combinedTests
-      : List<String>.from(testFiles);
-
-  // Auto-skip known heavy tests on CI or when skip-heavy flag is set
-  final isCI =
-      (Platform.environment['CI']?.toLowerCase() == 'true') ||
-      (Platform.environment['GITHUB_ACTIONS']?.toLowerCase() == 'true');
-  final skipHeavy = r['skip-heavy'] as bool;
-  const heavyTests = {'heavy.lua'};
-
-  if (execCode == null && combinedTests.isEmpty && (isCI || skipHeavy)) {
-    final skipped = testsToRun.where((t) => heavyTests.contains(t)).toList();
-    if (skipped.isNotEmpty) {
-      testsToRun = testsToRun.where((t) => !heavyTests.contains(t)).toList();
-
-      console.setForegroundColor(ConsoleColor.yellow);
-      console.setTextStyle(bold: true);
-      console.write('Auto-skip');
-      console.resetColorAttributes();
-      if (isCI) {
-        console.write(' on CI');
-      } else {
-        console.write(' (--skip-heavy enabled)');
-      }
-      console.write(': ');
-      console.setForegroundColor(ConsoleColor.yellow);
-      console.write(skipped.join(', '));
-      console.resetColorAttributes();
-      console.writeLine();
-
-      console.setForegroundColor(ConsoleColor.cyan);
-      console.write('Tip: run explicitly with ');
-      console.setTextStyle(bold: true);
-      console.write("--test=${skipped.first}");
-      console.resetColorAttributes();
-      console.write(' to include it.');
-      console.writeLine();
-    }
-  }
-
-  bool verboseEnabled = r['verbose'] as bool;
-  final debugEnabled = r['debug'] as bool;
-
-  // If --debug flag is set, --verbose must also be enabled.
-  if (debugEnabled && !verboseEnabled) {
-    verboseEnabled = true;
-    console.setForegroundColor(ConsoleColor.yellow);
-    console.writeLine(
-      "Note: --debug implies --verbose. Live output streaming enabled.",
-    );
-    console.resetColorAttributes();
-  }
-
-  final results = await runTests(
-    tests: execCode == null ? testsToRun : const <String>[],
-    inlineCode: execCode,
-    lualikeBinaryPath: lualikeBinaryPath,
-    verbose: verboseEnabled,
-    soft: r['soft'] as bool, // default true  => _soft = true
-    port: r['port'] as bool, // default true  => _port = true
-    debug: debugEnabled, // new debug flag
-    ir: r['ir'] as bool,
-    luaBytecode: r['lua-bytecode'] as bool,
-    timeoutSeconds: timeoutSeconds,
-  );
-
-  printTestSummary(results);
-
-  // Exit with non-zero code if any test failed
-  if (results.any((result) => !result.passed)) {
-    exit(1);
-  }
-}
 
 /// Resolve a test entry to an absolute file path.
 /// Supports:
@@ -676,14 +326,11 @@ Future<List<TestResult>> runTests({
       : const <String>['<inline>'];
 
   for (final file in testsToRun) {
-    console.setForegroundColor(ConsoleColor.cyan);
-    console.write("Testing ");
-    console.setTextStyle(bold: true);
-    console.write(file);
-    console.resetColorAttributes();
-    console.writeLine();
+    console.write(Style().foreground(Colors.cyan).render("Testing "));
+    console.write(Style().bold().render(file));
+    console.writeln('');
     console.write('  Start time: ');
-    console.writeLine(DateTime.now().toIso8601String());
+    console.writeln(DateTime.now().toIso8601String());
 
     final stopwatch = Stopwatch()..start();
 
@@ -701,13 +348,10 @@ Future<List<TestResult>> runTests({
       try {
         targetPath = _resolveTestPath(file);
       } catch (e) {
-        console.setForegroundColor(ConsoleColor.red);
-        console.write('✗ ');
-        console.setTextStyle(bold: true);
-        console.write('Test not found');
-        console.resetColorAttributes();
+        console.write(Style().foreground(Colors.red).render('✗ '));
+        console.write(Style().bold().render('Test not found'));
         console.write(': ');
-        console.writeLine(file);
+        console.writeln(file);
         // Fail fast for missing files
         results.add(
           TestResult(
@@ -760,24 +404,21 @@ Future<List<TestResult>> runTests({
 
     // Print header for streamed output if verbose is enabled
     if (streamOutput) {
-      console.writeLine();
-      console.setForegroundColor(ConsoleColor.cyan);
-      console.setTextStyle(bold: true);
-      console.write("Live output:");
-      console.resetColorAttributes();
-      console.writeLine();
+      console.writeln('');
+      console.write(Style().foreground(Colors.cyan).bold().render("Live output:"));
+      console.writeln('');
     }
 
     // Collect stdout and stderr
     final stdoutFuture = collectProcessOutput(
       process.stdout,
       streaming: streamOutput,
-      color: ConsoleColor.white,
+      color: Colors.white,
     );
     final stderrFuture = collectProcessOutput(
       process.stderr,
       streaming: streamOutput,
-      color: ConsoleColor.red,
+      color: Colors.red,
     );
 
     // Wait for process to complete
@@ -819,51 +460,41 @@ Future<List<TestResult>> runTests({
 
     // Print result status
     if (result.passed) {
-      console.setForegroundColor(ConsoleColor.green);
-      console.write("✓ Test passed in ${result.duration.inMilliseconds}ms");
-      console.resetColorAttributes();
-      console.writeLine();
+      console.writeln(Style().foreground(Colors.green).render("✓ Test passed in ${result.duration.inMilliseconds}ms"));
     } else {
-      console.setForegroundColor(ConsoleColor.red);
       if (result.timedOut) {
-        console.write(
+        console.writeln(Style().foreground(Colors.red).render(
           "✗ Test timed out in ${result.duration.inMilliseconds}ms",
-        );
+        ));
       } else {
-        console.write("✗ Test failed in ${result.duration.inMilliseconds}ms");
+        console.writeln(Style().foreground(Colors.red).render("✗ Test failed in ${result.duration.inMilliseconds}ms"));
       }
-      console.resetColorAttributes();
-      console.writeLine();
     }
 
     // Only print the collected output at the end if we weren't already streaming it
     if (verbose && !streamOutput) {
       if (result.output.isNotEmpty) {
-        console.writeLine();
-        console.setForegroundColor(ConsoleColor.white);
-        console.write("Output:");
-        console.resetColorAttributes();
-        console.writeLine();
+        console.writeln('');
+        console.write(Style().foreground(Colors.white).render("Output:"));
+        console.writeln('');
         for (final line in result.output) {
-          console.writeLine(line);
+          console.writeln(line);
         }
       }
 
       if (result.errors.isNotEmpty) {
-        console.writeLine();
-        console.setForegroundColor(ConsoleColor.red);
-        console.write("Errors:");
-        console.resetColorAttributes();
-        console.writeLine();
+        console.writeln('');
+        console.write(Style().foreground(Colors.red).render("Errors:"));
+        console.writeln('');
         for (final line in result.errors) {
-          console.writeLine(line);
+          console.writeln(line);
         }
       }
     }
 
     // Add an empty line for spacing between tests
     if (verbose) {
-      console.writeLine();
+      console.writeln('');
     }
   }
 
@@ -881,43 +512,376 @@ void printTestSummary(List<TestResult> results) {
     (prev, result) => prev + result.duration,
   );
 
-  console.writeLine();
-  console.setTextStyle(bold: true);
-  console.write("Test Summary:");
-  console.resetColorAttributes();
-  console.writeLine();
+  console.writeln('');
+  console.write(Style().bold().render("Test Summary:"));
+  console.writeln('');
 
-  console.setForegroundColor(ConsoleColor.cyan);
-  console.writeLine("Total tests: $totalTests");
-  console.resetColorAttributes();
+  console.writeln(Style().foreground(Colors.cyan).render("Total tests: $totalTests"));
 
-  console.setForegroundColor(ConsoleColor.green);
-  console.writeLine("Passed: $passedTests");
-  console.resetColorAttributes();
+  console.writeln(Style().foreground(Colors.green).render("Passed: $passedTests"));
 
   if (failedTests > 0) {
-    console.setForegroundColor(ConsoleColor.red);
-    console.writeLine("Failed: $failedTests");
-    console.resetColorAttributes();
+    console.writeln(Style().foreground(Colors.red).render("Failed: $failedTests"));
 
     // List failed tests
-    console.writeLine();
-    console.setForegroundColor(ConsoleColor.red);
-    console.setTextStyle(bold: true);
-    console.write("Failed tests:");
-    console.resetColorAttributes();
-    console.writeLine();
+    console.writeln('');
+    console.write(Style().foreground(Colors.red).bold().render("Failed tests:"));
+    console.writeln('');
 
     for (final result in results.where((r) => !r.passed)) {
-      console.setForegroundColor(ConsoleColor.red);
-      console.writeLine("✗ ${result.fileName}");
-      console.resetColorAttributes();
+      console.writeln(Style().foreground(Colors.red).render("✗ ${result.fileName}"));
     }
   }
 
-  console.writeLine();
-  console.setForegroundColor(ConsoleColor.cyan);
-  console.write("Total time: ${totalDuration.inMilliseconds}ms");
-  console.resetColorAttributes();
-  console.writeLine();
+  console.writeln('');
+  console.writeln(Style().foreground(Colors.cyan).render("Total time: ${totalDuration.inMilliseconds}ms"));
+}
+
+class TestRunner extends CommandRunner {
+  @override
+  String get invocation => '$executableName [options]';
+
+  TestRunner(): super("test_runner", "lualike test suite") {
+    argParser
+      ..addFlag(
+        'force',
+        abbr: 'f',
+        negatable: false,
+        help: 'Force operations (compile, download) ignoring existing files',
+      )
+      ..addFlag(
+        'download-suite',
+        abbr: 'd',
+        negatable: false,
+        help: 'Download the Lua test suite',
+      )
+      ..addOption(
+        'suite-url',
+        help: 'URL to download the Lua test suite from',
+        defaultsTo: 'https://www.lua.org/tests/lua-5.4.7-tests.tar.gz',
+      )
+      ..addOption(
+        'suite-path',
+        help: 'Path where the test suite will be stored',
+        defaultsTo: '.lua-tests',
+      )
+      ..addFlag(
+        'skip-compile',
+        abbr: 's',
+        negatable: false,
+        help: 'Skip compile if lualike binary exists',
+      )
+      ..addOption(
+        'timeout-seconds',
+        help:
+            'Per-test timeout in seconds. Defaults to 45 when reusing an existing binary; set to 0 to disable.',
+      )
+      ..addFlag(
+        'soft',
+        negatable: true,
+        defaultsTo: true,
+        help:
+            'Enable soft mode (sets _soft = true). Enabled by default; use --no-soft to disable.',
+      )
+      ..addFlag(
+        'port',
+        negatable: true,
+        defaultsTo: true,
+        help:
+            'Enable portability mode (sets _port = true). Enabled by default; use --no-port to disable.',
+      )
+      ..addFlag(
+        'skip-heavy',
+        negatable: true,
+        defaultsTo: true,
+        help:
+            'Skip heavy tests (sets _skip_heavy = true). Enabled by default; use --no-skip-heavy to include heavy tests.',
+      )
+      ..addMultiOption(
+        'test',
+        abbr: 't',
+        help:
+            'Run specific test(s) by name (e.g., --test=bitwise.lua,math.lua)',
+        splitCommas: true,
+      )
+      ..addMultiOption(
+        'tests',
+        help: 'Alias for --test; accepts comma-separated names',
+        splitCommas: true,
+      )
+      ..addOption(
+        'exec',
+        abbr: 'e',
+        help: 'Execute inline Lua code (bypasses test list).',
+      )
+      ..addFlag(
+        'compile-runner',
+        negatable: false,
+        help: 'Compile the test runner itself into a standalone executable',
+      )
+      ..addOption(
+        'dart-path',
+        help: 'Path to the Dart executable (defaults to "dart" in PATH)',
+      )
+      ..addOption(
+        'lualike-bin',
+        help:
+            'Path to the lualike executable to compile/use instead of ./lualike',
+      )
+      ..addOption(
+        'lualike-cache-dir',
+        help: 'Directory to store compiled lualike binary cache metadata',
+        defaultsTo: '.build_cache',
+      )
+      ..addFlag(
+        'debug',
+        negatable: false,
+        help: 'Pass --debug flag to the lualike binary when running tests.',
+      )
+      ..addFlag(
+        'ir',
+        negatable: false,
+        help: 'Run tests using the IR engine (passes --ir).',
+      )
+      ..addFlag(
+        'lua-bytecode',
+        negatable: false,
+        help:
+            'Run tests using the lua_bytecode engine (passes --lua-bytecode).',
+      )
+      ..addFlag(
+        'all-engines',
+        negatable: false,
+        help:
+            'Run all tests under every engine in sequence: AST (default), IR, and lua-bytecode. '
+            'Supersedes --ir and --lua-bytecode when present.',
+      );
+  }
+
+  @override
+  Future<void> run(Iterable<String> args) async {
+    // Link the global console to the runner's io
+    console = this.io;
+
+    // Get the injected Dart executable path from compilation
+    const injectedDartPath = String.fromEnvironment('DART_EXECUTABLE_PATH');
+    final defaultDartPath = injectedDartPath.isNotEmpty
+        ? injectedDartPath
+        : _getDartExecutablePath();
+
+    final r = argParser.parse(args);
+
+    if (r['help'] as bool) {
+      printUsage();
+      return;
+    }
+
+    var dartPath = r['dart-path'] as String? ?? defaultDartPath;
+    if (path.basename(dartPath).startsWith('test_runner')) {
+      dartPath = _getDartExecutablePath();
+    }
+    final configuredBinary = r['lualike-bin'] as String?;
+    final lualikeBinaryPath = configuredBinary == null
+        ? path.join(Directory.current.path, getExecutableName('lualike'))
+        : path.normalize(
+      path.isAbsolute(configuredBinary)
+          ? configuredBinary
+          : path.join(Directory.current.path, configuredBinary),
+    );
+    final lualikeCacheDir = r['lualike-cache-dir'] as String;
+    final force = r['force'] as bool;
+    // Handle download-suite flag
+    if (r['download-suite'] as bool) {
+      await downloadLuaTestSuite(
+      downloadUrl: r['suite-url'] as String,
+      testSuitePath: r['suite-path'] as String,
+      force: force,
+      );
+      return;
+    }
+
+    // Handle compile-runner flag
+    if (r['compile-runner'] as bool) {
+      await _compileTestRunner(dartPath);
+      return;
+    }
+
+    final binaryExists = File(lualikeBinaryPath).existsSync();
+    final shouldSkipCompile = (r['skip-compile'] as bool) && binaryExists;
+
+    final compileResult = shouldSkipCompile
+        ? const SmartCompileResult(success: true, recompiled: false)
+        : await compile(
+      force: force,
+      dartPath: dartPath,
+      binaryPath: lualikeBinaryPath,
+      cacheDir: lualikeCacheDir,
+    );
+    if (shouldSkipCompile) {
+      console.writeln(Style().foreground(Colors.yellow).render("Skip-compile flag specified, using existing binary"));
+    }
+
+    int? timeoutSeconds;
+    final timeoutOption = r['timeout-seconds'] as String?;
+    if (timeoutOption != null) {
+      final parsedTimeout = int.tryParse(timeoutOption);
+      if (parsedTimeout == null || parsedTimeout < 0) {
+        console.writeln(Style().foreground(Colors.red).render('Invalid --timeout-seconds value: $timeoutOption'));
+        exit(64);
+      }
+      timeoutSeconds = parsedTimeout == 0 ? null : parsedTimeout;
+    } else {
+      timeoutSeconds = compileResult.recompiled ? null : 45;
+    }
+
+    if (timeoutSeconds != null) {
+      final style = Style().foreground(Colors.yellow);
+      console.write(style.render('Per-test timeout enabled: ${timeoutSeconds}s'));
+      if (!compileResult.recompiled) {
+        console.write(style.render(' (reused binary)'));
+      }
+      console.writeln('');
+    }
+
+    console.writeln('');
+    console.writeln(Style().foreground(Colors.cyan).bold().render("Running tests..."));
+
+    final execCode = r['exec'] as String?;
+
+    final t1 = (r['test'] as List<String>?) ?? const <String>[];
+    final t2 = (r['tests'] as List<String>?) ?? const <String>[];
+    final combinedTests = <String>[...t1, ...t2];
+    var testsToRun = combinedTests.isNotEmpty
+        ? combinedTests
+        : List<String>.from(testFiles);
+
+    // Auto-skip known heavy tests on CI or when skip-heavy flag is set
+    final isCI =
+        (Platform.environment['CI']?.toLowerCase() == 'true') ||
+            (Platform.environment['GITHUB_ACTIONS']?.toLowerCase() == 'true');
+    final skipHeavy = r['skip-heavy'] as bool;
+    const heavyTests = {'heavy.lua'};
+
+    if (execCode == null && combinedTests.isEmpty && (isCI || skipHeavy)) {
+      final skipped = testsToRun.where((t) => heavyTests.contains(t)).toList();
+      if (skipped.isNotEmpty) {
+        testsToRun = testsToRun.where((t) => !heavyTests.contains(t)).toList();
+
+        final yellowStyle = Style().foreground(Colors.yellow);
+        console.write(yellowStyle.bold().render('Auto-skip'));
+        if (isCI) {
+          console.write(' on CI');
+        } else {
+          console.write(' (--skip-heavy enabled)');
+        }
+        console.write(': ');
+        console.writeln(yellowStyle.render(skipped.join(', ')));
+
+        final cyanStyle = Style().foreground(Colors.cyan);
+        console.write(cyanStyle.render('Tip: run explicitly with '));
+        console.write(cyanStyle.bold().render("--test=${skipped.first}"));
+        console.writeln(' to include it.');
+      }
+    }
+
+    bool verboseEnabled = r['verbose'] as bool;
+    final debugEnabled = r['debug'] as bool;
+
+    // If --debug flag is set, --verbose must also be enabled.
+    if (debugEnabled && !verboseEnabled) {
+      verboseEnabled = true;
+      console.writeln(Style().foreground(Colors.yellow).render(
+        "Note: --debug implies --verbose. Live output streaming enabled.",
+      ));
+    }
+
+    final allEngines = r['all-engines'] as bool;
+
+    if (allEngines) {
+      // Run the full suite under each engine in turn and print a combined report.
+      final engines = <(String, bool, bool)>[
+        ('AST (default)', false, false),
+        ('IR', true, false),
+        ('lua-bytecode', false, true),
+      ];
+
+      final engineResults = <String, List<TestResult>>{};
+      var anyFailed = false;
+
+      for (final (label, ir, luaBytecode) in engines) {
+        console.writeln('');
+        console.writeln(Style().foreground(Colors.cyan).bold().render('═══ Engine: $label ═══'));
+
+        final results = await runTests(
+          tests: execCode == null ? testsToRun : const <String>[],
+          inlineCode: execCode,
+          lualikeBinaryPath: lualikeBinaryPath,
+          verbose: verboseEnabled,
+          soft: r['soft'] as bool,
+          port: r['port'] as bool,
+          debug: debugEnabled,
+          ir: ir,
+          luaBytecode: luaBytecode,
+          timeoutSeconds: timeoutSeconds,
+        );
+
+        engineResults[label] = results;
+        printTestSummary(results);
+
+        if (results.any((result) => !result.passed)) {
+          anyFailed = true;
+        }
+      }
+
+      // Cross-engine summary table
+      console.writeln('');
+      console.writeln(Style().bold().render('Cross-engine Summary:'));
+
+      for (final entry in engineResults.entries) {
+        final passed = entry.value.where((r) => r.passed).length;
+        final total = entry.value.length;
+        final allPassed = passed == total;
+        final style = Style().foreground(allPassed ? Colors.green : Colors.red);
+        
+        console.write(style.render('  ${entry.key}: $passed/$total passed'));
+        if (!allPassed) {
+          final failed = entry.value
+              .where((r) => !r.passed)
+              .map((r) => r.fileName);
+          console.write(style.render('  [FAILED: ${failed.join(', ')}]'));
+        }
+        console.writeln('');
+      }
+
+      if (anyFailed) {
+        exit(1);
+      }
+    } else {
+      final results = await runTests(
+        tests: execCode == null ? testsToRun : const <String>[],
+        inlineCode: execCode,
+        lualikeBinaryPath: lualikeBinaryPath,
+        verbose: verboseEnabled,
+        soft: r['soft'] as bool,
+        // default true  => _soft = true
+        port: r['port'] as bool,
+        // default true  => _port = true
+        debug: debugEnabled,
+        ir: r['ir'] as bool,
+        luaBytecode: r['lua-bytecode'] as bool,
+        timeoutSeconds: timeoutSeconds,
+      );
+
+      printTestSummary(results);
+
+      // Exit with non-zero code if any test failed
+      if (results.any((result) => !result.passed)) {
+        exit(1);
+      }
+    }
+  }
+}
+
+Future<void> main(List<String> args) async {
+  await TestRunner().run(args);
 }

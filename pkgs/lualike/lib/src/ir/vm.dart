@@ -6,6 +6,7 @@ import 'package:lualike/src/logging/logger.dart';
 import 'package:lualike/src/lua_error.dart';
 import 'package:lualike/src/number_limits.dart';
 import 'package:lualike/src/number_utils.dart';
+import 'package:lualike/src/runtime/lua_slot.dart';
 import 'package:lualike/src/runtime/vararg_table.dart';
 import 'package:lualike/src/runtime/lua_runtime.dart';
 import 'package:lualike/src/table_storage.dart';
@@ -118,6 +119,7 @@ class IrFrame {
     required List<LualikeIrUpvalueCell> capturedUpvalues,
     required this.returnBase,
     required this.expectedResults,
+    this.runtime,
   }) : upvalues = List<LualikeIrUpvalueCell>.from(capturedUpvalues),
        registers = List<dynamic>.filled(
          _initialRegisterCapacity(prototype, args),
@@ -137,11 +139,12 @@ class IrFrame {
       setRegister(i, i < args.length ? args[i] : null);
     }
     if (prototype.namedVarargRegister case final int register) {
-      setRegister(register, packVarargsTable(varargs));
+      setRegister(register, packVarargsTable(varargs, runtime: runtime));
     }
   }
 
   final LualikeIrPrototype prototype;
+  final LuaRuntime? runtime;
   final List<dynamic> registers;
   final List<LualikeIrUpvalueCell> upvalues;
   final List<dynamic> varargs;
@@ -294,12 +297,12 @@ class LualikeIrVm {
     if (envEntry is! Value) {
       return null;
     }
-    final raw = envEntry.raw;
+    final raw = rawLuaSlot(envEntry);
     if (raw == null) {
       return null;
     }
     final global = _globalEnvValue;
-    if (global != null && identical(global.raw, raw)) {
+    if (global != null && identical(rawLuaSlot(global), raw)) {
       return null;
     }
     return envEntry;
@@ -326,7 +329,7 @@ class LualikeIrVm {
       return 'LualikeIrClosure(protoRegisters=${value.prototype.registerCount})';
     }
     if (value is Value) {
-      final raw = value.raw;
+      final raw = rawLuaSlot(value);
       final typeName = raw == null ? 'nil' : raw.runtimeType.toString();
       return 'Value<$typeName>';
     }
@@ -372,7 +375,7 @@ class LualikeIrVm {
       return;
     }
     final tableValue = frame.getRegister(registerIndex);
-    final raw = tableValue is Value ? tableValue.raw : tableValue;
+    final raw = rawLuaSlot(tableValue);
     if (raw is! num) {
       return;
     }
@@ -405,6 +408,7 @@ class LualikeIrVm {
         capturedUpvalues: const <LualikeIrUpvalueCell>[],
         returnBase: 0,
         expectedResults: _returnAll,
+        runtime: runtime,
       ),
     ], isMainChunk: true);
     return _finalizeResults(rawResults);
@@ -432,6 +436,7 @@ class LualikeIrVm {
         capturedUpvalues: closure.upvalues,
         returnBase: 0,
         expectedResults: expectedResults,
+        runtime: runtime,
       ),
     ]);
     return _finalizeResults(rawResults);
@@ -662,14 +667,14 @@ class LualikeIrVm {
           }
         case LualikeIrOpcode.test:
           final instr = instruction as ABCInstruction;
-          final cond = _isTruthy(registers[instr.a]);
+          final cond = isLuaTruthy(registers[instr.a]);
           if ((!cond) == instr.k) {
             frame.pc += 1;
           }
           break;
         case LualikeIrOpcode.testSet:
           final instr = instruction as ABCInstruction;
-          final cond = _isTruthy(registers[instr.b]);
+          final cond = isLuaTruthy(registers[instr.b]);
           if ((!cond) == instr.k) {
             frame.pc += 1;
           } else {
@@ -718,8 +723,11 @@ class LualikeIrVm {
             LualikeIrClosure? closure;
             if (callee is LualikeIrClosure) {
               closure = callee;
-            } else if (callee is Value && callee.raw is LualikeIrClosure) {
-              closure = callee.raw as LualikeIrClosure;
+            } else {
+              final calleeRaw = rawLuaSlot(callee);
+              if (callee is Value && calleeRaw is LualikeIrClosure) {
+                closure = calleeRaw;
+              }
             }
             _logVm(
               () =>
@@ -738,6 +746,7 @@ class LualikeIrVm {
                   capturedUpvalues: closure.upvalues,
                   returnBase: base,
                   expectedResults: expectedResults,
+                  runtime: runtime,
                 ),
               );
               _pushCallStackFrame(frames.last);
@@ -763,8 +772,11 @@ class LualikeIrVm {
             LualikeIrClosure? closure;
             if (callee is LualikeIrClosure) {
               closure = callee;
-            } else if (callee is Value && callee.raw is LualikeIrClosure) {
-              closure = callee.raw as LualikeIrClosure;
+            } else {
+              final calleeRaw = rawLuaSlot(callee);
+              if (callee is Value && calleeRaw is LualikeIrClosure) {
+                closure = calleeRaw;
+              }
             }
             _logVm(
               () =>
@@ -787,6 +799,7 @@ class LualikeIrVm {
                   capturedUpvalues: closure.upvalues,
                   returnBase: currentReturnBase,
                   expectedResults: currentExpected,
+                  runtime: runtime,
                 ),
               );
               _pushCallStackFrame(frames.last);
@@ -1199,7 +1212,26 @@ class LualikeIrVm {
         case LualikeIrOpcode.tbc:
           {
             final instr = instruction as ABCInstruction;
-            frame.markToBeClosed(instr.a);
+            // Mark register A as a to-be-closed variable. If the value lacks
+            // a __close metamethod, markToBeClosed raises LuaError with the
+            // base message. Rewrite it to include the local variable name
+            // using the debug-info map keyed by PC so that pcall surfaces
+            // "variable '<name>' got a non-closable value" per Lua 5.4 spec.
+            try {
+              frame.markToBeClosed(instr.a);
+            } on LuaError catch (error) {
+              if (error.message ==
+                  'to-be-closed variable value must have a __close metamethod') {
+                final localName = frame.prototype.debugInfo
+                    ?.toBeClosedNamesByPc[frame.pc - 1];
+                if (localName != null) {
+                  throw LuaError(
+                    "variable '$localName' got a non-closable value",
+                  );
+                }
+              }
+              rethrow;
+            }
             break;
           }
         case LualikeIrOpcode.shl:
@@ -1568,8 +1600,9 @@ class LualikeIrVm {
   }
 
   List<dynamic> _expandValue(dynamic value) {
-    if (value is Value && value.isMulti && value.raw is List) {
-      return List<dynamic>.from(value.raw as List);
+    final resultValues = luaResultValues(value);
+    if (resultValues != null) {
+      return List<dynamic>.from(resultValues);
     }
     if (value is List) {
       return List<dynamic>.from(value);
@@ -1589,7 +1622,7 @@ class LualikeIrVm {
 
   dynamic _finalizeValue(dynamic value) {
     if (value is Value && value.isPrimitiveLike) {
-      return value.raw;
+      return rawLuaSlot(value);
     }
     return value;
   }
@@ -1602,11 +1635,7 @@ class LualikeIrVm {
   }
 
   Value _ensureValue(dynamic raw) {
-    if (raw is Value) {
-      _ensureInterpreterAttached(raw);
-      return raw;
-    }
-    final value = Value(raw);
+    final value = cachedPrimitiveOrValue(environment.interpreter, raw);
     _ensureInterpreterAttached(value);
     return value;
   }
@@ -1741,7 +1770,11 @@ class LualikeIrVm {
   }
 
   Value _valueOf(dynamic raw) {
-    return raw is Value ? raw : Value(raw);
+    return _ensureValue(raw);
+  }
+
+  Value _canonicalValueOf(dynamic raw) {
+    return _canonicalizeValue(_valueOf(raw));
   }
 
   ({bool handled, dynamic value}) _tryNumericBinary(
@@ -1759,8 +1792,8 @@ class LualikeIrVm {
       }
     }
 
-    final leftRaw = _rawValue(left);
-    final rightRaw = _rawValue(right);
+    final leftRaw = rawLuaSlot(left);
+    final rightRaw = rawLuaSlot(right);
     if (!_isNumericCandidate(operation, leftRaw, rightRaw)) {
       return (handled: false, value: null);
     }
@@ -1880,10 +1913,8 @@ class LualikeIrVm {
       return null;
     }
 
-    final leftCandidate = left is Value ? left : _ensureValue(left);
-    final rightCandidate = right is Value ? right : _ensureValue(right);
-    final leftValue = _canonicalizeValue(leftCandidate);
-    final rightValue = _canonicalizeValue(rightCandidate);
+    final leftValue = _canonicalValueOf(left);
+    final rightValue = _canonicalValueOf(right);
     final result = _evaluateBinaryOperation(leftValue, rightValue, operation);
     if (result is Future) {
       return result.then((resolved) {
@@ -1907,8 +1938,8 @@ class LualikeIrVm {
       return null;
     }
 
-    final leftValue = left is Value ? left : _ensureValue(left);
-    final constantValue = constant is Value ? constant : _ensureValue(constant);
+    final leftValue = _valueOf(left);
+    final constantValue = _valueOf(constant);
     final result = _evaluateBinaryOperation(
       leftValue,
       constantValue,
@@ -1945,8 +1976,8 @@ class LualikeIrVm {
       final rightIndex = end;
       final leftRaw = registers[leftIndex];
       final rightRaw = registers[rightIndex];
-      final leftValue = leftRaw is Value ? leftRaw : _ensureValue(leftRaw);
-      final rightValue = rightRaw is Value ? rightRaw : _ensureValue(rightRaw);
+      final leftValue = _valueOf(leftRaw);
+      final rightValue = _valueOf(rightRaw);
       final combined = _evaluateBinaryOperation(leftValue, rightValue, '..');
       final resolved = combined is Future ? await combined : combined;
       registers[leftIndex] = resolved;
@@ -1968,8 +1999,8 @@ class LualikeIrVm {
       return null;
     }
 
-    final leftValue = left is Value ? left : _ensureValue(left);
-    final rightValue = _ensureValue(immediate);
+    final leftValue = _valueOf(left);
+    final rightValue = _valueOf(immediate);
     final result = _evaluateBinaryOperation(leftValue, rightValue, operation);
     if (result is Future) {
       return result.then((resolved) {
@@ -2175,8 +2206,9 @@ class LualikeIrVm {
   }
 
   dynamic _ensureMetamethodLookup(Value subject, Value key, dynamic result) {
+    final resultRaw = rawLuaSlot(result);
     final isNilResult =
-        result == null || (result is Value && result.raw == null);
+        result == null || (result is Value && resultRaw == null);
     if (!isNilResult) {
       return result;
     }
@@ -2184,19 +2216,22 @@ class LualikeIrVm {
     if (stringLib is! Value) {
       return result;
     }
-    final methodEntry = stringLib[Value(key.raw)];
-    if (methodEntry is! Value || methodEntry.raw == null) {
+    final keyRaw = rawLuaSlot(key);
+    final methodEntry = stringLib[cachedPrimitiveOrValue(runtime, keyRaw)];
+    final methodRaw = rawLuaSlot(methodEntry);
+    if (methodEntry is! Value || methodRaw == null) {
       return result;
     }
     return Value((List<Object?> callArgs) async {
       final normalizedArgs = callArgs.map(_prepareCallArgument).toList();
+      final subjectRaw = rawLuaSlot(subject);
       final hasSelf =
           normalizedArgs.isNotEmpty &&
           normalizedArgs.first is Value &&
-          (normalizedArgs.first as Value).raw == subject.raw;
+          rawLuaSlot(normalizedArgs.first) == subjectRaw;
       _logVm(
         () =>
-            'metamethod fallback key=${key.raw} hasSelf=$hasSelf args=${normalizedArgs.map(_describeValue).join(', ')}',
+            'metamethod fallback key=$keyRaw hasSelf=$hasSelf args=${normalizedArgs.map(_describeValue).join(', ')}',
         categories: const {'Metamethod', 'String'},
       );
       if (!hasSelf) {
@@ -2209,7 +2244,7 @@ class LualikeIrVm {
       }
       final result = await _callValue(methodEntry, normalizedArgs);
       return result;
-    });
+    }, interpreter: runtime);
   }
 
   Future<Value> _awaitValue(dynamic value) async {
@@ -2219,8 +2254,9 @@ class LualikeIrVm {
         current = await current;
         continue;
       }
-      if (current is Value && current.raw is Future) {
-        current = await current.raw;
+      final currentRaw = rawLuaSlot(current);
+      if (current is Value && currentRaw is Future) {
+        current = await currentRaw;
         continue;
       }
       return _ensureValue(current);
@@ -2233,19 +2269,23 @@ class LualikeIrVm {
     final bool rawHasKey = tableValue.rawContainsKey(keyValue);
     dynamic lookup = tableValue[keyValue];
     final bool usedMetamethod =
-        !rawHasKey || lookup == null || (lookup is Value && lookup.raw == null);
-    if (lookup is Future || (lookup is Value && lookup.raw is Future)) {
+        !rawHasKey ||
+        lookup == null ||
+        (lookup is Value && rawLuaSlot(lookup) == null);
+    if (lookup is Future || (lookup is Value && rawLuaSlot(lookup) is Future)) {
       lookup = await _awaitValue(lookup);
     }
     var resolved = _ensureMetamethodLookup(tableValue, keyValue, lookup);
-    if (resolved is Future || (resolved is Value && resolved.raw is Future)) {
+    if (resolved is Future ||
+        (resolved is Value && rawLuaSlot(resolved) is Future)) {
       resolved = await _awaitValue(resolved);
     }
     if (resolved is Value) {
-      if (usedMetamethod && resolved.raw is List) {
-        final list = resolved.raw as List;
+      final resolvedRaw = rawLuaSlot(resolved);
+      if (usedMetamethod && resolvedRaw is List) {
+        final list = resolvedRaw;
         if (list.isEmpty) {
-          final nilValue = Value(null);
+          final nilValue = cachedPrimitiveOrValue(runtime, null);
           _ensureInterpreterAttached(nilValue);
           return nilValue;
         }
@@ -2259,8 +2299,8 @@ class LualikeIrVm {
   }
 
   void _tableSet(dynamic tableRef, dynamic key, dynamic value) {
-    final rawTable = tableRef is Value ? tableRef.raw : tableRef;
-    final rawKey = key is Value ? key.raw : key;
+    final rawTable = rawLuaSlot(tableRef);
+    final rawKey = rawLuaSlot(key);
     if (rawTable is num) {
       throw LuaError.typeError('attempt to index a number value');
     }
@@ -2334,7 +2374,7 @@ class LualikeIrVm {
 
   void _unaryBoolean(IrFrame frame, ABCInstruction instruction) {
     final value = frame.registers[instruction.b];
-    frame.setRegister(instruction.a, !_isTruthy(value));
+    frame.setRegister(instruction.a, !isLuaTruthy(value));
   }
 
   Future<void> _unaryLength(IrFrame frame, ABCInstruction instruction) {
@@ -2344,10 +2384,6 @@ class LualikeIrVm {
       '__len',
       (value, raw) => _lengthOf(raw),
     );
-  }
-
-  dynamic _rawValue(dynamic value) {
-    return value is Value ? value.raw : value;
   }
 
   Future<dynamic> _callValue(dynamic callable, List<Object?> args) async {
@@ -2397,12 +2433,12 @@ class LualikeIrVm {
     if (result == null) {
       return const [];
     }
+    final resultValues = luaResultValues(result);
+    if (resultValues != null) {
+      return List<dynamic>.from(resultValues);
+    }
     if (result is Value) {
       _ensureInterpreterAttached(result);
-      if (result.isMulti) {
-        final rawList = result.raw as List<Object?>;
-        return List<dynamic>.from(rawList);
-      }
       return <dynamic>[result];
     }
     if (result is List) {
@@ -2419,7 +2455,7 @@ class LualikeIrVm {
   }
 
   num _asNumber(dynamic value) {
-    final raw = _rawValue(value);
+    final raw = rawLuaSlot(value);
     if (raw is num) {
       return raw;
     }
@@ -2447,10 +2483,8 @@ class LualikeIrVm {
   }
 
   FutureOr<bool> _equals(dynamic left, dynamic right) {
-    final leftCandidate = left is Value ? left : _ensureValue(left);
-    final rightCandidate = right is Value ? right : _ensureValue(right);
-    final leftValue = _canonicalizeValue(leftCandidate);
-    final rightValue = _canonicalizeValue(rightCandidate);
+    final leftValue = _canonicalValueOf(left);
+    final rightValue = _canonicalValueOf(right);
 
     Value? callee;
     if (leftValue.hasMetamethod('__eq')) {
@@ -2505,7 +2539,7 @@ class LualikeIrVm {
   Future<bool> _finalizeComparisonResult(dynamic result, bool invert) async {
     final normalized = await _normalizeResults(result);
     final primary = normalized.isEmpty ? null : normalized.first;
-    final outcome = _isTruthy(primary);
+    final outcome = isLuaTruthy(primary);
     return invert ? !outcome : outcome;
   }
 
@@ -2571,7 +2605,7 @@ class LualikeIrVm {
 
   bool _coerceComparisonValue(dynamic result) {
     if (result is Value) {
-      return _isTruthy(result);
+      return isLuaTruthy(result);
     }
     if (result is bool) {
       return result;
@@ -2582,8 +2616,9 @@ class LualikeIrVm {
   }
 
   Value _canonicalizeValue(Value value) {
-    if (value.raw is Map) {
-      final canonical = Value.lookupCanonicalTableWrapper(value.raw);
+    final raw = rawLuaSlot(value);
+    if (raw is Map) {
+      final canonical = Value.lookupCanonicalTableWrapper(raw);
       if (canonical != null) {
         _ensureInterpreterAttached(canonical);
         return canonical;
@@ -2593,10 +2628,8 @@ class LualikeIrVm {
   }
 
   FutureOr<bool> _lessThan(dynamic left, dynamic right) {
-    final leftCandidate = left is Value ? left : _ensureValue(left);
-    final rightCandidate = right is Value ? right : _ensureValue(right);
-    final leftValue = _canonicalizeValue(leftCandidate);
-    final rightValue = _canonicalizeValue(rightCandidate);
+    final leftValue = _canonicalValueOf(left);
+    final rightValue = _canonicalValueOf(right);
 
     final config = _selectComparisonMetamethod('<', leftValue, rightValue);
     if (config != null) {
@@ -2617,8 +2650,8 @@ class LualikeIrVm {
       // fall back to raw comparison below
     }
 
-    final leftRaw = _rawValue(leftValue);
-    final rightRaw = _rawValue(rightValue);
+    final leftRaw = rawLuaSlot(leftValue);
+    final rightRaw = rawLuaSlot(rightValue);
     if (leftRaw is num && rightRaw is num) {
       return leftRaw < rightRaw;
     }
@@ -2632,8 +2665,8 @@ class LualikeIrVm {
   }
 
   FutureOr<bool> _lessEqual(dynamic left, dynamic right) {
-    final leftValue = left is Value ? left : _ensureValue(left);
-    final rightValue = right is Value ? right : _ensureValue(right);
+    final leftValue = _valueOf(left);
+    final rightValue = _valueOf(right);
 
     final config = _selectComparisonMetamethod('<=', leftValue, rightValue);
     if (config != null) {
@@ -2653,8 +2686,8 @@ class LualikeIrVm {
       // fall back to raw comparison below
     }
 
-    final leftRaw = _rawValue(leftValue);
-    final rightRaw = _rawValue(rightValue);
+    final leftRaw = rawLuaSlot(leftValue);
+    final rightRaw = rawLuaSlot(rightValue);
     if (leftRaw is num && rightRaw is num) {
       return leftRaw <= rightRaw;
     }
@@ -2667,23 +2700,15 @@ class LualikeIrVm {
     );
   }
 
-  bool _isTruthy(dynamic value) {
-    final raw = value is Value ? value.raw : value;
-    return !(raw == null || raw == false);
-  }
+
 
   bool _isNilControl(dynamic value) {
-    if (value == null) {
+    if (rawLuaSlot(value) == null) {
       return true;
     }
-    if (value is Value && value.raw == null) {
+    final resultValues = luaResultValues(value);
+    if (resultValues != null && resultValues.isEmpty) {
       return true;
-    }
-    if (value is Value && value.isMulti) {
-      final raw = value.raw;
-      if (raw is List && raw.isEmpty) {
-        return true;
-      }
     }
     return false;
   }
@@ -2713,16 +2738,9 @@ class LoopIrVm {
   final Environment environment;
 
   Value _ensureValue(dynamic raw) {
-    if (raw is Value) {
-      final runtime = environment.interpreter;
-      if (runtime != null && !identical(raw.interpreter, runtime)) {
-        raw.interpreter = runtime;
-      }
-      return raw;
-    }
-    final value = Value(raw);
     final runtime = environment.interpreter;
-    if (runtime != null) {
+    final value = cachedPrimitiveOrValue(runtime, raw);
+    if (runtime != null && !identical(value.interpreter, runtime)) {
       value.interpreter = runtime;
     }
     return value;
@@ -2868,7 +2886,7 @@ class LoopIrVm {
   }
 
   num _asNumber(dynamic value) {
-    final raw = _rawValue(value);
+    final raw = rawLuaSlot(value);
     if (raw is num) {
       return raw;
     }
@@ -2895,22 +2913,19 @@ class LoopIrVm {
     throw LuaError("attempt to perform arithmetic on a ${raw.runtimeType}");
   }
 
-  dynamic _rawValue(dynamic value) {
-    return value is Value ? value.raw : value;
-  }
-
   void _setTable(dynamic tableRef, dynamic keyRef, dynamic valueRef) {
     final tableValue = _ensureValue(tableRef);
     final keyValue = _ensureValue(keyRef);
     final storedValue = _ensureValue(valueRef);
+    final tableRaw = rawLuaSlot(tableValue);
 
-    if (tableValue.raw is Map) {
+    if (tableRaw is Map) {
       tableValue[keyValue] = storedValue;
       return;
     }
 
     throw LuaError.typeError(
-      'attempt to index a ${tableValue.raw.runtimeType} value',
+      'attempt to index a ${tableRaw.runtimeType} value',
     );
   }
 }

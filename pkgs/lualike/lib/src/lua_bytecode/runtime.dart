@@ -21,11 +21,14 @@ import 'package:lualike/src/lua_string.dart';
 import 'package:lualike/src/parse.dart';
 import 'package:lualike/src/runtime/chunk_loading_support.dart';
 import 'package:lualike/src/runtime/compiled_artifact_support.dart';
+import 'package:lualike/src/runtime/lua_results.dart';
+import 'package:lualike/src/runtime/lua_slot.dart';
 import 'package:lualike/src/runtime/lua_runtime.dart';
 import 'package:lualike/src/semantic_checker.dart';
 import 'package:lualike/src/stack.dart';
 import 'package:lualike/src/stdlib/init.dart';
 import 'package:lualike/src/stdlib/library.dart';
+import 'package:lualike/src/stdlib/metatables.dart';
 import 'package:lualike/src/value.dart';
 
 bool looksLikeTrackedLuaBytecodeBytes(List<int> bytes) {
@@ -157,7 +160,7 @@ Environment _createLoadEnvironment({
 }
 
 List<int>? _sourceBytes(Value source) {
-  return switch (source.raw) {
+  return switch (rawLuaSlot(source)) {
     final LuaString luaString => luaString.bytes,
     final String text => text.codeUnits,
     final List<int> bytes => bytes,
@@ -166,7 +169,7 @@ List<int>? _sourceBytes(Value source) {
 }
 
 String? _sourceText(Value source) {
-  return switch (source.raw) {
+  return switch (rawLuaSlot(source)) {
     final String text => text,
     final LuaString luaString => _decodeLuaSourceBytes(luaString.bytes),
     final List<int> bytes => _decodeLuaSourceBytes(bytes),
@@ -364,7 +367,7 @@ class LuaBytecodeRuntime implements LuaRuntime {
     args = prepared.args;
     _ensureValueInterpreter(callee);
     _attachInterpreterToArgs(args);
-    if (callee.raw case final LuaBytecodeClosure closure) {
+    if (rawLuaSlot(callee) case final LuaBytecodeClosure closure) {
       final vm = LuaBytecodeVm(this);
       final results = await vm.invoke(
         closure,
@@ -380,9 +383,7 @@ class LuaBytecodeRuntime implements LuaRuntime {
       if (results.length == 1) {
         return results.single;
       }
-      final packed = Value.multi(results);
-      packed.interpreter ??= this;
-      return packed;
+      return LuaResults(results);
     }
     final topFrame = callStack.top;
     final alreadyFramed = identical(topFrame?.callable, callee);
@@ -443,7 +444,7 @@ class LuaBytecodeRuntime implements LuaRuntime {
   @override
   Object? dumpFunction(Value function, {bool stripDebugInfo = false}) {
     _ensureValueInterpreter(function);
-    if (function.raw case final LuaBytecodeClosure closure) {
+    if (rawLuaSlot(function) case final LuaBytecodeClosure closure) {
       final chunk = LuaBytecodeBinaryChunk(
         header: const LuaBytecodeChunkHeader.official(),
         rootUpvalueCount: closure.prototype.upvalues.length,
@@ -469,40 +470,31 @@ class LuaBytecodeRuntime implements LuaRuntime {
 
   @override
   Value constantStringValue(List<int> bytes) {
-    final key = luaStringCacheKey(bytes);
-    final cached = _interpreter.literalValueCache[key];
-    if (cached != null) {
-      _ensureValueInterpreter(cached);
-      return cached;
-    }
-
-    final luaString = _interpreter.literalStringInternPool[key] ??=
-        LuaString.fromBytes(bytes);
-    final value = Value(luaString)..interpreter = this;
-    _interpreter.literalValueCache[key] = value;
-    return value;
+    return _interpreter.constantStringValue(bytes)..interpreter = this;
   }
 
   @override
   Value constantRawStringValue(String value) {
-    final key = luaStringCacheKeyFromRawString(value);
-    final cached = _interpreter.literalValueCache[key];
-    if (cached != null) {
-      _ensureValueInterpreter(cached);
-      return cached;
-    }
+    return _interpreter.constantStringValue(value.codeUnits)
+      ..interpreter = this;
+  }
 
-    final luaString = _interpreter.literalStringInternPool[key] ??=
-        LuaString.fromBytes(value.codeUnits);
-    final wrapped = Value(luaString)..interpreter = this;
-    _interpreter.literalValueCache[key] = wrapped;
-    return wrapped;
+  @override
+  Value constantDartStringValue(String value) {
+    return _interpreter.constantDartStringValue(value)..interpreter = this;
   }
 
   @override
   Value constantPrimitiveValue(Object? raw) {
-    return _interpreter.constantPrimitiveValue(raw)..interpreter = this;
+    final value = _interpreter.constantPrimitiveValue(raw);
+    if (_defaultPrimitiveMetatableActive(raw)) {
+      _ensureValueInterpreter(value);
+    }
+    return value;
   }
+
+  @override
+  Value wrapRuntimeValue(Object? raw) => valueFromLuaSlot(this, raw);
 
   @override
   CallStack get callStack => _interpreter.callStack;
@@ -567,6 +559,9 @@ class LuaBytecodeRuntime implements LuaRuntime {
 
   @override
   FileManager get fileManager => _interpreter.fileManager;
+
+  @override
+  Set<Value> get openFiles => _interpreter.openFiles;
 
   @override
   LibraryRegistry get libraryRegistry => _libraryRegistry;
@@ -706,11 +701,11 @@ class LuaBytecodeRuntime implements LuaRuntime {
     var extraArgs = 0;
 
     while (true) {
-      final raw = callee.raw;
+      final raw = rawLuaSlot(callee);
       if (raw is String) {
         final lookup = globals.get(raw);
         if (lookup != null) {
-          callee = lookup is Value ? lookup : Value(lookup);
+          callee = valueFromLuaSlot(this, lookup);
           continue;
         }
       }
@@ -738,7 +733,7 @@ class LuaBytecodeRuntime implements LuaRuntime {
       }
 
       final originalCallee = callee;
-      callee = callMeta is Value ? callMeta : Value(callMeta);
+      callee = valueFromLuaSlot(this, callMeta);
       normalizedArgs = <Object?>[originalCallee, ...normalizedArgs];
       extraArgs += 1;
     }
@@ -750,14 +745,29 @@ class LuaBytecodeRuntime implements LuaRuntime {
     }
   }
 
+  bool _defaultPrimitiveMetatableActive(Object? raw) {
+    final type = switch (raw) {
+      null => 'nil',
+      bool() => 'boolean',
+      _ => 'number',
+    };
+    return MetaTable().isDefaultMetatableActive(type);
+  }
+
   List<Object?> _currentChunkArgs(Environment env) {
     final varargs = env.get('...');
+    final resultValues = luaResultValues(varargs);
+    if (resultValues != null) {
+      return List<Object?>.from(resultValues);
+    }
+    if (varargs is Value) {
+      if (rawLuaSlot(varargs) == null) {
+        return const <Object?>[];
+      }
+      return <Object?>[varargs];
+    }
     return switch (varargs) {
-      Value(isMulti: true, raw: final List values) => List<Object?>.from(
-        values,
-      ),
-      Value(raw: null) || null => const <Object?>[],
-      final Value value => <Object?>[value],
+      null => const <Object?>[],
       _ => <Object?>[varargs],
     };
   }

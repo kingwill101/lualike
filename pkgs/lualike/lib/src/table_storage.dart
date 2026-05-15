@@ -3,10 +3,11 @@ import 'dart:typed_data';
 
 import 'package:lualike/src/number_limits.dart';
 import 'package:lualike/src/lua_string.dart';
+import 'package:lualike/src/runtime/lua_slot.dart';
 import 'package:lualike/src/value.dart';
 
 bool isLuaNilValue(Object? value) =>
-    value == null || (value is Value && value.raw == null);
+    value == null || (value is Value && rawLuaSlot(value) == null);
 
 int luaTableLengthBoundary(bool Function(int index) hasValueAt) {
   if (!hasValueAt(1)) {
@@ -453,8 +454,7 @@ class TableStorage extends MapBase<dynamic, dynamic> {
         continue;
       }
       final value = _array[index];
-      final isNil = value == null || (value is Value && value.raw == null);
-      if (!isNil) {
+      if (!isLuaNilValue(value)) {
         maxIndex = index + 1;
         break;
       }
@@ -463,8 +463,7 @@ class TableStorage extends MapBase<dynamic, dynamic> {
     var key = _hashHead;
     while (key != null) {
       final value = _hash[key];
-      final isNil = value == null || (value is Value && value.raw == null);
-      if (!isNil) {
+      if (!isLuaNilValue(value)) {
         final arrayIndex = _arrayIndexFor(key);
         if (arrayIndex != null) {
           final oneBasedIndex = arrayIndex + 1;

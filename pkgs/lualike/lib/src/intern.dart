@@ -23,6 +23,6 @@ class StringInterning {
 
   /// Creates a Value with proper string interning
   static Value createStringValue(String content) {
-    return Value(intern(content));
+    return Value.primitive(intern(content));
   }
 }

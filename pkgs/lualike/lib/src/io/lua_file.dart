@@ -5,7 +5,9 @@ import 'package:lualike/src/environment.dart';
 import 'package:lualike/src/logging/logger.dart';
 import 'package:lualike/src/lua_error.dart';
 import 'package:lualike/src/lua_string.dart';
+import 'package:lualike/src/runtime/lua_results.dart';
 import 'package:lualike/src/runtime/lua_runtime.dart';
+import 'package:lualike/src/runtime/lua_slot.dart';
 import 'package:lualike/src/upvalue.dart';
 import 'package:lualike/src/utils/type.dart' show getLuaType;
 import 'package:lualike/src/value.dart';
@@ -13,6 +15,15 @@ import 'package:lualike/src/gc/gc.dart';
 
 import '../stdlib/lib_io.dart';
 import 'io_device.dart';
+
+Value _ioPrimitiveValue(Object? raw, [Value? owner]) {
+  return cachedPrimitiveOrValue(owner?.interpreter, raw);
+}
+
+LuaFile? _rawLuaFile(Object? value) {
+  final raw = rawLuaSlot(value);
+  return raw is LuaFile ? raw : null;
+}
 
 final fileMetamethods = {
   "__name": "FILE*",
@@ -24,12 +35,12 @@ final fileMetamethods = {
       );
     }
     final fileValue = args[0];
-    if (fileValue is! Value || fileValue.raw is! LuaFile) {
+    final luaFile = _rawLuaFile(fileValue);
+    if (fileValue is! Value || luaFile == null) {
       throw LuaError(
         "bad argument #1 to '__gc' (FILE* expected, got ${getLuaType(fileValue)})",
       );
     }
-    final luaFile = fileValue.raw as LuaFile;
 
     Logger.debugLazy(
       () =>
@@ -50,17 +61,23 @@ final fileMetamethods = {
         () => 'GC: File already closed, skipping',
         category: 'IO',
       );
-      IOLib.unregisterOpenFile(args[0] as Value);
-      return Value(null);
+      IOLib.unregisterOpenFile(
+        args[0] as Value,
+        interpreter: (args[0] as Value).interpreter,
+      );
+      return _ioPrimitiveValue(null, fileValue);
     }
 
-    final trackedWrapper = IOLib.trackedOpenFileWrapper(luaFile);
+    final trackedWrapper = IOLib.trackedOpenFileWrapper(
+      luaFile,
+      interpreter: fileValue.interpreter,
+    );
     if (trackedWrapper != null && !identical(trackedWrapper, fileValue)) {
       Logger.debugLazy(
         () => 'GC: Skipping close for non-canonical file wrapper',
         category: 'IO',
       );
-      return Value(null);
+      return _ioPrimitiveValue(null, fileValue);
     }
 
     // For default files that are being GC'd, we need to be more careful
@@ -73,7 +90,7 @@ final fileMetamethods = {
           () => 'GC: Skipping close of standard device',
           category: 'IO',
         );
-        return Value(null);
+        return _ioPrimitiveValue(null, fileValue);
       }
 
       // For non-standard default files, reset the default but don't close yet
@@ -82,25 +99,31 @@ final fileMetamethods = {
         () => 'GC: Default file being collected, but keeping it alive',
         category: 'IO',
       );
-      return Value(null);
+      return _ioPrimitiveValue(null, fileValue);
     }
 
     // Not a default file and not closed, safe to close
     await luaFile.close();
-    IOLib.unregisterOpenFile(args[0] as Value);
+    IOLib.unregisterOpenFile(
+      args[0] as Value,
+      interpreter: (args[0] as Value).interpreter,
+    );
     Logger.debugLazy(() => 'GC: File closed successfully', category: 'IO');
-    return Value(null);
+    return _ioPrimitiveValue(null, fileValue);
   },
   "__close": (List<Object?> args) async {
     Logger.debugLazy(() => 'Closing file', category: 'IO');
     final fileValue = args[0];
-    if (fileValue is Value && fileValue.raw is LuaFile) {
-      final file = fileValue.raw as LuaFile;
+    final file = _rawLuaFile(fileValue);
+    if (fileValue is Value && file != null) {
       final result = await file.close();
       if (result.isNotEmpty && result[0] == true) {
-        IOLib.unregisterOpenFile(fileValue);
+        IOLib.unregisterOpenFile(
+          fileValue,
+          interpreter: fileValue.interpreter,
+        );
       }
-      return Value.multi(result);
+      return LuaResults(result);
     } else {
       throw LuaError.typeError("file expected");
     }
@@ -108,9 +131,9 @@ final fileMetamethods = {
   "__tostring": (List<Object?> args) {
     Logger.debugLazy(() => 'Converting file to string', category: 'IO');
     final fileValue = args[0];
-    if (fileValue is Value && fileValue.raw is LuaFile) {
-      final file = fileValue.raw as LuaFile;
-      return Value(file.toString());
+    final file = _rawLuaFile(fileValue);
+    if (fileValue is Value && file != null) {
+      return _ioPrimitiveValue(file.toString(), fileValue);
     } else {
       throw LuaError.typeError("file expected");
     }
@@ -118,12 +141,13 @@ final fileMetamethods = {
   "__index": (List<Object?> args) {
     final fileValue = args[0];
     final key = args[1] as Value;
+    final rawKey = rawLuaSlot(key);
     Logger.debugLazy(
-      () => 'File __index metamethod called for ${key.raw}',
+      () => 'File __index metamethod called for $rawKey',
       category: 'IO',
     );
 
-    final keyStr = switch (key.raw) {
+    final keyStr = switch (rawKey) {
       final String stringValue => stringValue,
       final LuaString stringValue => stringValue.toString(),
       _ => null,
@@ -133,41 +157,43 @@ final fileMetamethods = {
       final method = LuaFile.fileMethods[keyStr];
       if (method != null) {
         Logger.debugLazy(() => 'Found file method: $keyStr', category: 'IO');
-        return Value(method);
+        return Value(
+          method,
+          interpreter: fileValue is Value ? fileValue.interpreter : null,
+        );
       }
 
       // Handle file properties
-      if (fileValue is Value && fileValue.raw is LuaFile) {
-        final luaFile = fileValue.raw as LuaFile;
-
+      final luaFile = _rawLuaFile(fileValue);
+      if (fileValue is Value && luaFile != null) {
         switch (keyStr) {
           case 'mode':
             Logger.debugLazy(
               () => 'Returning file mode: ${luaFile.mode}',
               category: 'IO',
             );
-            return Value(luaFile.mode);
+            return _ioPrimitiveValue(luaFile.mode, fileValue);
           case 'isClosed':
             Logger.debugLazy(
               () => 'Returning file isClosed: ${luaFile.isClosed}',
               category: 'IO',
             );
-            return Value(luaFile.isClosed);
+            return _ioPrimitiveValue(luaFile.isClosed, fileValue);
           case 'isStandardFile':
             Logger.debugLazy(
               () => 'Returning file isStandardFile: ${luaFile.isStandardFile}',
               category: 'IO',
             );
-            return Value(luaFile.isStandardFile);
+            return _ioPrimitiveValue(luaFile.isStandardFile, fileValue);
         }
       }
     }
 
     Logger.debugLazy(
-      () => 'File property/method not found: ${key.raw}',
+      () => 'File property/method not found: $rawKey',
       category: 'IO',
     );
-    return Value(null);
+    return _ioPrimitiveValue(null, fileValue is Value ? fileValue : null);
   },
 };
 
@@ -404,7 +430,7 @@ class LuaFile {
       );
       return Value((List<Object?> args) async {
         throw LuaError("Cannot read from write-only file");
-      });
+      }, interpreter: owner?.interpreter);
     }
     final iteratorValue = Value(
       _LuaFileLineIterator(
@@ -431,13 +457,13 @@ class LuaFile {
   }
 }
 
-final class _LuaFileLineIterator extends BuiltinFunction implements GCObject {
+final class _LuaFileLineIterator extends BuiltinFunction with GCObject {
   _LuaFileLineIterator({
     required this.file,
     required this.formats,
     required this.closeOnEof,
     required this.owner,
-  });
+  }) : super(owner?.interpreter);
 
   final LuaFile file;
   final List<String> formats;
@@ -446,12 +472,6 @@ final class _LuaFileLineIterator extends BuiltinFunction implements GCObject {
 
   bool hasBeenClosed = false;
   int iterationCount = 0;
-
-  @override
-  bool marked = false;
-
-  @override
-  bool isOld = false;
 
   @override
   int get estimatedSize => 96;
@@ -520,7 +540,7 @@ final class _LuaFileLineIterator extends BuiltinFunction implements GCObject {
           category: 'IO',
         );
       }
-      return Value(null);
+      return primitiveValue(null);
     }
 
     final results = <Object?>[];
@@ -575,7 +595,7 @@ final class _LuaFileLineIterator extends BuiltinFunction implements GCObject {
             category: 'IO',
           );
         }
-        return Value(null);
+        return primitiveValue(null);
       }
 
       results.add(result.value);
@@ -593,14 +613,14 @@ final class _LuaFileLineIterator extends BuiltinFunction implements GCObject {
             "Returning single value: ${results[0]} (iteration #$iterationCount)",
         category: 'IO',
       );
-      return Value(results[0]);
+      return cachedPrimitiveOrValue(interpreter, results[0]);
     }
 
     Logger.debugLazy(
       () => "Returning multi values: $results (iteration #$iterationCount)",
       category: 'IO',
     );
-    return Value.multi(results);
+    return LuaResults(results);
   }
 }
 
@@ -611,7 +631,7 @@ Value wrapLuaFileValue(LuaFile luaFile, {LuaRuntime? interpreter}) {
     metatable: fileMetamethods,
     interpreter: interpreter,
   );
-  IOLib.registerOpenFile(fileValue);
+  IOLib.registerOpenFile(fileValue, interpreter: interpreter);
   return fileValue;
 }
 

@@ -3,7 +3,7 @@ import '../value.dart';
 /// Extension methods for strings to simplify Lua-style string operations
 extension StringLuaExtension on String {
   /// Convert to a Value string
-  Value toValueString() => Value(this);
+  Value toValueString() => Value.primitive(this);
 
   /// Perform a simplified Lua-style pattern match
   /// This is a basic implementation - a full implementation would need to handle all Lua pattern features

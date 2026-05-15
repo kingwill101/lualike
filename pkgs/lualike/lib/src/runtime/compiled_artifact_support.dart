@@ -1,3 +1,121 @@
+/// Chunk loading, execution, and dumping for the AST-based runtime.
+///
+/// This file implements Lua's `load()` / `loadfile()` / `string.dump()`
+/// lifecycle for the interpreter (AST) runtime. It is **not** involved in
+/// `lua_bytecode` or `lualike_ir` execution — those runtimes have their own
+/// load paths in `lib/src/lua_bytecode/runtime.dart` and
+/// `lib/src/ir/runtime.dart`.
+///
+/// ## Public API
+///
+/// - **`loadChunkWithLegacyAstSupport()`** — the central `load()`
+///   implementation. Accepts a `LuaChunkLoadRequest` (source string,
+///   `LuaString`, reader function, or binary blob) and returns a
+///   `LuaChunkLoadResult` containing a callable `Value` or an error message.
+///
+/// - **`dumpFunctionWithLegacyAstTransport()`** — implements `string.dump()`.
+///   Takes a function `Value` and produces a `LuaString` that `load()` can
+///   later reconstruct.
+///
+/// - **`defaultDebugInfoForFunction()`** — builds `LuaFunctionDebugInfo`
+///   for `debug.getinfo()`.
+///
+/// ## How `loadChunkWithLegacyAstSupport()` works
+///
+/// ### 1. Source extraction (lines 227-428)
+///
+/// The source argument can be one of four types:
+///
+/// | Type       | Handling                                                  |
+/// |------------|-----------------------------------------------------------|
+/// | `String`   | Check for `0x1B` (ESC) prefix → binary; otherwise text   |
+/// | `LuaString`| Same as `String`, using raw bytes                        |
+/// | `Function` | Call repeatedly (reader protocol) until `nil`/empty, concatenate chunks |
+/// | `List<int>`| Treat as text, decode as UTF-8                           |
+///
+/// Binary chunks (starting with `0x1B`) are passed through
+/// `LegacyAstChunkTransport.deserializeChunk()` to extract the
+/// original source or `FunctionBody`. Text chunks are decoded as UTF-8
+/// (falling back to `String.fromCharCodes` for malformed input).
+///
+/// ### 2. Mode validation (lines 419-428)
+///
+/// Lua's `load(source, chunkname, mode)` accepts a mode string:
+/// - `'b'` — binary only
+/// - `'t'` — text only
+/// - `'bt'` or `'tb'` — both (default)
+///
+/// The function rejects binary chunks when `'b'` is absent and text
+/// chunks when `'t'` is absent.
+///
+/// ### 3. AST acquisition (lines 430-553)
+///
+/// There are three ways the AST is obtained, in priority order:
+///
+/// 1. **Direct AST** — `LegacyAstChunkTransport` already reconstructed a
+///    `FunctionBody` from a dumped function. No parsing needed.
+///
+/// 2. **Anonymous text cache** — short text chunks loaded via `load()`
+///    (not from files) are cached by `(chunkname, source)` key to avoid
+///    re-parsing identical snippets.
+///
+/// 3. **Parse** — source text is parsed into an AST via `parse()`. For
+///    anonymous (non-file) chunks, compile-time checks run:
+///    - goto/label barrier validation
+///    - semantic limit checks (register count, local count, etc.)
+///
+/// ### 4. Execution wrapper creation (lines 555-974)
+///
+/// Regardless of how the AST was obtained, the result is wrapped in a
+/// callable `Value` closure. Three execution paths exist:
+///
+/// - **Direct AST execution** — For dumped functions with a preserved
+///   `FunctionBody`. Upvalues are re-bound from the serialized metadata.
+///   The closure evaluates the AST and invokes the resulting function.
+///
+/// - **Short-circuit optimization** — For patterns like
+///   `local k10 <const> = 10; if (cond) then IX = true end; return cond`,
+///   a pre-compiled expression evaluator bypasses the full interpreter.
+///
+/// - **Source execution** — Standard path: the parsed `Program` AST is
+///   wrapped in a `FunctionBody` and executed via `runtime.runAst()`.
+///
+/// Each path sets up an isolated environment with `_ENV`, `_G`, `_SCRIPT_PATH`,
+/// and varargs (`"..."`) before execution, then restores the ambient
+/// environment after.
+///
+/// ### 5. Upvalue binding (lines 921-974)
+///
+/// If the chunk was dumped with upvalue metadata, those upvalues are
+/// reconstructed and bound to the result closure. Otherwise a single
+/// `_ENV` upvalue is created.
+///
+/// ## How `dumpFunctionWithLegacyAstTransport()` works
+///
+/// Takes a function `Value` and serializes it for later `load()` round-trip:
+///
+/// 1. If the function was created from a source file and has span info,
+///    the original source is preserved (compact dump via `SRCJ:` marker).
+/// 2. Otherwise, the full AST is JSON-serialized (`AST:` marker).
+/// 3. If the function has no body, a stub `return function(...) end` is used.
+///
+/// In all cases the output is a `LuaString` with a fake Lua 5.5 binary
+/// header so it flows through the same `load` dispatch path.
+///
+/// ## Performance
+///
+/// - **`LUALIKE_PROFILE_LOAD=1`** enables timing instrumentation on every
+///   `load()` call, logging parse time and total time to the `LoadProfile`
+///   category.
+///
+/// - **Anonymous text load cache** — caches up to 128 parsed programs for
+///   short (<512 char) anonymous `load()` calls to avoid re-parsing.
+///
+/// - **Constructs short-circuit** — a regex-based fast path for specific
+///   test-suite patterns (`local k10 <const> = 10 ...`) compiles the
+///   condition into a direct Dart evaluator that skips the interpreter.
+library;
+
 import 'dart:collection';
 import 'dart:convert';
 import 'dart:typed_data';
@@ -6,40 +124,100 @@ import 'package:lualike/lualike.dart';
 import 'package:lualike/src/goto_validator.dart';
 import 'package:lualike/src/interpreter/upvalue_analyzer.dart';
 import 'package:lualike/src/legacy_ast_chunk_transport.dart';
+import 'package:lualike/src/runtime/lua_results.dart';
+import 'package:lualike/src/runtime/lua_slot.dart';
 import 'package:lualike/src/semantic_checker.dart';
 import 'package:lualike/src/upvalue.dart';
 import 'package:path/path.dart' as path;
 import 'package:source_span/source_span.dart';
 
+// ─── Configuration & constants ───────────────────────────────────────────
+
+/// Whether load() profiling is enabled via the `LUALIKE_PROFILE_LOAD` env var.
 final bool _loadProfileEnabled =
     getEnvironmentVariable('LUALIKE_PROFILE_LOAD') == '1';
+
+/// Tokens that trigger compile-time semantic checks for anonymous `load()`
+/// chunks. Includes type annotations (`<const>`), `global` declarations,
+/// `for`/`return` keywords, and vararg usage (`...foo`).
 final RegExp _semanticLikeTokenPattern = RegExp(
   r'<[A-Za-z_][A-Za-z0-9_]*>|(^|[^A-Za-z0-9_])global\b|\bfor\b|\breturn\b|\.\.\.\s*[A-Za-z_][A-Za-z0-9_]*',
 );
+
+/// Pattern for the "constructs short-circuit" optimization.
+///
+/// Matches test-suite patterns like:
+/// ```lua
+/// local k10 <const> = 10
+/// if (condition) then IX = true end
+/// return condition
+/// ```
+///
+/// When matched, the condition is evaluated directly in Dart rather than
+/// going through the full interpreter, which is significantly faster for
+/// the large number of these chunks in the test suite.
 final RegExp _constructsShortCircuitChunkPattern = RegExp(
   r'^\s*local\s+(F|k10)\s+<const>\s*=\s*(false|10)\s*'
   r'if\s+(.+?)\s+then\s+IX\s*=\s*true\s+end\s*'
   r'return\s+(.+?)\s*$',
   dotAll: true,
 );
+
+/// Maximum number of cached anonymous text-load AST programs.
 const int _maxCachedAnonymousTextLoads = 128;
+
+/// Maximum source length for anonymous text-load caching.
+///
+/// Longer sources are not cached to avoid memory pressure.
 const int _maxCachedAnonymousTextLoadSourceLength = 512;
+
+/// Per-runtime cache for anonymous `load()` text chunks.
 final Expando<_AnonymousTextLoadCache> _anonymousTextLoadCaches =
     Expando<_AnonymousTextLoadCache>('anonymousTextLoadCaches');
+
+/// Pattern matching standard Lua error format: `file:line: message` or
+/// `[string "chunk"]:line: message`.
 final RegExp _formattedLuaErrorMessagePattern = RegExp(
   r'^(?:\[[^\n]+\]|[^:\n]+):(?:\d+|\?): ',
 );
 
+// ─── Varargs handling ────────────────────────────────────────────────────
+
+/// Unpacks varargs for a loaded chunk call.
+///
+/// If the caller passed a single `LuaResults` value, unwrap it to preserve
+/// Lua's multi-return semantics. Otherwise, pass the arguments as-is.
+Iterable<Object?> _loadedChunkVarargs(List<Object?> callArgs) {
+  if (callArgs.length == 1) {
+    final resultValues = luaResultValues(callArgs.first);
+    if (resultValues != null) {
+      return resultValues;
+    }
+  }
+  return callArgs;
+}
+
+// ─── Text chunk decoding ─────────────────────────────────────────────────
+
+/// Decodes raw chunk bytes to a string.
+///
+/// Tries UTF-8 first, then falls back to `String.fromCharCodes` to preserve
+/// raw bytes for malformed input so that `load()` can report byte-level
+/// errors like `<\255>`.
 String _decodeTextualChunkBytes(List<int> bytes) {
   try {
     return utf8.decode(bytes);
   } on FormatException {
-    // Preserve raw offending bytes for malformed textual chunks so load()
-    // diagnostics can still report byte-oriented errors like <\255>.
     return String.fromCharCodes(bytes);
   }
 }
 
+// ─── Call stack & environment management ─────────────────────────────────
+
+/// Restores the runtime's environment after a loaded chunk finishes.
+///
+/// Uses `restoreCurrentEnv` for the interpreter (which tracks nested env
+/// changes) and `setCurrentEnv` for other runtimes.
 void _restoreAmbientEnvironment(LuaRuntime runtime, Environment env) {
   if (runtime case Interpreter interpreter) {
     interpreter.restoreCurrentEnv(env);
@@ -48,6 +226,7 @@ void _restoreAmbientEnvironment(LuaRuntime runtime, Environment env) {
   runtime.setCurrentEnv(env);
 }
 
+/// Updates the top call stack frame with the loaded chunk's name and env.
 void _rebindActiveLoadedChunkFrame(
   LuaRuntime runtime,
   Value callable, {
@@ -65,6 +244,8 @@ void _rebindActiveLoadedChunkFrame(
   }
 }
 
+/// Saves the runtime's current function context and pushes a new one for
+/// the loaded chunk. Returns the saved context for restoration.
 ({Value? function, Map<String, Box<dynamic>>? fastLocals})?
 _pushLoadedChunkFunctionContext(LuaRuntime runtime, Value callable) {
   if (runtime case Interpreter interpreter) {
@@ -77,6 +258,7 @@ _pushLoadedChunkFunctionContext(LuaRuntime runtime, Value callable) {
   return null;
 }
 
+/// Restores a previously saved function context.
 void _popLoadedChunkFunctionContext(
   LuaRuntime runtime,
   ({Value? function, Map<String, Box<dynamic>>? fastLocals})? savedContext,
@@ -90,10 +272,18 @@ void _popLoadedChunkFunctionContext(
   }
 }
 
+// ─── Error formatting for loaded chunks ──────────────────────────────────
+
+/// Returns true if [message] already has the standard Lua error format
+/// (`source:line: message` or `?:?: message`).
 bool _looksFormattedLoadedChunkLuaErrorMessage(String message) {
   return _formattedLuaErrorMessagePattern.hasMatch(message);
 }
 
+/// Determines the line number for a loaded chunk error.
+///
+/// Checks in order: explicit `error.lineNumber`, `error.span`,
+/// `error.node.span`, then the call stack frames matching the chunk name.
 int _loadedChunkErrorLine(
   LuaRuntime runtime,
   String chunkName,
@@ -174,6 +364,19 @@ Never _rethrowLoadedChunkLuaError(
   );
 }
 
+// ─── load() implementation ───────────────────────────────────────────────
+
+/// Implements Lua's `load(source, chunkname, mode, env)` for the AST runtime.
+///
+/// Handles all four source types (`String`, `LuaString`, reader function,
+/// `List<int>`), binary/text mode validation, legacy AST chunk deserialization,
+/// anonymous text caching, compile-time checks, and execution wrapper creation.
+///
+/// This is called by `string_lib.luaLoad()` and `doFile()` when running
+/// under the interpreter runtime.
+///
+/// For real Lua 5.5 bytecode, the caller should first try
+/// `tryLoadLuaBytecodeArtifact()` from `lua_bytecode/runtime.dart`.
 Future<LuaChunkLoadResult> loadChunkWithLegacyAstSupport(
   LuaRuntime runtime,
   LuaChunkLoadRequest request,
@@ -214,10 +417,11 @@ Future<LuaChunkLoadResult> loadChunkWithLegacyAstSupport(
   bool isBinaryChunk = false;
   LegacyChunkInfo? chunkInfo;
   final sourceArg = request.source;
+  final sourceRaw = rawLuaSlot(sourceArg);
 
   try {
-    if (sourceArg.raw is String) {
-      source = sourceArg.raw as String;
+    if (sourceRaw is String) {
+      source = sourceRaw;
       isBinaryChunk = source.isNotEmpty && source.codeUnitAt(0) == 0x1B;
       Logger.debugLazy(
         () =>
@@ -237,8 +441,8 @@ Future<LuaChunkLoadResult> loadChunkWithLegacyAstSupport(
           return LuaChunkLoadResult.failure(_cleanLoadError(e));
         }
       }
-    } else if (sourceArg.raw is LuaString) {
-      final luaString = sourceArg.raw as LuaString;
+    } else if (sourceRaw is LuaString) {
+      final luaString = sourceRaw;
       isBinaryChunk = luaString.bytes.isNotEmpty && luaString.bytes[0] == 0x1B;
       Logger.debugLazy(
         () =>
@@ -262,7 +466,7 @@ Future<LuaChunkLoadResult> loadChunkWithLegacyAstSupport(
       } else {
         source = _decodeTextualChunkBytes(luaString.bytes);
       }
-    } else if (sourceArg.raw is Function) {
+    } else if (sourceRaw is Function) {
       final chunks = <String>[];
       var readCount = 0;
       while (true) {
@@ -280,15 +484,16 @@ Future<LuaChunkLoadResult> loadChunkWithLegacyAstSupport(
             "reader function must return a string",
           );
         }
-        if (chunk.raw == null) {
+        final chunkRaw = rawLuaSlot(chunk);
+        if (chunkRaw == null) {
           break;
         }
 
         String? text;
-        if (chunk.raw is LuaString) {
-          text = (chunk.raw as LuaString).toLatin1String();
-        } else if (chunk.raw is String) {
-          text = chunk.raw as String;
+        if (chunkRaw is LuaString) {
+          text = chunkRaw.toLatin1String();
+        } else if (chunkRaw is String) {
+          text = chunkRaw;
         } else {
           return const LuaChunkLoadResult.failure(
             "reader function must return a string",
@@ -384,8 +589,8 @@ Future<LuaChunkLoadResult> loadChunkWithLegacyAstSupport(
           category: 'Load',
         );
       }
-    } else if (sourceArg.raw is List<int>) {
-      source = _decodeTextualChunkBytes(sourceArg.raw as List<int>);
+    } else if (sourceRaw is List<int>) {
+      source = _decodeTextualChunkBytes(sourceRaw);
     } else {
       throw LuaError(
         "load() first argument must be string, function or binary",
@@ -576,7 +781,7 @@ Future<LuaChunkLoadResult> loadChunkWithLegacyAstSupport(
               result,
             );
 
-            loadEnv.declare("...", Value.multi(callArgs));
+            loadEnv.declare("...", LuaResults(_loadedChunkVarargs(callArgs)));
             runtime.setCurrentEnv(loadEnv);
             final prevPath = runtime.currentScriptPath;
             runtime.currentScriptPath = effectiveChunkName;
@@ -592,8 +797,8 @@ Future<LuaChunkLoadResult> loadChunkWithLegacyAstSupport(
               if (loadedAstNode is FunctionBody) {
                 final funcValue =
                     await runtime.evaluateAst(loadedAstNode) as Value;
-                if (funcValue.raw is Function ||
-                    funcValue.raw is BuiltinFunction) {
+                final funcRaw = rawLuaSlot(funcValue);
+                if (funcRaw is Function || funcRaw is BuiltinFunction) {
                   return await runtime.callFunction(funcValue, callArgs);
                 }
                 return funcValue;
@@ -610,11 +815,9 @@ Future<LuaChunkLoadResult> loadChunkWithLegacyAstSupport(
           } on ReturnException catch (e) {
             return e.value;
           } on TailCallException catch (t) {
-            final callee = t.functionValue is Value
-                ? t.functionValue as Value
-                : Value(t.functionValue);
+            final callee = valueFromLuaSlot(runtime, t.functionValue);
             final normalizedArgs = t.args
-                .map((a) => a is Value ? a : Value(a))
+                .map((a) => valueFromLuaSlot(runtime, a))
                 .toList();
             return await runtime.callFunction(callee, normalizedArgs);
           } catch (e) {
@@ -645,7 +848,10 @@ Future<LuaChunkLoadResult> loadChunkWithLegacyAstSupport(
         final prevPath = runtime.currentScriptPath;
         runtime.currentScriptPath = effectiveChunkName;
         runtime.callStack.setScriptPath(effectiveChunkName);
-        loadEnv.declare('_SCRIPT_PATH', Value(effectiveChunkName));
+        loadEnv.declare(
+          '_SCRIPT_PATH',
+          valueFromLuaSlot(runtime, effectiveChunkName),
+        );
         try {
           final directFunction =
               await runtime.evaluateAst(loadedAstNode) as Value;
@@ -657,10 +863,10 @@ Future<LuaChunkLoadResult> loadChunkWithLegacyAstSupport(
               Object? upvalueValue;
               if (upvalueName == '_ENV' &&
                   providedEnv != null &&
-                  providedEnv.raw != null) {
+                  rawLuaSlot(providedEnv) != null) {
                 upvalueValue = providedEnv;
               }
-              final box = Box<dynamic>(upvalueValue);
+              final box = Box<dynamic>(upvalueValue, interpreter: runtime);
               final upvalue = Upvalue(
                 valueBox: box,
                 name: upvalueName,
@@ -675,7 +881,7 @@ Future<LuaChunkLoadResult> loadChunkWithLegacyAstSupport(
               loadEnv,
             );
             for (final analyzed in analyzedUpvalues) {
-              final box = Box<dynamic>(null);
+              final box = Box<dynamic>(null, interpreter: runtime);
               final upvalue = Upvalue(
                 valueBox: box,
                 name: analyzed.name,
@@ -717,8 +923,11 @@ Future<LuaChunkLoadResult> loadChunkWithLegacyAstSupport(
           );
           final savedContext = _pushLoadedChunkFunctionContext(runtime, result);
 
-          loadEnv.declare("...", Value.multi(callArgs));
-          loadEnv.declare(constantName, Value(constantValue, isConst: true));
+          loadEnv.declare("...", LuaResults(_loadedChunkVarargs(callArgs)));
+          loadEnv.declare(
+            constantName,
+            Value.primitive(constantValue, isConst: true),
+          );
           runtime.setCurrentEnv(loadEnv);
           final prevPath = runtime.currentScriptPath;
           runtime.currentScriptPath = effectiveChunkName;
@@ -729,12 +938,16 @@ Future<LuaChunkLoadResult> loadChunkWithLegacyAstSupport(
             chunkName: effectiveChunkName,
             env: loadEnv,
           );
-          loadEnv.declare('_SCRIPT_PATH', Value(effectiveChunkName));
+          loadEnv.declare(
+            '_SCRIPT_PATH',
+            valueFromLuaSlot(runtime, effectiveChunkName),
+          );
 
           try {
             final firstValue = switch (compiledCondition) {
-              final _ConstructsShortCircuitExpr compiled => Value(
-                _unwrapConstructsValue(compiled.evaluate(loadEnv)),
+              final _ConstructsShortCircuitExpr compiled => valueFromLuaSlot(
+                runtime,
+                rawLuaSlot(compiled.evaluate(loadEnv)),
               ),
               _ => await _evaluateConstructsShortCircuitExpression(
                 runtime,
@@ -742,11 +955,16 @@ Future<LuaChunkLoadResult> loadChunkWithLegacyAstSupport(
               ),
             };
             if (firstValue.isTruthy()) {
-              await _assignLoadedGlobal(loadEnv, 'IX', Value(true));
+              await _assignLoadedGlobal(
+                loadEnv,
+                'IX',
+                valueFromLuaSlot(runtime, true),
+              );
             }
             final resultValue = switch (compiledCondition) {
-              final _ConstructsShortCircuitExpr compiled => Value(
-                _unwrapConstructsValue(compiled.evaluate(loadEnv)),
+              final _ConstructsShortCircuitExpr compiled => valueFromLuaSlot(
+                runtime,
+                rawLuaSlot(compiled.evaluate(loadEnv)),
               ),
               _ => await _evaluateConstructsShortCircuitExpression(
                 runtime,
@@ -797,7 +1015,7 @@ Future<LuaChunkLoadResult> loadChunkWithLegacyAstSupport(
               result,
             );
 
-            loadEnv.declare("...", Value.multi(callArgs));
+            loadEnv.declare("...", LuaResults(_loadedChunkVarargs(callArgs)));
             runtime.setCurrentEnv(loadEnv);
             final prevPath = runtime.currentScriptPath;
             runtime.currentScriptPath = effectiveChunkName;
@@ -808,7 +1026,10 @@ Future<LuaChunkLoadResult> loadChunkWithLegacyAstSupport(
               chunkName: effectiveChunkName,
               env: loadEnv,
             );
-            loadEnv.declare('_SCRIPT_PATH', Value(effectiveChunkName));
+            loadEnv.declare(
+              '_SCRIPT_PATH',
+              valueFromLuaSlot(runtime, effectiveChunkName),
+            );
 
             try {
               Object? executionResult;
@@ -820,18 +1041,18 @@ Future<LuaChunkLoadResult> loadChunkWithLegacyAstSupport(
               if (originalUpvalueNames != null &&
                   originalUpvalueNames.isNotEmpty &&
                   executionResult is Value &&
-                  executionResult.raw is Function) {
+                  rawLuaSlot(executionResult) is Function) {
                 final upvalues = <Upvalue>[];
                 for (var i = 0; i < originalUpvalueNames.length; i++) {
                   final upvalueName = originalUpvalueNames[i];
                   final upvalueValue =
                       (providedEnv != null &&
-                          providedEnv.raw != null &&
+                          rawLuaSlot(providedEnv) != null &&
                           originalUpvalueValues != null &&
                           i < originalUpvalueValues.length)
                       ? originalUpvalueValues[i]
                       : null;
-                  final box = Box<dynamic>(upvalueValue);
+                  final box = Box<dynamic>(upvalueValue, interpreter: runtime);
                   final uv = Upvalue(
                     valueBox: box,
                     name: upvalueName,
@@ -856,11 +1077,9 @@ Future<LuaChunkLoadResult> loadChunkWithLegacyAstSupport(
             logProfile('success');
             return e.value;
           } on TailCallException catch (t) {
-            final callee = t.functionValue is Value
-                ? t.functionValue as Value
-                : Value(t.functionValue);
+            final callee = valueFromLuaSlot(runtime, t.functionValue);
             final normalizedArgs = t.args
-                .map((a) => a is Value ? a : Value(a))
+                .map((a) => valueFromLuaSlot(runtime, a))
                 .toList();
             final value = await runtime.callFunction(callee, normalizedArgs);
             logProfile('success');
@@ -891,12 +1110,12 @@ Future<LuaChunkLoadResult> loadChunkWithLegacyAstSupport(
         final upvalueName = originalUpvalueNames[i];
         final upvalueValue =
             (providedEnv != null &&
-                providedEnv.raw != null &&
+                rawLuaSlot(providedEnv) != null &&
                 originalUpvalueValues != null &&
                 i < originalUpvalueValues.length)
             ? originalUpvalueValues[i]
             : null;
-        final box = Box<dynamic>(upvalueValue);
+        final box = Box<dynamic>(upvalueValue, interpreter: runtime);
         final upvalue = Upvalue(
           valueBox: box,
           name: upvalueName,
@@ -913,7 +1132,7 @@ Future<LuaChunkLoadResult> loadChunkWithLegacyAstSupport(
           currentEnv.get('_ENV') ??
           currentEnv.root.get('_ENV');
       if (envValue != null) {
-        final envBox = Box<dynamic>(envValue);
+        final envBox = Box<dynamic>(envValue, interpreter: runtime);
         final envUpvalue = Upvalue(
           valueBox: envBox,
           name: '_ENV',
@@ -939,13 +1158,32 @@ Future<LuaChunkLoadResult> loadChunkWithLegacyAstSupport(
   }
 }
 
+// ─── string.dump() implementation ────────────────────────────────────────
+
+/// Implements Lua's `string.dump(function)` for the AST runtime.
+///
+/// Produces a `LuaString` that `loadChunkWithLegacyAstSupport()` can later
+/// reconstruct. Uses one of three strategies:
+///
+/// 1. **Compact source dump** (`SRCJ:` marker) — if the function has span
+///    info and was created from source text, the original source is embedded
+///    with chunk name and string literals.
+///
+/// 2. **Full AST dump** (`AST:` marker) — JSON-serialized AST dump of the
+///    `FunctionBody`, including upvalue names and values.
+///
+/// 3. **Stub dump** (`SRC:` marker) — for functions with no body (e.g.
+///    built-in stubs), returns `return function(...) end`.
+///
+/// Throws `LuaError` for `BuiltinFunction` values that cannot be dumped.
 Object? dumpFunctionWithLegacyAstTransport(
   Value function, {
   bool stripDebugInfo = false,
 }) {
-  if (function.raw is BuiltinFunction) {
+  final functionRaw = rawLuaSlot(function);
+  if (functionRaw is BuiltinFunction) {
     throw LuaError(
-      "unable to dump given function (${function.raw.runtimeType})",
+      "unable to dump given function (${functionRaw.runtimeType})",
     );
   }
 
@@ -966,7 +1204,7 @@ Object? dumpFunctionWithLegacyAstTransport(
           .toList();
       upvalueValues = function.upvalues!.map((upvalue) {
         final value = upvalue.getValue();
-        final rawValue = value is Value ? value.raw : value;
+        final rawValue = rawLuaSlot(value);
         if (rawValue is String ||
             rawValue is num ||
             rawValue is bool ||
@@ -1089,6 +1327,13 @@ Value _wrapStrippedLegacyFunction(LuaRuntime runtime, Value innerFunction) {
   );
 }
 
+// ─── debug.getinfo() support ─────────────────────────────────────────────
+
+/// Builds `LuaFunctionDebugInfo` for `debug.getinfo()` when no runtime-
+/// specific debug info is available.
+///
+/// Checks in order: stripped debug info flag, `LuaCallableArtifact.debugInfo`,
+/// function body span info, and heuristic detection of Lua vs C functions.
 LuaFunctionDebugInfo? defaultDebugInfoForFunction(
   LuaRuntime runtime,
   Value function,
@@ -1112,7 +1357,7 @@ LuaFunctionDebugInfo? defaultDebugInfoForFunction(
     );
   }
 
-  final raw = function.raw;
+  final raw = rawLuaSlot(function);
   if (raw is LuaCallableArtifact && raw.debugInfo != null) {
     return raw.debugInfo;
   }
@@ -1124,7 +1369,7 @@ LuaFunctionDebugInfo? defaultDebugInfoForFunction(
     final closureEnvSource = switch (function.closureEnvironment?.get(
       '_SCRIPT_PATH',
     )) {
-      final Value value => value.raw?.toString(),
+      final Value value => rawLuaSlot(value)?.toString(),
       final Object? value? => value.toString(),
       _ => null,
     };
@@ -1231,6 +1476,12 @@ bool _isTopLevelChunk(FunctionBody body) {
   return !(text.startsWith('function') || text.startsWith('local function'));
 }
 
+// ─── Environment creation for loaded chunks ──────────────────────────────
+
+/// Creates an isolated environment for direct AST execution.
+///
+/// When a custom `_ENV` is provided, creates a root-level env with that
+/// as `_ENV` plus `_G`. Otherwise, inherits from the global root.
 Environment _createDirectAstExecutionEnv({
   required LuaRuntime runtime,
   required Environment savedEnv,
@@ -1243,7 +1494,10 @@ Environment _createDirectAstExecutionEnv({
       interpreter: runtime,
       isLoadIsolated: true,
     );
-    final gValue = savedEnv.get('_G') ?? savedEnv.root.get('_G') ?? Value({});
+    final gValue =
+        savedEnv.get('_G') ??
+        savedEnv.root.get('_G') ??
+        valueFromLuaSlot(runtime, <dynamic, dynamic>{});
     loadEnv.declare('_ENV', providedEnv);
     loadEnv.declare('_G', gValue);
   } else {
@@ -1267,7 +1521,7 @@ Environment _createDirectAstFunctionCreationEnv({
     isLoadIsolated: true,
   );
   if (providedEnv != null) {
-    if (providedEnv.raw != null) {
+    if (rawLuaSlot(providedEnv) != null) {
       loadEnv.declare('_ENV', providedEnv);
       final gValue = savedEnv.get('_G') ?? savedEnv.root.get('_G');
       if (gValue is Value) {
@@ -1310,7 +1564,10 @@ Environment _createSourceLoadEnv({
       interpreter: runtime,
       isLoadIsolated: true,
     );
-    final gValue = savedEnv.get('_G') ?? savedEnv.root.get('_G') ?? Value({});
+    final gValue =
+        savedEnv.get('_G') ??
+        savedEnv.root.get('_G') ??
+        valueFromLuaSlot(runtime, <dynamic, dynamic>{});
     loadEnv.declare('_ENV', providedEnv);
     loadEnv.declare('_G', gValue);
   } else {
@@ -1324,12 +1581,9 @@ Environment _createSourceLoadEnv({
   return loadEnv;
 }
 
-Value _primaryValue(Object? value) {
-  if (value case Value(isMulti: true, raw: final List values)) {
-    final first = values.isNotEmpty ? values.first : Value(null);
-    return first is Value ? first : Value(first);
-  }
-  return value is Value ? value : Value(value);
+Value _primaryValue(LuaRuntime runtime, Object? value) {
+  final first = firstLuaResult(value);
+  return valueFromLuaSlot(runtime, first);
 }
 
 Future<Value> _evaluateConstructsShortCircuitExpression(
@@ -1340,20 +1594,20 @@ Future<Value> _evaluateConstructsShortCircuitExpression(
     case GroupedExpression(expr: final expr):
       return _evaluateConstructsShortCircuitExpression(runtime, expr);
     case NilValue():
-      return Value(null);
+      return valueFromLuaSlot(runtime, null);
     case BooleanLiteral(value: final value):
-      return Value(value);
+      return valueFromLuaSlot(runtime, value);
     case NumberLiteral(value: final value):
-      return Value(value);
+      return valueFromLuaSlot(runtime, value);
     case Identifier(name: final name):
       final value = runtime.getCurrentEnv().get(name);
-      return value is Value ? value : Value(value);
+      return valueFromLuaSlot(runtime, value);
     case UnaryExpression(op: 'not', expr: final expr):
       final value = await _evaluateConstructsShortCircuitExpression(
         runtime,
         expr,
       );
-      return Value(!value.isTruthy());
+      return valueFromLuaSlot(runtime, !value.isTruthy());
     case BinaryExpression(left: final left, op: 'and', right: final right):
       final leftValue = await _evaluateConstructsShortCircuitExpression(
         runtime,
@@ -1381,13 +1635,16 @@ Future<Value> _evaluateConstructsShortCircuitExpression(
         runtime,
         right,
       );
-      return Value(leftValue == rightValue);
+      return valueFromLuaSlot(runtime, leftValue == rightValue);
     case TableFieldAccess(table: final table, fieldName: final fieldName):
       final tableValue = await _evaluateConstructsShortCircuitExpression(
         runtime,
         table,
       );
-      return _primaryValue(await tableValue.getValueAsync(fieldName.name));
+      return _primaryValue(
+        runtime,
+        await tableValue.getValueAsync(fieldName.name),
+      );
     case TableIndexAccess(table: final table, index: final index):
       final tableValue = await _evaluateConstructsShortCircuitExpression(
         runtime,
@@ -1397,9 +1654,9 @@ Future<Value> _evaluateConstructsShortCircuitExpression(
         runtime,
         index,
       );
-      return _primaryValue(await tableValue.getValueAsync(indexValue));
+      return _primaryValue(runtime, await tableValue.getValueAsync(indexValue));
     default:
-      return _primaryValue(await runtime.evaluateAst(node));
+      return _primaryValue(runtime, await runtime.evaluateAst(node));
   }
 }
 
@@ -1409,7 +1666,8 @@ Future<void> _assignLoadedGlobal(
   Value value,
 ) async {
   final envValue = loadEnv.get('_ENV');
-  if (envValue is Value && envValue.raw is Map) {
+  final rawEnvValue = rawLuaSlot(envValue);
+  if (envValue is Value && rawEnvValue is Map) {
     await envValue.setValueAsync(name, value);
     return;
   }
@@ -1500,7 +1758,7 @@ final class _ConstructsIdentifierExpr extends _ConstructsShortCircuitExpr {
   final String name;
 
   @override
-  Object? evaluate(Environment env) => _unwrapConstructsValue(env.get(name));
+  Object? evaluate(Environment env) => rawLuaSlot(env.get(name));
 }
 
 final class _ConstructsEnvFieldExpr extends _ConstructsShortCircuitExpr {
@@ -1510,11 +1768,11 @@ final class _ConstructsEnvFieldExpr extends _ConstructsShortCircuitExpr {
 
   @override
   Object? evaluate(Environment env) {
-    final envValue = _unwrapConstructsValue(env.get('_ENV'));
+    final envValue = rawLuaSlot(env.get('_ENV'));
     if (envValue is! Map) {
       return null;
     }
-    return _unwrapConstructsValue(envValue[fieldName]);
+    return rawLuaSlot(envValue[fieldName]);
   }
 }
 
@@ -1524,7 +1782,7 @@ final class _ConstructsNotExpr extends _ConstructsShortCircuitExpr {
   final _ConstructsShortCircuitExpr expr;
 
   @override
-  Object? evaluate(Environment env) => !_isConstructsTruthy(expr.evaluate(env));
+  Object? evaluate(Environment env) => !isLuaTruthy(expr.evaluate(env));
 }
 
 final class _ConstructsAndExpr extends _ConstructsShortCircuitExpr {
@@ -1536,7 +1794,7 @@ final class _ConstructsAndExpr extends _ConstructsShortCircuitExpr {
   @override
   Object? evaluate(Environment env) {
     final leftValue = left.evaluate(env);
-    if (!_isConstructsTruthy(leftValue)) {
+    if (!isLuaTruthy(leftValue)) {
       return leftValue;
     }
     return right.evaluate(env);
@@ -1552,7 +1810,7 @@ final class _ConstructsOrExpr extends _ConstructsShortCircuitExpr {
   @override
   Object? evaluate(Environment env) {
     final leftValue = left.evaluate(env);
-    if (_isConstructsTruthy(leftValue)) {
+    if (isLuaTruthy(leftValue)) {
       return leftValue;
     }
     return right.evaluate(env);
@@ -1567,18 +1825,7 @@ final class _ConstructsEqualsExpr extends _ConstructsShortCircuitExpr {
 
   @override
   Object? evaluate(Environment env) =>
-      _unwrapConstructsValue(left.evaluate(env)) ==
-      _unwrapConstructsValue(right.evaluate(env));
-}
-
-Object? _unwrapConstructsValue(Object? value) => switch (value) {
-  Value wrapped => wrapped.raw,
-  _ => value,
-};
-
-bool _isConstructsTruthy(Object? value) {
-  final rawValue = _unwrapConstructsValue(value);
-  return rawValue != null && rawValue != false;
+      rawLuaSlot(left.evaluate(env)) == rawLuaSlot(right.evaluate(env));
 }
 
 _ConstructsShortCircuitExpr? _compileConstructsShortCircuitExpr(AstNode node) {
@@ -1728,7 +1975,7 @@ _SimpleTopLevelLiteralFunctionFactory? _matchSimpleTopLevelLiteralFunction(
     name: definition.name.first.name,
     create: () {
       final functionValue = Value(
-        (List<Object?> _) async => Value(literal),
+        (List<Object?> _) async => valueFromLuaSlot(runtime, literal),
         functionBody: body,
         closureEnvironment: closureEnv,
       );
@@ -1757,15 +2004,17 @@ void _installLoadedFunction({
   required String functionName,
   required Value functionValue,
 }) {
-  if (providedEnv case final env? when env.raw is Map) {
-    (env.raw as Map)[functionName] = functionValue;
-    env.markTableModified();
+  final rawProvidedEnv = rawLuaSlot(providedEnv);
+  if (rawProvidedEnv is Map) {
+    rawProvidedEnv[functionName] = functionValue;
+    providedEnv!.markTableModified();
     return;
   }
 
   final gValue = savedEnv.get('_G') ?? savedEnv.root.get('_G');
-  if (gValue is Value && gValue.raw is Map) {
-    (gValue.raw as Map)[functionName] = functionValue;
+  final rawGValue = rawLuaSlot(gValue);
+  if (gValue is Value && rawGValue is Map) {
+    rawGValue[functionName] = functionValue;
     gValue.markTableModified();
     return;
   }

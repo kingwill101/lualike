@@ -26,10 +26,7 @@ mixin InterpreterLiteralMixin on AstVisitor<Object?> {
       category: 'Literal',
       contextBuilder: () => {},
     );
-    if (!MetaTable().isDefaultMetatableActive('nil')) {
-      return (this as Interpreter).constantPrimitiveValue(null);
-    }
-    return Value(null);
+    return (this as Interpreter).constantPrimitiveValue(null);
   }
 
   /// Evaluates a boolean literal.
@@ -46,10 +43,7 @@ mixin InterpreterLiteralMixin on AstVisitor<Object?> {
       category: 'Literal',
       contextBuilder: () => {'value': node.value},
     );
-    if (!MetaTable().isDefaultMetatableActive('boolean')) {
-      return (this as Interpreter).constantPrimitiveValue(node.value);
-    }
-    return Value(node.value);
+    return (this as Interpreter).constantPrimitiveValue(node.value);
   }
 
   /// Evaluates a number literal.
@@ -66,10 +60,7 @@ mixin InterpreterLiteralMixin on AstVisitor<Object?> {
       category: 'Literal',
       contextBuilder: () => {'value': node.value},
     );
-    if (!MetaTable().isDefaultMetatableActive('number')) {
-      return (this as Interpreter).constantPrimitiveValue(node.value);
-    }
-    return Value(node.value);
+    return (this as Interpreter).constantPrimitiveValue(node.value);
   }
 
   /// Evaluates a string literal.
@@ -87,28 +78,9 @@ mixin InterpreterLiteralMixin on AstVisitor<Object?> {
       contextBuilder: () => {'value': node.value},
     );
 
-    // Always use LuaString for proper byte-level string handling, but
-    // intern the object for literals so identical literals share identity.
-    final bytes = node.bytes;
-    final key = luaStringCacheKey(bytes);
-
-    // Check if we have a cached Value wrapper first to avoid creating new
-    // Value objects on every literal reference. This matches Lua C behavior.
-    final cachedValue = literalValueCache[key];
-    if (cachedValue != null) {
-      return cachedValue;
-    }
-
-    // Check for interned LuaString
-    var luaStr = literalStringInternPool[key];
-    if (luaStr == null) {
-      luaStr = LuaString.fromBytes(bytes);
-      literalStringInternPool[key] = luaStr;
-    }
-
-    // Create and cache the Value wrapper
-    final value = Value(luaStr);
-    literalValueCache[key] = value;
-    return value;
+    // Always use LuaString for proper byte-level string handling, but route
+    // through the runtime cache so literals and raw LuaString slots share the
+    // same public Value wrapper.
+    return (this as Interpreter).constantStringValue(node.bytes);
   }
 }

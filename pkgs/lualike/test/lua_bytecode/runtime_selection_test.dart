@@ -1,3 +1,4 @@
+@TestOn('!browser')
 @Tags(['lua_bytecode'])
 library;
 
@@ -164,21 +165,41 @@ Object? _unwrapValue(Object? value) {
 }
 
 String? _resolveLuacBinary() {
-  const candidates = <String>[
-    '/home/kingwill101/Downloads/lua-5.5.0_Linux68_64_bin/luac55',
-  ];
-  for (final candidate in candidates) {
-    if (File(candidate).existsSync()) {
-      return candidate;
+  // Prefer explicit override
+  final envBinary = Platform.environment['LUA5_BINARY'];
+  if (envBinary != null && envBinary.isNotEmpty) {
+    if (File(envBinary).existsSync()) {
+      return envBinary;
     }
+    stderr.writeln(
+      'Warning: LUA5_BINARY points to non-existent file: $envBinary',
+    );
+    return null;
   }
 
+  // Search PATH for known names
   final result = Process.runSync('sh', const [
-    '-lc',
-    'command -v luac55 || command -v luac',
+    '-c',
+    'command -v luac55 || command -v luac5.5 || command -v luac',
   ]);
   final path = (result.stdout as String).trim();
-  return path.isEmpty ? null : path;
+  if (path.isEmpty) return null;
+
+  // Verify the binary produces Lua 5.5 bytecode
+  final versionCheck = Process.runSync(path, ['-v']);
+  final versionOutput =
+      (versionCheck.stdout as String).trim() +
+      (versionCheck.stderr as String).trim();
+  // -v output goes to stderr for luac: "Lua 5.5.x  Copyright ..."
+  if (versionOutput.contains('Lua 5.5')) {
+    return path;
+  }
+
+  stderr.writeln(
+    'Skipped: found $path but it produces bytecode for a version '
+    'other than Lua 5.5 ($versionOutput)',
+  );
+  return null;
 }
 
 ({List<int> chunkBytes, String sourcePath}) _compileFixture(

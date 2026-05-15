@@ -1,7 +1,8 @@
 import 'package:lualike/lualike.dart';
+import 'package:lualike/src/gc/memory_credits.dart';
 
 /// Every object that lives in lualike's "heap" and that should be garbage‐collected
-/// must extend this GCObject.
+/// must mixin this GCObject.
 ///
 /// In accordance with Lua's garbage collection system, objects that need to be
 /// garbage collected must provide a way to:
@@ -9,9 +10,9 @@ import 'package:lualike/lualike.dart';
 /// 2. Provide references to other objects they hold (for traversal)
 /// 3. Free any resources when collected
 ///
-/// This base class provides the foundation for both incremental and generational
+/// This mixin provides the foundation for both incremental and generational
 /// garbage collection strategies as described in the Lua reference manual.
-abstract class GCObject {
+mixin GCObject {
   /// Whether this object has been marked during the current GC cycle.
   /// Used in mark-and-sweep collection to identify live objects.
   bool marked = false;
@@ -19,6 +20,10 @@ abstract class GCObject {
   /// Whether this object belongs to the old generation.
   /// Used in generational collection to determine which generation the object belongs to.
   bool isOld = false;
+
+  /// Which GC generation space this object is tracked in, or null if untracked.
+  /// Stored directly on the object to avoid Expando lookups on hot paths.
+  GCGenerationSpace? gcSpace;
 
   /// Estimated memory footprint for this object expressed in GC "credits".
   ///

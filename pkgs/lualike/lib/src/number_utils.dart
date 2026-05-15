@@ -6,6 +6,7 @@ import 'logging/logger.dart';
 import 'lua_error.dart';
 import 'lua_string.dart';
 import 'number.dart';
+import 'runtime/lua_slot.dart';
 
 /// Utility class for common number operations and conversions used throughout the stdlib
 import 'number_limits.dart';
@@ -25,6 +26,15 @@ class NumberUtils {
     return typeName(value);
   }
 
+  static String? _metamethodTypeName(Value value) {
+    final rawName = rawLuaSlot(value.getMetamethod('__name'));
+    return switch (rawName) {
+      final String stringName => stringName,
+      final LuaString stringName => stringName.toString(),
+      _ => null,
+    };
+  }
+
   static Never _throwNumericTypeError(String op, dynamic value) {
     final operation = _isBitwiseOperator(op)
         ? 'bitwise operation'
@@ -37,27 +47,19 @@ class NumberUtils {
   /// Get type name for error messages
   static String typeName(dynamic value) {
     if (value is Value) {
-      final name = value.getMetamethod('__name');
-      final rawName = name is Value ? name.raw : name;
-      switch (rawName) {
-        case final String stringName:
-          return stringName;
-        case final LuaString stringName:
-          return stringName.toString();
+      final metamethodName = _metamethodTypeName(value);
+      if (metamethodName != null) {
+        return metamethodName;
       }
-      value = value.raw;
+      value = rawLuaSlot(value);
     }
 
     if (value case final Map<dynamic, dynamic> table) {
       final wrapped = Value.lookupCanonicalTableWrapper(table);
       if (wrapped != null) {
-        final name = wrapped.getMetamethod('__name');
-        final rawName = name is Value ? name.raw : name;
-        switch (rawName) {
-          case final String stringName:
-            return stringName;
-          case final LuaString stringName:
-            return stringName.toString();
+        final metamethodName = _metamethodTypeName(wrapped);
+        if (metamethodName != null) {
+          return metamethodName;
         }
       }
     }
@@ -94,14 +96,15 @@ class NumberUtils {
     }
   }
 
-  /// Extract and validate a number from a Value with proper error handling
-  static dynamic getNumber(Value value, String funcName, int argNum) {
-    if (value.raw is! num && value.raw is! BigInt) {
+  /// Extract and validate a number from a Lua slot with proper error handling.
+  static dynamic getNumber(Object? value, String funcName, int argNum) {
+    final raw = rawLuaSlot(value);
+    if (raw is! num && raw is! BigInt) {
       throw LuaError.typeError(
-        "bad argument #$argNum to '$funcName' (number expected, got ${typeName(value.raw)})",
+        "bad argument #$argNum to '$funcName' (number expected, got ${typeName(raw)})",
       );
     }
-    return value.raw;
+    return raw;
   }
 
   /// Convert any numeric type to double
@@ -395,11 +398,9 @@ class NumberUtils {
         return bigA + bigB;
       }
 
-      // Both are regular int - apply wrap-around
-      final bigA = toBigInt(a);
-      final bigB = toBigInt(b);
-      final result = bigA + bigB;
-      return _wrapToInt64(result);
+      // Both are regular int - Dart VM int arithmetic is already 64-bit
+      // wrapping on native targets, so no BigInt round-trip needed.
+      return (a as int) + (b as int);
     }
 
     // For mixed types or floating point, use double arithmetic
@@ -416,26 +417,9 @@ class NumberUtils {
         return bigA - bigB;
       }
 
-      // Both are regular int - apply wrap-around, but preserve large ranges for specific cases
-      final bigA = toBigInt(a);
-      final bigB = toBigInt(b);
-      final result = bigA - bigB;
-
-      // Special case: preserve large positive numbers ONLY for specific range calculations
-      // like maxint - (minint + 1), not for basic cases like 0 - minint
-      if (result > BigInt.from(NumberLimits.maxInteger) &&
-          result <= BigInt.parse('FFFFFFFFFFFFFFFF', radix: 16)) {
-        // Only preserve if it looks like a legitimate range calculation:
-        // - The first operand should be near maxint
-        // - The second operand should be near minint
-        if (a >= (NumberLimits.maxInteger ~/ 2) &&
-            b <= (NumberLimits.minInteger ~/ 2)) {
-          return result;
-        }
-      }
-
-      // Apply 64-bit signed integer wrap-around for all other cases
-      return _wrapToInt64(result);
+      // Both are regular int - Dart VM int arithmetic is 64-bit wrapping on
+      // native targets, so no BigInt round-trip needed for the common case.
+      return (a as int) - (b as int);
     }
 
     // For mixed types or floating point, use double arithmetic
@@ -711,10 +695,14 @@ class NumberUtils {
   /// Convert a signed integer to its unsigned 64-bit representation
   /// This is used for formatting negative numbers as unsigned values (%u, %x, %o)
   static BigInt toUnsigned64(int value) {
+    // Guard for non-finite values (can reach via dart2js type unsoundness where
+    // Infinity is typed as int at runtime)
+    if (!value.isFinite) {
+      throw LuaError('number has no integer representation');
+    }
     if (value >= 0) {
       return BigInt.from(value);
     }
-    // For negative values, add 2^NumberLimits.sizeInBits to get the unsigned representation
     return (BigInt.one << NumberLimits.sizeInBits) + BigInt.from(value);
   }
 

@@ -128,7 +128,7 @@ void main() {
       final errValue = values[1];
 
       expect(okValue, isFalse);
-      expect(errValue, contains("field 'huge'"));
+      expect(errValue, contains("no integer representation"));
     });
 
     test('string colon methods resolve via lualike IR runtime', () async {
@@ -282,9 +282,9 @@ void main() {
             local function foo () XXX = 1 end   --< ERROR]], "variable 'XXX'")
 
           if not T then
-            _ENV.assert(load("global = 1; return global")() == 1)
+            _ENV.assert(_ENV.load("global = 1; return global")() == 1)
           else
-            _ENV.assert(not load("global = 1; return global"))
+            _ENV.assert(not _ENV.load("global = 1; return global"))
           end
 
           local foo = 20

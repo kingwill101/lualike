@@ -18,6 +18,8 @@ import 'package:lualike/src/lua_string.dart';
 import 'package:lualike/src/number.dart';
 import 'package:lualike/src/number_limits.dart';
 import 'package:lualike/src/number_utils.dart';
+import 'package:lualike/src/runtime/lua_results.dart';
+import 'package:lualike/src/runtime/lua_slot.dart';
 import 'package:lualike/src/runtime/vararg_table.dart';
 import 'package:lualike/src/stdlib/lib_io.dart';
 import 'package:lualike/src/parse.dart' show looksLikeLuaFilePath, luaChunkId;
@@ -462,17 +464,14 @@ final class LuaBytecodeVm {
           return await _runFrame(frame);
         } on TailCallException catch (tail) {
           final prepared = _flattenTailCallable(
-            tail.functionValue is Value
-                ? tail.functionValue as Value
-                : Value(tail.functionValue),
+            valueFromLuaSlot(runtime, tail.functionValue),
             tail.args
-                .map((arg) => arg is Value ? arg : _runtimeValue(runtime, arg))
+                .map((arg) => valueFromLuaSlot(runtime, arg))
                 .toList(growable: false),
           );
           final callee = prepared.callee;
-          callee.interpreter ??= runtime;
           final tailNameInfo = _decodeTailCallNameInfo(tail.callName);
-          if (callee.raw case final LuaBytecodeClosure nextClosure) {
+          if (rawLuaSlot(callee) case final LuaBytecodeClosure nextClosure) {
             currentClosure = nextClosure;
             currentArgs = prepared.args;
             currentFunctionValue = callee;
@@ -511,7 +510,8 @@ final class LuaBytecodeVm {
     var extraArgs = 0;
     while (true) {
       callee.interpreter ??= runtime;
-      switch (callee.raw) {
+      final rawCallee = rawLuaSlot(callee);
+      switch (rawCallee) {
         case LuaBytecodeClosure():
         case Function():
         case BuiltinFunction():
@@ -520,8 +520,8 @@ final class LuaBytecodeVm {
         case FunctionBody():
         case LuaCallableArtifact():
           return (callee: callee, args: args, extraArgs: extraArgs);
-        case String():
-          final rebound = runtime.globals.get(callee.raw);
+        case final String name:
+          final rebound = runtime.globals.get(name);
           if (rebound != null) {
             callee = rebound;
             continue;
@@ -539,7 +539,7 @@ final class LuaBytecodeVm {
             throw LuaError("'__call' chain too long");
           }
           final originalCallee = callee;
-          callee = callMeta is Value ? callMeta : Value(callMeta);
+          callee = valueFromLuaSlot(runtime, callMeta);
           args = <Value>[originalCallee, ...args];
           extraArgs += 1;
       }
@@ -559,7 +559,8 @@ final class LuaBytecodeVm {
     runtime.currentScriptPath = activeScriptPath;
     runtime.callStack.setScriptPath(activeScriptPath);
     final callableValue = switch (frame.functionValue) {
-      final Value functionValue when functionValue.raw is LuaBytecodeClosure =>
+      final Value functionValue
+          when rawLuaSlot(functionValue) is LuaBytecodeClosure =>
         _hydrateClosureCallableValue(
           functionValue,
           closure,
@@ -675,8 +676,10 @@ final class LuaBytecodeVm {
               _closeSignalYieldableStates[nestedSignal] ?? closeYieldable;
         } on YieldException {
           closeResult = <Object?>[
-            Value(false),
-            Value('attempt to yield across a C-call boundary'),
+            runtime.constantPrimitiveValue(false),
+            runtime.constantDartStringValue(
+              'attempt to yield across a C-call boundary',
+            ),
           ];
         } catch (error) {
           final adjustedError = switch (error) {
@@ -695,8 +698,8 @@ final class LuaBytecodeVm {
             adjustedError,
           );
           closeResult = <Object?>[
-            Value(false),
-            normalizedError is Value ? normalizedError : Value(normalizedError),
+            runtime.constantPrimitiveValue(false),
+            valueFromLuaSlot(runtime, normalizedError),
           ];
         } finally {
           runtime.isYieldable = previousYieldable;
@@ -773,16 +776,13 @@ final class LuaBytecodeVm {
         return await _runFrame(frame);
       } on TailCallException catch (tail) {
         final prepared = _flattenTailCallable(
-          tail.functionValue is Value
-              ? tail.functionValue as Value
-              : Value(tail.functionValue),
+          valueFromLuaSlot(runtime, tail.functionValue),
           tail.args
-              .map((arg) => arg is Value ? arg : _runtimeValue(runtime, arg))
+              .map((arg) => valueFromLuaSlot(runtime, arg))
               .toList(growable: false),
         );
         final callee = prepared.callee;
-        callee.interpreter ??= runtime;
-        if (callee.raw case final LuaBytecodeClosure nextClosure) {
+        if (rawLuaSlot(callee) case final LuaBytecodeClosure nextClosure) {
           try {
             return await invoke(
               nextClosure,
@@ -967,7 +967,7 @@ final class LuaBytecodeVm {
                   frame,
                   receiver,
                   error,
-                  labelOverride: "global '${key.raw}'",
+                  labelOverride: "global '${rawLuaSlot(key)}'",
                 );
               }
               break;
@@ -1048,7 +1048,7 @@ final class LuaBytecodeVm {
                   frame,
                   receiver,
                   error,
-                  labelOverride: "global '${key.raw}'",
+                  labelOverride: "global '${rawLuaSlot(key)}'",
                 );
               }
               break;
@@ -1458,10 +1458,11 @@ final class LuaBytecodeVm {
           case 'UNM':
             {
               final operand = frame.register(word.b);
+              final rawOperand = rawLuaSlot(operand);
               if (_canFastPathNumeric(operand)) {
                 frame.setRegister(
                   word.a,
-                  _runtimeValue(runtime, NumberUtils.negate(operand.raw)),
+                  _runtimeValue(runtime, NumberUtils.negate(rawOperand)),
                 );
                 break;
               }
@@ -1474,7 +1475,10 @@ final class LuaBytecodeVm {
                     operandRegister: word.b,
                     metamethod: '__unm',
                     fastPath: (value) => _canFastPathNumeric(value)
-                        ? _runtimeValue(runtime, NumberUtils.negate(value.raw))
+                        ? _runtimeValue(
+                            runtime,
+                            NumberUtils.negate(rawLuaSlot(value)),
+                          )
                         : null,
                   ),
                 );
@@ -1486,10 +1490,11 @@ final class LuaBytecodeVm {
           case 'BNOT':
             {
               final operand = frame.register(word.b);
+              final rawOperand = rawLuaSlot(operand);
               if (_canFastPathInteger(operand)) {
                 frame.setRegister(
                   word.a,
-                  _runtimeValue(runtime, NumberUtils.bitwiseNot(operand.raw)),
+                  _runtimeValue(runtime, NumberUtils.bitwiseNot(rawOperand)),
                 );
                 break;
               }
@@ -1504,7 +1509,7 @@ final class LuaBytecodeVm {
                     fastPath: (value) => _canFastPathInteger(value)
                         ? _runtimeValue(
                             runtime,
-                            NumberUtils.bitwiseNot(value.raw),
+                            NumberUtils.bitwiseNot(rawLuaSlot(value)),
                           )
                         : null,
                   ),
@@ -1518,7 +1523,7 @@ final class LuaBytecodeVm {
             {
               frame.setRegister(
                 word.a,
-                _runtimeValue(runtime, !_isTruthy(frame.register(word.b))),
+                _runtimeValue(runtime, !isLuaTruthy(frame.register(word.b))),
               );
               break;
             }
@@ -1622,9 +1627,21 @@ final class LuaBytecodeVm {
             }
           case 'TBC':
             {
+              // Mark register A as a to-be-closed variable. If the value has
+              // no __close metamethod, Value.toBeClose throws UnsupportedError.
+              // markToBeClosed wraps that in LuaError with the Lua message, but
+              // in some code paths (e.g. shared-primitive detach variants) the
+              // UnsupportedError can escape unwrapped. Both catch arms normalise
+              // the error and produce the Lua-spec message
+              // "variable '<name>' got a non-closable value" when debug info is
+              // available, so pcall sees a proper Lua string rather than a raw
+              // Dart exception toString().
               try {
                 frame.markToBeClosed(word.a);
               } on LuaError catch (error) {
+                // markToBeClosed already wrapped the UnsupportedError; rewrite
+                // the message to include the local variable name if debug info
+                // is present and the message hasn't been rewritten yet.
                 final localName = frame.localNameForError(word.a);
                 if (localName != null &&
                     error.message ==
@@ -1634,6 +1651,20 @@ final class LuaBytecodeVm {
                   );
                 }
                 rethrow;
+              } on UnsupportedError catch (error) {
+                // Belt-and-suspenders: catch UnsupportedError that escapes
+                // markToBeClosed unwrapped (e.g. thrown by a code path
+                // introduced by refactoring before the inner try/catch).
+                // Apply the same local-name rewrite so the error message is
+                // always Lua-spec compliant.
+                final localName = frame.localNameForError(word.a);
+                final baseMessage = error.message ?? error.toString();
+                final message = localName != null &&
+                        baseMessage ==
+                            'to-be-closed variable value must have a __close metamethod'
+                    ? "variable '$localName' got a non-closable value"
+                    : baseMessage;
+                throw LuaError(message);
               }
               break;
             }
@@ -1881,13 +1912,13 @@ final class LuaBytecodeVm {
             }
           case 'TEST':
             {
-              _docondjump(frame, word, _isTruthy(frame.register(word.a)));
+              _docondjump(frame, word, isLuaTruthy(frame.register(word.a)));
               break;
             }
           case 'TESTSET':
             {
               final value = frame.register(word.b);
-              final shouldSkipJump = !_isTruthy(value) == word.kFlag;
+              final shouldSkipJump = !isLuaTruthy(value) == word.kFlag;
               if (shouldSkipJump) {
                 frame.pc += 1;
               } else {
@@ -1899,13 +1930,13 @@ final class LuaBytecodeVm {
             {
               try {
                 final callee = frame.register(word.a);
+                final rawCallee = rawLuaSlot(callee);
                 if (profile case final activeProfile?) {
                   activeProfile.recordCallTarget(
                     _callSiteTargetLabel(frame, word.a, callee) ??
-                        callee.raw.runtimeType.toString(),
+                        rawCallee.runtimeType.toString(),
                   );
                 }
-                final rawCallee = callee.raw;
                 if (_debugInterpreter?.debugHookFunction == null &&
                     rawCallee is BuiltinFunction &&
                     word.b != 0) {
@@ -1935,7 +1966,7 @@ final class LuaBytecodeVm {
                       word.b >= 2 && word.a + 1 < frame.registers.length
                       ? frame.register(word.a + 1)
                       : null;
-                  final receiverDetail = switch (receiver?.raw) {
+                  final receiverDetail = switch (rawLuaSlot(receiver)) {
                     final LuaFile file =>
                       ' receiverValue=${identityHashCode(receiver)}'
                           ' receiverRaw=${identityHashCode(file)}'
@@ -1944,7 +1975,7 @@ final class LuaBytecodeVm {
                   };
                   _debugFileLog(
                     'CALL pc=${frame.pc - 1} a=${word.a} b=${word.b} c=${word.c} '
-                    'callee=${callee.raw.runtimeType} name=${nameInfo.name}'
+                    'callee=${rawCallee.runtimeType} name=${nameInfo.name}'
                     '$receiverDetail',
                   );
                 }
@@ -2025,8 +2056,7 @@ final class LuaBytecodeVm {
                 final tailNameInfo = _decodeTailCallNameInfo(tailName);
                 final prepared = _flattenTailCallable(call.callee, call.args);
                 final callee = prepared.callee;
-                callee.interpreter ??= runtime;
-                if (callee.raw case LuaBytecodeClosure()) {
+                if (rawLuaSlot(callee) case LuaBytecodeClosure()) {
                   await _closeFrameForCoroutine(frame, error: null);
                   throw TailCallException(
                     callee,
@@ -2125,7 +2155,7 @@ final class LuaBytecodeVm {
             }
           case 'TFORLOOP':
             {
-              if (!_isNil(frame.register(word.a + 3))) {
+              if (!isLuaNilSlot(frame.register(word.a + 3))) {
                 frame.pc -= word.bx;
                 if (_runGcLoopSafePoint(runtime, frame) case final gcWork?) {
                   await gcWork;
@@ -2155,7 +2185,7 @@ final class LuaBytecodeVm {
           case 'GETVARG':
             {
               final keyValue = frame.register(word.c);
-              final rawKey = keyValue.raw;
+              final rawKey = rawLuaSlot(keyValue);
               final index = switch (rawKey) {
                 final int integer => integer,
                 final BigInt integer => NumberUtils.tryToInteger(integer),
@@ -2231,7 +2261,7 @@ final class LuaBytecodeVm {
             }
           case 'ERRNNIL':
             {
-              if (!_isNil(frame.register(word.a))) {
+              if (!isLuaNilSlot(frame.register(word.a))) {
                 throw LuaError('attempt to use a nil value');
               }
               break;
@@ -2344,7 +2374,7 @@ final class LuaBytecodeVm {
     int currentPc,
   ) {
     final value = frame.register(register);
-    if (value.raw == null) {
+    if (rawLuaSlot(value) == null) {
       return false;
     }
     if (_isPendingCallResultRegister(frame, register, currentPc)) {
@@ -2625,9 +2655,10 @@ final class LuaBytecodeVm {
     }
 
     try {
+      final rawOperand = rawLuaSlot(operand);
       return switch (metamethod) {
-        '__unm' => _runtimeValue(runtime, NumberUtils.negate(operand.raw)),
-        '__bnot' => _runtimeValue(runtime, NumberUtils.bitwiseNot(operand.raw)),
+        '__unm' => _runtimeValue(runtime, NumberUtils.negate(rawOperand)),
+        '__bnot' => _runtimeValue(runtime, NumberUtils.bitwiseNot(rawOperand)),
         '__len' => _runtimeValue(runtime, _lengthOf(operand)),
         _ => throw LuaError('unsupported unary metamethod $metamethod'),
       };
@@ -2780,19 +2811,21 @@ final class LuaBytecodeVm {
     if (operation.isConcat) {
       return _runtimeValue(runtime, left.concat(right));
     }
+    final leftRaw = rawLuaSlot(left);
+    final rightRaw = rawLuaSlot(right);
     final rawResult = switch (operation) {
-      _LuaBinaryOperation.add => NumberUtils.add(left.raw, right.raw),
-      _LuaBinaryOperation.sub => NumberUtils.subtract(left.raw, right.raw),
-      _LuaBinaryOperation.mul => NumberUtils.multiply(left.raw, right.raw),
-      _LuaBinaryOperation.mod => NumberUtils.modulo(left.raw, right.raw),
-      _LuaBinaryOperation.pow => NumberUtils.exponentiate(left.raw, right.raw),
-      _LuaBinaryOperation.div => NumberUtils.divide(left.raw, right.raw),
-      _LuaBinaryOperation.idiv => NumberUtils.floorDivide(left.raw, right.raw),
-      _LuaBinaryOperation.band => NumberUtils.bitwiseAnd(left.raw, right.raw),
-      _LuaBinaryOperation.bor => NumberUtils.bitwiseOr(left.raw, right.raw),
-      _LuaBinaryOperation.bxor => NumberUtils.bitwiseXor(left.raw, right.raw),
-      _LuaBinaryOperation.shl => NumberUtils.leftShift(left.raw, right.raw),
-      _LuaBinaryOperation.shr => NumberUtils.rightShift(left.raw, right.raw),
+      _LuaBinaryOperation.add => NumberUtils.add(leftRaw, rightRaw),
+      _LuaBinaryOperation.sub => NumberUtils.subtract(leftRaw, rightRaw),
+      _LuaBinaryOperation.mul => NumberUtils.multiply(leftRaw, rightRaw),
+      _LuaBinaryOperation.mod => NumberUtils.modulo(leftRaw, rightRaw),
+      _LuaBinaryOperation.pow => NumberUtils.exponentiate(leftRaw, rightRaw),
+      _LuaBinaryOperation.div => NumberUtils.divide(leftRaw, rightRaw),
+      _LuaBinaryOperation.idiv => NumberUtils.floorDivide(leftRaw, rightRaw),
+      _LuaBinaryOperation.band => NumberUtils.bitwiseAnd(leftRaw, rightRaw),
+      _LuaBinaryOperation.bor => NumberUtils.bitwiseOr(leftRaw, rightRaw),
+      _LuaBinaryOperation.bxor => NumberUtils.bitwiseXor(leftRaw, rightRaw),
+      _LuaBinaryOperation.shl => NumberUtils.leftShift(leftRaw, rightRaw),
+      _LuaBinaryOperation.shr => NumberUtils.rightShift(leftRaw, rightRaw),
       _LuaBinaryOperation.concat => left.concat(right),
     };
     return _runtimeValue(runtime, rawResult);
@@ -2810,8 +2843,8 @@ final class LuaBytecodeVm {
       runtime,
       NumberUtils.performArithmetic(
         operation.operatorSymbol,
-        left.raw,
-        right.raw,
+        rawLuaSlot(left),
+        rawLuaSlot(right),
       ),
     );
   }
@@ -2899,7 +2932,6 @@ final class LuaBytecodeVm {
       }
     })();
     final value = _firstResultValue(runtime, result);
-    value.interpreter ??= runtime;
     return value;
   }
 
@@ -3046,7 +3078,7 @@ final class LuaBytecodeVm {
     int calleeRegister,
   ) {
     final callee = frame.register(calleeRegister);
-    final raw = callee.raw;
+    final raw = rawLuaSlot(callee);
     return raw is BuiltinFunction && _canInlineBuiltinWithoutManagedFrame(raw);
   }
 
@@ -3055,7 +3087,7 @@ final class LuaBytecodeVm {
     Value? key,
     String? rawStringKey,
   }) {
-    final rawTable = table.raw;
+    final rawTable = rawLuaSlot(table);
     final hasWeakMode = table.tableWeakMode != null;
     if (rawStringKey != null &&
         _canFastPathGlobalProxyTableGetStringKey(table, rawStringKey)) {
@@ -3106,7 +3138,7 @@ final class LuaBytecodeVm {
   }
 
   bool _canSkipSuspendingBoundaryForTableSet(Value table) {
-    final rawTable = table.raw;
+    final rawTable = rawLuaSlot(table);
     final hasWeakMode = table.tableWeakMode != null;
     return (rawTable is TableStorage || rawTable is Map) &&
         !hasWeakMode &&
@@ -3167,7 +3199,7 @@ final class LuaBytecodeVm {
   ) async {
     final call = _resolveCall(frame, word);
     if (_debugInterpreter?.debugHookFunction == null) {
-      final rawCallee = call.callee.raw;
+      final rawCallee = rawLuaSlot(call.callee);
       if (rawCallee is BuiltinFunction &&
           _canInlineBuiltinWithoutManagedFrame(rawCallee) &&
           !(runtime.isInProtectedCall && rawCallee.isBytecodeAssertBuiltin)) {
@@ -3445,7 +3477,7 @@ final class LuaBytecodeVm {
         savedTop: frame.top,
         savedOpenTop: frame.openTop,
         resumeInProtectedCall: runtime.isInProtectedCall,
-        pendingError: _preserveCloseErrorObject(errorObject),
+        pendingError: _preserveCloseErrorObject(runtime, errorObject),
         pendingErrorStackTrace: errorStackTrace,
         child: child,
       ),
@@ -3515,9 +3547,8 @@ final class LuaBytecodeVm {
     callee = prepared.callee;
     args = prepared.args;
     extraArgs += prepared.extraArgs;
-    callee.interpreter ??= runtime;
     if (_debugInterpreter?.debugHookFunction == null) {
-      final rawCallee = callee.raw;
+      final rawCallee = rawLuaSlot(callee);
       if (rawCallee is BuiltinFunction &&
           _canInlineBuiltinWithoutManagedFrame(rawCallee) &&
           !(runtime.isInProtectedCall && rawCallee.isBytecodeAssertBuiltin)) {
@@ -3567,7 +3598,7 @@ final class LuaBytecodeVm {
     if (protectedCallResult != null) {
       return protectedCallResult;
     }
-    if (callee.raw case final LuaBytecodeClosure closure) {
+    if (rawLuaSlot(callee) case final LuaBytecodeClosure closure) {
       return invoke(
         closure,
         args,
@@ -3746,14 +3777,14 @@ final class LuaBytecodeVm {
     }
 
     final firstArg = frame.slotValue(word.a + 1);
-    final primaryCondition = switch ((firstArg.isMulti, firstArg.raw)) {
-      (true, final List values) when values.isNotEmpty =>
-        values.first is Value
-            ? values.first as Value
-            : _runtimeValue(runtime, values.first),
-      _ => firstArg,
-    };
-    if (!_isTruthy(primaryCondition)) {
+    final firstArgResults = luaResultValues(firstArg);
+    final primaryCondition =
+        firstArgResults != null && firstArgResults.isNotEmpty
+        ? firstArgResults.first is Value
+              ? firstArgResults.first as Value
+              : _runtimeValue(runtime, firstArgResults.first)
+        : firstArg;
+    if (!isLuaTruthy(primaryCondition)) {
       return _inlineBuiltinUnhandled;
     }
     if (word.c == 1) {
@@ -3823,20 +3854,16 @@ final class LuaBytecodeVm {
       return _inlineBuiltinUnhandled;
     }
     final firstArg = frame.slotValue(word.a + 1);
-    if (firstArg.isMulti) {
+    if (luaResultValues(firstArg) != null) {
       return _inlineBuiltinUnhandled;
     }
-    return _isTruthy(firstArg) ? null : _inlineBuiltinUnhandled;
+    return isLuaTruthy(firstArg) ? null : _inlineBuiltinUnhandled;
   }
 
   Value _normalizeInlineAssertSuccessValue(Value value) {
-    if (!value.isMulti) {
-      final raw = value.raw;
-      if (raw == null ||
-          raw is num ||
-          raw is bool ||
-          raw is String ||
-          raw is LuaString) {
+    if (luaResultValues(value) == null) {
+      final raw = rawLuaSlot(value);
+      if (isLuaPrimitiveSlot(raw)) {
         return switch (raw) {
           null ||
           bool() ||
@@ -3872,23 +3899,26 @@ final class LuaBytecodeVm {
     int resultSpec,
     Object? result,
   ) {
+    if (isLuaResults(result)) {
+      return _inlineBuiltinUnhandled;
+    }
     final normalizedValue = switch (result) {
       null => _framePrimitiveValue(runtime, null),
       final Value value when _isSharedRuntimeConstant(runtime, value) =>
-        switch (value.raw) {
+        switch (rawLuaSlot(value)) {
           null ||
           bool() ||
           num() ||
-          BigInt() => _framePrimitiveValue(runtime, value.raw),
+          BigInt() => _framePrimitiveValue(runtime, rawLuaSlot(value)),
           _ => value,
         },
-      final Value value when !value.isMulti => value,
+      final Value value when luaResultValues(value) == null => value,
       final raw => switch (raw) {
         bool() || num() || BigInt() => _framePrimitiveValue(runtime, raw),
         _ => _runtimeValue(runtime, raw),
       },
     };
-    if (normalizedValue.isMulti) {
+    if (luaResultValues(normalizedValue) != null) {
       return _inlineBuiltinUnhandled;
     }
     if (resultSpec == 1) {
@@ -3919,17 +3949,18 @@ final class LuaBytecodeVm {
     if (args.isEmpty ||
         callNameWhat != 'field' ||
         (callName != 'create' && callName != 'wrap') ||
-        callee.raw is! BuiltinFunction) {
+        rawLuaSlot(callee) is! BuiltinFunction) {
       return args;
     }
 
     final functionArg = args.first;
-    if (functionArg.raw is! LuaBytecodeClosure ||
+    final rawFunctionArg = rawLuaSlot(functionArg);
+    if (rawFunctionArg is! LuaBytecodeClosure ||
         functionArg.functionBody == null) {
       return args;
     }
 
-    final closure = functionArg.raw as LuaBytecodeClosure;
+    final closure = rawFunctionArg;
     final strippedFunction = Value(
       closure,
       isConst: functionArg.isConst,
@@ -3955,7 +3986,7 @@ final class LuaBytecodeVm {
     int extraArgs = 0,
     _LuaBytecodeFrame? callerFrame,
   }) {
-    final rawBuiltin = callee.raw;
+    final rawBuiltin = rawLuaSlot(callee);
     if (rawBuiltin is! BuiltinFunction) {
       return null;
     }
@@ -3967,14 +3998,18 @@ final class LuaBytecodeVm {
       return null;
     }
     _bindCallerFrameForDebugInspection(callerFrame);
-    final level = args.isNotEmpty ? _coerceLuaInteger(args[0].raw) : null;
-    final index = args.length >= 2 ? _coerceLuaInteger(args[1].raw) : null;
+    final level = args.isNotEmpty
+        ? _coerceLuaInteger(rawLuaSlot(args[0]))
+        : null;
+    final index = args.length >= 2
+        ? _coerceLuaInteger(rawLuaSlot(args[1]))
+        : null;
     final frame = switch (level) {
       final int visibleLevel when visibleLevel > 0 =>
         _resolveVisibleBytecodeFrame(runtime, visibleLevel),
       _ => null,
     };
-    if (frame?.callable?.raw is! LuaBytecodeClosure) {
+    if (rawLuaSlot(frame?.callable) is! LuaBytecodeClosure) {
       return null;
     }
     _syncCallFrameDebugLocals(frame);
@@ -3990,12 +4025,15 @@ final class LuaBytecodeVm {
           if (index case final int varargIndex when varargIndex < 0) {
             final rawVarargs = _frameDebugVarargs(frame!);
             if (rawVarargs == null || -varargIndex > rawVarargs.length) {
-              return <Value>[Value(null), Value(null)];
+              return <Value>[
+                runtime.constantPrimitiveValue(null),
+                runtime.constantPrimitiveValue(null),
+              ];
             }
             final value = rawVarargs[-varargIndex - 1];
             return <Value>[
-              Value('(vararg)'),
-              value is Value ? value : _runtimeValue(runtime, value),
+              runtime.constantDartStringValue('(vararg)'),
+              _runtimeValue(runtime, value),
             ];
           }
           if (index case final int localIndex when localIndex > 0) {
@@ -4003,44 +4041,53 @@ final class LuaBytecodeVm {
                 localIndex >= frame.ftransfer &&
                 localIndex < frame.ftransfer + frame.ntransfer) {
               return <Value>[
-                Value('(temporary)'),
+                runtime.constantDartStringValue('(temporary)'),
                 frame.transferValues[localIndex - frame.ftransfer],
               ];
             }
             final locals = _bytecodeFrameLocals(frame);
             if (localIndex > locals.length) {
-              return <Value>[Value(null), Value(null)];
+              return <Value>[
+                runtime.constantPrimitiveValue(null),
+                runtime.constantPrimitiveValue(null),
+              ];
             }
             final entry = locals[localIndex - 1];
-            return <Value>[Value(entry.key), entry.value];
+            return <Value>[
+              runtime.constantDartStringValue(entry.key),
+              entry.value,
+            ];
           }
-          return <Value>[Value(null), Value(null)];
+          return <Value>[
+            runtime.constantPrimitiveValue(null),
+            runtime.constantPrimitiveValue(null),
+          ];
         }
         if (isSetLocal && args.length >= 3) {
           if (index case final int varargIndex when varargIndex < 0) {
             final rawVarargs = _frameDebugVarargs(frame!);
             if (rawVarargs == null || -varargIndex > rawVarargs.length) {
-              return <Value>[Value(null)];
+              return <Value>[runtime.constantPrimitiveValue(null)];
             }
             rawVarargs[-varargIndex - 1] = args[2];
             _syncFrameDebugVarargs(frame, rawVarargs);
-            return <Value>[Value('(vararg)')];
+            return <Value>[runtime.constantDartStringValue('(vararg)')];
           }
           if (index case final int localIndex when localIndex > 0) {
             final locals = _bytecodeFrameLocals(frame!);
             if (localIndex > locals.length) {
-              return <Value>[Value(null)];
+              return <Value>[runtime.constantPrimitiveValue(null)];
             }
             final entry = locals[localIndex - 1];
             if (entry.key == '(vararg table)') {
-              return <Value>[Value(null)];
+              return <Value>[runtime.constantPrimitiveValue(null)];
             }
             _overwriteValue(entry.value, args[2]);
-            return <Value>[Value(entry.key)];
+            return <Value>[runtime.constantDartStringValue(entry.key)];
           }
-          return <Value>[Value(null)];
+          return <Value>[runtime.constantPrimitiveValue(null)];
         }
-        return <Value>[Value(null)];
+        return <Value>[runtime.constantPrimitiveValue(null)];
       },
     );
   }
@@ -4053,7 +4100,7 @@ final class LuaBytecodeVm {
     int extraArgs = 0,
     _LuaBytecodeFrame? callerFrame,
   }) {
-    final rawBuiltin = callee.raw;
+    final rawBuiltin = rawLuaSlot(callee);
     if (rawBuiltin is! BuiltinFunction) {
       return null;
     }
@@ -4091,11 +4138,9 @@ final class LuaBytecodeVm {
       final callResults = await _invokeValueWithName(func, callArgs);
       return <Value>[_runtimeValue(runtime, true), ...callResults];
     } on TailCallException catch (tail) {
-      final callee = tail.functionValue is Value
-          ? tail.functionValue as Value
-          : Value(tail.functionValue);
+      final callee = valueFromLuaSlot(runtime, tail.functionValue);
       final normalizedArgs = tail.args
-          .map((arg) => arg is Value ? arg : Value(arg))
+          .map((arg) => valueFromLuaSlot(runtime, arg))
           .toList(growable: false);
       final awaitedResult = await runtime.callFunction(callee, normalizedArgs);
       return _packBytecodeProtectedCallSuccess(awaitedResult);
@@ -4119,23 +4164,19 @@ final class LuaBytecodeVm {
   }
 
   List<Value> _packBytecodeProtectedCallSuccess(Object? result) {
+    final multiValues = luaResultValues(result);
+    if (multiValues != null) {
+      return <Value>[
+        _runtimeValue(runtime, true),
+        ...multiValues.map((value) => _runtimeValue(runtime, value)),
+      ];
+    }
     if (result == null) {
       return <Value>[_runtimeValue(runtime, true)];
     }
-    if (result case Value(
-      isMulti: true,
-      raw: final List<Object?> multiValues,
-    )) {
-      return <Value>[
-        _runtimeValue(runtime, true),
-        ...multiValues.map(
-          (value) => value is Value ? value : _runtimeValue(runtime, value),
-        ),
-      ];
-    }
     return <Value>[
       _runtimeValue(runtime, true),
-      result is Value ? result : _runtimeValue(runtime, result),
+      _runtimeValue(runtime, result),
     ];
   }
 
@@ -4143,21 +4184,20 @@ final class LuaBytecodeVm {
     final normalizedError = _normalizeBytecodeProtectedCallError(error);
     return <Value>[
       _runtimeValue(runtime, false),
-      normalizedError is Value
-          ? normalizedError
-          : _runtimeValue(runtime, normalizedError),
+      valueFromLuaSlot(runtime, normalizedError),
     ];
   }
 
   Object? _normalizeBytecodeProtectedCallError(Object error) {
     if (error is Value) {
-      if (error.raw is Value) {
-        return _normalizeBytecodeProtectedCallError(error.raw as Value);
+      final rawError = rawLuaSlot(error);
+      if (rawError is Value) {
+        return _normalizeBytecodeProtectedCallError(rawError);
       }
-      if (error.raw == null) {
+      if (rawError == null) {
         return '<no error object>';
       }
-      if (error.raw is Map || error.raw is TableStorage) {
+      if (rawError is Map || rawError is TableStorage) {
         return error;
       }
       return error.unwrap();
@@ -4338,7 +4378,7 @@ final class LuaBytecodeVm {
   String _callableName(Value callee) {
     return switch (callee.functionName) {
       final String name when name.isNotEmpty => name,
-      _ => switch (callee.raw) {
+      _ => switch (rawLuaSlot(callee)) {
         final String name => name,
         _ => 'function',
       },
@@ -4373,10 +4413,11 @@ final class LuaBytecodeVm {
       if (activeLocals[register] case final String name) {
         return (name: name, namewhat: 'local');
       }
+      final calleeRaw = rawLuaSlot(callee);
       for (final entry in activeLocals.entries) {
         final localValue = frame.register(entry.key);
-        if ((identical(localValue, callee) ||
-                identical(localValue.raw, callee.raw)) &&
+        final localRaw = rawLuaSlot(localValue);
+        if ((identical(localValue, callee) || identical(localRaw, calleeRaw)) &&
             _isUnambiguousMoveAlias(frame, register, beforePc: currentPc - 2)) {
           return (name: entry.value, namewhat: 'local');
         }
@@ -4391,7 +4432,7 @@ final class LuaBytecodeVm {
     if (inferred.name != null) {
       return inferred;
     }
-    return switch (callee.raw) {
+    return switch (rawLuaSlot(callee)) {
       final String name => (
         name: name,
         namewhat: _inferCallNameWhatFromEnvironment(frame, name),
@@ -4566,9 +4607,11 @@ final class LuaBytecodeVm {
     String? rightLabel,
   }) {
     final message = error.message;
+    final leftRaw = rawLuaSlot(left);
+    final rightRaw = rawLuaSlot(right);
     if (message == 'number has no integer representation') {
-      final leftInvalid = !_hasIntegerRepresentation(left.raw);
-      final rightInvalid = !_hasIntegerRepresentation(right.raw);
+      final leftInvalid = !_hasIntegerRepresentation(leftRaw);
+      final rightInvalid = !_hasIntegerRepresentation(rightRaw);
       if (leftInvalid != rightInvalid) {
         final label = leftInvalid
             ? leftLabel ?? _valueSourceLabel(frame, left)
@@ -4591,8 +4634,7 @@ final class LuaBytecodeVm {
     }
 
     final offending =
-        _coerceLuaNumber(left.raw) == null &&
-            _coerceLuaNumber(right.raw) != null
+        _coerceLuaNumber(leftRaw) == null && _coerceLuaNumber(rightRaw) != null
         ? left
         : right;
     final offendingType = getLuaType(offending);
@@ -4603,9 +4645,10 @@ final class LuaBytecodeVm {
         ? leftLabel ?? _valueSourceLabel(frame, offending)
         : rightLabel ?? _valueSourceLabel(frame, offending);
     if (_debugFileOps) {
+      final offendingRaw = rawLuaSlot(offending);
       _debugFileLog(
-        'binary-error left=${left.raw.runtimeType} right=${right.raw.runtimeType} '
-        'offending=${offending.raw.runtimeType} label=$label',
+        'binary-error left=${leftRaw.runtimeType} right=${rightRaw.runtimeType} '
+        'offending=${offendingRaw.runtimeType} label=$label',
       );
     }
     if (label == null) {
@@ -4647,6 +4690,7 @@ final class LuaBytecodeVm {
   }
 
   String? _valueSourceLabel(_LuaBytecodeFrame frame, Value value) {
+    final rawValue = rawLuaSlot(value);
     for (
       var registerIndex = 0;
       registerIndex < frame.registers.length;
@@ -4654,7 +4698,8 @@ final class LuaBytecodeVm {
     ) {
       final registerValue = frame.registers[registerIndex];
       if (identical(registerValue, value) ||
-          (value.raw != null && identical(registerValue.raw, value.raw))) {
+          (rawValue != null &&
+              identical(rawLuaSlot(registerValue), rawValue))) {
         if (_activeLocalSourceLabel(frame, registerIndex) case final label?) {
           return label;
         }
@@ -5038,7 +5083,73 @@ final class LuaBytecodeVm {
     );
   }
 
+  LuaError _rewriteNonClosableLocalError(
+    _LuaBytecodeFrame frame,
+    LuaError error,
+  ) {
+    const baseMessage =
+        'to-be-closed variable value must have a __close metamethod';
+    if (!error.message.endsWith(baseMessage)) {
+      return error;
+    }
+    final prefix = error.message.substring(
+      0,
+      error.message.length - baseMessage.length,
+    );
+
+    for (final locals in [frame.activeNamedLocals, frame.visibleNamedLocals]) {
+      for (final entry in locals.entries) {
+        if (_registerHasNonClosableValue(frame, entry.key)) {
+          return LuaError(
+            "${prefix}variable '${entry.value}' got a non-closable value",
+            cause: error.cause,
+            stackTrace: error.stackTrace,
+            luaStackTrace: error.luaStackTrace,
+            suppressAutomaticLocation: error.suppressAutomaticLocation,
+            suppressProtectedCallLocation: error.suppressProtectedCallLocation,
+            lineNumber: error.lineNumber,
+            hasBeenReported: error.hasBeenReported,
+          );
+        }
+      }
+    }
+
+    for (final local in frame.closure.prototype.localVariables) {
+      final name = local.name;
+      final register = local.register;
+      if (name == null ||
+          name.isEmpty ||
+          name.startsWith('(') ||
+          register == null ||
+          !_registerHasNonClosableValue(frame, register)) {
+        continue;
+      }
+      return LuaError(
+        "${prefix}variable '$name' got a non-closable value",
+        cause: error.cause,
+        stackTrace: error.stackTrace,
+        luaStackTrace: error.luaStackTrace,
+        suppressAutomaticLocation: error.suppressAutomaticLocation,
+        suppressProtectedCallLocation: error.suppressProtectedCallLocation,
+        lineNumber: error.lineNumber,
+        hasBeenReported: error.hasBeenReported,
+      );
+    }
+
+    return error;
+  }
+
+  bool _registerHasNonClosableValue(_LuaBytecodeFrame frame, int register) {
+    if (register < 0 || register >= frame.registers.length) {
+      return false;
+    }
+    final value = frame.slotValue(register);
+    final raw = rawLuaSlot(value);
+    return raw != null && raw != false && !value.hasMetamethod('__close');
+  }
+
   LuaError _withFrameRuntimeLocation(_LuaBytecodeFrame frame, LuaError error) {
+    error = _rewriteNonClosableLocalError(frame, error);
     if (error.suppressAutomaticLocation) {
       return error;
     }
@@ -5100,7 +5211,7 @@ final class LuaBytecodeVm {
 
   bool _hasIntegerRepresentation(Object? value) {
     if (value is Value) {
-      value = value.raw;
+      value = rawLuaSlot(value);
     }
     if (value is String || value is LuaString) {
       try {
@@ -5136,10 +5247,11 @@ final class LuaBytecodeVm {
 
     for (var index = results.length - 1; index >= 0; index--) {
       final value = results[index];
+      final rawValue = rawLuaSlot(value);
       if (_debugFileOps) {
         _debugFileLog(
           'discard-result index=$index tbc=${value.isToBeClose} '
-          'raw=${value.raw.runtimeType} live=${frame._toBeClosedRegisters.toList()..sort()}',
+          'raw=${rawValue.runtimeType} live=${frame._toBeClosedRegisters.toList()..sort()}',
         );
       }
       if (frame.isLiveToBeClosedAlias(value)) {
@@ -5148,7 +5260,7 @@ final class LuaBytecodeVm {
         }
         continue;
       }
-      if (!value.isToBeClose || value.raw == null || value.raw == false) {
+      if (!value.isToBeClose || rawValue == null || rawValue == false) {
         continue;
       }
       final closeValue = value.isToBeClose ? value : Value.toBeClose(value);
@@ -5276,9 +5388,9 @@ final class LuaBytecodeVm {
 
   bool _forLoop(_LuaBytecodeFrame frame, int base) {
     if (_isInteger(frame.register(base + 1))) {
-      final rawCount = frame.slotValue(base).raw;
-      final rawStep = frame.slotValue(base + 1).raw;
-      final rawIndex = frame.slotValue(base + 2).raw;
+      final rawCount = rawLuaSlot(frame.slotValue(base));
+      final rawStep = rawLuaSlot(frame.slotValue(base + 1));
+      final rawIndex = rawLuaSlot(frame.slotValue(base + 2));
       if (rawCount is int &&
           rawCount > 0 &&
           rawStep is int &&
@@ -5398,10 +5510,10 @@ final class LuaBytecodeVm {
   Value? _tryFastTableGet(Value table, Value key) {
     table.interpreter ??= runtime;
     key.interpreter ??= runtime;
-    final rawTable = table.raw;
+    final rawTable = rawLuaSlot(table);
     if (_canFastPathGlobalProxyTableGet(table, key)) {
       final result = (rawTable as Map)[_plainTableStorageKey(key)];
-      return result is Value ? result : _runtimeValue(runtime, result);
+      return _runtimeValue(runtime, result);
     }
     // Weak tables rely on Value's normal key normalization and memory-credit
     // bookkeeping. `__mode` is not a metamethod, so keep them off the raw
@@ -5414,24 +5526,24 @@ final class LuaBytecodeVm {
         final int index => rawTable.arrayValueAt(index),
         _ => rawTable[_plainTableStorageKey(key)],
       };
-      return result is Value ? result : _runtimeValue(runtime, result);
+      return _runtimeValue(runtime, result);
     }
     if (rawTable is Map && !hasWeakMode && !table.hasMetamethod('__index')) {
       final result = rawTable[_plainTableStorageKey(key)];
-      return result is Value ? result : _runtimeValue(runtime, result);
+      return _runtimeValue(runtime, result);
     }
     return null;
   }
 
   Value? _tryFastTableGetStringKey(Value table, String rawKey) {
     table.interpreter ??= runtime;
-    final rawTable = table.raw;
+    final rawTable = rawLuaSlot(table);
     if (rawTable is Map &&
         table.globalProxyEnvironment != null &&
         table.tableWeakMode == null) {
       final result = rawTable[rawKey];
       if (result != null || rawTable.containsKey(rawKey)) {
-        return result is Value ? result : _runtimeValue(runtime, result);
+        return _runtimeValue(runtime, result);
       }
     }
     final hasWeakMode = table.tableWeakMode != null;
@@ -5439,17 +5551,17 @@ final class LuaBytecodeVm {
         !hasWeakMode &&
         !table.hasMetamethod('__index')) {
       final result = rawTable[rawKey];
-      return result is Value ? result : _runtimeValue(runtime, result);
+      return _runtimeValue(runtime, result);
     }
     if (rawTable is Map && !hasWeakMode && !table.hasMetamethod('__index')) {
       final result = rawTable[rawKey];
-      return result is Value ? result : _runtimeValue(runtime, result);
+      return _runtimeValue(runtime, result);
     }
     return null;
   }
 
   bool _canFastPathGlobalProxyTableGet(Value table, Value key) {
-    final rawTable = table.raw;
+    final rawTable = rawLuaSlot(table);
     if (rawTable is! Map || table.globalProxyEnvironment == null) {
       return false;
     }
@@ -5461,7 +5573,7 @@ final class LuaBytecodeVm {
   }
 
   bool _canFastPathGlobalProxyTableGetStringKey(Value table, String rawKey) {
-    final rawTable = table.raw;
+    final rawTable = rawLuaSlot(table);
     if (rawTable is! Map || table.globalProxyEnvironment == null) {
       return false;
     }
@@ -5474,14 +5586,15 @@ final class LuaBytecodeVm {
   bool _tryFastTableSetStringKey(Value table, String rawKey, Value value) {
     table.interpreter ??= runtime;
     value.interpreter ??= runtime;
-    final rawTable = table.raw;
+    final rawTable = rawLuaSlot(table);
+    final rawValue = rawLuaSlot(value);
     final hasWeakMode = table.tableWeakMode != null;
     if (rawTable is TableStorage &&
         !hasWeakMode &&
         !table.hasMetamethod('__newindex') &&
         !table.hasMetamethod('__index') &&
-        _isPlainPrimitiveValue(value.raw)) {
-      if (value.raw == null) {
+        _isPlainPrimitiveValue(rawValue)) {
+      if (rawValue == null) {
         rawTable.remove(rawKey);
       } else {
         rawTable[rawKey] = value;
@@ -5493,8 +5606,8 @@ final class LuaBytecodeVm {
         !hasWeakMode &&
         !table.hasMetamethod('__newindex') &&
         !table.hasMetamethod('__index') &&
-        _isPlainPrimitiveValue(value.raw)) {
-      if (value.raw == null) {
+        _isPlainPrimitiveValue(rawValue)) {
+      if (rawValue == null) {
         rawTable.remove(rawKey);
       } else {
         rawTable[rawKey] = value;
@@ -5509,7 +5622,8 @@ final class LuaBytecodeVm {
     table.interpreter ??= runtime;
     key.interpreter ??= runtime;
     value.interpreter ??= runtime;
-    final rawTable = table.raw;
+    final rawTable = rawLuaSlot(table);
+    final rawValue = rawLuaSlot(value);
     final hasWeakMode = table.tableWeakMode != null;
     if (rawTable is TableStorage &&
         !hasWeakMode &&
@@ -5521,7 +5635,7 @@ final class LuaBytecodeVm {
       }
       if (_canFastSetPlainPrimitiveEntry(key, value)) {
         final storageKey = _plainTableStorageKey(key);
-        if (value.raw == null) {
+        if (rawValue == null) {
           rawTable.remove(storageKey);
         } else {
           rawTable[storageKey] = value;
@@ -5537,7 +5651,7 @@ final class LuaBytecodeVm {
         !table.hasMetamethod('__index') &&
         _canFastSetPlainPrimitiveEntry(key, value)) {
       final storageKey = _plainTableStorageKey(key);
-      if (value.raw == null) {
+      if (rawValue == null) {
         rawTable.remove(storageKey);
       } else {
         rawTable[storageKey] = value;
@@ -5552,7 +5666,7 @@ final class LuaBytecodeVm {
     if (_tryFastTableSet(table, key, value)) {
       return;
     }
-    final rawTable = table.raw;
+    final rawTable = rawLuaSlot(table);
     final hasWeakMode = table.tableWeakMode != null;
     if (rawTable is Map &&
         !hasWeakMode &&
@@ -5565,7 +5679,7 @@ final class LuaBytecodeVm {
   }
 
   Object? _plainTableStorageKey(Value key) {
-    final rawKey = key.raw;
+    final rawKey = rawLuaSlot(key);
     return switch (rawKey) {
       final LuaString string => string.toString(),
       final num number => number == 0 ? 0.0 : number,
@@ -5577,7 +5691,7 @@ final class LuaBytecodeVm {
   }
 
   int? _plainPositiveIntegerKey(Value key) {
-    final rawKey = key.raw;
+    final rawKey = rawLuaSlot(key);
     return switch (rawKey) {
       final int integer when integer > 0 => integer,
       final num number
@@ -5590,24 +5704,15 @@ final class LuaBytecodeVm {
   }
 
   bool _canFastSetPlainPrimitiveEntry(Value key, Value value) {
-    final rawKey = key.raw;
-    return _isPlainPrimitiveKey(rawKey) && _isPlainPrimitiveValue(value.raw);
+    final rawKey = rawLuaSlot(key);
+    final rawValue = rawLuaSlot(value);
+    return _isPlainPrimitiveKey(rawKey) && _isPlainPrimitiveValue(rawValue);
   }
 
   bool _isPlainPrimitiveKey(Object? raw) =>
-      raw is num ||
-      raw is String ||
-      raw is LuaString ||
-      raw is bool ||
-      raw is BigInt;
+      raw != null && isLuaPrimitiveSlot(raw);
 
-  bool _isPlainPrimitiveValue(Object? raw) =>
-      raw == null ||
-      raw is num ||
-      raw is String ||
-      raw is LuaString ||
-      raw is bool ||
-      raw is BigInt;
+  bool _isPlainPrimitiveValue(Object? raw) => isLuaPrimitiveSlot(raw);
 
   LuaBytecodeInstructionWord _consumeExtraArg(_LuaBytecodeFrame frame) {
     if (frame.pc >= frame.closure.prototype.code.length) {
@@ -5639,11 +5744,13 @@ final class LuaBytecodeVm {
     if (result == null) {
       return const <Value>[];
     }
+    final resultValues = luaResultValues(result);
+    if (resultValues != null) {
+      return resultValues
+          .map((item) => _runtimeValue(runtime, item))
+          .toList(growable: false);
+    }
     return switch (result) {
-      final Value value when value.isMulti =>
-        (value.raw as List<Object?>)
-            .map((item) => _runtimeValue(runtime, item))
-            .toList(growable: false),
       final Value value => <Value>[_runtimeValue(runtime, value)],
       final List<Object?> values =>
         values
@@ -5656,7 +5763,7 @@ final class LuaBytecodeVm {
 
 Object? _normalizeCloseErrorArgument(Object? error) {
   if (error case final Value value) {
-    return switch (value.raw) {
+    return switch (rawLuaSlot(value)) {
       final Value nested => _normalizeCloseErrorArgument(nested),
       _ => value,
     };
@@ -5687,9 +5794,9 @@ Object? _normalizeBytecodeCoroutineCloseError(Object error) {
   return error;
 }
 
-Object? _preserveCloseErrorObject(Object? error) {
+Object? _preserveCloseErrorObject(LuaRuntime runtime, Object? error) {
   if (error case LuaError(cause: final cause?) when cause is! LuaError) {
-    return _preserveCloseErrorObject(cause);
+    return _preserveCloseErrorObject(runtime, cause);
   }
   if (error is Value) {
     return error;
@@ -5699,7 +5806,7 @@ Object? _preserveCloseErrorObject(Object? error) {
       error is BigInt ||
       error is bool ||
       error is String) {
-    return Value(error);
+    return valueFromLuaSlot(runtime, error);
   }
   return error;
 }
@@ -5924,8 +6031,9 @@ List<Object?>? _frameDebugVarargs(CallFrame frame) {
   final closureEnv = frame.callable?.closureEnvironment;
   while (env != null) {
     final value = env.values['...']?.value;
-    if (value is Value && value.isMulti && value.raw is List<Object?>) {
-      return List<Object?>.from(value.raw as List<Object?>);
+    final values = luaResultValues(value);
+    if (values != null) {
+      return List<Object?>.from(values);
     }
     if (identical(env, closureEnv) || identical(env.parent, closureEnv)) {
       break;
@@ -5978,8 +6086,8 @@ void _syncFrameDebugVarargs(CallFrame? frame, List<Object?> values) {
     bytecodeFrame._materializedVarargs = normalized;
     bytecodeFrame._varargStart = 0;
     bytecodeFrame._varargCount = normalized.length;
-    if (bytecodeFrame.debugVarargValue case final Value debugVarargs?) {
-      debugVarargs.raw = normalized;
+    if (bytecodeFrame.debugVarargValue != null) {
+      bytecodeFrame.updateDebugVarargValue(normalized);
     }
     return;
   }
@@ -5987,11 +6095,13 @@ void _syncFrameDebugVarargs(CallFrame? frame, List<Object?> values) {
   final closureEnv = frame.callable?.closureEnvironment;
   while (env != null) {
     final box = env.values['...'];
-    if (box != null && box.value is Value) {
-      final value = box.value as Value;
-      if (value.isMulti) {
-        value.raw = values;
-      }
+    final value = box?.value;
+    if (value is LuaResults) {
+      box!.value = LuaResults(values);
+      return;
+    }
+    if (value is Value && value.multiResults != null) {
+      value.raw = values;
       return;
     }
     if (identical(env, closureEnv) || identical(env.parent, closureEnv)) {
@@ -6001,13 +6111,20 @@ void _syncFrameDebugVarargs(CallFrame? frame, List<Object?> values) {
   }
 }
 
+Value _bytecodeFrameNilValue(CallFrame frame) {
+  return frame.env?.interpreter?.constantPrimitiveValue(null) ??
+      frame.callable?.interpreter?.constantPrimitiveValue(null) ??
+      Value.primitive(null);
+}
+
 List<MapEntry<String, Value>> _bytecodeFrameLocals(CallFrame frame) {
   final locals = <MapEntry<String, Value>>[];
-  final closure = frame.callable?.raw;
+  final nilValue = _bytecodeFrameNilValue(frame);
+  final closure = rawLuaSlot(frame.callable);
   final isMainChunkFrame =
       closure is LuaBytecodeClosure && closure.debugInfo.what == 'main';
   if (!isMainChunkFrame && _frameDebugVarargs(frame) != null) {
-    locals.add(MapEntry('(vararg table)', Value(null)));
+    locals.add(MapEntry('(vararg table)', nilValue));
   }
   locals.addAll(frame.debugLocals);
   if (closure is LuaBytecodeClosure && frame.currentLine > 0) {
@@ -6022,7 +6139,7 @@ List<MapEntry<String, Value>> _bytecodeFrameLocals(CallFrame frame) {
             frame.currentLine,
           ),
         )) {
-      locals.add(MapEntry('(temporary)', Value(null)));
+      locals.add(MapEntry('(temporary)', nilValue));
     }
     final seenNames = <String>{
       for (final entry in locals)
@@ -6056,7 +6173,7 @@ List<MapEntry<String, Value>> _bytecodeFrameLocals(CallFrame frame) {
           return (left.name ?? '').compareTo(right.name ?? '');
         });
     for (final local in placeholders) {
-      locals.add(MapEntry(local.name!, Value(null)));
+      locals.add(MapEntry(local.name!, nilValue));
     }
   }
   return locals;
@@ -6108,7 +6225,7 @@ bool _localHasPendingClosureTemporaryOnCurrentLine(
 }
 
 void _overwriteValue(Value target, Value source) {
-  target.raw = source.raw;
+  target.raw = rawLuaSlot(source);
   target.metatable = source.metatable;
   target.metatableRef = source.metatableRef;
   target.upvalues = source.upvalues;
@@ -6166,10 +6283,11 @@ final class _LuaBytecodeFrame implements LuaBytecodeGCRootProvider {
       }
     }
     if (closure.prototype.needsVarargTable) {
-      final packed = packVarargsTable(varargs);
+      final packed = packVarargsTable(varargs, runtime: runtime);
       setRegister(parameterCount, packed);
-      if (packed.raw case final PackedVarargTable table) {
+      if (rawLuaSlot(packed) case final PackedVarargTable table) {
         namedVarargTable = table;
+        namedVarargTableValue = packed;
       }
     }
   }
@@ -6187,9 +6305,10 @@ final class _LuaBytecodeFrame implements LuaBytecodeGCRootProvider {
   final List<Value> registers;
   final List<int> _lastRegisterWritePc;
   List<Value>? _materializedVarargs;
-  Value? debugVarargValue;
+  LuaResults? debugVarargValue;
   Environment? _debugEnvironment;
   PackedVarargTable? namedVarargTable;
+  Value? namedVarargTableValue;
   late final List<bool> _localExpiryFlags = () {
     final flags = List<bool>.filled(
       closure.prototype.code.length,
@@ -6412,14 +6531,14 @@ final class _LuaBytecodeFrame implements LuaBytecodeGCRootProvider {
       parent: closure.environment,
       interpreter: runtime,
     );
-    if (_materializeDebugVarargValue() case final Value varargValue) {
+    if (_materializeDebugVarargValue() case final LuaResults varargValue) {
       environment.declare('...', varargValue);
     }
     _debugEnvironment = environment;
     return environment;
   }
 
-  Value? _materializeDebugVarargValue() {
+  LuaResults? _materializeDebugVarargValue() {
     final existing = debugVarargValue;
     if (existing != null) {
       return existing;
@@ -6427,9 +6546,15 @@ final class _LuaBytecodeFrame implements LuaBytecodeGCRootProvider {
     if (!closure.prototype.isVararg) {
       return null;
     }
-    final value = Value.multi(varargs)..interpreter = runtime;
+    final value = LuaResults(varargs);
     debugVarargValue = value;
     return value;
+  }
+
+  void updateDebugVarargValue(Iterable<Object?> values) {
+    final value = LuaResults(values);
+    debugVarargValue = value;
+    _debugEnvironment?.values['...']?.value = value;
   }
 
   int get varargCount => switch (namedVarargTable) {
@@ -6443,7 +6568,7 @@ final class _LuaBytecodeFrame implements LuaBytecodeGCRootProvider {
     }
     if (namedVarargTable case final PackedVarargTable table) {
       final value = table[index + 1];
-      return value is Value ? value : _runtimeValue(runtime, value);
+      return _runtimeValue(runtime, value);
     }
     final materialized = _materializedVarargs;
     if (materialized != null) {
@@ -6538,28 +6663,22 @@ final class _LuaBytecodeFrame implements LuaBytecodeGCRootProvider {
       }
       final expanded = table
           .expandedValues()
-          .map(
-            (value) => value is Value ? value : _runtimeValue(runtime, value),
-          )
+          .map((value) => _runtimeValue(runtime, value))
           .toList(growable: false);
-      if (debugVarargValue case final Value rawVarargs
-          when rawVarargs.isMulti) {
-        rawVarargs.raw = expanded;
+      if (debugVarargValue != null) {
+        updateDebugVarargValue(expanded);
       }
       return expanded;
     }
-    if (debugVarargValue case final Value rawVarargs
-        when rawVarargs.isMulti && rawVarargs.raw is List) {
-      final rawList = rawVarargs.raw as List<Object?>;
+    if (debugVarargValue case final LuaResults rawVarargs) {
+      final rawList = rawVarargs.values;
       if (identical(rawList, varargs)) {
         return varargs;
       }
       final normalized = rawList
-          .map(
-            (value) => value is Value ? value : _runtimeValue(runtime, value),
-          )
+          .map((value) => _runtimeValue(runtime, value))
           .toList(growable: false);
-      rawVarargs.raw = normalized;
+      updateDebugVarargValue(normalized);
       return normalized;
     }
     return varargs;
@@ -6698,7 +6817,7 @@ final class _LuaBytecodeFrame implements LuaBytecodeGCRootProvider {
         continue;
       }
       final value = registers[registerIndex];
-      if (value.raw == null && !value.isToBeClose) {
+      if (rawLuaSlot(value) == null && !value.isToBeClose) {
         continue;
       }
       registers[registerIndex] = _runtimeValue(runtime, null);
@@ -6722,12 +6841,14 @@ final class _LuaBytecodeFrame implements LuaBytecodeGCRootProvider {
       registerIndex,
     );
     if (_debugFileOps) {
+      final raw = rawLuaSlot(rawValue);
       _debugFileLog(
         'markToBeClosed register=$registerIndex '
-        'tbc=${rawValue.isToBeClose} raw=${rawValue.raw.runtimeType}',
+        'tbc=${rawValue.isToBeClose} raw=${raw.runtimeType}',
       );
     }
-    if (rawValue.raw == null || rawValue.raw == false) {
+    final raw = rawLuaSlot(rawValue);
+    if (raw == null || raw == false) {
       _toBeClosedRegisters.add(registerIndex);
       return;
     }
@@ -6737,9 +6858,20 @@ final class _LuaBytecodeFrame implements LuaBytecodeGCRootProvider {
           : Value.toBeClose(rawValue);
       setRegister(registerIndex, closable);
       _toBeClosedRegisters.add(registerIndex);
-    } on UnsupportedError catch (error, stackTrace) {
-      final message = error.message ?? error.toString();
-      throw LuaError(message, cause: error, stackTrace: stackTrace);
+    } on UnsupportedError catch (error) {
+      final localName = localNameForError(registerIndex);
+      final baseMessage = error.message ?? error.toString();
+      final message =
+          localName != null &&
+              baseMessage ==
+                  'to-be-closed variable value must have a __close metamethod'
+          ? "variable '$localName' got a non-closable value"
+          : baseMessage;
+      // Do NOT pass cause: the UnsupportedError as cause would be
+      // unwrapped by the protected-call error path when isInProtectedCall
+      // is true, causing pcall to surface the raw Dart exception instead
+      // of the formatted Lua message.
+      throw LuaError(message);
     }
   }
 
@@ -6761,7 +6893,8 @@ final class _LuaBytecodeFrame implements LuaBytecodeGCRootProvider {
         continue;
       }
       final slotValue = this.slotValue(registerIndex);
-      if (slotValue.raw == null || slotValue.raw == false) {
+      final rawSlotValue = rawLuaSlot(slotValue);
+      if (rawSlotValue == null || rawSlotValue == false) {
         continue;
       }
       final Value closeValue;
@@ -6778,10 +6911,10 @@ final class _LuaBytecodeFrame implements LuaBytecodeGCRootProvider {
         final message = localName != null
             ? "variable '$localName' got a non-closable value"
             : (error.message ?? error.toString());
-        Error.throwWithStackTrace(
-          LuaError(message, cause: error, stackTrace: stackTrace),
-          stackTrace,
-        );
+        // Do NOT pass cause: the UnsupportedError as cause would be
+        // unwrapped by the protected-call error path when isInProtectedCall
+        // is true, surfacing the raw Dart exception via pcall.
+        Error.throwWithStackTrace(LuaError(message), stackTrace);
       }
       closeValue.interpreter ??= runtime;
       try {
@@ -6826,6 +6959,7 @@ final class _LuaBytecodeFrame implements LuaBytecodeGCRootProvider {
   }
 
   bool isLiveToBeClosedAlias(Value value) {
+    final rawValue = rawLuaSlot(value);
     for (final registerIndex in _toBeClosedRegisters) {
       if (registerIndex >= registers.length) {
         continue;
@@ -6834,7 +6968,7 @@ final class _LuaBytecodeFrame implements LuaBytecodeGCRootProvider {
       if (identical(liveValue, value)) {
         return true;
       }
-      if (value.raw != null && identical(liveValue.raw, value.raw)) {
+      if (rawValue != null && identical(rawLuaSlot(liveValue), rawValue)) {
         return true;
       }
     }
@@ -6871,8 +7005,8 @@ final class _LuaBytecodeFrame implements LuaBytecodeGCRootProvider {
     for (final value in expandedVarargs) {
       yield value;
     }
-    if (namedVarargTable case final PackedVarargTable table) {
-      yield Value(table);
+    if (namedVarargTableValue case final value?) {
+      yield value;
     }
   }
 }
@@ -6903,7 +7037,7 @@ final class _LuaBytecodeCallSuspension implements CoroutineContinuation {
         _tmpDebugFrame(
           frame,
           'call-resume register=$register resultSpec=$resultSpec '
-          'results=${results.map((v) => "${v.raw.runtimeType}:${v.isMulti}").join(",")} '
+          'results=${results.map((v) => "${rawLuaSlot(v).runtimeType}:${v.isMulti}").join(",")} '
           'top=${frame.top} openTop=${frame.openTop} pc=${frame.pc}',
         );
       } on YieldException catch (error) {
@@ -6967,12 +7101,7 @@ final class _LuaBytecodeCallSuspension implements CoroutineContinuation {
         frame,
         'call-resume-results child=${nested.runtimeType} '
         'resultType=${result.runtimeType} '
-        'result=${switch (result) {
-          Value(isMulti: true, raw: final List<Object?> values) => values.map((value) => value is Value ? value.raw : value).toList(),
-          Value(:final raw) => raw,
-          List<Object?>() => result,
-          _ => result,
-        }}',
+        'result=${_debugResultPayload(result)}',
       );
       return vm._normalizeResults(result);
     }
@@ -7051,7 +7180,7 @@ final class _LuaBytecodeConditionalJumpSuspension
       }
       // Match luaV_finishOp for yielded EQ/LT/LE-family opcodes: resume with
       // the metamethod's boolean result and only then advance the pending JMP.
-      vm._docondjump(frame, word, _isTruthy(resultValue));
+      vm._docondjump(frame, word, isLuaTruthy(resultValue));
       try {
         final resumedResults = await vm._runFrameWithTailCalls(frame);
         return _packCallResults(vm.runtime, resumedResults);
@@ -7434,7 +7563,7 @@ final class _LuaBytecodeProtectedCallSuspension
     try {
       try {
         final result = await _resumeChild(args);
-        return Value.multi(vm._packBytecodeProtectedCallSuccess(result));
+        return LuaResults(vm._packBytecodeProtectedCallSuccess(result));
       } on CoroutineCloseSignal {
         rethrow;
       } on YieldException catch (error) {
@@ -7448,7 +7577,7 @@ final class _LuaBytecodeProtectedCallSuspension
         }
         rethrow;
       } catch (error) {
-        return Value.multi(vm._packBytecodeProtectedCallFailure(error));
+        return LuaResults(vm._packBytecodeProtectedCallFailure(error));
       }
     } finally {
       vm.runtime.exitProtectedCall();
@@ -7460,9 +7589,9 @@ final class _LuaBytecodeProtectedCallSuspension
       return nested.resume(args);
     }
     final values = args
-        .map<Object?>((arg) => arg is Value ? arg : Value(arg))
+        .map<Object?>((arg) => valueFromLuaSlot(vm.runtime, arg))
         .toList(growable: false);
-    return Value.multi(values);
+    return LuaResults(values);
   }
 
   @override
@@ -7531,7 +7660,10 @@ final class _LuaBytecodeCloseSuspension implements CoroutineContinuation {
           } on YieldException {
             rethrow;
           } catch (error, stackTrace) {
-            final pendingError = _preserveCloseErrorObject(error);
+            final pendingError = _preserveCloseErrorObject(
+              frame.runtime,
+              error,
+            );
             activeError = pendingError;
             activeErrorStackTrace = stackTrace;
             frame.top = savedTop;
@@ -8124,7 +8256,10 @@ final class _LuaBytecodeReturnSuspension implements CoroutineContinuation {
           } on YieldException {
             rethrow;
           } catch (error, stackTrace) {
-            final pendingError = _preserveCloseErrorObject(error);
+            final pendingError = _preserveCloseErrorObject(
+              frame.runtime,
+              error,
+            );
             activeError = pendingError;
             activeErrorStackTrace = stackTrace;
             frame.top = savedTop;
@@ -8254,7 +8389,7 @@ final class _LuaBytecodeTailCallSuspension implements CoroutineContinuation {
         _tmpDebugFrame(
           frame,
           'tail-resume-results '
-          'results=${results.map((v) => "${v.raw.runtimeType}:${v.isMulti}").join(",")} '
+          'results=${results.map((v) => "${rawLuaSlot(v).runtimeType}:${v.isMulti}").join(",")} '
           'closed=${frame.closed} pc=${frame.pc}',
         );
         await _closeFrameForCoroutine(frame, error: null);
@@ -8293,12 +8428,7 @@ final class _LuaBytecodeTailCallSuspension implements CoroutineContinuation {
         frame,
         'tail-resume-results-child child=${nested.runtimeType} '
         'resultType=${result.runtimeType} '
-        'result=${switch (result) {
-          Value(isMulti: true, raw: final List<Object?> values) => values.map((value) => value is Value ? value.raw : value).toList(),
-          Value(:final raw) => raw,
-          List<Object?>() => result,
-          _ => result,
-        }}',
+        'result=${_debugResultPayload(result)}',
       );
       return vm._normalizeResults(result);
     }
@@ -8501,16 +8631,26 @@ final class _LuaBytecodeUpvalue {
   }
 }
 
-Object? _packCallResults(LuaRuntime runtime, List<Value> results) {
+Object? _packCallResults(LuaRuntime _, List<Value> results) {
   if (results.isEmpty) {
     return null;
   }
   if (results.length == 1) {
     return results.single;
   }
-  final packed = Value.multi(results);
-  packed.interpreter ??= runtime;
-  return packed;
+  return LuaResults(results);
+}
+
+Object? _debugResultPayload(Object? result) {
+  final resultValues = luaResultValues(result);
+  if (resultValues != null) {
+    return resultValues.map(rawLuaSlot).toList();
+  }
+  return switch (result) {
+    Value() => rawLuaSlot(result),
+    List<Object?>() => result,
+    _ => result,
+  };
 }
 
 Value _detachSharedRuntimeConstantInFrameRegister(
@@ -8638,16 +8778,17 @@ Future<bool> _explicitGlobalIsAlreadyDefined(
 ) async {
   if (name == '_ENV') {
     final current = environment.root.get(name);
-    return current != null && (current is! Value || current.raw != null);
+    return current != null &&
+        (current is! Value || rawLuaSlot(current) != null);
   }
 
-  if (envValue.raw != null) {
+  if (rawLuaSlot(envValue) != null) {
     final current = await envValue.getValueAsync(name);
-    return current is Value ? current.raw != null : current != null;
+    return rawLuaSlot(current) != null;
   }
 
   final current = environment.readRootGlobal(name);
-  return current is Value ? current.raw != null : current != null;
+  return rawLuaSlot(current) != null;
 }
 
 Value _rkValue(_LuaBytecodeFrame frame, int operand, bool isConstant) {
@@ -8659,15 +8800,17 @@ Value _rkValue(_LuaBytecodeFrame frame, int operand, bool isConstant) {
 Value _runtimeValue(LuaRuntime runtime, Object? value) {
   final wrapped = switch (value) {
     final Value existing => _canonicalizeBytecodeValue(existing),
+    final LuaResults results => valueMultiFromLuaResults(
+      results.values,
+      runtime: runtime,
+    ),
     null ||
     bool() ||
     num() ||
     BigInt() => runtime.constantPrimitiveValue(value),
     final LuaString string => runtime.constantStringValue(string.bytes),
     final String string => runtime.constantRawStringValue(string),
-    final Map map =>
-      Value.lookupCanonicalTableWrapper(map) ??
-          Value(map, interpreter: runtime),
+    final Map map => valueFromLuaSlot(runtime, map),
     final LuaFile file => _trackedLuaFileWrapper(file, runtime),
     final LuaBytecodeClosure closure => Value(
       closure,
@@ -8685,12 +8828,12 @@ Value _framePrimitiveValue(LuaRuntime runtime, Object? value) {
     value,
     interpreter: runtime,
     skipAllocationDebt: true,
-    skipGcRegistration: _isGcTrackingNeutralPrimitive(value),
+    skipGcRegistration: isLuaScalarPrimitiveSlot(value),
   );
 }
 
 bool _isSharedRuntimeConstant(LuaRuntime runtime, Value value) {
-  final raw = value.raw;
+  final raw = rawLuaSlot(value);
   return switch (raw) {
     null ||
     bool() ||
@@ -8705,8 +8848,8 @@ bool _isSharedRuntimeConstant(LuaRuntime runtime, Value value) {
 }
 
 Value _cloneBytecodeValue(Value source) {
-  final raw = source.raw;
-  if (raw == null || raw is bool || raw is num || raw is BigInt) {
+  final raw = rawLuaSlot(source);
+  if (_canUsePrimitiveBytecodeClone(source)) {
     final clone = Value.primitive(
       raw,
       isMulti: source.isMulti,
@@ -8714,9 +8857,9 @@ Value _cloneBytecodeValue(Value source) {
       isToBeClose: source.isToBeClose,
       isTempKey: source.isTempKey,
       skipAllocationDebt:
-          source.skipAllocationDebt || _isBookkeepingNeutralClone(source),
+          source.skipAllocationDebt || isLuaPrimitiveSlot(rawLuaSlot(source)),
       skipGcRegistration:
-          source.skipGcRegistration || _isGcTrackingNeutralClone(source),
+          source.skipGcRegistration || isLuaScalarPrimitiveSlot(rawLuaSlot(source)),
       upvalues: source.upvalues,
       interpreter: source.interpreter,
       functionBody: source.functionBody,
@@ -8737,9 +8880,9 @@ Value _cloneBytecodeValue(Value source) {
     isToBeClose: source.isToBeClose,
     isTempKey: source.isTempKey,
     skipAllocationDebt:
-        source.skipAllocationDebt || _isBookkeepingNeutralClone(source),
+        source.skipAllocationDebt || isLuaPrimitiveSlot(rawLuaSlot(source)),
     skipGcRegistration:
-        source.skipGcRegistration || _isGcTrackingNeutralClone(source),
+        source.skipGcRegistration || isLuaScalarPrimitiveSlot(rawLuaSlot(source)),
     upvalues: source.upvalues,
     interpreter: source.interpreter,
     functionBody: source.functionBody,
@@ -8753,31 +8896,25 @@ Value _cloneBytecodeValue(Value source) {
   return clone;
 }
 
-bool _isBookkeepingNeutralClone(Value source) {
-  return switch (source.raw) {
-    null || bool() || num() || BigInt() || String() || LuaString() => true,
-    _ => false,
-  };
+bool _canUsePrimitiveBytecodeClone(Value source) {
+  final raw = rawLuaSlot(source);
+  if (isLuaScalarPrimitiveSlot(raw)) {
+    return true;
+  }
+  if (raw is! String && raw is! LuaString) {
+    return false;
+  }
+  return source.metatable == null && source.metatableRef == null;
 }
 
-bool _isGcTrackingNeutralClone(Value source) {
-  return _isGcTrackingNeutralPrimitive(source.raw);
-}
-
-bool _isGcTrackingNeutralPrimitive(Object? value) {
-  return switch (value) {
-    null || bool() || num() || BigInt() => true,
-    _ => false,
-  };
-}
 
 Value _canonicalizeBytecodeValue(Value value) {
-  final raw = value.raw;
+  final raw = rawLuaSlot(value);
   if (raw is! LuaFile) {
     return value;
   }
 
-  final tracked = IOLib.trackedOpenFileWrapper(raw);
+  final tracked = IOLib.trackedOpenFileWrapper(raw, interpreter: value.interpreter);
   if (tracked == null || identical(tracked, value)) {
     return value;
   }
@@ -8790,7 +8927,7 @@ Value _canonicalizeBytecodeValue(Value value) {
 }
 
 Value _trackedLuaFileWrapper(LuaFile file, LuaRuntime runtime) {
-  final tracked = IOLib.trackedOpenFileWrapper(file);
+  final tracked = IOLib.trackedOpenFileWrapper(file, interpreter: runtime);
   if (tracked != null) {
     tracked.interpreter ??= runtime;
     return tracked;
@@ -8800,11 +8937,11 @@ Value _trackedLuaFileWrapper(LuaFile file, LuaRuntime runtime) {
 }
 
 Value _firstResultValue(LuaRuntime runtime, Object? result) {
-  if (result case final Value value when value.isMulti) {
-    final values = value.raw as List<Object?>;
-    return values.isEmpty
+  final resultValues = luaResultValues(result);
+  if (resultValues != null) {
+    return resultValues.isEmpty
         ? _runtimeValue(runtime, null)
-        : _runtimeValue(runtime, values.first);
+        : _runtimeValue(runtime, resultValues.first);
   }
   if (result case final List<Object?> values) {
     return values.isEmpty
@@ -8812,17 +8949,19 @@ Value _firstResultValue(LuaRuntime runtime, Object? result) {
         : _runtimeValue(runtime, values.first);
   }
   if (result case final Value value) {
-    return value;
+    return valueFromLuaSlot(runtime, value);
   }
   return _runtimeValue(runtime, result);
 }
 
-bool _canFastPathNumeric(Value value) => _coerceLuaNumber(value.raw) != null;
+bool _canFastPathNumeric(Value value) =>
+    _coerceLuaNumber(rawLuaSlot(value)) != null;
 
-bool _canFastPathInteger(Value value) => _coerceLuaInteger(value.raw) != null;
+bool _canFastPathInteger(Value value) =>
+    _coerceLuaInteger(rawLuaSlot(value)) != null;
 
 bool _canFastPathConcat(Value value) {
-  return switch (value.raw) {
+  return switch (rawLuaSlot(value)) {
     num() || String() || LuaString() => true,
     _ => false,
   };
@@ -8830,7 +8969,7 @@ bool _canFastPathConcat(Value value) {
 
 bool _canFastPathLength(Value value) =>
     !value.hasMetamethod('__len') &&
-    switch (value.raw) {
+    switch (rawLuaSlot(value)) {
       LuaString() ||
       String() ||
       List<dynamic>() ||
@@ -8945,14 +9084,9 @@ String _shortSource(String source) {
   }
 }
 
-bool _isTruthy(Value value) {
-  final raw = value.raw;
-  return raw != null && raw != false;
-}
 
-bool _isNil(Value value) => value.raw == null;
 
-bool _isInteger(Value value) => value.raw is int;
+bool _isInteger(Value value) => rawLuaSlot(value) is int;
 
 enum _PrimitiveCompare {
   lessThan,
@@ -8972,18 +9106,20 @@ enum _PrimitiveCompare {
 }
 
 int _integerValue(Value value) {
-  return switch (value.raw) {
+  final raw = rawLuaSlot(value);
+  return switch (raw) {
     final int integer => integer,
     final num numeric => numeric.toInt(),
-    _ => throw LuaError('expected integer, got ${value.raw.runtimeType}'),
+    _ => throw LuaError('expected integer, got ${raw.runtimeType}'),
   };
 }
 
 num _numericValue(Value value) {
-  return switch (value.raw) {
+  final raw = rawLuaSlot(value);
+  return switch (raw) {
     final num numeric => numeric,
     _ => throw LuaError(
-      'attempt to perform arithmetic on a ${value.raw.runtimeType} value',
+      'attempt to perform arithmetic on a ${raw.runtimeType} value',
     ),
   };
 }
@@ -8997,8 +9133,8 @@ bool? _tryPrimitiveOrdering(
   Value right,
   _PrimitiveCompare primitiveCompare,
 ) {
-  final leftRaw = left.raw;
-  final rightRaw = right.raw;
+  final leftRaw = rawLuaSlot(left);
+  final rightRaw = rawLuaSlot(right);
   final leftString = _stringLike(leftRaw);
   final rightString = _stringLike(rightRaw);
   return switch ((leftRaw, rightRaw)) {
@@ -9015,7 +9151,7 @@ bool? _tryPrimitiveOrdering(
 }
 
 bool _compareImmediateEquals(Value left, int right) {
-  final leftRaw = left.raw;
+  final leftRaw = rawLuaSlot(left);
   return switch (leftRaw) {
     final int integer => integer == right,
     final double doubleValue => doubleValue == right,
@@ -9029,7 +9165,7 @@ bool? _tryPrimitiveImmediateOrdering(
   int right,
   _PrimitiveCompare primitiveCompare,
 ) {
-  final leftRaw = left.raw;
+  final leftRaw = rawLuaSlot(left);
   return switch (leftRaw) {
     final int integer => switch (primitiveCompare) {
       _PrimitiveCompare.lessThan => integer < right,
@@ -9054,7 +9190,7 @@ bool? _tryPrimitiveImmediateOrdering(
 }
 
 int _lengthOf(Value value) {
-  return switch (value.raw) {
+  return switch (rawLuaSlot(value)) {
     final LuaString stringValue => stringValue.length,
     final String stringValue => stringValue.length,
     final List<dynamic> listValue => listValue.length,
@@ -9074,7 +9210,7 @@ extension on LuaBytecodeVm {
       return false;
     }
     final metamethodResult = await _invokeBinaryMetamethod('__eq', left, right);
-    return metamethodResult != null && _isTruthy(metamethodResult);
+    return metamethodResult != null && isLuaTruthy(metamethodResult);
   }
 
   Future<bool> _compareOrdering(
@@ -9098,7 +9234,7 @@ extension on LuaBytecodeVm {
       right,
     );
     if (metamethodResult != null) {
-      return _isTruthy(metamethodResult);
+      return isLuaTruthy(metamethodResult);
     }
 
     throw LuaError(_orderComparisonError(left, right));
@@ -9130,7 +9266,7 @@ extension on LuaBytecodeVm {
       metamethodRight,
     );
     if (metamethodResult != null) {
-      return _isTruthy(metamethodResult);
+      return isLuaTruthy(metamethodResult);
     }
 
     throw LuaError(_orderComparisonError(metamethodLeft, metamethodRight));
@@ -9153,7 +9289,7 @@ int _tableBoundaryLength(Map<dynamic, dynamic> mapValue) {
   final occupiedPositiveIndices = <int>{};
   for (final MapEntry(:key, :value) in mapValue.entries) {
     final index = _positiveIntegerKey(key);
-    if (index == null || _isNilLike(value)) {
+    if (index == null || isLuaNilSlot(value)) {
       continue;
     }
     occupiedPositiveIndices.add(index);
@@ -9168,7 +9304,7 @@ int _tableBoundaryLength(Map<dynamic, dynamic> mapValue) {
 
 int? _positiveIntegerKey(Object? key) {
   final rawKey = switch (key) {
-    final Value value => value.raw,
+    final Value value => rawLuaSlot(value),
     _ => key,
   };
   return switch (rawKey) {
@@ -9182,11 +9318,7 @@ int? _positiveIntegerKey(Object? key) {
   };
 }
 
-bool _isNilLike(Object? value) => switch (value) {
-  null => true,
-  final Value wrapped => wrapped.raw == null,
-  _ => false,
-};
+
 
 String? _stringLike(Object? value) => switch (value) {
   final LuaString stringValue => stringValue.toString(),
@@ -9333,7 +9465,7 @@ BigInt _unsignedDifference64(BigInt left, BigInt right) {
 BigInt _negativeStepDivisor(int step) => BigInt.from(-(step + 1)) + BigInt.one;
 
 BigInt _unsignedForLoopCounter(Value value) {
-  final raw = value.raw;
+  final raw = rawLuaSlot(value);
   return switch (raw) {
     final int integer => NumberUtils.toUnsigned64(integer),
     _ => throw LuaError('expected integer, got ${raw.runtimeType}'),
@@ -9350,7 +9482,7 @@ int _signedInt64FromUnsigned(BigInt value) {
 }
 
 Object _forNumericOperand(Value value, String role) {
-  final raw = value.raw;
+  final raw = rawLuaSlot(value);
   final coerced = _coerceLuaNumber(raw);
   if (coerced != null) {
     return coerced;

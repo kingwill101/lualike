@@ -2,6 +2,7 @@ import 'dart:collection';
 
 import 'package:lualike/lualike.dart';
 import 'package:lualike/src/gc/gc.dart';
+import 'package:lualike/src/runtime/lua_slot.dart';
 
 /// Identifies the generation an object currently belongs to for credit
 /// accounting purposes.
@@ -21,9 +22,6 @@ class MemoryCredits {
   static final MemoryCredits instance = MemoryCredits._();
 
   final Expando<int> _objectCredits = Expando<int>('gcCredits');
-  final Expando<GCGenerationSpace> _objectSpaces = Expando<GCGenerationSpace>(
-    'gcSpace',
-  );
   final Set<GCObject> _excludedObjects = HashSet<GCObject>.identity();
 
   // Debug: Track allocation stack traces
@@ -49,9 +47,9 @@ class MemoryCredits {
     final existingCredits = _objectCredits[obj];
     if (existingCredits != null) {
       // Object already tracked - just update space if needed
-      final existingSpace = _objectSpaces[obj];
+      final existingSpace = obj.gcSpace;
       if (existingSpace != space) {
-        _objectSpaces[obj] = space;
+        obj.gcSpace = space;
       }
       return;
     }
@@ -81,7 +79,7 @@ class MemoryCredits {
     // Debug: Log allocations during large operations
     if (Logger.enabled && _total > 1000000 && credits > 100) {
       final objType = obj is Value
-          ? 'Value(${obj.raw?.runtimeType ?? 'null'})'
+          ? 'Value(${rawLuaSlot(obj)?.runtimeType ?? 'null'})'
           : obj.runtimeType.toString();
       Logger.debugLazy(
         () =>
@@ -91,7 +89,7 @@ class MemoryCredits {
     }
 
     _objectCredits[obj] = credits;
-    _objectSpaces[obj] = space;
+    obj.gcSpace = space;
     _total += credits;
     if (space == GCGenerationSpace.young) {
       _young += credits;
@@ -124,12 +122,12 @@ class MemoryCredits {
       return;
     }
 
-    final space = _objectSpaces[obj];
+    final space = obj.gcSpace;
     if (space == GCGenerationSpace.young) {
       _young -= credits;
       _old += credits;
     }
-    _objectSpaces[obj] = GCGenerationSpace.old;
+    obj.gcSpace = GCGenerationSpace.old;
   }
 
   /// Updates bookkeeping after an object has been reclaimed.
@@ -144,7 +142,7 @@ class MemoryCredits {
       return;
     }
 
-    final space = _objectSpaces[obj];
+    final space = obj.gcSpace;
     if (space == GCGenerationSpace.young) {
       _young -= credits;
     } else if (space == GCGenerationSpace.old) {
@@ -153,7 +151,7 @@ class MemoryCredits {
     _total -= credits;
 
     _objectCredits[obj] = null;
-    _objectSpaces[obj] = null;
+    obj.gcSpace = null;
   }
 
   /// Recalculates the cost of an object after it changed shape (for example a
@@ -163,7 +161,7 @@ class MemoryCredits {
       return;
     }
 
-    final space = _objectSpaces[obj];
+    final space = obj.gcSpace;
     if (space == null) {
       return;
     }
@@ -200,10 +198,10 @@ class MemoryCredits {
       }
       if (excluded) {
         _objectCredits[obj] = null;
-        _objectSpaces[obj] = null;
+        obj.gcSpace = null;
       } else {
         _objectCredits[obj] = credits;
-        _objectSpaces[obj] = GCGenerationSpace.young;
+        obj.gcSpace = GCGenerationSpace.young;
       }
     }
 
@@ -215,10 +213,10 @@ class MemoryCredits {
       }
       if (excluded) {
         _objectCredits[obj] = null;
-        _objectSpaces[obj] = null;
+        obj.gcSpace = null;
       } else {
         _objectCredits[obj] = credits;
-        _objectSpaces[obj] = GCGenerationSpace.old;
+        obj.gcSpace = GCGenerationSpace.old;
       }
     }
 
@@ -251,7 +249,7 @@ class MemoryCredits {
       if (credits != null && credits > 0) {
         String typeName;
         if (obj is Value) {
-          final raw = obj.raw;
+          final raw = rawLuaSlot(obj);
           typeName = 'Value(${raw?.runtimeType ?? 'null'})';
         } else {
           typeName = obj.runtimeType.toString();
@@ -302,7 +300,7 @@ class MemoryCredits {
           if (obj.isTempKey) {
             objInfo += ' [TEMP]';
           }
-          final raw = obj.raw;
+          final raw = rawLuaSlot(obj);
           if (raw is LuaString && raw.length <= 200) {
             final preview = raw.toString();
             final truncated = preview.length > 50

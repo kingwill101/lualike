@@ -1,3 +1,4 @@
+@TestOn('!browser')
 @Tags(['stdlib'])
 library;
 

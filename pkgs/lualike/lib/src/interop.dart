@@ -11,6 +11,7 @@ import 'package:lualike/src/logging/logger.dart';
 import 'package:lualike/src/parse.dart';
 import 'package:lualike/src/lua_bytecode/runtime.dart';
 import 'package:lualike/src/runtime/lua_runtime.dart';
+import 'package:lualike/src/runtime/lua_slot.dart';
 import 'package:lualike/src/semantic_checker.dart';
 import 'package:lualike/src/stdlib/lib_debug.dart';
 import 'package:lualike/src/value.dart';
@@ -29,22 +30,23 @@ class DartFunction extends BuiltinFunction {
   /// Creates a new DartFunction wrapping the given Dart function.
   DartFunction(this.dartFunction, [super.interpreter]);
 
+  Object? _wrapResult(Object? result) {
+    return cachedPrimitiveOrValue(interpreter, result);
+  }
+
   @override
   Object? call(List<Object?> args) {
     try {
       // First try calling directly with the args list
       final result = dartFunction(args);
-      return result is Value ? result : Value(result);
+      return _wrapResult(result);
     } catch (_) {
       try {
         // If that fails, try calling with spread arguments
-        final unwrappedArgs = args.map((arg) {
-          if (arg is Value) return arg.raw;
-          return arg;
-        }).toList();
+        final unwrappedArgs = args.map(rawLuaSlot).toList();
 
         final result = Function.apply(dartFunction, unwrappedArgs);
-        return result is Value ? result : Value(result);
+        return _wrapResult(result);
       } catch (e) {
         throw Exception("Failed to call Dart function: $e");
       }
@@ -63,12 +65,12 @@ extension VMInterop on LuaRuntime {
   /// [name] - The name to register the function under
   /// [function] - The Dart function to expose
   void expose(String name, Function function) {
-    globals.define(name, DartFunction(function));
+    globals.define(name, DartFunction(function, this));
   }
 
   /// Register a Dart function to be callable from LuaLike
   void registerDartFunction(String name, Function function) {
-    globals.define(name, DartFunction(function));
+    globals.define(name, DartFunction(function, this));
   }
 
   /// Evaluates a LuaLike expression from Dart.
@@ -123,14 +125,20 @@ extension VMInterop on LuaRuntime {
       );
 
       // Also store it in the global environment as _SCRIPT_PATH and _SCRIPT_DIR
-      globals.define('_SCRIPT_PATH', Value(normalizedAbsolutePath));
+      globals.define(
+        '_SCRIPT_PATH',
+        valueFromLuaSlot(this, normalizedAbsolutePath),
+      );
 
       // Get the directory part of the script path
       final scriptDir = path.dirname(absolutePath);
       final normalizedScriptDir = path.url.joinAll(
         path.split(path.normalize(scriptDir)),
       );
-      globals.define('_SCRIPT_DIR', Value(normalizedScriptDir));
+      globals.define(
+        '_SCRIPT_DIR',
+        valueFromLuaSlot(this, normalizedScriptDir),
+      );
 
       Logger.debugLazy(
         () =>
@@ -265,13 +273,12 @@ class LuaLike {
 
       // If a multi-value was returned, unwrap it into a Dart List so callers
       // receive a simple List<Value> like the top-level runCode helper.
-      if (result is Value && result.isMulti && result.raw is List) {
-        return (result.raw as List)
-            .map((e) => e is Value ? e : Value(e))
-            .toList();
+      final results = luaResultValues(result);
+      if (results != null) {
+        return results.map((entry) => valueFromLuaSlot(vm, entry)).toList();
       }
 
-      return result;
+      return result == null ? null : valueFromLuaSlot(vm, result);
     } catch (e) {
       // Log the error and rethrow
       Logger.error("Error executing code: $e");
@@ -317,14 +324,20 @@ class LuaLike {
           'Setting script metadata _SCRIPT_PATH=$normalizedPath (original=$scriptPath)',
       category: 'Interpreter',
     );
-    runtime.globals.define('_SCRIPT_PATH', Value(normalizedPath));
+    runtime.globals.define(
+      '_SCRIPT_PATH',
+      valueFromLuaSlot(runtime, normalizedPath),
+    );
     runtime.callStack.setScriptPath(normalizedPath);
 
     final scriptDir = path.dirname(scriptPath);
     final normalizedDir = path.url.joinAll(
       path.split(path.normalize(scriptDir)),
     );
-    runtime.globals.define('_SCRIPT_DIR', Value(normalizedDir));
+    runtime.globals.define(
+      '_SCRIPT_DIR',
+      valueFromLuaSlot(runtime, normalizedDir),
+    );
     if (scriptDir.isNotEmpty) {
       runtime.fileManager.addSearchPath(scriptDir);
     }
@@ -340,12 +353,12 @@ class LuaLike {
 
   /// Set a value in LuaLike global environment
   void setGlobal(String name, Object? value) {
-    vm.globals.define(name, value is Value ? value : Value(value));
+    vm.globals.define(name, valueFromLuaSlot(vm, value));
   }
 
   /// Call a LuaLike function from Dart
   Future<Object?> call(String functionName, List<Object?> args) {
-    return vm.callFunction(Value(functionName), args);
+    return vm.callFunction(valueFromLuaSlot(vm, functionName), args);
   }
 
   void throwError([String? message]) {
@@ -418,17 +431,23 @@ Future<List<Value>> runCode(
 
   // Initialize the environment by setting globals
   for (final entry in env.entries) {
-    interpreter.globals.define(entry.key, Value(entry.value));
+    interpreter.globals.define(
+      entry.key,
+      valueFromLuaSlot(interpreter, entry.value),
+    );
   }
 
   // Parse and evaluate the code
   final result = await interpreter.evaluate(code, scriptPath: filePath);
 
   // Convert the result to a List<Value>
-  if (result is List) {
-    return result.map((item) => item is Value ? item : Value(item)).toList();
+  final results = luaResultValues(result);
+  if (results != null) {
+    return results.map((item) => valueFromLuaSlot(interpreter, item)).toList();
+  } else if (result is List) {
+    return result.map((item) => valueFromLuaSlot(interpreter, item)).toList();
   } else if (result != null) {
-    return [result is Value ? result : Value(result)];
+    return [valueFromLuaSlot(interpreter, result)];
   } else {
     return [];
   }
@@ -447,7 +466,7 @@ Future<Value> loadFile(String path) async {
     final content = utf8.decode(bytes);
     // runCode returns a list, loadFile should return the first result or nil
     final results = await runCode(content, filePath: path);
-    return results.isNotEmpty ? results[0] : Value(null);
+    return results.isNotEmpty ? results[0] : Value.primitive(null);
   } catch (e) {
     if (e is LuaError) {
       rethrow;

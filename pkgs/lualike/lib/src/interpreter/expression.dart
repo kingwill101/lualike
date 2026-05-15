@@ -43,7 +43,7 @@ Value? _activeFunctionUpvalueValue(Interpreter interpreter, String name) {
 Value? _resolveActiveEnvValue(Interpreter interpreter) {
   return switch (interpreter.getCurrentEnv().get('_ENV')) {
     final Value value => value,
-    final Object? value? => interpreter.wrapRuntimeValue(value),
+    final Object? value? => valueFromLuaSlot(interpreter, value),
     _ => _activeFunctionUpvalueValue(interpreter, '_ENV'),
   };
 }
@@ -51,14 +51,34 @@ Value? _resolveActiveEnvValue(Interpreter interpreter) {
 Value? _resolveActiveGlobalValue(Interpreter interpreter) {
   return switch (interpreter.getCurrentEnv().get('_G')) {
     final Value value => value,
-    final Object? value? => interpreter.wrapRuntimeValue(value),
+    final Object? value? => valueFromLuaSlot(interpreter, value),
     _ => null,
   };
 }
 
 Value _detachTemporaryValue(Value value) {
+  final raw = rawLuaSlot(value);
+  if (value.metatable == null && isLuaPrimitiveSlot(raw)) {
+    return Value.primitive(
+      raw,
+      isMulti: value.isMulti,
+      isConst: value.isConst,
+      isToBeClose: value.isToBeClose,
+      isTempKey: value.isTempKey,
+      skipAllocationDebt: value.skipAllocationDebt,
+      skipGcRegistration: value.skipGcRegistration,
+      upvalues: value.upvalues,
+      interpreter: value.interpreter,
+      functionBody: value.functionBody,
+      closureEnvironment: value.closureEnvironment,
+      functionName: value.functionName,
+      debugLineDefined: value.debugLineDefined,
+      strippedDebugInfo: value.strippedDebugInfo,
+    );
+  }
+
   return Value(
-    value.raw,
+    raw,
     metatable: value.metatable,
     isMulti: value.isMulti,
     isConst: value.isConst,
@@ -74,6 +94,18 @@ Value _detachTemporaryValue(Value value) {
     debugLineDefined: value.debugLineDefined,
     strippedDebugInfo: value.strippedDebugInfo,
   );
+}
+
+Value _wrapExpressionValue(Interpreter? interpreter, Object? value) =>
+    cachedPrimitiveOrValue(interpreter, value);
+
+Object? _firstLuaResultOrNil(
+  Object? value, {
+  Interpreter? interpreter,
+  bool expandPlainList = true,
+}) {
+  final first = firstLuaResult(value, expandPlainList: expandPlainList);
+  return first ?? cachedPrimitiveOrValue(interpreter, null);
 }
 
 mixin InterpreterExpressionMixin on AstVisitor<Object?> {
@@ -107,11 +139,10 @@ mixin InterpreterExpressionMixin on AstVisitor<Object?> {
 
     while (env != null) {
       if (!identical(env, closureBoundary)) {
-        if (env.values.containsKey(node.name) &&
-            env.values[node.name]!.isLocal) {
-          final val = env.values[node.name]!.value;
+        final slot = env.values[node.name];
+        if (slot != null && slot.isLocal) {
           return (
-            val is Value ? val : interpreter.wrapRuntimeValue(val),
+            _wrapMutableLocalReadValue(interpreter, slot.value),
             false,
             closureBoundary,
           );
@@ -209,18 +240,13 @@ mixin InterpreterExpressionMixin on AstVisitor<Object?> {
     // Short-circuit evaluation for logical operators
     if (node.op == 'and' || node.op == 'or') {
       // Normalize multi-value results from the left side
-      if (leftResult is Value && leftResult.isMulti) {
-        final multiValues = leftResult.raw as List;
-        leftResult = multiValues.isNotEmpty
-            ? multiValues[0]
-            : (interpreter?.wrapRuntimeValue(null) ?? Value(null));
-      } else if (leftResult is List && leftResult.isNotEmpty) {
-        leftResult = leftResult[0];
+      if (luaResultValues(leftResult) != null || leftResult is List) {
+        leftResult = _firstLuaResultOrNil(leftResult, interpreter: interpreter);
       }
 
       final leftVal = leftResult is Value
           ? leftResult
-          : (interpreter?.wrapRuntimeValue(leftResult) ?? Value(leftResult));
+          : _wrapExpressionValue(interpreter, leftResult);
 
       if (node.op == 'and') {
         if (!leftVal.isTruthy()) {
@@ -239,18 +265,16 @@ mixin InterpreterExpressionMixin on AstVisitor<Object?> {
       }
       dynamic rightResult = await node.right.accept(this);
 
-      if (rightResult is Value && rightResult.isMulti) {
-        final multiValues = rightResult.raw as List;
-        rightResult = multiValues.isNotEmpty
-            ? multiValues[0]
-            : (interpreter?.wrapRuntimeValue(null) ?? Value(null));
-      } else if (rightResult is List && rightResult.isNotEmpty) {
-        rightResult = rightResult[0];
+      if (luaResultValues(rightResult) != null || rightResult is List) {
+        rightResult = _firstLuaResultOrNil(
+          rightResult,
+          interpreter: interpreter,
+        );
       }
 
       final rightVal = rightResult is Value
           ? rightResult
-          : (interpreter?.wrapRuntimeValue(rightResult) ?? Value(rightResult));
+          : _wrapExpressionValue(interpreter, rightResult);
       return rightVal;
     }
 
@@ -262,7 +286,7 @@ mixin InterpreterExpressionMixin on AstVisitor<Object?> {
         (node.right is FunctionCall || node.right is MethodCall)) {
       final tempValue = leftResult is Value
           ? _detachTemporaryValue(leftResult)
-          : (interpreter?.wrapRuntimeValue(leftResult) ?? Value(leftResult));
+          : _wrapExpressionValue(interpreter, leftResult);
       temporaryEntry = MapEntry('(temporary)', tempValue);
       currentFrame.debugLocals.add(temporaryEntry);
       leftResult = tempValue;
@@ -282,7 +306,7 @@ mixin InterpreterExpressionMixin on AstVisitor<Object?> {
 
     // In a binary expression, if either operand is a function call returning multiple values,
     // only the first return value should be used
-    if (leftResult is Value && leftResult.isMulti) {
+    if (luaResultValues(leftResult) != null) {
       if (Logger.enabled) {
         Logger.debugLazy(
           () =>
@@ -290,15 +314,12 @@ mixin InterpreterExpressionMixin on AstVisitor<Object?> {
           category: 'Expression',
         );
       }
-      final multiValues = leftResult.raw as List;
-      leftResult = multiValues.isNotEmpty
-          ? multiValues[0]
-          : (interpreter?.wrapRuntimeValue(null) ?? Value(null));
-    } else if (leftResult is List && leftResult.isNotEmpty) {
-      leftResult = leftResult[0];
+      leftResult = _firstLuaResultOrNil(leftResult, interpreter: interpreter);
+    } else if (leftResult is List) {
+      leftResult = _firstLuaResultOrNil(leftResult, interpreter: interpreter);
     }
 
-    if (rightResult is Value && rightResult.isMulti) {
+    if (luaResultValues(rightResult) != null) {
       if (Logger.enabled) {
         Logger.debugLazy(
           () =>
@@ -306,19 +327,16 @@ mixin InterpreterExpressionMixin on AstVisitor<Object?> {
           category: 'Expression',
         );
       }
-      final multiValues = rightResult.raw as List;
-      rightResult = multiValues.isNotEmpty
-          ? multiValues[0]
-          : (interpreter?.wrapRuntimeValue(null) ?? Value(null));
-    } else if (rightResult is List && rightResult.isNotEmpty) {
-      rightResult = rightResult[0];
+      rightResult = _firstLuaResultOrNil(rightResult, interpreter: interpreter);
+    } else if (rightResult is List) {
+      rightResult = _firstLuaResultOrNil(rightResult, interpreter: interpreter);
     }
 
     final traceLine = node.operatorLine ?? node.span?.start.line;
     final lineNumber = traceLine == null ? null : traceLine + 1;
 
     Object? rawNumericOperand(Object? value) {
-      return value is Value ? value.raw : value;
+      return rawLuaSlot(value);
     }
 
     bool hasPerValueMetatable(Object? value) {
@@ -365,7 +383,7 @@ mixin InterpreterExpressionMixin on AstVisitor<Object?> {
 
       try {
         final result = NumberUtils.performArithmetic(op, leftRaw, rightRaw);
-        return interpreter?.wrapRuntimeValue(result) ?? Value(result);
+        return _wrapExpressionValue(interpreter, result);
       } on UnsupportedError catch (error) {
         throw LuaError.typeError(
           error.message ?? error.toString(),
@@ -389,13 +407,13 @@ mixin InterpreterExpressionMixin on AstVisitor<Object?> {
 
     final leftVal = leftResult is Value
         ? leftResult
-        : (interpreter?.wrapRuntimeValue(leftResult) ?? Value(leftResult));
+        : _wrapExpressionValue(interpreter, leftResult);
     final rightVal = rightResult is Value
         ? rightResult
-        : (interpreter?.wrapRuntimeValue(rightResult) ?? Value(rightResult));
+        : _wrapExpressionValue(interpreter, rightResult);
 
     String? nilSourceLabel(AstNode expr, Value value) {
-      if (value.raw != null) {
+      if (rawLuaSlot(value) != null) {
         return null;
       }
       return _sourceLabelForAst((this as Interpreter).getCurrentEnv(), expr);
@@ -406,7 +424,7 @@ mixin InterpreterExpressionMixin on AstVisitor<Object?> {
           null) {
         return false;
       }
-      final raw = value.raw;
+      final raw = rawLuaSlot(value);
       return raw == null || raw is Map || raw is TableStorage;
     }
 
@@ -441,7 +459,7 @@ mixin InterpreterExpressionMixin on AstVisitor<Object?> {
           (this as Interpreter).getCurrentEnv(),
           expr,
         );
-        final raw = value.raw;
+        final raw = rawLuaSlot(value);
         if (sourceLabel != null &&
             (raw is num ||
                 raw is BigInt ||
@@ -508,8 +526,8 @@ mixin InterpreterExpressionMixin on AstVisitor<Object?> {
           right.metatableRef != null) {
         return false;
       }
-      final leftRaw = left.raw;
-      final rightRaw = right.raw;
+      final leftRaw = rawLuaSlot(left);
+      final rightRaw = rawLuaSlot(right);
       final plainNumericOperands =
           (leftRaw is num || leftRaw is BigInt) &&
           (rightRaw is num || rightRaw is BigInt);
@@ -605,7 +623,7 @@ mixin InterpreterExpressionMixin on AstVisitor<Object?> {
       if (Logger.enabled) {
         Logger.debugLazy(
           () =>
-              'BinaryExpression result: $result (raw: ${(result is Value ? result.raw : result).runtimeType})',
+              'BinaryExpression result: $result (raw: ${rawLuaSlot(result).runtimeType})',
           category: 'Expression',
         );
       }
@@ -614,7 +632,7 @@ mixin InterpreterExpressionMixin on AstVisitor<Object?> {
       }
       return result is Value
           ? result
-          : (interpreter?.wrapRuntimeValue(result) ?? Value(result));
+          : _wrapExpressionValue(interpreter, result);
     }
 
     if (canUseNumericBinaryFastPath(leftVal, rightVal)) {
@@ -626,8 +644,9 @@ mixin InterpreterExpressionMixin on AstVisitor<Object?> {
 
     // Canonicalize table wrappers to preserve per-instance metatables
     Value canon(Value v) {
-      if (v.raw is Map) {
-        final c = Value.lookupCanonicalTableWrapper(v.raw);
+      final raw = rawLuaSlot(v);
+      if (raw is Map) {
+        final c = Value.lookupCanonicalTableWrapper(raw);
         if (c != null) return c;
       }
       return v;
@@ -635,6 +654,8 @@ mixin InterpreterExpressionMixin on AstVisitor<Object?> {
 
     final canonicalLeft = canon(leftVal);
     final canonicalRight = canon(rightVal);
+    final leftRawForDiagnostics = rawLuaSlot(leftVal);
+    final rightRawForDiagnostics = rawLuaSlot(rightVal);
 
     Value operandForMetamethod(Value live, Value canonical, String event) {
       if (live.hasMetamethod(event)) {
@@ -646,7 +667,7 @@ mixin InterpreterExpressionMixin on AstVisitor<Object?> {
     if (Logger.enabled) {
       Logger.debugLazy(
         () =>
-            'BinaryExpression operands before metamethod check: $leftVal (${leftVal.raw.runtimeType}) ${node.op} $rightVal (${rightVal.raw.runtimeType})',
+            'BinaryExpression operands before metamethod check: $leftVal (${leftRawForDiagnostics.runtimeType}) ${node.op} $rightVal (${rightRawForDiagnostics.runtimeType})',
         category: 'Expression',
       );
     }
@@ -775,39 +796,32 @@ mixin InterpreterExpressionMixin on AstVisitor<Object?> {
 
         // Metamethods can return multiple values, but binary operations only use
         // the first result. Normalize here to match Lua semantics.
-        if (result is Value && result.isMulti && result.raw is List) {
-          final values = result.raw as List;
-          result = values.isNotEmpty
-              ? values.first
-              : (interpreter?.wrapRuntimeValue(null) ?? Value(null));
-        } else if (result is List) {
-          result = result.isNotEmpty
-              ? result.first
-              : (interpreter?.wrapRuntimeValue(null) ?? Value(null));
+        if (luaResultValues(result) != null || result is List) {
+          result = _firstLuaResultOrNil(result, interpreter: interpreter);
         }
 
         // For inequality operators that use __eq, negate the result
         if ((node.op == '~=' || node.op == '!=') && metamethodName == '__eq') {
+          final resultRaw = rawLuaSlot(result);
           if (result is bool) {
-            return interpreter?.wrapRuntimeValue(!result) ?? Value(!result);
-          } else if (result is Value && result.raw is bool) {
-            return Value(!result.raw);
+            return _wrapExpressionValue(interpreter, !result);
+          } else if (result is Value && resultRaw is bool) {
+            return _wrapExpressionValue(interpreter, !resultRaw);
           }
         }
 
         if (invertResult) {
+          final resultRaw = rawLuaSlot(result);
           if (result is bool) {
             result = !result;
-          } else if (result is Value && result.raw is bool) {
-            result =
-                interpreter?.wrapRuntimeValue(!result.raw) ??
-                Value(!result.raw);
+          } else if (result is Value && resultRaw is bool) {
+            result = _wrapExpressionValue(interpreter, !resultRaw);
           }
         }
 
         return result is Value
             ? result
-            : (interpreter?.wrapRuntimeValue(result) ?? Value(result));
+            : _wrapExpressionValue(interpreter, result);
       }
     }
 
@@ -816,12 +830,12 @@ mixin InterpreterExpressionMixin on AstVisitor<Object?> {
       if (Logger.enabled) {
         Logger.debugLazy(
           () =>
-              'Equality check: leftVal.raw type = ${leftVal.raw.runtimeType}, value = "${leftVal.raw}"',
+              'Equality check: leftVal.raw type = ${leftRawForDiagnostics.runtimeType}, value = "$leftRawForDiagnostics"',
           category: 'Expression/Equality',
         );
         Logger.debugLazy(
           () =>
-              'Equality check: rightVal.raw type = ${rightVal.raw.runtimeType}, value = "${rightVal.raw}"',
+              'Equality check: rightVal.raw type = ${rightRawForDiagnostics.runtimeType}, value = "$rightRawForDiagnostics"',
           category: 'Expression/Equality',
         );
       }
@@ -832,8 +846,8 @@ mixin InterpreterExpressionMixin on AstVisitor<Object?> {
             node.op == '>' ||
             node.op == '<=' ||
             node.op == '>=') &&
-        leftVal.raw is Map &&
-        rightVal.raw is Map) {
+        leftRawForDiagnostics is Map &&
+        rightRawForDiagnostics is Map) {
       final hasLtLeft = leftVal.hasMetamethod('__lt');
       final hasLtRight = rightVal.hasMetamethod('__lt');
       final hasLeLeft = leftVal.hasMetamethod('__le');
@@ -860,6 +874,7 @@ mixin InterpreterExpressionMixin on AstVisitor<Object?> {
   /// Returns the result of the unary operation.
   @override
   Future<Object?> visitUnaryExpression(UnaryExpression node) async {
+    final interpreter = this is Interpreter ? this as Interpreter : null;
     if (Logger.enabled) {
       Logger.debugLazy(
         () => 'Visiting UnaryExpression: ${node.op} ${node.expr}',
@@ -870,22 +885,27 @@ mixin InterpreterExpressionMixin on AstVisitor<Object?> {
 
     // In a unary expression, if the operand is a function call returning multiple values,
     // only the first return value should be used
-    if (operandResult is Value && operandResult.isMulti) {
+    if (luaResultValues(operandResult) != null) {
       if (Logger.enabled) {
         Logger.debugLazy(
           () => 'UnaryExpression: limiting multi-value result to first value',
           category: 'Expression',
         );
       }
-      final multiValues = operandResult.raw as List;
-      operandResult = multiValues.isNotEmpty ? multiValues[0] : Value(null);
-    } else if (operandResult is List && operandResult.isNotEmpty) {
-      operandResult = operandResult[0];
+      operandResult = _firstLuaResultOrNil(
+        operandResult,
+        interpreter: interpreter,
+      );
+    } else if (operandResult is List) {
+      operandResult = _firstLuaResultOrNil(
+        operandResult,
+        interpreter: interpreter,
+      );
     }
 
     final operandWrapped = operandResult is Value
         ? operandResult
-        : Value(operandResult);
+        : _wrapExpressionValue(interpreter, operandResult);
 
     bool shouldRewriteNamedSourceType(String type) => switch (type) {
       'nil' ||
@@ -928,14 +948,13 @@ mixin InterpreterExpressionMixin on AstVisitor<Object?> {
           args,
         );
 
-        if (result is Value && result.isMulti && result.raw is List) {
-          final values = result.raw as List;
-          result = values.isNotEmpty ? values.first : Value(null);
-        } else if (result is List) {
-          result = result.isNotEmpty ? result.first : Value(null);
+        if (luaResultValues(result) != null || result is List) {
+          result = _firstLuaResultOrNil(result, interpreter: interpreter);
         }
 
-        return result is Value ? result : Value(result);
+        return result is Value
+            ? result
+            : _wrapExpressionValue(interpreter, result);
       }
     }
 
@@ -944,7 +963,7 @@ mixin InterpreterExpressionMixin on AstVisitor<Object?> {
     try {
       result = switch (node.op) {
         "-" => -operandWrapped,
-        "not" => Value(!operandWrapped.isTruthy()),
+        "not" => _wrapExpressionValue(interpreter, !operandWrapped.isTruthy()),
         "~" => ~operandWrapped,
         "#" => operandWrapped.length,
         _ => throw LuaError.typeError(
@@ -1004,7 +1023,7 @@ mixin InterpreterExpressionMixin on AstVisitor<Object?> {
         category: 'Expression',
       );
     }
-    return result is Value ? result : Value(result);
+    return _wrapExpressionValue(interpreter, result);
   }
 
   /// Evaluates a variable reference.
@@ -1038,7 +1057,7 @@ mixin InterpreterExpressionMixin on AstVisitor<Object?> {
             category: 'Expression',
           );
         }
-        return Value(null);
+        return valueFromLuaSlot(interpreter, null);
       }
       if (Logger.enabled) {
         Logger.debugLazy(
@@ -1107,16 +1126,17 @@ mixin InterpreterExpressionMixin on AstVisitor<Object?> {
     // so that local _ENV assignments are respected.
     Value? envValue = _resolveActiveEnvValue(interpreter);
     Value? gValue = _resolveActiveGlobalValue(interpreter);
+    final envRaw = rawLuaSlot(envValue);
 
     final bool canUseGlobalCache =
-        envValue is Value &&
-        envValue.raw is Map &&
-        gValue is Value &&
+        envValue != null &&
+        envRaw is Map &&
+        gValue != null &&
         identical(envValue, gValue);
 
     _IdentifierGlobalCache? cache;
     if (canUseGlobalCache) {
-      final map = envValue.raw as Map;
+      final map = envRaw;
       if (map.containsKey(node.name)) {
         cache = _identifierGlobalCache[node];
         if (cache != null &&
@@ -1134,14 +1154,12 @@ mixin InterpreterExpressionMixin on AstVisitor<Object?> {
       }
     }
 
-    if (envValue is Value) {
-      if (envValue.raw is Map) {
-        final map = envValue.raw as Map;
+    if (envValue != null) {
+      if (envRaw is Map) {
+        final map = envRaw;
         if (map.containsKey(node.name)) {
           final entry = map[node.name];
-          final resolvedValue = entry is Value
-              ? entry
-              : interpreter.wrapRuntimeValue(entry);
+          final resolvedValue = valueFromLuaSlot(interpreter, entry);
 
           if (canUseGlobalCache) {
             cache ??= _IdentifierGlobalCache();
@@ -1159,9 +1177,7 @@ mixin InterpreterExpressionMixin on AstVisitor<Object?> {
         // expensive async metamethod calls for common globals like 'assert'.
         final direct = globals.get(node.name);
         if (direct != null) {
-          final resolvedValue = direct is Value
-              ? direct
-              : interpreter.wrapRuntimeValue(direct);
+          final resolvedValue = valueFromLuaSlot(interpreter, direct);
           if (canUseGlobalCache) {
             cache ??= _IdentifierGlobalCache();
             cache
@@ -1181,8 +1197,8 @@ mixin InterpreterExpressionMixin on AstVisitor<Object?> {
         final result = await envValue.getValueAsync(
           interpreter.constantRawStringValue(node.name),
         );
-        return result is Value ? result : interpreter.wrapRuntimeValue(result);
-      } else if (envValue.raw == null) {
+        return valueFromLuaSlot(interpreter, result);
+      } else if (envRaw == null) {
         final envLabel = _bindingScopeLabel(
           interpreter.getCurrentEnv(),
           '_ENV',
@@ -1190,7 +1206,7 @@ mixin InterpreterExpressionMixin on AstVisitor<Object?> {
         throw LuaError.typeError("attempt to index a nil value ($envLabel)");
       } else {
         // Non-table _ENV: any variable lookup is an index on that value -> error
-        final tname = getLuaType(envValue.raw);
+        final tname = getLuaType(envRaw);
         throw LuaError.typeError('attempt to index a $tname value');
       }
     }
@@ -1204,7 +1220,7 @@ mixin InterpreterExpressionMixin on AstVisitor<Object?> {
           category: 'Expression',
         );
       }
-      return Value(null);
+      return valueFromLuaSlot(interpreter, null);
     }
     if (Logger.enabled) {
       Logger.debugLazy(
@@ -1213,7 +1229,7 @@ mixin InterpreterExpressionMixin on AstVisitor<Object?> {
         category: 'Expression',
       );
     }
-    return value is Value ? value : interpreter.wrapRuntimeValue(value);
+    return valueFromLuaSlot(interpreter, value);
   }
 
   /// Processes a vararg expression.
@@ -1225,7 +1241,7 @@ mixin InterpreterExpressionMixin on AstVisitor<Object?> {
   @override
   Future<Object?> visitVarArg(VarArg varArg) async {
     final varargs = _resolveCurrentVarargSource(this as Interpreter, globals);
-    return Value.multi(_expandVarargValue(varargs));
+    return LuaResults(_expandVarargValue(varargs));
   }
 
   /// Evaluates a grouped expression.
@@ -1237,6 +1253,7 @@ mixin InterpreterExpressionMixin on AstVisitor<Object?> {
   /// Returns the result of evaluating the contained expression.
   @override
   Future<Object?> visitGroupedExpression(GroupedExpression node) async {
+    final interpreter = this is Interpreter ? this as Interpreter : null;
     if (Logger.enabled) {
       Logger.debugLazy(
         () => 'Visiting GroupedExpression: (${node.expr})',
@@ -1249,26 +1266,25 @@ mixin InterpreterExpressionMixin on AstVisitor<Object?> {
     // Lua semantics: parentheses around an expression force it to a single
     // value in contexts like function arguments and operators. If the inner
     // expression produces multiple results, only the first is preserved.
-    if (result is Value && result.isMulti) {
-      final values = result.raw as List;
-      final first = values.isNotEmpty ? values.first : Value(null);
+    if (luaResultValues(result) != null) {
+      final first = _firstLuaResultOrNil(result, interpreter: interpreter);
       if (Logger.enabled) {
         Logger.debugLazy(
           () => 'GroupedExpression: collapsing multi to first: $first',
           category: 'Expression',
         );
       }
-      return first is Value ? first : Value(first);
+      return _wrapExpressionValue(interpreter, first);
     }
     if (result is List) {
-      final first = result.isNotEmpty ? result.first : Value(null);
+      final first = _firstLuaResultOrNil(result, interpreter: interpreter);
       if (Logger.enabled) {
         Logger.debugLazy(
           () => 'GroupedExpression: collapsing list to first: $first',
           category: 'Expression',
         );
       }
-      return first is Value ? first : Value(first);
+      return _wrapExpressionValue(interpreter, first);
     }
     if (Logger.enabled) {
       Logger.debugLazy(

@@ -1,6 +1,8 @@
 import 'dart:math' as math;
 
 import 'package:lualike/lualike.dart';
+import 'package:lualike/src/runtime/lua_results.dart';
+import 'package:lualike/src/runtime/lua_slot.dart';
 import 'library.dart';
 
 import '../number_limits.dart' as limits;
@@ -14,6 +16,10 @@ class MathLibrary extends Library {
   @override
   void registerFunctions(LibraryRegistrationContext context) {
     final interpreter = context.vm;
+    Value primitiveConstant(Object? raw) {
+      return cachedPrimitiveOrValue(interpreter, raw);
+    }
+
     final atanFunc = _MathAtan(interpreter);
 
     // Register all math functions directly
@@ -34,7 +40,7 @@ class MathLibrary extends Library {
     context.define("max", _MathMax(interpreter));
     context.define("min", _MathMin(interpreter));
     context.define("modf", _MathModf(interpreter));
-    context.define("pi", Value(math.pi));
+    context.define("pi", primitiveConstant(math.pi));
     context.define("pow", _MathPow(interpreter));
     context.define("rad", _MathRad(interpreter));
     final randomFunc = _MathRandom(interpreter);
@@ -46,14 +52,20 @@ class MathLibrary extends Library {
     context.define("tointeger", _MathTointeger(interpreter));
     context.define("ult", _MathUlt(interpreter));
     context.define("type", _MathType(interpreter));
-    context.define("huge", Value(double.infinity));
-    context.define("maxinteger", Value(limits.NumberLimits.maxInteger));
-    context.define("mininteger", Value(limits.NumberLimits.minInteger));
+    context.define("huge", primitiveConstant(double.infinity));
+    context.define(
+      "maxinteger",
+      primitiveConstant(limits.NumberLimits.maxInteger),
+    );
+    context.define(
+      "mininteger",
+      primitiveConstant(limits.NumberLimits.minInteger),
+    );
   }
 }
 
-// Base class for math functions to handle common number validation
-dynamic _getNumber(Value value, String funcName, int argNum) {
+// Base class for math functions to handle common number validation.
+dynamic _getNumber(Object? value, String funcName, int argNum) {
   return NumberUtils.getNumber(value, funcName, argNum);
 }
 
@@ -61,13 +73,13 @@ dynamic _getFastNumber(Object? value, String funcName, int argNum) {
   if (value is int || value is double || value is BigInt) {
     return value;
   }
-  if (value case Value(
-    isMulti: false,
-    raw: final rawNumber,
-  ) when rawNumber is int || rawNumber is double || rawNumber is BigInt) {
-    return rawNumber;
+  if (value is Value && luaResultValues(value) == null) {
+    final rawNumber = rawLuaSlot(value);
+    if (rawNumber is int || rawNumber is double || rawNumber is BigInt) {
+      return rawNumber;
+    }
   }
-  return _getNumber(value is Value ? value : Value(value), funcName, argNum);
+  return _getNumber(value, funcName, argNum);
 }
 
 Object? _tryFastMinMaxNumericResult(
@@ -75,8 +87,10 @@ Object? _tryFastMinMaxNumericResult(
   Object? arg1, {
   required bool wantMax,
 }) {
-  if (arg0 case Value(isMulti: false, raw: final leftRaw)) {
-    if (arg1 case Value(isMulti: false, raw: final rightRaw)) {
+  if (arg0 is Value && luaResultValues(arg0) == null) {
+    final leftRaw = rawLuaSlot(arg0);
+    if (arg1 is Value && luaResultValues(arg1) == null) {
+      final rightRaw = rawLuaSlot(arg1);
       if (leftRaw is num && rightRaw is num) {
         if (leftRaw is double && leftRaw.isNaN) return leftRaw;
         if (rightRaw is double && rightRaw.isNaN) return rightRaw;
@@ -114,7 +128,7 @@ class _MathAbs extends _MathBuiltin {
         "bad argument #1 to 'abs' (number expected, got no value)",
       );
     }
-    final number = _getNumber(args[0] as Value, "abs", 1);
+    final number = _getNumber(args[0], "abs", 1);
     return primitiveValue(NumberUtils.abs(number));
   }
 }
@@ -129,7 +143,7 @@ class _MathAcos extends _MathBuiltin {
         "bad argument #1 to 'acos' (number expected, got no value)",
       );
     }
-    final number = _getNumber(args[0] as Value, "acos", 1);
+    final number = _getNumber(args[0], "acos", 1);
     return primitiveValue(math.acos(NumberUtils.toDouble(number)));
   }
 }
@@ -144,7 +158,7 @@ class _MathAsin extends _MathBuiltin {
         "bad argument #1 to 'asin' (number expected, got no value)",
       );
     }
-    final number = _getNumber(args[0] as Value, "asin", 1);
+    final number = _getNumber(args[0], "asin", 1);
     return primitiveValue(math.asin(NumberUtils.toDouble(number)));
   }
 }
@@ -162,11 +176,11 @@ class _MathAtan extends _MathBuiltin {
       );
     }
 
-    final y = _getNumber(args[0] as Value, functionName, 1);
+    final y = _getNumber(args[0], functionName, 1);
     final double yDouble = NumberUtils.toDouble(y);
 
     if (args.length > 1) {
-      final x = _getNumber(args[1] as Value, functionName, 2);
+      final x = _getNumber(args[1], functionName, 2);
       final double xDouble = NumberUtils.toDouble(x);
       return primitiveValue(math.atan2(yDouble, xDouble));
     }
@@ -185,7 +199,7 @@ class _MathCeil extends _MathBuiltin {
         "bad argument #1 to 'ceil' (number expected, got no value)",
       );
     }
-    final number = _getNumber(args[0] as Value, "ceil", 1);
+    final number = _getNumber(args[0], "ceil", 1);
     if (number is BigInt || number is int) {
       return primitiveValue(number);
     }
@@ -207,7 +221,7 @@ class _MathCos extends _MathBuiltin {
         "bad argument #1 to 'cos' (number expected, got no value)",
       );
     }
-    final number = _getNumber(args[0] as Value, "cos", 1);
+    final number = _getNumber(args[0], "cos", 1);
     return primitiveValue(math.cos(NumberUtils.toDouble(number)));
   }
 }
@@ -222,7 +236,7 @@ class _MathDeg extends _MathBuiltin {
         "bad argument #1 to 'deg' (number expected, got no value)",
       );
     }
-    final number = _getNumber(args[0] as Value, "deg", 1);
+    final number = _getNumber(args[0], "deg", 1);
     return primitiveValue(NumberUtils.toDouble(number) * 180 / math.pi);
   }
 }
@@ -237,7 +251,7 @@ class _MathExp extends _MathBuiltin {
         "bad argument #1 to 'exp' (number expected, got no value)",
       );
     }
-    final number = _getNumber(args[0] as Value, "exp", 1);
+    final number = _getNumber(args[0], "exp", 1);
     return primitiveValue(math.exp(NumberUtils.toDouble(number)));
   }
 }
@@ -252,7 +266,7 @@ class _MathFloor extends _MathBuiltin {
         "bad argument #1 to 'floor' (number expected, got no value)",
       );
     }
-    final number = _getNumber(args[0] as Value, "floor", 1);
+    final number = _getNumber(args[0], "floor", 1);
     if (number is BigInt || number is int) {
       return primitiveValue(number);
     }
@@ -280,8 +294,8 @@ class _MathFmod extends _MathBuiltin {
       );
     }
 
-    final x = _getNumber(args[0] as Value, "fmod", 1);
-    final y = _getNumber(args[1] as Value, "fmod", 2);
+    final x = _getNumber(args[0], "fmod", 1);
+    final y = _getNumber(args[1], "fmod", 2);
 
     return primitiveValue(NumberUtils.fmod(x, y));
   }
@@ -298,9 +312,9 @@ class _MathFrexp extends _MathBuiltin {
       );
     }
 
-    final number = _getNumber(args[0] as Value, "frexp", 1);
+    final number = _getNumber(args[0], "frexp", 1);
     final (mantissa, exponent) = NumberUtils.frexp(number);
-    return Value.multi([primitiveValue(mantissa), primitiveValue(exponent)]);
+    return LuaResults([mantissa, exponent]);
   }
 }
 
@@ -320,9 +334,8 @@ class _MathLdexp extends _MathBuiltin {
       );
     }
 
-    final number = _getNumber(args[0] as Value, "ldexp", 1);
-    final exponentValue = args[1] as Value;
-    final exponentRaw = exponentValue.raw;
+    final number = _getNumber(args[0], "ldexp", 1);
+    final exponentRaw = rawLuaSlot(args[1]);
     if (exponentRaw is! num && exponentRaw is! BigInt) {
       throw LuaError.typeError(
         "bad argument #2 to 'ldexp' "
@@ -352,11 +365,11 @@ class _MathLog extends _MathBuiltin {
       );
     }
 
-    final x = _getNumber(args[0] as Value, "log", 1);
+    final x = _getNumber(args[0], "log", 1);
     final double xDouble = NumberUtils.toDouble(x);
 
     if (args.length > 1) {
-      final base = _getNumber(args[1] as Value, "log", 2);
+      final base = _getNumber(args[1], "log", 2);
       final double baseDouble = NumberUtils.toDouble(base);
       return primitiveValue(math.log(xDouble) / math.log(baseDouble));
     }
@@ -386,10 +399,10 @@ class _MathMax extends _MathBuiltin {
       throw LuaError.typeError("bad argument #1 to 'max' (value expected)");
     }
 
-    dynamic max = _getNumber(args[0] as Value, "max", 1);
+    dynamic max = _getNumber(args[0], "max", 1);
 
     for (int i = 1; i < args.length; i++) {
-      final num = _getNumber(args[i] as Value, "max", i + 1);
+      final num = _getNumber(args[i], "max", i + 1);
       max = NumberUtils.max(max, num);
     }
 
@@ -418,10 +431,10 @@ class _MathMin extends _MathBuiltin {
       throw LuaError.typeError("bad argument #1 to 'min' (value expected)");
     }
 
-    dynamic min = _getNumber(args[0] as Value, "min", 1);
+    dynamic min = _getNumber(args[0], "min", 1);
 
     for (int i = 1; i < args.length; i++) {
-      final num = _getNumber(args[i] as Value, "min", i + 1);
+      final num = _getNumber(args[i], "min", i + 1);
       min = NumberUtils.min(min, num);
     }
 
@@ -438,9 +451,9 @@ class _MathModf extends _MathBuiltin {
       throw LuaError.typeError("math.modf requires a number argument");
     }
 
-    final number = _getNumber(args[0] as Value, "modf", 1);
+    final number = _getNumber(args[0], "modf", 1);
     final (intPart, fracPart) = NumberUtils.modf(number);
-    return Value.multi([primitiveValue(intPart), primitiveValue(fracPart)]);
+    return LuaResults([intPart, fracPart]);
   }
 }
 
@@ -460,8 +473,8 @@ class _MathPow extends _MathBuiltin {
       );
     }
 
-    final base = _getNumber(args[0] as Value, "pow", 1);
-    final exponent = _getNumber(args[1] as Value, "pow", 2);
+    final base = _getNumber(args[0], "pow", 1);
+    final exponent = _getNumber(args[1], "pow", 2);
     return primitiveValue(NumberUtils.exponentiate(base, exponent));
   }
 }
@@ -474,7 +487,7 @@ class _MathRad extends _MathBuiltin {
     if (args.isEmpty) {
       throw LuaError.typeError("math.rad requires a number argument");
     }
-    final number = _getNumber(args[0] as Value, "rad", 1);
+    final number = _getNumber(args[0], "rad", 1);
     return primitiveValue(NumberUtils.toDouble(number) * math.pi / 180);
   }
 }
@@ -548,7 +561,7 @@ class _MathRandom extends _MathBuiltin {
       return primitiveValue(_random.nextDouble());
     } else if (args.length == 1) {
       // Single argument: return integer in [1, n] or full integer if n=0
-      final n = _getNumber(args[0] as Value, "random", 1);
+      final n = _getNumber(args[0], "random", 1);
       final intN = NumberUtils.toInt(n);
       if (intN == 0) {
         // Return full random 64-bit integer (signed)
@@ -566,8 +579,8 @@ class _MathRandom extends _MathBuiltin {
       return primitiveValue(1 + projected);
     } else if (args.length == 2) {
       // Two arguments: return integer in [low, up]
-      final m = _getNumber(args[0] as Value, "random", 1);
-      final n = _getNumber(args[1] as Value, "random", 2);
+      final m = _getNumber(args[0], "random", 1);
+      final n = _getNumber(args[1], "random", 2);
       final intM = NumberUtils.toInt(m);
       final intN = NumberUtils.toInt(n);
 
@@ -634,10 +647,10 @@ class _MathRandomseed extends _MathBuiltin {
       n1 = DateTime.now().microsecondsSinceEpoch;
       n2 = Xoshiro256ss.seeded().nextRaw64();
     } else {
-      final number1 = _getNumber(args[0] as Value, "randomseed", 1);
+      final number1 = _getNumber(args[0], "randomseed", 1);
       n1 = NumberUtils.toInt(number1);
       if (args.length >= 2) {
-        final number2 = _getNumber(args[1] as Value, "randomseed", 2);
+        final number2 = _getNumber(args[1], "randomseed", 2);
         n2 = NumberUtils.toInt(number2);
       } else {
         n2 = 0;
@@ -650,7 +663,7 @@ class _MathRandomseed extends _MathBuiltin {
     }
     _randomFunc._random = rng;
 
-    return Value.multi([primitiveValue(n1), primitiveValue(n2)]);
+    return LuaResults([n1, n2]);
   }
 }
 
@@ -662,7 +675,7 @@ class _MathSin extends _MathBuiltin {
     if (args.isEmpty) {
       throw LuaError.typeError("math.sin requires a number argument");
     }
-    final number = _getNumber(args[0] as Value, "sin", 1);
+    final number = _getNumber(args[0], "sin", 1);
     return primitiveValue(math.sin(NumberUtils.toDouble(number)));
   }
 }
@@ -675,7 +688,7 @@ class _MathSqrt extends _MathBuiltin {
     if (args.isEmpty) {
       throw LuaError.typeError("math.sqrt requires a number argument");
     }
-    final number = _getNumber(args[0] as Value, "sqrt", 1);
+    final number = _getNumber(args[0], "sqrt", 1);
     return primitiveValue(math.sqrt(NumberUtils.toDouble(number)));
   }
 }
@@ -688,7 +701,7 @@ class _MathTan extends _MathBuiltin {
     if (args.isEmpty) {
       throw LuaError.typeError("math.tan requires a number argument");
     }
-    final number = _getNumber(args[0] as Value, "tan", 1);
+    final number = _getNumber(args[0], "tan", 1);
     return primitiveValue(math.tan(NumberUtils.toDouble(number)));
   }
 }
@@ -702,7 +715,7 @@ class _MathTointeger extends _MathBuiltin {
       throw LuaError.typeError('math.tointeger requires one argument');
     }
 
-    dynamic value = args[0] is Value ? (args[0] as Value).raw : args[0];
+    final value = rawLuaSlot(args[0]);
     final result = NumberUtils.tryToInteger(value);
     return primitiveValue(result);
   }
@@ -717,11 +730,11 @@ class _MathType extends _MathBuiltin {
       throw LuaError.typeError("math.type requires one argument");
     }
 
-    final value = args[0] as Value;
-    if (value.raw is int || value.raw is BigInt) {
-      return Value("integer");
-    } else if (value.raw is double) {
-      return Value("float");
+    final value = rawLuaSlot(args[0]);
+    if (value is int || value is BigInt) {
+      return dartStringValue("integer");
+    } else if (value is double) {
+      return dartStringValue("float");
     } else {
       return primitiveValue(null);
     }
@@ -737,8 +750,8 @@ class _MathUlt extends _MathBuiltin {
       throw LuaError.typeError('math.ult requires two integer arguments');
     }
 
-    dynamic m = args[0] is Value ? (args[0] as Value).raw : args[0];
-    dynamic n = args[1] is Value ? (args[1] as Value).raw : args[1];
+    final m = rawLuaSlot(args[0]);
+    final n = rawLuaSlot(args[1]);
 
     return primitiveValue(NumberUtils.unsignedLessThan(m, n));
   }

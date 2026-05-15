@@ -1,9 +1,13 @@
+@TestOn('!browser')
+library;
+
 import 'dart:io';
 
 import 'package:lualike/src/io/io_device.dart';
 import 'package:lualike/src/io/lua_file.dart';
 import 'package:lualike/src/io/memory_io_device.dart';
 import 'package:lualike/src/io/filesystem_provider.dart';
+import 'package:lualike/src/runtime/lua_slot.dart';
 import 'package:lualike/src/stdlib/lib_io.dart';
 import 'package:lualike_test/test.dart';
 
@@ -577,7 +581,7 @@ void main() {
         // Close file
         final closeFunc = IOClose();
         result = await closeFunc.call([file]);
-        expect((result as Value).raw[0], true);
+        expect(luaResultValues(result)![0], true);
 
         // Read file
         final inputFunc = IOInput();
@@ -586,7 +590,7 @@ void main() {
 
         final readFunc = IORead();
         result = await readFunc.call([Value('l')]);
-        expect((result as Value).raw[0].toString(), 'Hello, World!');
+        expect(luaResultValues(result)![0].toString(), 'Hello, World!');
       });
 
       test('Temporary file', () async {
@@ -607,7 +611,7 @@ void main() {
         // Close temp file
         final closeFunc = IOClose();
         result = await closeFunc.call([file]);
-        expect((result as Value).raw[0], true);
+        expect(luaResultValues(result)![0], true);
 
         // Reset default output to stdout
         await outputFunc.call([]);

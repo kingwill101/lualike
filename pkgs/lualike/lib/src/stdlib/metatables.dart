@@ -1,8 +1,23 @@
 // import 'package:lualike/src/coroutine.dart';
 import 'package:lualike/src/coroutine.dart';
+import 'package:lualike/src/runtime/lua_results.dart';
+import 'package:lualike/src/runtime/lua_slot.dart';
 import 'package:lualike/src/utils/type.dart';
 
 import '../../lualike.dart';
+
+
+
+Object? _callMetatableCallable(Object? callable, List<Object?> args) {
+  final rawCallable = rawLuaSlot(callable);
+  if (rawCallable is Function) {
+    return rawCallable(args);
+  }
+  if (rawCallable is BuiltinFunction) {
+    return rawCallable.call(args);
+  }
+  return callable;
+}
 
 /// Provides the default metatables and metamethod caches for built-in Lua
 /// types.
@@ -66,25 +81,27 @@ class MetaTable {
     // String metatable
     _typeMetatables['string'] = ValueClass.create({
       '__len': (List<Object?> args) {
-        final str = args[0] as Value;
+        final rawStr = rawLuaSlot(args[0]);
         Logger.debugLazy(
-          () => 'String __len metamethod called for "${str.raw}"',
+          () => 'String __len metamethod called for "$rawStr"',
           category: 'Metatables',
         );
-        if (str.raw is LuaString) {
-          return Value((str.raw as LuaString).length);
+        if (rawStr is LuaString) {
+          return _primitiveValue(rawStr.length);
         }
-        return Value(str.raw.toString().length);
+        return _primitiveValue(rawStr.toString().length);
       },
       '__index': (List<Object?> args) {
         final str = args[0] as Value;
-        final key = args[1] as Value;
+        final key = args[1];
+        final rawStr = rawLuaSlot(str);
+        final rawKey = rawLuaSlot(key);
         Logger.debugLazy(
-          () => 'String __index metamethod called for "${str.raw}"[${key.raw}]',
+          () => 'String __index metamethod called for "$rawStr"[$rawKey]',
           category: 'Metatables',
         );
 
-        final keyStr = switch (key.raw) {
+        final keyStr = switch (rawKey) {
           final String stringValue => stringValue,
           final LuaString stringValue => stringValue.toString(),
           _ => null,
@@ -118,41 +135,27 @@ class MetaTable {
             );
 
             // Create method wrapper and cache it on this string instance
-            final wrapper = Value((callArgs) {
-              Logger.debugLazy(
-                () =>
-                    'String method ${key.raw} called with ${callArgs.length} arguments',
-                category: 'Metatables',
-              );
+            final wrapper = Value(
+              (callArgs) {
+                Logger.debugLazy(
+                  () =>
+                      'String method $rawKey called with ${callArgs.length} arguments',
+                  category: 'Metatables',
+                );
 
-              // was the method invoked with the string already as first arg?
-              final hasSelf = callArgs.isNotEmpty && callArgs.first == str;
+                // was the method invoked with the string already as first arg?
+                final hasSelf = callArgs.isNotEmpty && callArgs.first == str;
 
-              if (hasSelf) {
-                if (method is BuiltinFunction) {
-                  return method.call(callArgs);
-                } else if (method is Value && method.raw is BuiltinFunction) {
-                  return (method.raw as BuiltinFunction).call(callArgs);
-                } else if (method is Value && method.raw is Function) {
-                  return (method.raw as Function)(callArgs);
-                } else if (method is Function) {
-                  return method(callArgs);
+                if (hasSelf) {
+                  return _callMetatableCallable(method, callArgs);
                 }
-                return method; // not callable
-              }
 
-              // prepend the string itself (obj:func() syntax)
-              if (method is BuiltinFunction) {
-                return method.call([str, ...callArgs]);
-              } else if (method is Value && method.raw is BuiltinFunction) {
-                return (method.raw as BuiltinFunction).call([str, ...callArgs]);
-              } else if (method is Function) {
-                return method([str, ...callArgs]);
-              } else if (method is Value && method.raw is Function) {
-                return (method.raw as Function)([str, ...callArgs]);
-              }
-              return method;
-            }, isTempKey: true); // Don't count this wrapper in GC debt
+                // prepend the string itself (obj:func() syntax)
+                return _callMetatableCallable(method, [str, ...callArgs]);
+              },
+              isTempKey: true,
+              interpreter: _interpreter,
+            ); // Don't count this wrapper in GC debt
 
             // Cache the wrapper on this string instance
             if (methodCache == null) {
@@ -166,19 +169,20 @@ class MetaTable {
         }
 
         Logger.debugLazy(
-          () => 'String method not found: ${key.raw}',
+          () => 'String method not found: $rawKey',
           category: 'Metatables',
         );
-        return Value(null);
+        return _primitiveValue(null);
       },
       '__eq': (List<Object?> args) {
-        final a = args[0] as Value;
-        final b = args[1] as Value;
+        final a = args[0];
+        final b = args[1];
         Logger.debugLazy(
-          () => 'String __eq metamethod called: "${a.raw}" == "${b.raw}"',
+          () =>
+              'String __eq metamethod called: "${rawLuaSlot(a)}" == "${rawLuaSlot(b)}"',
           category: 'Metatables',
         );
-        return Value(a == b);
+        return _primitiveValue(rawLuaSlotsEqual(a, b));
       },
     });
     Logger.debugLazy(
@@ -188,38 +192,26 @@ class MetaTable {
 
     // Number metatable
     _typeMetatables['number'] = ValueClass.create({
-      '__add': (List<Object?> args) =>
-          Value.wrap(args[0]) + Value.wrap(args[1]),
-      '__sub': (List<Object?> args) =>
-          Value.wrap(args[0]) - Value.wrap(args[1]),
-      '__mul': (List<Object?> args) =>
-          Value.wrap(args[0]) * Value.wrap(args[1]),
-      '__div': (List<Object?> args) =>
-          Value.wrap(args[0]) / Value.wrap(args[1]),
-      '__idiv': (List<Object?> args) =>
-          Value.wrap(args[0]) ~/ Value.wrap(args[1]),
-      '__mod': (List<Object?> args) =>
-          Value.wrap(args[0]) % Value.wrap(args[1]),
-      '__pow': (List<Object?> args) =>
-          Value.wrap(args[0]).exp(Value.wrap(args[1])),
-      '__unm': (List<Object?> args) => -Value.wrap(args[0]),
-      '__bnot': (List<Object?> args) => ~Value.wrap(args[0]),
-      '__band': (List<Object?> args) =>
-          Value.wrap(args[0]) & Value.wrap(args[1]),
-      '__bor': (List<Object?> args) =>
-          Value.wrap(args[0]) | Value.wrap(args[1]),
-      '__bxor': (List<Object?> args) =>
-          Value.wrap(args[0]) ^ Value.wrap(args[1]),
-      '__shl': (List<Object?> args) =>
-          Value.wrap(args[0]) << Value.wrap(args[1]),
-      '__shr': (List<Object?> args) =>
-          Value.wrap(args[0]) >> Value.wrap(args[1]),
+      '__add': (List<Object?> args) => _argumentValue(args[0]) + args[1],
+      '__sub': (List<Object?> args) => _argumentValue(args[0]) - args[1],
+      '__mul': (List<Object?> args) => _argumentValue(args[0]) * args[1],
+      '__div': (List<Object?> args) => _argumentValue(args[0]) / args[1],
+      '__idiv': (List<Object?> args) => _argumentValue(args[0]) ~/ args[1],
+      '__mod': (List<Object?> args) => _argumentValue(args[0]) % args[1],
+      '__pow': (List<Object?> args) => _argumentValue(args[0]).exp(args[1]),
+      '__unm': (List<Object?> args) => -_argumentValue(args[0]),
+      '__bnot': (List<Object?> args) => ~_argumentValue(args[0]),
+      '__band': (List<Object?> args) => _argumentValue(args[0]) & args[1],
+      '__bor': (List<Object?> args) => _argumentValue(args[0]) | args[1],
+      '__bxor': (List<Object?> args) => _argumentValue(args[0]) ^ args[1],
+      '__shl': (List<Object?> args) => _argumentValue(args[0]) << args[1],
+      '__shr': (List<Object?> args) => _argumentValue(args[0]) >> args[1],
       '__eq': (List<Object?> args) =>
-          Value(Value.wrap(args[0]) == Value.wrap(args[1])),
+          _primitiveValue(_argumentValue(args[0]) == args[1]),
       '__lt': (List<Object?> args) =>
-          Value(Value.wrap(args[0]) < Value.wrap(args[1])),
+          _primitiveValue(_argumentValue(args[0]) < _comparisonArg(args[1])),
       '__le': (List<Object?> args) =>
-          Value(Value.wrap(args[0]) <= Value.wrap(args[1])),
+          _primitiveValue(_argumentValue(args[0]) <= _comparisonArg(args[1])),
     });
     Logger.debugLazy(
       () => 'Number metatable initialized',
@@ -232,33 +224,33 @@ class MetaTable {
       // These should only be present when explicitly set by the user
       '__pairs': (List<Object?> args) {
         final table = args[0] as Value;
+        final rawTable = rawLuaSlot(table);
         Logger.debugLazy(
           () => 'Table __pairs metamethod called for table:${table.hashCode}',
           category: 'Metatables',
         );
         Logger.debugLazy(
-          () => 'Table content: ${(table.raw as Map).toString()}',
+          () => 'Table content: ${(rawTable as Map).toString()}',
           category: 'Metatables',
         );
-        if (table.raw is! Map) {
+        if (rawTable is! Map) {
           Logger.debugLazy(
             () =>
-                'Error: Attempt to iterate over non-table value of type ${table.raw.runtimeType}',
+                'Error: Attempt to iterate over non-table value of type ${rawTable.runtimeType}',
             category: 'Metatables',
           );
           throw LuaError("attempt to iterate over non-table value");
         }
 
         // Create a filtered map without nil values
-        final map = table.raw as Map;
+        final map = rawTable;
         Logger.debugLazy(
           () => 'Raw map entries before filtering: ${map.entries.length}',
           category: 'Metatables',
         );
         final filteredEntries = map.entries.where((entry) {
           final value = entry.value;
-          final keep =
-              !(value == null || (value is Value && value.raw == null));
+          final keep = !isLuaNilSlot(value);
           Logger.debugLazy(
             () =>
                 'Filter entry: key=${entry.key}, value=${entry.value}, keep=$keep',
@@ -284,18 +276,19 @@ class MetaTable {
           () => 'Returning iterator function and state',
           category: 'Metatables',
         );
-        return Value.multi([
+        return LuaResults([
           Value((List<Object?> args) {
             final state = args[0] as Value;
-            final k = args[1] as Value;
+            final k = args[1];
+            final rawK = rawLuaSlot(k);
             Logger.debugLazy(
               () =>
-                  'Table pairs iterator called with state:${state.hashCode} key: ${k.raw}',
+                  'Table pairs iterator called with state:${state.hashCode} key: $rawK',
               category: 'Metatables',
             );
 
             int foundIndex = -1;
-            if (k.raw == null) {
+            if (rawK == null) {
               Logger.debugLazy(
                 () =>
                     'Initial call with nil key, returning first entry if available',
@@ -304,7 +297,7 @@ class MetaTable {
               foundIndex = 0;
             } else {
               Logger.debugLazy(
-                () => 'Looking for entry after key ${k.raw}',
+                () => 'Looking for entry after key $rawK',
                 category: 'Metatables',
               );
               // Find the index of the entry that matches the current key
@@ -312,10 +305,10 @@ class MetaTable {
                 final entry = filteredEntries[i];
                 Logger.debugLazy(
                   () =>
-                      'Checking entry $i: key=${entry.key}, current key=${k.raw}',
+                      'Checking entry $i: key=${entry.key}, current key=$rawK',
                   category: 'Metatables',
                 );
-                if (entry.key == k.raw) {
+                if (entry.key == rawK) {
                   foundIndex = i + 1; // Return next entry
                   Logger.debugLazy(
                     () =>
@@ -335,8 +328,8 @@ class MetaTable {
                 category: 'Metatables',
               );
               return [
-                Value(entry.key),
-                entry.value is Value ? entry.value : Value(entry.value),
+                cachedPrimitiveOrValue(_interpreter, entry.key),
+                cachedPrimitiveOrValue(_interpreter, entry.value),
               ];
             }
 
@@ -344,10 +337,10 @@ class MetaTable {
               () => 'Table pairs iterator finished, no more entries',
               category: 'Metatables',
             );
-            return [Value(null)];
-          }),
+            return [_primitiveValue(null)];
+          }, interpreter: _interpreter),
           table,
-          Value(null),
+          _primitiveValue(null),
         ]);
       },
     });
@@ -359,22 +352,23 @@ class MetaTable {
     // Function metatable
     _typeMetatables['function'] = ValueClass.create({
       '__call': (List<Object?> args) {
-        final func = args[0] as Value;
+        final func = args[0];
         final callArgs = args.sublist(1);
+        final rawFunc = rawLuaSlot(func);
         Logger.debugLazy(
           () =>
               'Function __call metamethod called for function:${func.hashCode} with ${callArgs.length} args',
           category: 'Metatables',
         );
-        if (func.raw is Function) {
-          final result = (func.raw as Function)(callArgs);
+        if (rawFunc is Function) {
+          final result = rawFunc(callArgs);
           Logger.debugLazy(
             () => 'Function call result: $result',
             category: 'Metatables',
           );
           return result;
-        } else if (func.raw is BuiltinFunction) {
-          final result = (func.raw as BuiltinFunction).call(callArgs);
+        } else if (rawFunc is BuiltinFunction) {
+          final result = rawFunc.call(callArgs);
           Logger.debugLazy(
             () => 'Function call result: $result',
             category: 'Metatables',
@@ -394,13 +388,16 @@ class MetaTable {
     _typeMetatables['thread'] = ValueClass.create({
       '__tostring': (List<Object?> args) {
         final thread = args[0] as Value;
-        final coroutine = thread.raw as Coroutine;
+        final coroutine = rawLuaSlot(thread) as Coroutine;
         Logger.debugLazy(
           () =>
               'Thread __tostring metamethod called for coroutine:${thread.hashCode}',
           category: 'Metatables',
         );
-        return Value('thread: ${thread.hashCode} [${coroutine.status}]');
+        return valueFromOptionalLuaSlot(
+          _interpreter,
+          'thread: ${thread.hashCode} [${coroutine.status}]',
+        );
       },
     });
     Logger.debugLazy(
@@ -419,7 +416,10 @@ class MetaTable {
               'Userdata __tostring metamethod called for userdata:${userdata.hashCode}',
           category: 'Metatables',
         );
-        return Value('userdata: ${userdata.hashCode}');
+        return valueFromOptionalLuaSlot(
+          _interpreter,
+          'userdata: ${userdata.hashCode}',
+        );
       },
       '__len': (List<Object?> args) {
         final table = args[0] as Value;
@@ -446,7 +446,7 @@ class MetaTable {
               'Userdata __gc metamethod called for userdata:${userdata.hashCode}',
           category: 'Metatables',
         );
-        return Value(null);
+        return _primitiveValue(null);
       },
     });
     Logger.debugLazy(
@@ -471,8 +471,9 @@ class MetaTable {
     }
     // Cache string methods from the global string table
     final stringTable = interpreter.globals.get('string');
-    if (stringTable is Value && stringTable.raw is Map) {
-      final stringMap = stringTable.raw as Map;
+    final rawStringTable = rawLuaSlot(stringTable);
+    if (rawStringTable is Map) {
+      final stringMap = rawStringTable;
 
       // Cache all string methods to avoid repeated map lookups
       for (final entry in stringMap.entries) {
@@ -496,6 +497,18 @@ class MetaTable {
   }
 
   bool get numberMetatableEnabled => _numberMetatableEnabled;
+
+  Value _primitiveValue(Object? raw) {
+    return cachedPrimitiveOrValue(_interpreter, raw);
+  }
+
+  Value _argumentValue(Object? raw) {
+    return cachedPrimitiveOrValue(_interpreter, raw);
+  }
+
+  Object _comparisonArg(Object? raw) {
+    return raw ?? _argumentValue(raw);
+  }
 
   bool isDefaultMetatableActive(String type) => switch (type) {
     'table' => false,

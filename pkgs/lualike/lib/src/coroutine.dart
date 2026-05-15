@@ -10,31 +10,48 @@ import 'package:lualike/src/call_stack.dart';
 import 'package:lualike/src/ast.dart';
 import 'package:lualike/src/interpreter/interpreter.dart';
 import 'package:lualike/src/lua_error.dart';
+import 'package:lualike/src/runtime/lua_results.dart';
+import 'package:lualike/src/runtime/lua_slot.dart';
 import 'package:lualike/src/table_storage.dart';
 import 'package:lualike/src/value_class.dart';
 import 'package:lualike/src/runtime/lua_runtime.dart';
 
 import 'exceptions.dart';
 
-Value _packCoroutineVarargsTable(List<Object?> varargs) {
+Value _coroutinePrimitiveValue(Coroutine coroutine, Object? raw) {
+  final runtime = coroutine.closureEnvironment.interpreter;
+  return cachedPrimitiveOrValue(runtime, raw);
+}
+
+Value _coroutineValue(Coroutine coroutine, Object? raw) {
+  final runtime = coroutine.closureEnvironment.interpreter;
+  return cachedPrimitiveOrValue(runtime, raw);
+}
+
+Value _coroutineNilValue(Coroutine coroutine) {
+  return _coroutinePrimitiveValue(coroutine, null);
+}
+
+Value _packCoroutineVarargsTable(Coroutine coroutine, List<Object?> varargs) {
   final table = TableStorage();
   for (var i = 0; i < varargs.length; i++) {
     final value = varargs[i];
-    final wrapped = value is Value ? value : Value(value);
+    final wrapped = _coroutineValue(coroutine, value);
     if (!wrapped.isNil) {
       table.setDense(i + 1, wrapped);
     }
   }
-  table['n'] = Value(varargs.length);
+  table['n'] = _coroutinePrimitiveValue(coroutine, varargs.length);
   return ValueClass.table(table);
 }
 
 Object? _normalizeCoroutineError(Object error) {
   if (error is Value) {
-    if (error.raw is Value) {
-      return _normalizeCoroutineError(error.raw as Value);
+    final rawError = rawLuaSlot(error);
+    if (rawError is Value) {
+      return _normalizeCoroutineError(rawError);
     }
-    if (error.raw is Map || error.raw is TableStorage) {
+    if (rawError is Map || rawError is TableStorage) {
       return error;
     }
     return error.unwrap();
@@ -133,7 +150,7 @@ enum CoroutineStatus {
 }
 
 /// Represents a Lua coroutine that participates in garbage collection
-class Coroutine extends GCObject {
+class Coroutine with GCObject {
   static final List<Coroutine> _activeStack = [];
 
   static Coroutine? get active {
@@ -250,7 +267,7 @@ class Coroutine extends GCObject {
   }
 
   /// Resumes the coroutine with the given arguments
-  Future<Value> resume(List<Object?> args) async {
+  Future<Object?> resume(List<Object?> args) async {
     Logger.debugLazy(
       () => 'Coroutine.resume: Called with status: $status, args: $args',
       category: 'Coroutine',
@@ -260,7 +277,7 @@ class Coroutine extends GCObject {
         () => 'Coroutine.resume: Coroutine is dead',
         category: 'Coroutine',
       );
-      return Value.multi([Value(false), Value("cannot resume dead coroutine")]);
+      return LuaResults([false, "cannot resume dead coroutine"]);
     }
 
     if (status == CoroutineStatus.running) {
@@ -268,10 +285,7 @@ class Coroutine extends GCObject {
         () => 'Coroutine.resume: Coroutine is running',
         category: 'Coroutine',
       );
-      return Value.multi([
-        Value(false),
-        Value("cannot resume non-suspended coroutine"),
-      ]);
+      return LuaResults([false, "cannot resume non-suspended coroutine"]);
     }
 
     // Get the interpreter from the environment
@@ -345,13 +359,13 @@ class Coroutine extends GCObject {
             await _finalizeLiveRootFrame(interpreter);
           }
           _finalizeTermination();
-          return Value.multi(result);
+          return LuaResults(result);
         }
         _detachCallStack();
         if (interpreter != null) {
           _detachExternalGcRoots(interpreter);
         }
-        return Value.multi([Value(true), ...result]);
+        return LuaResults([true, ...result]);
       } else if (status == CoroutineStatus.suspended) {
         // Resuming from a yield point
         Logger.debugLazy(
@@ -384,7 +398,7 @@ class Coroutine extends GCObject {
             if (interpreter != null) {
               _detachExternalGcRoots(interpreter);
             }
-            return Value.multi([Value(true), ...e.values]);
+            return LuaResults([true, ...e.values]);
           }
         }
 
@@ -416,20 +430,20 @@ class Coroutine extends GCObject {
             await _finalizeLiveRootFrame(interpreter);
           }
           _finalizeTermination();
-          return Value.multi(result);
+          return LuaResults(result);
         }
         _detachCallStack();
         if (interpreter != null) {
           _detachExternalGcRoots(interpreter);
         }
-        return Value.multi([Value(true), ...result]);
+        return LuaResults([true, ...result]);
       } else {
         // This shouldn't happen, but just in case
         Logger.debugLazy(
           () => 'Coroutine.resume: Unexpected state: $status',
           category: 'Coroutine',
         );
-        return Value.multi([Value(false), Value("unexpected coroutine state")]);
+        return LuaResults([false, "unexpected coroutine state"]);
       }
     } on YieldException catch (e) {
       Logger.debugLazy(
@@ -442,7 +456,7 @@ class Coroutine extends GCObject {
       if (interpreter != null) {
         _detachExternalGcRoots(interpreter);
       }
-      return Value.multi([Value(true), ...e.values]);
+      return LuaResults([true, ...e.values]);
     } on ReturnException catch (e) {
       Logger.debugLazy(
         () => 'Coroutine.resume: Caught ReturnException',
@@ -462,10 +476,7 @@ class Coroutine extends GCObject {
       status = CoroutineStatus.dead;
       _finalizeTermination();
       final normalizedError = _normalizeCoroutineError(e);
-      return Value.multi([
-        Value(false),
-        normalizedError is Value ? normalizedError : Value(normalizedError),
-      ]);
+      return LuaResults([false, normalizedError]);
     } finally {
       if (_activeStack.isNotEmpty && identical(_activeStack.last, this)) {
         _activeStack.removeLast();
@@ -507,21 +518,18 @@ class Coroutine extends GCObject {
   }
 
   /// Helper method to handle return values from coroutine
-  Value _handleReturnValue(Object? value) {
+  Object? _handleReturnValue(Object? value) {
+    final resultValues = luaResultValues(value);
+    if (resultValues != null) {
+      return LuaResults([true, ...resultValues]);
+    }
+
     if (value == null) {
-      return Value.multi([Value(true)]);
+      return LuaResults([true]);
     } else if (value is Value) {
-      if (value.isMulti) {
-        // Extract multiple return values
-        final values = value.raw as List<Object?>;
-        return Value.multi([Value(true), ...values]);
-      } else {
-        // Single return value
-        return Value.multi([Value(true), value]);
-      }
+      return LuaResults([true, value]);
     } else {
-      // Wrap raw value
-      return Value.multi([Value(true), Value(value)]);
+      return LuaResults([true, value]);
     }
   }
 
@@ -532,11 +540,9 @@ class Coroutine extends GCObject {
       return;
     }
 
-    final callee = t.functionValue is Value
-        ? t.functionValue as Value
-        : Value(t.functionValue);
+    final callee = _coroutineValue(this, t.functionValue);
     final normalizedArgs = t.args
-        .map((arg) => arg is Value ? arg : Value(arg))
+        .map((arg) => _coroutineValue(this, arg))
         .toList();
     final callResult = await interpreter.callFunction(callee, normalizedArgs);
     try {
@@ -553,11 +559,9 @@ class Coroutine extends GCObject {
       return;
     }
 
-    final callee = t.functionValue is Value
-        ? t.functionValue as Value
-        : Value(t.functionValue);
+    final callee = _coroutineValue(this, t.functionValue);
     final normalizedArgs = t.args
-        .map((arg) => arg is Value ? arg : Value(arg))
+        .map((arg) => _coroutineValue(this, arg))
         .toList();
     final callResult = await interpreter.callFunction(callee, normalizedArgs);
     try {
@@ -585,10 +589,11 @@ class Coroutine extends GCObject {
     _finalizeTermination();
     if (completer != null && !completer!.isCompleted) {
       final handledResult = _handleReturnValue(value);
-      if (handledResult.isMulti) {
-        completer!.complete(handledResult.raw as List<Object?>);
+      final resultValues = luaResultValues(handledResult);
+      if (resultValues != null) {
+        completer!.complete(resultValues);
       } else {
-        completer!.complete([handledResult.raw]);
+        completer!.complete([handledResult]);
       }
     }
   }
@@ -600,10 +605,7 @@ class Coroutine extends GCObject {
     _finalizeTermination();
     if (completer != null && !completer!.isCompleted) {
       final normalizedError = _normalizeCoroutineError(errorObject);
-      completer!.complete([
-        Value(false),
-        normalizedError is Value ? normalizedError : Value(normalizedError),
-      ]);
+      completer!.complete([false, normalizedError]);
     }
   }
 
@@ -660,13 +662,9 @@ class Coroutine extends GCObject {
           currentCompleter.complete(normalizedValues);
         }
       });
-      final yieldedValues = normalizedValues
-          .map((value) => value is Value ? value : Value(value))
-          .toList(growable: false);
-
       // Throw YieldException to pause execution and return control
       throw YieldException(
-        yieldedValues,
+        normalizedValues,
         nextCompleter.future,
         functionBody == null ? this : null,
       );
@@ -680,22 +678,21 @@ class Coroutine extends GCObject {
   }
 
   /// Normalize values for consistency between yields and resumes
-  List<Object?> _normalizeValues(List<Object?> values) {
-    final result = <Object?>[];
+  List<Value> _normalizeValues(List<Object?> values) {
+    final result = <Value>[];
 
     for (final value in values) {
-      if (value is Value && value.isMulti) {
+      final resultValues = luaResultValues(value);
+      if (resultValues != null) {
         // Expand multi-value into individual values
-        result.addAll(
-          (value.raw as List<Object?>).map((v) => v is Value ? v : Value(v)),
-        );
+        result.addAll(resultValues.map((v) => _coroutineValue(this, v)));
       } else if (value is List && values.length == 1) {
         // Special case: if the only argument is a list, it might be multi-return values
         // that need to be expanded
-        result.addAll(value.map((v) => v is Value ? v : Value(v)));
+        result.addAll(value.map((v) => _coroutineValue(this, v)));
       } else {
         // Regular value, ensure it's wrapped
-        result.add(value is Value ? value : Value(value));
+        result.add(_coroutineValue(this, value));
       }
     }
 
@@ -1014,7 +1011,7 @@ class Coroutine extends GCObject {
         if (current is Value && current.isNil) {
           continue;
         }
-        box.value = Value(null);
+        box.value = _coroutineNilValue(this);
       }
       for (final box in _executionEnvironment.declaredGlobals.values) {
         if (sharedBoxes.contains(box)) {
@@ -1027,7 +1024,7 @@ class Coroutine extends GCObject {
         if (current is Value && current.isNil) {
           continue;
         }
-        box.value = Value(null);
+        box.value = _coroutineNilValue(this);
       }
     } catch (_) {}
   }
@@ -1068,9 +1065,9 @@ class Coroutine extends GCObject {
 
     try {
       // Process arguments for the function call
-      final processedArgs = initialArgs.map((arg) {
-        return arg is Value ? arg : Value(arg);
-      }).toList();
+      final processedArgs = initialArgs
+          .map((arg) => _coroutineValue(this, arg))
+          .toList();
 
       final body = functionBody;
       if (body == null) {
@@ -1110,7 +1107,7 @@ class Coroutine extends GCObject {
         if (i < processedArgs.length) {
           _executionEnvironment.declare(paramName, processedArgs[i]);
         } else {
-          _executionEnvironment.declare(paramName, Value(null));
+          _executionEnvironment.declare(paramName, _coroutineNilValue(this));
         }
       }
 
@@ -1119,11 +1116,11 @@ class Coroutine extends GCObject {
         List<Object?> varargs = processedArgs.length > regularParamCount
             ? processedArgs.sublist(regularParamCount)
             : [];
-        _executionEnvironment.declare("...", Value.multi(varargs));
+        _executionEnvironment.declare("...", LuaResults(varargs));
         if (namedVararg != null) {
           _executionEnvironment.declare(
             namedVararg,
-            _packCoroutineVarargsTable(varargs),
+            _packCoroutineVarargsTable(this, varargs),
           );
         }
       }
@@ -1212,7 +1209,7 @@ class Coroutine extends GCObject {
         await _closeCoroutineScope();
         _finalizeTermination();
         if (completer != null && !completer!.isCompleted) {
-          completer!.complete([Value(true)]);
+          completer!.complete([_coroutinePrimitiveValue(this, true)]);
           Logger.debugLazy(
             () => '_executeCoroutine: Completer completed with success result',
             category: 'Coroutine',
@@ -1302,12 +1299,13 @@ class Coroutine extends GCObject {
         _finalizeTermination();
         final normalized = _normalizeCoroutineError(pendingError);
         return [
-          Value(false),
-          normalized is Value ? normalized : Value(normalized),
+          _coroutinePrimitiveValue(this, false),
+          _coroutineValue(this, normalized),
         ];
       }
       _finalizeTermination();
-      return [Value(true)]; // Already dead, consider it successful close
+      // Already dead, consider it successful close.
+      return [_coroutinePrimitiveValue(this, true)];
     }
 
     Logger.debugLazy(
@@ -1323,16 +1321,16 @@ class Coroutine extends GCObject {
         status = CoroutineStatus.dead;
         _finalizeTermination();
         return [
-          Value(false),
-          Value('attempt to yield across a C-call boundary'),
+          _coroutinePrimitiveValue(this, false),
+          _coroutineValue(this, 'attempt to yield across a C-call boundary'),
         ];
       } catch (caughtError) {
         status = CoroutineStatus.dead;
         _finalizeTermination();
         final normalized = _normalizeCoroutineError(caughtError);
         return [
-          Value(false),
-          normalized is Value ? normalized : Value(normalized),
+          _coroutinePrimitiveValue(this, false),
+          _coroutineValue(this, normalized),
         ];
       }
     }
@@ -1358,12 +1356,13 @@ class Coroutine extends GCObject {
     if (error != null) {
       final normalized = _normalizeCoroutineError(error);
       return [
-        Value(false),
-        normalized is Value ? normalized : Value(normalized),
+        _coroutinePrimitiveValue(this, false),
+        _coroutineValue(this, normalized),
       ];
     }
 
-    return [Value(true)]; // Successful close
+    // Successful close.
+    return [_coroutinePrimitiveValue(this, true)];
   }
 
   /// Mark the coroutine as dead and release resources

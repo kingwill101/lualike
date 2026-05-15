@@ -1,3 +1,4 @@
+@TestOn('!browser')
 @Tags(['lua_bytecode'])
 library;
 

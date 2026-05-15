@@ -1,3 +1,6 @@
+@TestOn('!browser')
+library;
+
 import 'package:lualike_test/test.dart';
 
 void main() {
@@ -55,6 +58,7 @@ void main() {
       final original = Value({
         'key': Value('value'),
         'nested': Value({'deep': Value(42)}),
+        'rawNested': {'deep': Value(7)},
       });
       final copy = original.copy();
 
@@ -64,6 +68,10 @@ void main() {
       expect(
         (copy.raw as Map)['nested'].raw,
         isNot(same((original.raw as Map)['nested'].raw)),
+      );
+      expect(
+        ((copy.raw as Map)['rawNested'] as Value).raw,
+        isNot(same((original.raw as Map)['rawNested'])),
       );
     });
   });
@@ -93,6 +101,12 @@ void main() {
         'number': Value(42),
         'string': Value('test'),
         'nested': Value({'deep': Value(true)}),
+        'rawNested': {
+          'list': [
+            Value(1),
+            {'deep': Value('ok')},
+          ],
+        },
       });
 
       final unwrapped = value.unwrap();
@@ -100,6 +114,10 @@ void main() {
       expect(unwrapped['number'], equals(42));
       expect(unwrapped['string'], equals('test'));
       expect((unwrapped['nested'] as Map)['deep'], equals(toLuaValue(true)));
+      expect(
+        ((unwrapped['rawNested'] as Map)['list'] as List)[1],
+        equals({'deep': 'ok'}),
+      );
     });
   });
 
@@ -263,7 +281,6 @@ void main() {
       // Negative infinity comparisons
       expect(nInf < zero, isTrue, reason: '-inf < 0 should be true');
       expect(zero > nInf, isTrue, reason: '0 > -inf should be true');
-      //TODO verify these comparisons they are currently failing
       expect(nInf <= zero, isTrue, reason: '-inf <= 0 should be true');
       expect(zero >= nInf, isTrue, reason: '0 >= -inf should be true');
     });

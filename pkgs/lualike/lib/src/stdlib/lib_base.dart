@@ -7,6 +7,8 @@ import 'package:lualike/lualike.dart';
 import 'package:lualike/src/coroutine.dart';
 import 'package:lualike/src/gc/gc.dart';
 import 'package:lualike/src/io/lua_file.dart';
+import 'package:lualike/src/runtime/lua_results.dart';
+import 'package:lualike/src/runtime/lua_slot.dart';
 import 'package:lualike/src/runtime/runtime_hints.dart';
 import 'package:lualike/src/table_storage.dart';
 import 'package:lualike/src/utils/file_system_utils.dart';
@@ -15,6 +17,7 @@ import 'package:path/path.dart' as path;
 
 import 'lib_io.dart';
 import 'library.dart';
+
 
 /// Base library implementation using the new Library system
 /// Note: Base functions are global, so they don't have a namespace
@@ -42,7 +45,7 @@ class BaseLibrary extends Library {
     context.define("type", TypeFunction(interpreter));
     context.define("tonumber", ToNumberFunction(interpreter));
     context.define("tostring", ToStringFunction(interpreter));
-    context.define("tointeger", _BaseTointeger());
+    context.define("tointeger", _BaseTointeger(interpreter));
     context.define("select", SelectFunction(interpreter));
 
     // File operations
@@ -71,7 +74,10 @@ class BaseLibrary extends Library {
     context.define("warn", WarnFunction(interpreter));
 
     // Global variables
-    context.define("_VERSION", Value("LuaLike 0.1"));
+    context.define(
+      "_VERSION",
+      interpreter.constantDartStringValue("LuaLike 0.1"),
+    );
   }
 }
 
@@ -87,17 +93,17 @@ class GetMetatableFunction extends BuiltinFunction {
 
     final value = args[0];
     if (value is! Value) {
-      return Value(null);
+      return primitiveValue(null);
     }
 
     // Check for __metatable field first
     final metatable = value.getMetatable();
     if (metatable == null) {
-      return Value(null);
+      return primitiveValue(null);
     }
 
     if (metatable.containsKey('__metatable')) {
-      return metatable['__metatable'];
+      return valueFromOptionalLuaSlot(interpreter, metatable['__metatable']);
     }
 
     // Return the original metatable value if available to preserve identity.
@@ -105,16 +111,18 @@ class GetMetatableFunction extends BuiltinFunction {
     if (value.metatableRef != null) {
       final metaVal = value.metatableRef!;
       try {
-        final canonical = Value.lookupCanonicalTableWrapper(metaVal.raw);
+        final canonical = Value.lookupCanonicalTableWrapper(
+          rawLuaSlot(metaVal),
+        );
         return canonical ?? metaVal;
       } catch (_) {
         return metaVal;
       }
     }
 
-    // Otherwise wrap the map in a new Value and register identity so that
-    // subsequent calls return the same wrapper.
-    final wrapped = Value(metatable);
+    // Otherwise wrap the map and register identity so that subsequent calls
+    // return the same wrapper.
+    final wrapped = valueFromOptionalLuaSlot(interpreter, metatable);
     try {
       Value.registerTableIdentity(wrapped);
       value.metatableRef = wrapped;
@@ -136,8 +144,9 @@ class SetMetatableFunction extends BuiltinFunction {
       );
     }
     final table = args[0];
+    final rawTable = rawLuaSlot(table);
 
-    if (table is! Value || table.raw is! Map) {
+    if (table is! Value || rawTable is! Map) {
       throw LuaError(
         "bad argument #1 to 'setmetatable' "
         "(table expected, got ${getLuaType(table)})",
@@ -169,19 +178,20 @@ class SetMetatableFunction extends BuiltinFunction {
     }
 
     if (metatable is Value) {
-      if (metatable.raw is Map) {
+      final rawMetatable = rawLuaSlot(metatable);
+      if (rawMetatable is Map) {
         Logger.debugLazy(
           () =>
-              "[SetMetatable] on table=${table.hashCode} raw=${table.raw.hashCode} using meta raw=${metatable.raw.hashCode}",
+              "[SetMetatable] on table=${table.hashCode} raw=${rawTable.hashCode} using meta raw=${rawMetatable.hashCode}",
           category: 'Metatables',
         );
         // Preserve identity by keeping a reference to the original Value.
         table.metatableRef = metatable;
         // Reuse the same map instance so identity comparisons work as expected.
         final rawMeta = Map.castFrom<dynamic, dynamic, String, dynamic>(
-          metatable.raw as Map,
+          rawMetatable,
         );
-        table.setMetatable(rawMeta, ownerRaw: metatable.raw);
+        table.setMetatable(rawMeta, ownerRaw: rawMetatable);
         if (Logger.enabled) {
           final mode = rawMeta['__mode'];
           Logger.debugLazy(
@@ -211,7 +221,7 @@ class SetMetatableFunction extends BuiltinFunction {
           table.finalizerEligible = false;
         }
         return table;
-      } else if (metatable.raw == null) {
+      } else if (rawMetatable == null) {
         // Setting nil metatable removes the metatable
         table.setMetatable(<String, dynamic>{});
         table.metatable = null;
@@ -238,34 +248,35 @@ class RawSetFunction extends BuiltinFunction {
     }
 
     final table = args[0];
-    if (table is! Value || table.raw is! Map) {
+    final rawTable = rawLuaSlot(table);
+    if (table is! Value || rawTable is! Map) {
       throw LuaError("rawset: first argument must be a table");
     }
 
-    final key = args[1] as Value;
+    final key = args[1];
+    var rawKey = rawLuaSlot(key);
 
     // Check for nil key
-    if (key.raw == null) {
+    if (rawKey == null) {
       throw LuaError.typeError('table index is nil');
     }
 
     // Check for NaN key
-    if (key.raw is num && (key.raw as num).isNaN) {
+    if (rawKey is num && rawKey.isNaN) {
       throw LuaError.typeError('table index is NaN');
     }
 
     final value = args[2];
-    final wrappedValue = value is Value ? value : Value(value);
+    final wrappedValue = valueFromLuaSlot(interpreter!, value);
 
     // Use raw key like normal table operations do
-    var rawKey = key.raw;
     if (rawKey is LuaString) {
       rawKey = rawKey.toString();
     }
     if (wrappedValue.isNil) {
-      (table.raw as Map).remove(rawKey);
+      rawTable.remove(rawKey);
     } else {
-      (table.raw as Map)[rawKey] = wrappedValue;
+      rawTable[rawKey] = wrappedValue;
     }
     table.markTableModified();
     return table;
@@ -282,13 +293,16 @@ class AssertFunction extends BuiltinFunction {
   bool get isBytecodeAssertBuiltin => true;
 
   Object? _normalizeSuccessfulArg(Object? value) {
-    if (value case Value(isMulti: false, raw: final raw)
-        when raw == null ||
-            raw is num ||
-            raw is bool ||
-            raw is String ||
-            raw is LuaString) {
-      return Value(raw);
+    if (luaResultValues(value) != null) {
+      return value;
+    }
+
+    final raw = rawLuaSlot(value);
+    if (raw == null || raw is num || raw is bool) {
+      return primitiveValue(raw);
+    }
+    if (raw is String || raw is LuaString) {
+      return valueFromOptionalLuaSlot(interpreter, raw);
     }
     return value;
   }
@@ -304,23 +318,16 @@ class AssertFunction extends BuiltinFunction {
     final condition = args[0];
 
     dynamic primaryCondition = condition;
-    if (condition is Value && condition.isMulti && condition.raw is List) {
-      final values = condition.raw as List;
-      primaryCondition = values.isNotEmpty ? values.first : Value(null);
+    final conditionResults = luaResultValues(condition);
+    if (conditionResults != null) {
+      final values = conditionResults;
+      primaryCondition = values.isNotEmpty ? values.first : null;
     }
 
-    bool isTrue;
-    if (primaryCondition is Value) {
-      if (primaryCondition.raw is bool) {
-        isTrue = primaryCondition.raw as bool;
-      } else {
-        isTrue = primaryCondition.raw != null;
-      }
-    } else if (primaryCondition is bool) {
-      isTrue = primaryCondition;
-    } else {
-      isTrue = primaryCondition != null;
-    }
+    final rawPrimaryCondition = rawLuaSlot(primaryCondition);
+    final bool isTrue = rawPrimaryCondition is bool
+        ? rawPrimaryCondition
+        : rawPrimaryCondition != null;
 
     Logger.debugLazy(
       () =>
@@ -330,25 +337,25 @@ class AssertFunction extends BuiltinFunction {
 
     if (!isTrue) {
       final explicitMessage = args.length > 1 ? args[1] as Value : null;
-      if (explicitMessage != null && explicitMessage.raw != null) {
+      final rawExplicitMessage = rawLuaSlot(explicitMessage);
+      if (explicitMessage != null && rawExplicitMessage != null) {
         Logger.debugLazy(
           () =>
-              'AssertFunction: Assertion failed with explicit message object: ${explicitMessage.raw}',
+              'AssertFunction: Assertion failed with explicit message object: $rawExplicitMessage',
           category: 'Base',
         );
         if (interpreter != null && interpreter!.isInProtectedCall) {
           throw explicitMessage;
         }
 
-        final message = explicitMessage.raw.toString();
+        final message = rawExplicitMessage.toString();
         final preserveLuaStackTrace =
-            explicitMessage.raw is! String &&
-                explicitMessage.raw is! LuaString ||
+            rawExplicitMessage is! String && rawExplicitMessage is! LuaString ||
             !message.contains("in metamethod 'close'");
         final luaStackTrace = preserveLuaStackTrace
             ? interpreter?.callStack.toLuaStackTrace()
             : null;
-        final cause = switch (explicitMessage.raw) {
+        final cause = switch (rawExplicitMessage) {
           String() || LuaString() => null,
           final Object raw => raw,
           _ => null,
@@ -418,11 +425,11 @@ class AssertFunction extends BuiltinFunction {
     // first return value in callee position when writing patterns like
     // assert(load(x), "")().
     if (args.length <= 1) {
-      return args.isEmpty ? Value(null) : _normalizeSuccessfulArg(args[0]);
+      return args.isEmpty
+          ? primitiveValue(null)
+          : _normalizeSuccessfulArg(args[0]);
     }
-    return Value.multi(
-      args.map<Object?>((arg) => _normalizeSuccessfulArg(arg)).toList(),
-    );
+    return LuaResults(args.map<Object?>((arg) => _normalizeSuccessfulArg(arg)));
   }
 }
 
@@ -435,13 +442,14 @@ bool _looksFormattedLuaErrorMessage(String message) {
 
 Object? _normalizeProtectedCallError(LuaRuntime interpreter, Object error) {
   if (error is Value) {
-    if (error.raw is Value) {
-      return _normalizeProtectedCallError(interpreter, error.raw);
+    final rawError = rawLuaSlot(error);
+    if (rawError is Value) {
+      return _normalizeProtectedCallError(interpreter, rawError);
     }
-    if (error.raw == null) {
+    if (rawError == null) {
       return "<no error object>";
     }
-    if (error.raw is Map || error.raw is TableStorage) {
+    if (rawError is Map || rawError is TableStorage) {
       return error;
     }
     return error.unwrap();
@@ -478,21 +486,21 @@ Object? _normalizeProtectedCallError(LuaRuntime interpreter, Object error) {
   return error.toString();
 }
 
-Value _errorHandlerArgument(Object error) {
+Value _errorHandlerArgument(LuaRuntime runtime, Object error) {
   if (error case final Value value) {
-    return switch (value.raw) {
-      final Value nested => _errorHandlerArgument(nested),
+    return switch (rawLuaSlot(value)) {
+      final Value nested => _errorHandlerArgument(runtime, nested),
       _ => value,
     };
   }
   if (error case final LuaError luaError) {
     return switch (luaError.cause) {
-      null => Value(luaError.message),
-      final Value value => _errorHandlerArgument(value),
-      final Object cause => Value(cause),
+      null => valueFromLuaSlot(runtime, luaError.message),
+      final Value value => _errorHandlerArgument(runtime, value),
+      final Object cause => valueFromLuaSlot(runtime, cause),
     };
   }
-  return Value(error.toString());
+  return valueFromLuaSlot(runtime, error.toString());
 }
 
 String _formatProtectedCallMessage(
@@ -584,43 +592,30 @@ String _formatErrorAtStackLevel(
 }
 
 Object? _packProtectedCallSuccess(Object? result) {
-  if (result case Value(isMulti: true, raw: final List<Object?> multiValues)) {
-    return Value.multi(<Object?>[
-      Value(true),
-      ...multiValues.map((value) => value is Value ? value : Value(value)),
-    ]);
+  final multiValues = luaResultValues(result);
+  if (multiValues != null) {
+    return LuaResults(<Object?>[true, ...multiValues]);
   }
 
-  return Value.multi(<Object?>[
-    Value(true),
-    result is Value ? result : Value(result),
-  ]);
+  return LuaResults(<Object?>[true, result]);
 }
 
 Object? _packProtectedCallFailure(LuaRuntime interpreter, Object error) {
   final normalizedError = _normalizeProtectedCallError(interpreter, error);
-  return Value.multi(<Object?>[
-    Value(false),
-    normalizedError is Value ? normalizedError : Value(normalizedError),
-  ]);
+  return LuaResults(<Object?>[false, normalizedError]);
 }
 
 Object? _packXProtectedCallFailure(Object? result) {
-  if (result case Value(isMulti: true, raw: final List<Object?> multiValues)) {
-    return Value.multi(<Object?>[
-      Value(false),
-      ...multiValues.map((value) => value is Value ? value : Value(value)),
-    ]);
+  final multiValues = luaResultValues(result);
+  if (multiValues != null) {
+    return LuaResults(<Object?>[false, ...multiValues]);
   }
 
-  return Value.multi(<Object?>[
-    Value(false),
-    result is Value ? result : Value(result),
-  ]);
+  return LuaResults(<Object?>[false, result]);
 }
 
 Object? _packXProtectedErrorHandlerFailure(Object error) {
-  return Value.multi(<Object?>[Value(false), Value('error in error handling')]);
+  return LuaResults(const <Object?>[false, 'error in error handling']);
 }
 
 // Lua's xpcall message-handler recursion overflows before the general
@@ -631,9 +626,9 @@ const int _maxXpcallMessageHandlerDepth = 196;
 
 enum _ProtectedCallPhase { call, errorHandler }
 
-bool _shouldRecurseXpcallHandler(Object error) {
-  final normalized = _errorHandlerArgument(error);
-  return normalized.raw is num;
+bool _shouldRecurseXpcallHandler(LuaRuntime runtime, Object error) {
+  final normalized = _errorHandlerArgument(runtime, error);
+  return rawLuaSlot(normalized) is num;
 }
 
 final class _ProtectedCallSuspension implements CoroutineContinuation {
@@ -704,10 +699,12 @@ final class _ProtectedCallSuspension implements CoroutineContinuation {
       return _packProtectedCallFailure(runtime, error);
     }
     if (depth > _maxXpcallMessageHandlerDepth) {
-      return _packXProtectedCallFailure(Value('C stack overflow'));
+      return _packXProtectedCallFailure(
+        valueFromLuaSlot(runtime, 'C stack overflow'),
+      );
     }
 
-    final errorValue = _errorHandlerArgument(error);
+    final errorValue = _errorHandlerArgument(runtime, error);
 
     try {
       final handlerResult = await runtime.callFunction(handler, <Object?>[
@@ -722,7 +719,7 @@ final class _ProtectedCallSuspension implements CoroutineContinuation {
       );
       rethrow;
     } catch (handlerError) {
-      if (_shouldRecurseXpcallHandler(handlerError)) {
+      if (_shouldRecurseXpcallHandler(runtime, handlerError)) {
         return await _invokeErrorHandler(handlerError, depth: depth + 1);
       }
       return _packXProtectedErrorHandlerFailure(handlerError);
@@ -735,9 +732,9 @@ final class _ProtectedCallSuspension implements CoroutineContinuation {
     }
 
     final values = args
-        .map<Object?>((arg) => arg is Value ? arg : Value(arg))
+        .map<Object?>((arg) => valueFromLuaSlot(runtime, arg))
         .toList(growable: false);
-    return Value.multi(values);
+    return LuaResults(values);
   }
 
   void _reinstall(
@@ -774,10 +771,11 @@ final class _ProtectedCallSuspension implements CoroutineContinuation {
     if (child case final nested?) {
       yield* nested.getReferences();
     }
-    if (messageHandler?.raw case final GCObject handlerObject) {
+    if (rawLuaSlot(messageHandler) case final GCObject handlerObject) {
       yield handlerObject;
     }
-    if (messageHandler?.metatableRef?.raw case final GCObject metatableObject) {
+    if (rawLuaSlot(messageHandler?.metatableRef)
+        case final GCObject metatableObject) {
       yield metatableObject;
     }
   }
@@ -812,21 +810,20 @@ class ErrorFunction extends BuiltinFunction {
   Object? call(List<Object?> args) {
     // If no arguments, throw nil as the error object (Lua behavior)
     if (args.isEmpty) {
-      throw Value(null);
+      throw primitiveValue(null);
     }
 
     // Get the error value
     final errorValue = args[0] as Value;
+    final rawErrorValue = rawLuaSlot(errorValue);
 
     // If the error value is a table, preserve it
-    if (errorValue.raw is Map) {
+    if (rawErrorValue is Map) {
       throw errorValue; // Throw the Value directly instead of converting to Exception
     }
 
-    final message = errorValue.raw.toString();
-    final level = args.length > 1 && args[1] is Value
-        ? (args[1] as Value).raw
-        : null;
+    final message = rawErrorValue.toString();
+    final level = args.length > 1 ? rawLuaSlot(args[1]) : null;
     final numericLevel = switch (level) {
       final int value => value,
       final double value when value.toInt().toDouble() == value =>
@@ -854,10 +851,10 @@ class ErrorFunction extends BuiltinFunction {
     // string errors in their usual Lua "file:line: message" form unless the
     // caller explicitly suppressed location with level 0.
     if (interpreter != null && interpreter!.isInProtectedCall) {
-      if (errorValue.raw is Map) {
+      if (rawErrorValue is Map) {
         throw errorValue;
       }
-      if (errorValue.raw is String || errorValue.raw is LuaString) {
+      if (rawErrorValue is String || rawErrorValue is LuaString) {
         throw LuaError(_formatProtectedCallMessage(interpreter!, message));
       }
       throw errorValue;
@@ -878,9 +875,9 @@ class ErrorFunction extends BuiltinFunction {
       // Let the interpreter handle the error reporting with proper stack trace
       final luaError = LuaError(
         message,
-        cause: errorValue.raw is String || errorValue.raw is LuaString
+        cause: rawErrorValue is String || rawErrorValue is LuaString
             ? null
-            : errorValue.raw,
+            : rawErrorValue,
       );
       interpreter!.reportError(message, error: luaError);
       // This will never be reached, but needed for type safety
@@ -902,24 +899,24 @@ class IPairsFunction extends BuiltinFunction {
 
     final t = iterArgs[0] as Value;
 
-    if (t.raw is! Map) {
+    if (rawLuaSlot(t) is! Map) {
       throw LuaError("iterator requires a table as first argument");
     }
 
-    if (iterArgs[1] is! Value || (iterArgs[1] as Value).raw is! num) {
+    if (iterArgs[1] is! Value || rawLuaSlot(iterArgs[1]) is! num) {
       throw LuaError("iterator index must be a number");
     }
 
-    final index = (iterArgs[1] as Value).raw as num;
+    final index = rawLuaSlot(iterArgs[1]) as num;
     final nextIndex = index + 1;
-    final value = await t.getValueAsync(Value(nextIndex));
-    if (value == null || (value is Value && value.raw == null)) {
-      return Value(null);
+    final value = await t.getValueAsync(primitiveValue(nextIndex));
+    if (isLuaNilSlot(value)) {
+      return primitiveValue(null);
     }
 
-    final nextValue = value is Value ? value : Value(value);
-    return Value.multi([Value(nextIndex), nextValue]);
-  });
+    final nextValue = valueFromLuaSlot(interpreter!, value);
+    return LuaResults([primitiveValue(nextIndex), nextValue]);
+  }, interpreter: interpreter);
 
   @override
   Object? call(List<Object?> args) {
@@ -927,13 +924,13 @@ class IPairsFunction extends BuiltinFunction {
       throw LuaError(_badTableArgumentMessage('ipairs', null));
     }
     final table = args[0] as Value;
-    if (table.raw is! Map) {
+    if (rawLuaSlot(table) is! Map) {
       throw LuaError(_badTableArgumentMessage('ipairs', table));
     }
 
-    // Return iterator function, table, and initial control value (0) using Value.multi
+    // Return iterator function, table, and initial control value (0).
     // This matches Lua's behavior: ipairs(t) returns iterator, t, 0
-    return Value.multi([_iteratorFunction, table, Value(0)]);
+    return LuaResults([_iteratorFunction, table, primitiveValue(0)]);
   }
 }
 
@@ -952,40 +949,40 @@ class PrintFunction extends BuiltinFunction {
         continue;
       }
 
-      final value = arg as Value;
-
       // Check for __tostring metamethod first
-      if (value.hasMetamethod("__tostring")) {
+      if (arg case final Value value when value.hasMetamethod("__tostring")) {
         final result = await value.callMetamethodAsync('__tostring', [value]);
         final awaited = result is Value ? result.unwrap() : result;
         outputs.add(awaited.toString());
         continue;
       }
 
+      final rawValue = rawLuaSlot(arg);
+
       // Handle different types
-      if (value.raw is num || value.raw is BigInt) {
+      if (rawValue is num || rawValue is BigInt) {
         // Use proper number formatting
-        outputs.add(value.raw.toString());
-      } else if (value.raw is String || value.raw is LuaString) {
-        outputs.add(value.raw.toString());
-      } else if (value.raw is bool) {
-        outputs.add(value.raw.toString());
-      } else if (value.raw == null) {
+        outputs.add(rawValue.toString());
+      } else if (rawValue is String || rawValue is LuaString) {
+        outputs.add(rawValue.toString());
+      } else if (rawValue is bool) {
+        outputs.add(rawValue.toString());
+      } else if (rawValue == null) {
         outputs.add("nil");
-      } else if (value.raw is Map) {
-        outputs.add("table: ${value.raw.hashCode}");
-      } else if (value.raw is Function || value.raw is BuiltinFunction) {
-        outputs.add("function: ${value.hashCode}");
-      } else if (value.raw is Future) {
-        outputs.add("list: ${value.raw.hashCode}");
+      } else if (rawValue is Map) {
+        outputs.add("table: ${rawValue.hashCode}");
+      } else if (rawValue is Function || rawValue is BuiltinFunction) {
+        outputs.add("function: ${arg.hashCode}");
+      } else if (rawValue is Future) {
+        outputs.add("list: ${rawValue.hashCode}");
       } else {
-        outputs.add(value.toString());
+        outputs.add(arg.toString());
       }
     }
 
     final output = outputs.join("\t");
     final defaultOutput = IOLib.defaultOutput;
-    final luaFile = defaultOutput.raw as LuaFile;
+    final luaFile = rawLuaSlot(defaultOutput) as LuaFile;
     await luaFile.write("$output\n");
     return null;
   }
@@ -997,7 +994,7 @@ class TypeFunction extends BuiltinFunction {
   @override
   Object? call(List<Object?> args) {
     if (args.isEmpty) throw LuaError("type requires an argument");
-    final value = args[0] as Value;
+    final value = args[0];
 
     return getLuaBaseType(value);
   }
@@ -1012,14 +1009,13 @@ class ToNumberFunction extends BuiltinFunction {
       throw LuaError("tonumber requires an argument");
     }
 
-    final value = args[0] as Value;
-    Value? base;
-    if (args.length > 1) {
-      base = args[1] as Value;
-    }
+    final value = args[0];
+    final rawValue = rawLuaSlot(value);
+    final base = args.length > 1 ? args[1] : null;
+    final rawBase = rawLuaSlot(base);
 
-    if (value.raw is String || value.raw is LuaString) {
-      var str = value.raw.toString().trim();
+    if (rawValue is String || rawValue is LuaString) {
+      var str = rawValue.toString().trim();
       // Our parser currently does not interpret escape sequences in
       // string literals, so handle common ones here for tonumber with base.
       str = str.replaceAll('\\t', '\t');
@@ -1033,8 +1029,8 @@ class ToNumberFunction extends BuiltinFunction {
         }
       }
 
-      if (base != null && base.raw is int) {
-        final radix = base.raw as int;
+      if (rawBase is int) {
+        final radix = rawBase;
         try {
           final intVal = int.parse(str, radix: radix);
           return primitiveValue(intVal);
@@ -1047,10 +1043,10 @@ class ToNumberFunction extends BuiltinFunction {
       } on FormatException {
         return primitiveValue(null);
       }
-    } else if (value.raw is num) {
+    } else if (rawValue is num) {
       return value;
-    } else if (value.raw is BigInt) {
-      return primitiveValue((value.raw as BigInt).toInt());
+    } else if (rawValue is BigInt) {
+      return primitiveValue(rawValue.toInt());
     }
 
     return primitiveValue(null);
@@ -1063,19 +1059,20 @@ class ToStringFunction extends BuiltinFunction {
   @override
   Future<Object?> call(List<Object?> args) async {
     if (args.isEmpty) throw LuaError("tostring requires an argument");
-    final value = args[0] as Value;
+    final value = args[0];
 
     // Check for __tostring metamethod
-    if (value.hasMetamethod("__tostring")) {
+    if (value case final Value wrapped
+        when wrapped.hasMetamethod("__tostring")) {
       Logger.debugLazy(
         () =>
-            'tostring: __tostring metamethod found on value ${value.hashCode}',
+            'tostring: __tostring metamethod found on value ${wrapped.hashCode}',
         category: 'Base',
       );
       try {
         // Always use async metamethod call to ensure proper awaiting semantics
-        final awaitedResult = await value.callMetamethodAsync('__tostring', [
-          value,
+        final awaitedResult = await wrapped.callMetamethodAsync('__tostring', [
+          wrapped,
         ]);
         Logger.debugLazy(
           () =>
@@ -1084,10 +1081,11 @@ class ToStringFunction extends BuiltinFunction {
         );
 
         // Validate that __tostring returned a string
+        final rawAwaitedResult = rawLuaSlot(awaitedResult);
         if (awaitedResult is Value) {
-          if (awaitedResult.raw is String || awaitedResult.raw is LuaString) {
+          if (rawAwaitedResult is String || rawAwaitedResult is LuaString) {
             Logger.debugLazy(
-              () => 'tostring: returning Value string ${awaitedResult.raw}',
+              () => 'tostring: returning Value string $rawAwaitedResult',
               category: 'Base',
             );
             return awaitedResult;
@@ -1099,7 +1097,7 @@ class ToStringFunction extends BuiltinFunction {
             () => 'tostring: returning raw String $awaitedResult',
             category: 'Base',
           );
-          return Value(awaitedResult);
+          return dartStringValue(awaitedResult);
         } else {
           throw LuaError("'__tostring' must return a string");
         }
@@ -1120,42 +1118,49 @@ class ToStringFunction extends BuiltinFunction {
     }
 
     // Handle basic types directly
-    if (value.raw == null) return Value("nil");
-    if (value.raw is bool) {
-      final boolStr = value.raw.toString();
-      return Value(boolStr);
+    final rawValue = rawLuaSlot(value);
+    if (rawValue == null) return dartStringValue("nil");
+    if (rawValue is bool) {
+      final boolStr = rawValue.toString();
+      return dartStringValue(boolStr);
     }
-    if (value.raw is num) return Value(value.raw.toString());
-    if (value.raw is String || value.raw is LuaString) {
-      return Value(value.raw.toString());
+    if (rawValue is num) return dartStringValue(rawValue.toString());
+    if (rawValue is String || rawValue is LuaString) {
+      return dartStringValue(rawValue.toString());
     }
-    final typeNameMeta = value.getMetamethod('__name');
-    final rawTypeName = typeNameMeta is Value ? typeNameMeta.raw : typeNameMeta;
+    final typeNameMeta = value is Value ? value.getMetamethod('__name') : null;
+    final rawTypeName = rawLuaSlot(typeNameMeta);
     switch (rawTypeName) {
       case final String stringName:
-        return Value("$stringName: ${value.raw.hashCode}");
+        return dartStringValue("$stringName: ${rawValue.hashCode}");
       case final LuaString stringName:
-        return Value("${stringName.toString()}: ${value.raw.hashCode}");
+        return dartStringValue(
+          "${stringName.toString()}: ${rawValue.hashCode}",
+        );
     }
-    if (value.raw is Map) return Value("table: ${value.raw.hashCode}");
-    if (value.raw is Function || value.raw is BuiltinFunction) {
-      return Value("function: ${value.raw.hashCode}");
+    if (rawValue is Map) {
+      return dartStringValue("table: ${rawValue.hashCode}");
+    }
+    if (rawValue is Function || rawValue is BuiltinFunction) {
+      return dartStringValue("function: ${rawValue.hashCode}");
     }
 
-    return Value(value.raw.toString());
+    return dartStringValue(rawValue.toString());
   }
 }
 
 class _BaseTointeger extends BuiltinFunction {
+  _BaseTointeger(super.interpreter);
+
   @override
   Object? call(List<Object?> args) {
     if (args.isEmpty) {
       throw LuaError.typeError('tointeger requires one argument');
     }
 
-    dynamic value = args[0] is Value ? (args[0] as Value).raw : args[0];
+    final value = rawLuaSlot(args[0]);
     final result = NumberUtils.tryToInteger(value);
-    return Value(result);
+    return primitiveValue(result);
   }
 }
 
@@ -1165,24 +1170,25 @@ class SelectFunction extends BuiltinFunction {
   @override
   Object? call(List<Object?> args) {
     if (args.isEmpty) throw LuaError("select requires at least one argument");
-    final index = args[0] as Value;
+    final index = args[0];
+    final rawIndex = rawLuaSlot(index);
 
-    if (index.raw is String && index.raw == "#") {
-      return Value(args.length - 1);
+    if (rawIndex is String && rawIndex == "#") {
+      return primitiveValue(args.length - 1);
     }
 
-    if (index.raw is LuaString && (index.raw as LuaString).toString() == "#") {
-      return Value(args.length - 1);
+    if (rawIndex is LuaString && rawIndex.toString() == "#") {
+      return primitiveValue(args.length - 1);
     }
 
     // Handle non-integer indices
-    if (index.raw is! num) {
+    if (rawIndex is! num) {
       throw LuaError(
-        "bad argument #1 to 'select' (number expected, got ${index.raw.runtimeType})",
+        "bad argument #1 to 'select' (number expected, got ${rawIndex.runtimeType})",
       );
     }
 
-    final idx = (index.raw as num).toInt();
+    final idx = rawIndex.toInt();
     final argCount = args.length - 1; // Don't count the index argument
 
     // Handle negative indices: -1 means last argument, -2 means second-to-last, etc.
@@ -1195,11 +1201,11 @@ class SelectFunction extends BuiltinFunction {
 
     // Check bounds
     if (actualIndex <= 0 || actualIndex > argCount) {
-      return Value.multi([]); // Return empty for out-of-bounds
+      return const LuaResults.empty();
     }
 
     // Return all arguments from actualIndex onwards
-    return Value.multi(args.sublist(actualIndex));
+    return LuaResults(args.sublist(actualIndex));
   }
 }
 
@@ -1215,11 +1221,12 @@ class LoadFunction extends BuiltinFunction {
     if (source is! Value) {
       throw LuaError("load() first argument must be a string");
     }
-    final nameArg = args.length > 1 ? args[1] as Value : null;
-    final modeArg = args.length > 2 ? args[2] as Value : null;
+    final nameArg = args.length > 1 ? args[1] : null;
+    final modeArg = args.length > 2 ? args[2] : null;
     final envArg = args.length > 3 ? args[3] as Value : null;
+    final rawSource = rawLuaSlot(source);
 
-    final defaultChunkName = switch (source.raw) {
+    final defaultChunkName = switch (rawSource) {
       String text =>
         text.isNotEmpty && text.codeUnitAt(0) == 0x1B ? "=(load)" : text,
       LuaString luaString =>
@@ -1228,13 +1235,13 @@ class LoadFunction extends BuiltinFunction {
             : luaString.toString(),
       _ => "=(load)",
     };
-    final chunkname = switch (nameArg?.raw) {
+    final chunkname = switch (rawLuaSlot(nameArg)) {
       null => defaultChunkName,
-      _ => nameArg!.raw.toString(),
+      final Object rawName => rawName.toString(),
     };
-    final mode = switch (modeArg?.raw) {
+    final mode = switch (rawLuaSlot(modeArg)) {
       null => 'bt',
-      _ => modeArg!.raw.toString(),
+      final Object rawMode => rawMode.toString(),
     };
     if (mode.isEmpty || !RegExp(r'^[bt]+$').hasMatch(mode)) {
       throw LuaError("bad argument #3 to 'load' (invalid mode)");
@@ -1256,7 +1263,7 @@ class LoadFunction extends BuiltinFunction {
     if (result.isSuccess) {
       return result.chunk!;
     }
-    return [Value(null), Value(result.errorMessage)];
+    return [primitiveValue(null), dartStringValue(result.errorMessage!)];
   }
 }
 
@@ -1266,7 +1273,7 @@ class DoFileFunction extends BuiltinFunction {
   @override
   Future<Object?> call(List<Object?> args) async {
     if (args.isEmpty) throw LuaError("dofile requires a filename");
-    final filename = (args[0] as Value).raw.toString();
+    final filename = rawLuaSlot(args[0]).toString();
     final runtime = interpreter;
     if (runtime == null) {
       throw LuaError("No interpreter context available");
@@ -1274,18 +1281,18 @@ class DoFileFunction extends BuiltinFunction {
 
     final loaded = await LoadfileFunction(
       runtime,
-    ).call(<Object?>[Value(filename)]);
-    if (loaded is Value && loaded.raw == null) {
+    ).call(<Object?>[valueFromLuaSlot(runtime, filename)]);
+    if (loaded is Value && isLuaNilSlot(loaded)) {
       throw LuaError("Cannot open file '$filename'");
     }
     if (loaded is List) {
       final error = loaded.length > 1 && loaded[1] is Value
-          ? (loaded[1] as Value).raw
+          ? rawLuaSlot(loaded[1])
           : loaded;
       throw LuaError("Error in dofile('$filename'): $error");
     }
 
-    final chunk = loaded is Value ? loaded : Value.wrap(loaded);
+    final chunk = valueFromLuaSlot(runtime, loaded);
     try {
       return await runtime.callFunction(chunk, const <Object?>[]);
     } on YieldException {
@@ -1301,12 +1308,16 @@ class GetmetaFunction extends BuiltinFunction {
 
   @override
   Object? call(List<Object?> args) {
-    if (args.isEmpty) return Value(null);
+    if (args.isEmpty) return primitiveValue(null);
     final obj = args[0];
     if (obj is Value) {
-      return Value(obj.getMetatable());
+      final metatable = obj.getMetatable();
+      if (metatable == null) {
+        return primitiveValue(null);
+      }
+      return valueFromOptionalLuaSlot(interpreter, metatable);
     }
-    return Value(null);
+    return primitiveValue(null);
   }
 }
 
@@ -1323,18 +1334,17 @@ class SetmetaFunction extends BuiltinFunction {
       throw LuaError("setmetatable requires table and metatable arguments");
     }
 
-    if (meta.raw is Map) {
+    final rawTable = rawLuaSlot(table);
+    final rawMetatable = rawLuaSlot(meta);
+    if (rawMetatable is Map) {
       Logger.debugLazy(
         () =>
-            "setmetatable called on table with raw: ${table.raw} and meta: ${meta.raw}",
+            "setmetatable called on table with raw: $rawTable and meta: $rawMetatable",
         category: "Metatables",
       );
       final rawMeta = <String, dynamic>{};
-      (meta.raw as Map).forEach((key, value) {
-        dynamic resolvedKey = key;
-        if (resolvedKey is Value) {
-          resolvedKey = resolvedKey.raw;
-        }
+      rawMetatable.forEach((key, value) {
+        dynamic resolvedKey = rawLuaSlot(key);
         if (resolvedKey is LuaString) {
           resolvedKey = resolvedKey.toString();
         }
@@ -1343,7 +1353,7 @@ class SetmetaFunction extends BuiltinFunction {
         }
       });
       table.metatableRef = meta;
-      table.setMetatable(rawMeta, ownerRaw: meta.raw);
+      table.setMetatable(rawMeta, ownerRaw: rawMetatable);
       Logger.debugLazy(
         () => "Metatable set. Weak mode now ${table.tableWeakMode}",
         category: 'Metatables',
@@ -1363,8 +1373,8 @@ class LoadfileFunction extends BuiltinFunction {
 
   @override
   Future<Object?> call(List<Object?> args) async {
-    final filename = args.isNotEmpty ? (args[0] as Value).raw.toString() : null;
-    final modeStr = args.length > 1 ? (args[1] as Value).raw.toString() : 'bt';
+    final filename = args.isNotEmpty ? rawLuaSlot(args[0]).toString() : null;
+    final modeStr = args.length > 1 ? rawLuaSlot(args[1]).toString() : 'bt';
     final providedEnv = args.length > 2 ? args[2] as Value : null;
     final runtime = interpreter;
     if (runtime == null) {
@@ -1375,17 +1385,17 @@ class LoadfileFunction extends BuiltinFunction {
       Value sourceValue;
       if (filename == null) {
         final defaultInput = IOLib.defaultInput;
-        final luaFile = defaultInput.raw as LuaFile;
+        final luaFile = rawLuaSlot(defaultInput) as LuaFile;
         final result = await luaFile.read('a');
-        sourceValue = Value(result[0]?.toString() ?? '');
+        sourceValue = valueFromLuaSlot(runtime, result[0]?.toString() ?? '');
       } else {
         final bytes = await readFileAsBytes(filename);
         if (bytes == null) {
           final src = await runtime.fileManager.loadSource(filename);
           if (src == null) {
-            return Value(null);
+            return primitiveValue(null);
           }
-          sourceValue = Value(src);
+          sourceValue = valueFromLuaSlot(runtime, src);
         } else {
           int binaryStart = -1;
           for (int i = 0; i < bytes.length; i++) {
@@ -1395,13 +1405,17 @@ class LoadfileFunction extends BuiltinFunction {
             }
           }
           if (binaryStart >= 0) {
-            sourceValue = Value(
+            sourceValue = valueFromLuaSlot(
+              runtime,
               LuaString.fromBytes(
                 Uint8List.fromList(bytes.sublist(binaryStart)),
               ),
             );
           } else {
-            sourceValue = Value(utf8.decode(bytes, allowMalformed: true));
+            sourceValue = valueFromLuaSlot(
+              runtime,
+              utf8.decode(bytes, allowMalformed: true),
+            );
           }
         }
       }
@@ -1417,11 +1431,11 @@ class LoadfileFunction extends BuiltinFunction {
       if (result.isSuccess) {
         return result.chunk!;
       }
-      return [Value(null), Value(result.errorMessage)];
+      return [primitiveValue(null), dartStringValue(result.errorMessage!)];
     } catch (e) {
       return [
-        Value(null),
-        Value(
+        primitiveValue(null),
+        dartStringValue(
           e is FormatException ? e.message : "Error parsing source code: $e",
         ),
       ];
@@ -1436,11 +1450,12 @@ class NextFunction extends BuiltinFunction {
   Object? call(List<Object?> args) {
     if (args.isEmpty) throw LuaError("next requires a table argument");
     final table = args[0] as Value;
-    if (table.raw is! Map) throw LuaError("next requires a table argument");
-    final map = table.raw as Map;
+    final rawTable = rawLuaSlot(table);
+    if (rawTable is! Map) throw LuaError("next requires a table argument");
+    final map = rawTable;
 
     final keyValue = args.length > 1 ? args[1] as Value : null;
-    final keyRaw = keyValue?.raw;
+    final keyRaw = rawLuaSlot(keyValue);
     if (keyValue != null &&
         keyRaw != null &&
         !_containsIterationKey(map, keyValue, keyRaw)) {
@@ -1449,7 +1464,7 @@ class NextFunction extends BuiltinFunction {
 
     if (map case final TableStorage storage) {
       return _nextFromTableStorage(table, storage, keyValue, keyRaw) ??
-          Value(null);
+          primitiveValue(null);
     }
 
     var returnNext = keyValue == null || keyRaw == null;
@@ -1461,11 +1476,7 @@ class NextFunction extends BuiltinFunction {
         continue;
       }
 
-      final nextKey = entry.key is Value
-          ? entry.key as Value
-          : Value(entry.key);
-      final entryValue = entry.value;
-      final nextValue = entryValue is Value ? entryValue : Value(entryValue);
+      final (nextKey, nextValue) = _wrapNextResult(entry.key, entry.value);
 
       // For weak-keys/all-weak tables, opportunistically skip entries whose
       // keys are dead according to the current GC tracking, to match Lua's
@@ -1499,19 +1510,21 @@ class NextFunction extends BuiltinFunction {
         if (Logger.enabled &&
             table.tableWeakMode != null &&
             (table.hasWeakKeys || table.hasWeakValues || table.isAllWeak)) {
+          final rawNextKey = rawLuaSlot(nextKey);
+          final rawNextValue = rawLuaSlot(nextValue);
           Logger.debugLazy(
             () =>
-                'next(pair): weak table (${table.tableWeakMode}) -> k=${nextKey.raw} (${nextKey.raw.runtimeType}) v=${nextValue.raw} (${nextValue.raw.runtimeType})',
+                'next(pair): weak table (${table.tableWeakMode}) -> k=$rawNextKey (${rawNextKey.runtimeType}) v=$rawNextValue (${rawNextValue.runtimeType})',
             category: 'GC',
           );
         }
       } catch (_) {
         // Best-effort debug logging only.
       }
-      return Value.multi([nextKey, nextValue]);
+      return LuaResults([nextKey, nextValue]);
     }
 
-    return Value(null);
+    return primitiveValue(null);
   }
 
   Object? _nextFromTableStorage(
@@ -1541,7 +1554,7 @@ class NextFunction extends BuiltinFunction {
           continue;
         }
         final wrapped = _wrapNextResult(index, entryValue);
-        return Value.multi([wrapped.$1, wrapped.$2]);
+        return LuaResults([wrapped.$1, wrapped.$2]);
       }
 
       final hashKeyValue = previousKeyWasDense ? null : keyValue;
@@ -1558,10 +1571,10 @@ class NextFunction extends BuiltinFunction {
           storage.hashEntries,
           table,
           wrapped.$1,
-          wrapped.$1.raw,
+          rawLuaSlot(wrapped.$1),
         );
       }
-      return Value.multi([wrapped.$1, wrapped.$2]);
+      return LuaResults([wrapped.$1, wrapped.$2]);
     }
 
     final hashEntry = keyRaw == null
@@ -1576,10 +1589,10 @@ class NextFunction extends BuiltinFunction {
         storage.hashEntries,
         table,
         wrapped.$1,
-        wrapped.$1.raw,
+        rawLuaSlot(wrapped.$1),
       );
     }
-    return Value.multi([wrapped.$1, wrapped.$2]);
+    return LuaResults([wrapped.$1, wrapped.$2]);
   }
 
   Object? _nextFromEntries(
@@ -1601,7 +1614,7 @@ class NextFunction extends BuiltinFunction {
       if (_shouldSkipWeakKey(table, wrapped.$1)) {
         continue;
       }
-      return Value.multi([wrapped.$1, wrapped.$2]);
+      return LuaResults([wrapped.$1, wrapped.$2]);
     }
     return null;
   }
@@ -1622,25 +1635,33 @@ class NextFunction extends BuiltinFunction {
 
   (Value, Value) _wrapNextResult(dynamic key, dynamic value) {
     final nextKey = switch (key) {
-      final Value value => value,
-      final String value => Value(value, isTempKey: true),
-      final LuaString value => Value(value, isTempKey: true),
-      final num value => Value(value, isTempKey: true),
-      final bool value => Value(value, isTempKey: true),
-      null => Value(null, isTempKey: true),
-      _ => Value(key),
+      final Value value => _wrapExistingNextValue(value),
+      String() || LuaString() => _temporaryNextValue(key),
+      null || bool() || num() || BigInt() => _primitiveNextValue(key),
+      _ => _runtimeNextValue(key),
     };
     final nextValue = switch (value) {
-      final Value wrapped => wrapped,
-      final String value => Value(value, isTempKey: true),
-      final LuaString value => Value(value, isTempKey: true),
-      final num value => Value(value, isTempKey: true),
-      final bool value => Value(value, isTempKey: true),
-      null => Value(null, isTempKey: true),
-      _ => Value(value),
+      final Value wrapped => _wrapExistingNextValue(wrapped),
+      String() || LuaString() => _temporaryNextValue(value),
+      null || bool() || num() || BigInt() => _primitiveNextValue(value),
+      _ => _runtimeNextValue(value),
     };
     return (nextKey, nextValue);
   }
+
+  Value _wrapExistingNextValue(Value value) {
+    value.interpreter ??= interpreter;
+    return value;
+  }
+
+  Value _temporaryNextValue(Object? value) =>
+      freshValueFromLuaSlot(interpreter, value, isTempKey: true);
+
+  Value _primitiveNextValue(Object? value) =>
+      interpreter!.constantPrimitiveValue(value);
+
+  Value _runtimeNextValue(Object? value) =>
+      valueFromLuaSlot(interpreter!, value);
 
   bool _shouldSkipWeakKey(Value table, Value nextKey) {
     if (table.tableWeakMode == null ||
@@ -1691,7 +1712,7 @@ class NextFunction extends BuiltinFunction {
       return true;
     }
 
-    if (candidate is Value && candidate.raw == keyRaw) {
+    if (candidate is Value && rawLuaSlot(candidate) == keyRaw) {
       return true;
     }
 
@@ -1752,11 +1773,9 @@ class PCAllFunction extends BuiltinFunction {
       return _packProtectedCallSuccess(callResult);
     } on TailCallException catch (t) {
       // Perform the tail call using the interpreter and return as success
-      final callee = t.functionValue is Value
-          ? t.functionValue as Value
-          : Value(t.functionValue);
+      final callee = valueFromLuaSlot(interpreter!, t.functionValue);
       final normalizedArgs = t.args
-          .map((a) => a is Value ? a : Value(a))
+          .map((a) => valueFromLuaSlot(interpreter!, a))
           .toList();
       final awaitedResult = await interpreter!.callFunction(
         callee,
@@ -1787,9 +1806,9 @@ class RawEqualFunction extends BuiltinFunction {
   @override
   Object? call(List<Object?> args) {
     if (args.length < 2) throw LuaError("rawequal requires two arguments");
-    final v1 = args[0] as Value;
-    final v2 = args[1] as Value;
-    return Value(v1.raw == v2.raw);
+    final v1 = args[0];
+    final v2 = args[1];
+    return primitiveValue(rawLuaSlot(v1) == rawLuaSlot(v2));
   }
 }
 
@@ -1799,10 +1818,15 @@ class RawLenFunction extends BuiltinFunction {
   @override
   Object? call(List<Object?> args) {
     if (args.isEmpty) throw LuaError("rawlen requires an argument");
-    final value = args[0] as Value;
-    if (value.raw is String) return Value(value.raw.toString().length);
-    if (value.raw is LuaString) return Value((value.raw as LuaString).length);
-    if (value.raw is Map) return Value((value.raw as Map).length);
+    final value = args[0];
+    final rawValue = rawLuaSlot(value);
+    if (rawValue is String) {
+      return primitiveValue(rawValue.length);
+    }
+    if (rawValue is LuaString) {
+      return primitiveValue(rawValue.length);
+    }
+    if (rawValue is Map) return primitiveValue(rawValue.length);
     throw LuaError("rawlen requires a string or table");
   }
 }
@@ -1814,38 +1838,38 @@ class WarnFunction extends BuiltinFunction {
 
   @override
   Future<Object?> call(List<Object?> args) async {
-    if (args.isEmpty) return Value(null);
+    if (args.isEmpty) return primitiveValue(null);
 
-    final firstArg = args[0] as Value;
-    if (firstArg.raw is String) {
-      final message = firstArg.raw.toString();
+    final firstArg = args[0];
+    final rawFirstArg = rawLuaSlot(firstArg);
+    if (rawFirstArg is String) {
+      final message = rawFirstArg;
 
       // Handle control messages
       if (message == "@off") {
         _enabled = false;
-        return Value(null);
+        return primitiveValue(null);
       } else if (message == "@on") {
         _enabled = true;
-        return Value(null);
+        return primitiveValue(null);
       }
     }
 
     if (_enabled) {
       final messages = args
           .map((arg) {
-            final value = arg as Value;
-            return value.raw?.toString() ?? "nil";
+            return rawLuaSlot(arg)?.toString() ?? "nil";
           })
           .join("\t");
 
       // Use IOLib default output for warnings instead of stderr
       final defaultOutput = IOLib.defaultOutput;
-      final luaFile = defaultOutput.raw as LuaFile;
+      final luaFile = rawLuaSlot(defaultOutput) as LuaFile;
       await luaFile.write("Lua warning: $messages\n");
       await luaFile.flush();
     }
 
-    return Value(null);
+    return primitiveValue(null);
   }
 }
 
@@ -1858,9 +1882,11 @@ class XPCallFunction extends BuiltinFunction {
     required int depth,
   }) async {
     if (depth > _maxXpcallMessageHandlerDepth) {
-      return _packXProtectedCallFailure(Value('C stack overflow'));
+      return _packXProtectedCallFailure(
+        valueFromLuaSlot(interpreter!, 'C stack overflow'),
+      );
     }
-    final errorValue = _errorHandlerArgument(error);
+    final errorValue = _errorHandlerArgument(interpreter!, error);
 
     try {
       final handlerResult = await interpreter!.callFunction(handler, [
@@ -1878,7 +1904,7 @@ class XPCallFunction extends BuiltinFunction {
       );
       rethrow;
     } catch (handlerError) {
-      if (_shouldRecurseXpcallHandler(handlerError)) {
+      if (_shouldRecurseXpcallHandler(interpreter!, handlerError)) {
         return await _invokeErrorHandler(
           handler,
           handlerError,
@@ -1918,11 +1944,9 @@ class XPCallFunction extends BuiltinFunction {
       return _packProtectedCallSuccess(callResult);
     } on TailCallException catch (t) {
       // Complete the tail call and still report success
-      final callee = t.functionValue is Value
-          ? t.functionValue as Value
-          : Value(t.functionValue);
+      final callee = valueFromLuaSlot(interpreter!, t.functionValue);
       final normalizedArgs = t.args
-          .map((a) => a is Value ? a : Value(a))
+          .map((a) => valueFromLuaSlot(interpreter!, a))
           .toList();
       final awaitedResult = await interpreter!.callFunction(
         callee,
@@ -1955,9 +1979,7 @@ class CollectGarbageFunction extends BuiltinFunction {
 
   @override
   Future<Object?> call(List<Object?> args) async {
-    final option = args.isNotEmpty
-        ? (args[0] as Value).raw.toString()
-        : "collect";
+    final option = args.isNotEmpty ? rawLuaSlot(args[0]).toString() : "collect";
     Logger.debugLazy(
       () => 'CollectGarbageFunction: option: $option',
       category: 'Base',
@@ -1976,7 +1998,7 @@ class CollectGarbageFunction extends BuiltinFunction {
           if (gcManager.isFinalizerActive) {
             // Lua returns false when collection is in a finalizer to prevent
             // re-entrancy (the finalizer may attempt another collect).
-            return Value(false);
+            return primitiveValue(false);
           }
           if (gcManager.isCycleActive && shouldAbandonIncrementalCycle) {
             gcManager.abandonIncrementalCycleForMajorCollect();
@@ -1990,10 +2012,10 @@ class CollectGarbageFunction extends BuiltinFunction {
           }
           if (insideSortComparator && gcManager.shouldThrottleManualCollect()) {
             gcManager.noteManualCollectSkip();
-            return Value(true);
+            return primitiveValue(true);
           }
           if (!gcManager.tryEnterManualCollect()) {
-            return Value(false);
+            return primitiveValue(false);
           }
           try {
             final wasStopped = gcManager.isStopped;
@@ -2043,7 +2065,7 @@ class CollectGarbageFunction extends BuiltinFunction {
               gcManager.autoTriggerEnabled = previousAuto;
             }
             gcManager.noteManualCollectCompletion();
-            return Value(true);
+            return primitiveValue(true);
           } finally {
             gcManager.exitManualCollect();
           }
@@ -2055,7 +2077,7 @@ class CollectGarbageFunction extends BuiltinFunction {
           final totalKB = totalCredits / 1024.0;
           final integerKB = totalKB.floor().toDouble();
           final fractionalKB = totalKB - integerKB;
-          return Value.multi([Value(integerKB), Value(fractionalKB)]);
+          return LuaResults([integerKB, fractionalKB]);
 
         case "step":
           // "step": Performs a garbage-collection step
@@ -2063,7 +2085,7 @@ class CollectGarbageFunction extends BuiltinFunction {
           // With a zero value, the collector will perform one basic (indivisible) step
           // For non-zero values, the collector will perform as if that amount of memory
           // (in Kbytes) had been allocated by Lua
-          final stepSize = args.length > 1 ? (args[1] as Value).raw as num : 0;
+          final stepSize = args.length > 1 ? rawLuaSlot(args[1]) as num : 0;
           bool cycleComplete = false;
           if (_currentMode == "generational") {
             cycleComplete = await interpreter!.gc.performGenerationalStep(
@@ -2076,7 +2098,7 @@ class CollectGarbageFunction extends BuiltinFunction {
             cycleComplete = interpreter!.gc.performManualStep(sizeKb);
           }
           // Returns true if the step finished a collection cycle
-          return Value(cycleComplete);
+          return primitiveValue(cycleComplete);
 
         case "incremental":
           // "incremental": Change the collector mode to incremental
@@ -2089,15 +2111,15 @@ class CollectGarbageFunction extends BuiltinFunction {
           _currentMode = "incremental";
 
           if (args.length > 1) {
-            interpreter!.gc.majorMultiplier = (args[1] as Value).raw as int;
+            interpreter!.gc.majorMultiplier = rawLuaSlot(args[1]) as int;
           }
           if (args.length > 2) {
-            interpreter!.gc.minorMultiplier = (args[2] as Value).raw as int;
+            interpreter!.gc.minorMultiplier = rawLuaSlot(args[2]) as int;
           }
           if (args.length > 3) {
-            interpreter!.gc.stepSize = (args[3] as Value).raw as int;
+            interpreter!.gc.stepSize = rawLuaSlot(args[3]) as int;
           }
-          return Value(oldMode);
+          return dartStringValue(oldMode);
 
         case "generational":
           // "generational": Change the collector mode to generational
@@ -2109,18 +2131,18 @@ class CollectGarbageFunction extends BuiltinFunction {
           _currentMode = "generational";
 
           if (args.length > 1) {
-            interpreter!.gc.minorMultiplier = (args[1] as Value).raw as int;
+            interpreter!.gc.minorMultiplier = rawLuaSlot(args[1]) as int;
           }
           if (args.length > 2) {
-            interpreter!.gc.majorMultiplier = (args[2] as Value).raw as int;
+            interpreter!.gc.majorMultiplier = rawLuaSlot(args[2]) as int;
           }
-          return Value(oldMode);
+          return dartStringValue(oldMode);
 
         case "param":
           if (args.length < 2) {
             throw LuaError('collectgarbage("param") requires a parameter name');
           }
-          final paramName = (args[1] as Value).raw.toString();
+          final paramName = rawLuaSlot(args[1]).toString();
 
           int currentValue() => switch (paramName) {
             "pause" => interpreter!.gc.majorMultiplier,
@@ -2133,7 +2155,7 @@ class CollectGarbageFunction extends BuiltinFunction {
 
           final previousValue = currentValue();
           if (args.length > 2) {
-            final newValue = ((args[2] as Value).raw as num).toInt();
+            final newValue = (rawLuaSlot(args[2]) as num).toInt();
             switch (paramName) {
               case "pause":
               case "majormul":
@@ -2150,45 +2172,45 @@ class CollectGarbageFunction extends BuiltinFunction {
                 throw LuaError('invalid collectgarbage parameter: $paramName');
             }
           }
-          return Value(previousValue);
+          return primitiveValue(previousValue);
 
         case "isrunning":
           // "isrunning": Returns a boolean that tells whether the collector
           // is running (i.e., not stopped)
-          return Value(!interpreter!.gc.isStopped);
+          return primitiveValue(!interpreter!.gc.isStopped);
 
         case "stop":
           // "stop": Stops automatic execution of the garbage collector
           // The collector will run only when explicitly invoked, until a call to restart it
           interpreter!.gc.stop();
           interpreter!.gc.autoTriggerEnabled = false;
-          return Value(true);
+          return primitiveValue(true);
 
         case "restart":
           // "restart": Restarts automatic execution of the garbage collector
           interpreter!.gc.start();
           interpreter!.gc.autoTriggerEnabled = true;
-          return Value(true);
+          return primitiveValue(true);
 
         case "setpause":
           // "setpause": Sets the pause of the collector
           // Returns the previous value of the pause
           final oldPause = interpreter!.gc.majorMultiplier;
           if (args.length > 1) {
-            final newPause = (args[1] as Value).raw as num;
+            final newPause = rawLuaSlot(args[1]) as num;
             interpreter!.gc.majorMultiplier = newPause.toInt();
           }
-          return Value(oldPause);
+          return primitiveValue(oldPause);
 
         case "setstepmul":
           // "setstepmul": Sets the step multiplier of the collector
           // Returns the previous value of the step multiplier
           final oldStepMul = interpreter!.gc.minorMultiplier;
           if (args.length > 1) {
-            final newStepMul = (args[1] as Value).raw as num;
+            final newStepMul = rawLuaSlot(args[1]) as num;
             interpreter!.gc.minorMultiplier = newStepMul.toInt();
           }
-          return Value(oldStepMul);
+          return primitiveValue(oldStepMul);
 
         default:
           throw LuaError("invalid option for collectgarbage: $option");
@@ -2206,21 +2228,21 @@ class RawGetFunction extends BuiltinFunction {
       throw LuaError("rawget requires table and index arguments");
     }
 
-    final table = args[0] as Value;
-    if (table.raw is! Map) {
+    final table = args[0];
+    final rawTable = rawLuaSlot(table);
+    if (rawTable is! Map) {
       throw LuaError("rawget requires a table as first argument");
     }
 
-    final key = args[1] as Value;
-    final map = table.raw as Map;
+    final key = args[1];
 
     // Use raw key like normal table operations and rawset do
-    var rawKey = key.raw;
+    var rawKey = rawLuaSlot(key);
     if (rawKey is LuaString) {
       rawKey = rawKey.toString();
     }
-    final value = map[rawKey];
-    return value ?? Value(null);
+    final value = rawTable[rawKey];
+    return value ?? primitiveValue(null);
   }
 }
 
@@ -2238,19 +2260,19 @@ class PairsFunction extends BuiltinFunction {
       return await table.callMetamethodAsync('__pairs', [table]);
     }
 
-    if (table.raw is! Map) {
+    if (rawLuaSlot(table) is! Map) {
       throw LuaError(_badTableArgumentMessage('pairs', table));
     }
     final nextFunc = interpreter!.globals.get('next');
-    final nextValue = nextFunc is Value ? nextFunc : Value(nextFunc);
-    return Value.multi([nextValue, table, Value(null)]);
+    final nextValue = valueFromLuaSlot(interpreter!, nextFunc);
+    return LuaResults([nextValue, table, primitiveValue(null)]);
   }
 }
 
 String _badTableArgumentMessage(String functionName, Value? value) {
   final typeName = switch (value) {
     null => 'no value',
-    final Value value => getLuaType(value.raw),
+    final Value value => getLuaType(rawLuaSlot(value)),
   };
   return "bad argument #1 to '$functionName' (table expected, got $typeName)";
 }
@@ -2287,7 +2309,7 @@ class RequireFunction extends BuiltinFunction {
   @override
   Future<Object?> call(List<Object?> args) async {
     if (args.isEmpty) throw LuaError("require() needs a module name");
-    final moduleName = (args[0] as Value).raw.toString();
+    final moduleName = rawLuaSlot(args[0]).toString();
 
     Logger.debugLazy(
       () => "Looking for module '$moduleName'",
@@ -2304,29 +2326,26 @@ class RequireFunction extends BuiltinFunction {
     }
 
     // Get package.loaded table first to check for standard library modules
-    if (packageTable.raw is Map) {
-      final packageTableEarly = packageTable.raw as Map;
-      if (packageTableEarly.containsKey("loaded")) {
-        final loadedValueEarly = packageTableEarly["loaded"] as Value;
-        if (loadedValueEarly.raw is Map) {
-          final loadedEarly = loadedValueEarly.raw as Map;
-          if (loadedEarly.containsKey(moduleName)) {
-            final val = loadedEarly[moduleName];
-            if (val is Value && val.raw != false) {
-              Logger.debugLazy(
-                () => "Found module '$moduleName' in package.loaded",
-                category: 'Require',
-              );
-              return val;
-            }
+    final rawPackageTable = rawLuaSlot(packageTable);
+    if (rawPackageTable is! Map) {
+      throw LuaError("package is not a table");
+    }
+    if (rawPackageTable.containsKey("loaded")) {
+      final loadedValueEarly = rawPackageTable["loaded"] as Value;
+      final rawLoadedEarly = rawLuaSlot(loadedValueEarly);
+      if (rawLoadedEarly is Map) {
+        final loadedEarly = rawLoadedEarly;
+        if (loadedEarly.containsKey(moduleName)) {
+          final val = loadedEarly[moduleName];
+          if (val is Value && rawLuaSlot(val) != false) {
+            Logger.debugLazy(
+              () => "Found module '$moduleName' in package.loaded",
+              category: 'Require',
+            );
+            return val;
           }
         }
       }
-    }
-
-    // Get package.loaded table
-    if (packageTable.raw is! Map) {
-      throw LuaError("package is not a table");
     }
 
     // Use the stored package table
@@ -2335,7 +2354,7 @@ class RequireFunction extends BuiltinFunction {
     if (packageTable.containsKey('path')) {
       final pathField = packageTable['path'];
       if (pathField is Value) {
-        final rawPath = pathField.raw;
+        final rawPath = rawLuaSlot(pathField);
         if (rawPath is! String && rawPath is! LuaString) {
           throw LuaError('package.path must be a string');
         }
@@ -2344,7 +2363,10 @@ class RequireFunction extends BuiltinFunction {
 
     // Ensure package.loaded exists
     if (!packageTable.containsKey("loaded")) {
-      packageTable["loaded"] = Value({});
+      packageTable["loaded"] = valueFromOptionalLuaSlot(
+        interpreter,
+        <dynamic, dynamic>{},
+      );
       Logger.debugLazy(
         () => "Created new package.loaded table",
         category: 'Require',
@@ -2363,7 +2385,7 @@ class RequireFunction extends BuiltinFunction {
     // Step 1: Check if module is already loaded
     if (loaded.containsKey(moduleName)) {
       final loadedVal = loaded[moduleName];
-      if (loadedVal is Value && loadedVal.raw != false) {
+      if (loadedVal is Value && rawLuaSlot(loadedVal) != false) {
         Logger.debugLazy(
           () => "Module '$moduleName' already loaded: $loadedVal",
           category: 'Require',
@@ -2373,14 +2395,13 @@ class RequireFunction extends BuiltinFunction {
     }
 
     // Mark module as being loaded to handle circular requires
-    loaded[moduleName] = Value(false);
+    loaded[moduleName] = primitiveValue(false);
 
     // Step 2: Try the preload table first
     final preloadTable = packageTable["preload"];
-    if (preloadTable != null &&
-        preloadTable is Value &&
-        preloadTable.raw is Map) {
-      final preloadMap = preloadTable.raw as Map;
+    final rawPreloadTable = rawLuaSlot(preloadTable);
+    if (preloadTable is Value && rawPreloadTable is Map) {
+      final preloadMap = rawPreloadTable;
       if (preloadMap.containsKey(moduleName)) {
         Logger.debugLazy(
           () => "Found module '$moduleName' in preload table",
@@ -2391,12 +2412,12 @@ class RequireFunction extends BuiltinFunction {
         if (loader is Value && loader.isCallable()) {
           try {
             final result = await interpreter!.callFunction(loader, [
-              Value(moduleName),
-              Value(':preload:'),
+              valueFromLuaSlot(interpreter!, moduleName),
+              valueFromLuaSlot(interpreter!, ':preload:'),
             ]);
-            final stored = result is Value ? result : Value(result);
+            final stored = valueFromLuaSlot(interpreter!, result);
             loaded[moduleName] = stored;
-            return Value.multi([stored, Value(':preload:')]);
+            return LuaResults([stored, ':preload:']);
           } catch (e) {
             throw LuaError(
               "error loading module '$moduleName' from preload: $e",
@@ -2410,9 +2431,8 @@ class RequireFunction extends BuiltinFunction {
     // Lua requires require() to use package.searchers; if it is not a table,
     // require must error out (attrib.lua test expects this).
     {
-      final rawPkg = packageTable.raw as Map;
-      final searchersEntry = rawPkg['searchers'];
-      if (searchersEntry is! Value || searchersEntry.raw is! List) {
+      final searchersEntry = rawPackageTable['searchers'];
+      if (searchersEntry is! Value || rawLuaSlot(searchersEntry) is! List) {
         throw LuaError("package.searchers must be a table");
       }
     }
@@ -2437,39 +2457,37 @@ class RequireFunction extends BuiltinFunction {
     errorLines.add("no field package.preload['$moduleName']");
 
     // Add path errors
-    if (packageTable.raw is Map) {
-      final pkgTable = packageTable.raw as Map;
+    final pkgTable = rawPackageTable;
 
-      // Add Lua path errors
-      if (pkgTable.containsKey("path") && pkgTable["path"] is Value) {
-        final pathValue = pkgTable["path"] as Value;
-        final rawPath = pathValue.raw;
-        if (rawPath is String || rawPath is LuaString) {
-          final templates = rawPath.toString().split(";");
-          for (final template in templates) {
-            if (template.isEmpty) continue;
-            final filename = template.replaceAll("?", moduleName);
-            errorLines.add("no file '$filename'");
-          }
+    // Add Lua path errors
+    if (pkgTable.containsKey("path") && pkgTable["path"] is Value) {
+      final pathValue = pkgTable["path"] as Value;
+      final rawPath = rawLuaSlot(pathValue);
+      if (rawPath is String || rawPath is LuaString) {
+        final templates = rawPath.toString().split(";");
+        for (final template in templates) {
+          if (template.isEmpty) continue;
+          final filename = template.replaceAll("?", moduleName);
+          errorLines.add("no file '$filename'");
         }
       }
+    }
 
-      // Add C path errors
-      if (pkgTable.containsKey("cpath") && pkgTable["cpath"] is Value) {
-        final cpathValue = pkgTable["cpath"] as Value;
-        final rawCPath = cpathValue.raw;
-        if (rawCPath is String || rawCPath is LuaString) {
-          final templates = rawCPath.toString().split(";");
-          for (final template in templates) {
-            if (template.isEmpty) continue;
-            final filename = template.replaceAll("?", moduleName);
-            errorLines.add("no file '$filename'");
-          }
-        } else if (moduleName == "XXX") {
-          // Special case for the attrib.lua test
-          errorLines.add("no file 'XXX.so'");
-          errorLines.add("no file 'XXX/init'");
+    // Add C path errors
+    if (pkgTable.containsKey("cpath") && pkgTable["cpath"] is Value) {
+      final cpathValue = pkgTable["cpath"] as Value;
+      final rawCPath = rawLuaSlot(cpathValue);
+      if (rawCPath is String || rawCPath is LuaString) {
+        final templates = rawCPath.toString().split(";");
+        for (final template in templates) {
+          if (template.isEmpty) continue;
+          final filename = template.replaceAll("?", moduleName);
+          errorLines.add("no file '$filename'");
         }
+      } else if (moduleName == "XXX") {
+        // Special case for the attrib.lua test
+        errorLines.add("no file 'XXX.so'");
+        errorLines.add("no file 'XXX/init'");
       }
     }
 
@@ -2493,7 +2511,7 @@ class RequireFunction extends BuiltinFunction {
     Value loaded,
     List<String> errors,
   ) async {
-    final rawPkg = packageTable.raw as Map;
+    final rawPkg = rawLuaSlot(packageTable) as Map;
     final searchersAny = rawPkg['searchers'];
     final typeName = searchersAny == null
         ? 'null'
@@ -2507,7 +2525,7 @@ class RequireFunction extends BuiltinFunction {
     if (searchersEntry is! Value) {
       throw LuaError("package.searchers must be a table");
     }
-    final searchersRaw = searchersEntry.raw;
+    final searchersRaw = rawLuaSlot(searchersEntry);
     if (searchersRaw is! List) {
       throw LuaError("package.searchers must be a table");
     }
@@ -2529,12 +2547,13 @@ class RequireFunction extends BuiltinFunction {
         // for built-in package.searchers) to preserve existing return-value
         // semantics.  Route Lua closures and bytecode callables through
         // callFunction so their coroutine/yield semantics are respected.
-        final searcherRaw = searcher.raw;
+        final searcherRaw = rawLuaSlot(searcher);
+        final moduleNameValue = valueFromLuaSlot(interpreter!, moduleName);
         if (searcherRaw is Function) {
-          result = await searcherRaw(<Object?>[Value(moduleName)]);
+          result = await searcherRaw(<Object?>[moduleNameValue]);
         } else {
           result = await interpreter!.callFunction(searcher, <Object?>[
-            Value(moduleName),
+            moduleNameValue,
           ]);
         }
       } catch (error) {
@@ -2550,7 +2569,7 @@ class RequireFunction extends BuiltinFunction {
         final loader = searcherReturns[0] as Value;
         final loaderData = searcherReturns.length > 1
             ? searcherReturns[1]
-            : Value(null);
+            : primitiveValue(null);
 
         Logger.debugLazy(
           () =>
@@ -2561,33 +2580,36 @@ class RequireFunction extends BuiltinFunction {
         // Same dispatch logic for the loader: direct call for Dart functions,
         // callFunction for Lua/bytecode callables.
         final Object? moduleResult;
-        final loaderRaw = loader.raw;
+        final loaderRaw = rawLuaSlot(loader);
+        final moduleNameValue = valueFromLuaSlot(interpreter!, moduleName);
         if (loaderRaw is Function) {
           moduleResult = await loaderRaw(<Object?>[
-            Value(moduleName),
+            moduleNameValue,
             loaderData,
           ]);
         } else {
           moduleResult = await interpreter!.callFunction(loader, <Object?>[
-            Value(moduleName),
+            moduleNameValue,
             loaderData,
           ]);
         }
 
         final loadedEntry = loaded[moduleName];
-        final loadedRaw = loadedEntry is Value ? loadedEntry.raw : loadedEntry;
+        final loadedRaw = rawLuaSlot(loadedEntry);
         if (loadedRaw == null || loadedRaw == false) {
-          final resultRaw = moduleResult is Value
-              ? moduleResult.raw
+          final resultRaw = rawLuaSlot(moduleResult);
+          loaded[moduleName] = resultRaw == null
+              ? primitiveValue(true)
               : moduleResult;
-          loaded[moduleName] = resultRaw == null ? Value(true) : moduleResult;
         }
 
         final ret = loaded[moduleName];
-        if (loaderData is Value && loaderData.raw != null) {
-          if (loaderData.raw is String) {
-            final normalizedLoaderData = Value(
-              path.normalize(loaderData.raw as String),
+        if (loaderData is Value && !isLuaNilSlot(loaderData)) {
+          final rawLoaderData = rawLuaSlot(loaderData);
+          if (rawLoaderData is String) {
+            final normalizedLoaderData = valueFromLuaSlot(
+              interpreter!,
+              path.normalize(rawLoaderData),
             );
             return (found: true, result: [ret, normalizedLoaderData]);
           }
@@ -2596,8 +2618,8 @@ class RequireFunction extends BuiltinFunction {
         return (found: true, result: ret);
       } else if (result is String) {
         errors.add(result);
-      } else if (result is Value && result.raw is String) {
-        errors.add(result.raw.toString());
+      } else if (result is Value && rawLuaSlot(result) is String) {
+        errors.add(rawLuaSlot(result).toString());
       }
     }
 
@@ -2605,11 +2627,12 @@ class RequireFunction extends BuiltinFunction {
   }
 
   List<Object?>? _returnValues(Object? result) {
+    final luaResults = luaResultValues(result);
+    if (luaResults != null) {
+      return List<Object?>.from(luaResults);
+    }
     if (result is List) {
       return List<Object?>.from(result);
-    }
-    if (result is Value && result.isMulti && result.raw is List) {
-      return List<Object?>.from(result.raw as List);
     }
     return null;
   }

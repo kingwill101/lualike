@@ -82,8 +82,12 @@ class CallFrame {
     this.isDebugHook = false,
     this.isTailCall = false,
     this.engineFrameState,
-  }) : debugLocals = debugLocals ?? <MapEntry<String, Value>>[],
+  })  : debugLocals = debugLocals ?? <MapEntry<String, Value>>[],
        transferValues = transferValues ?? <Value>[];
+
+  static final List<MapEntry<String, Value>> _emptyMapEntryList =
+      <MapEntry<String, Value>>[];
+  static final List<Value> _emptyValueList = <Value>[];
 
   /// Creates a LuaStackFrame from this call frame.
   LuaStackFrame toLuaStackFrame() {
@@ -127,6 +131,13 @@ class CallStack {
   /// The frames in the call stack, from most recent to oldest.
   final List<CallFrame> _frames = [];
 
+  /// Cached unmodifiable view of [_frames].
+  ///
+  /// Invalidated (set to null) on every push/pop so the view is only
+  /// re-allocated when the stack structure actually changes — not on
+  /// every [frames] read.
+  List<CallFrame>? _framesView;
+
   /// The current script path, if known
   String? _scriptPath;
 
@@ -147,6 +158,7 @@ class CallStack {
     String debugNameWhat = '',
     Value? callable,
   }) {
+    _framesView = null;
     _frames.add(
       CallFrame(
         functionName,
@@ -162,18 +174,22 @@ class CallStack {
 
   /// Restores a previously captured frame onto the stack.
   void pushFrame(CallFrame frame) {
+    _framesView = null;
     _frames.add(frame);
   }
 
   /// Pops the top frame from the call stack.
   CallFrame? pop() {
-    return _frames.isNotEmpty ? _frames.removeLast() : null;
+    if (_frames.isEmpty) return null;
+    _framesView = null;
+    return _frames.removeLast();
   }
 
   /// Removes a specific frame from the stack by identity.
   bool removeFrame(CallFrame frame) {
     for (var i = _frames.length - 1; i >= 0; i--) {
       if (identical(_frames[i], frame)) {
+        _framesView = null;
         _frames.removeAt(i);
         return true;
       }
@@ -188,10 +204,15 @@ class CallStack {
   CallFrame? get top => _frames.isNotEmpty ? _frames.last : null;
 
   /// Exposes the current frames without allowing external mutation.
-  Iterable<CallFrame> get frames => List.unmodifiable(_frames);
+  ///
+  /// The view is cached and only re-allocated when the stack structure
+  /// changes (push/pop), not on every read.
+  List<CallFrame> get frames =>
+      _framesView ??= List.unmodifiable(_frames);
 
   /// Clears the call stack.
   void clear() {
+    _framesView = null;
     _frames.clear();
   }
 

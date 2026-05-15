@@ -1,25 +1,45 @@
 import 'package:lualike/lualike.dart';
 import 'package:lualike/src/gc/gc.dart' show GCObject;
 import 'package:lualike/src/gc/gc_weights.dart';
+import 'package:lualike/src/runtime/lua_results.dart';
+import 'package:lualike/src/runtime/lua_slot.dart';
 // Per-interpreter GC available via Environment.interpreter.gc
 import 'package:lualike/src/gc/gc_access.dart';
 import 'package:lualike/src/gc/memory_credits.dart';
 
 /// A generic box class that wraps a single value of type T.
 /// Used to create mutable references to values in the environment.
-class Box<T> extends GCObject {
+class Box<T> with GCObject {
   /// The wrapped value.
   T _value;
 
-  T get value => _value;
+  T get value {
+    _applyBindingAttributes(_value);
+    return _value;
+  }
+
   set value(T newValue) {
     _value = newValue;
+    _applyBindingAttributes(newValue);
     final gc = interpreter?.gc ?? GCAccess.defaultManager;
     gc?.noteReferenceWrite(this, newValue);
   }
 
   /// Whether this binding represents a local variable.
   final bool isLocal;
+
+  /// Whether this binding is a Lua `<const>` binding.
+  ///
+  /// This is the owner-side form of the metadata that historically lived on
+  /// [Value]. The value flag is still mirrored for public compatibility while
+  /// internals migrate to reading binding attributes from boxes.
+  bool isConst;
+
+  /// Whether this binding is a Lua `<close>` binding.
+  bool isToBeClose;
+
+  /// Whether assignment to this binding is blocked by Lua binding attributes.
+  bool get preventsAssignment => isConst || isToBeClose;
 
   /// Whether this Box should be excluded from memory credit tracking.
   /// Transient boxes (function parameters, local variables in executing functions)
@@ -42,12 +62,33 @@ class Box<T> extends GCObject {
   Box(
     T value, {
     this.isLocal = false,
+    bool? isConst,
+    bool? isToBeClose,
     this.isTransient = false,
     this.interpreter,
-  }) : _value = value {
+  }) : isConst = isConst ?? _valueIsConst(value),
+       isToBeClose = isToBeClose ?? _valueIsToBeClose(value),
+       _value = value {
+    _applyBindingAttributes(_value);
     // Register with GC, but don't count allocation for transient boxes
     final gc = interpreter?.gc ?? GCAccess.fromEnv(null);
     gc?.register(this, countAllocation: !isTransient);
+  }
+
+  static bool _valueIsConst(Object? value) => value is Value && value.isConst;
+
+  static bool _valueIsToBeClose(Object? value) =>
+      value is Value && value.isToBeClose;
+
+  void _applyBindingAttributes(Object? value) {
+    if (value is Value) {
+      if (isConst) {
+        value.isConst = true;
+      }
+      if (isToBeClose) {
+        value.isToBeClose = true;
+      }
+    }
   }
 
   @override
@@ -56,9 +97,16 @@ class Box<T> extends GCObject {
   @override
   List<GCObject> getReferences() {
     // Skip nil values to allow weak table collection
-    if (value == null) return [];
-    if (value is Value && value.isNil) return [];
-    return value is GCObject ? [value as GCObject] : [];
+    final current = value;
+    if (current == null) return [];
+    if (current is Value && current.isNil) return [];
+    if (current is LuaResults) {
+      return [
+        for (final entry in current.values)
+          if (entry is GCObject) entry,
+      ];
+    }
+    return current is GCObject ? [current] : [];
   }
 
   /// Marks this box as being referenced by an upvalue.
@@ -133,7 +181,7 @@ class Box<T> extends GCObject {
 /// The original `define()` method couldn't distinguish these cases correctly,
 /// leading to bugs where local variables in main scripts affected globals.
 /// The newer methods provide precise control over each scenario.
-class Environment extends GCObject {
+class Environment with GCObject {
   static int totalCreated = 0;
   static int totalFreed = 0;
   static int maxActive = 0;
@@ -224,16 +272,17 @@ class Environment extends GCObject {
       return;
     }
     final gValue = gBox.value;
-    if (gValue is! Value || gValue.raw is! Map) {
+    final gRaw = rawLuaSlot(gValue);
+    if (gValue is! Value || gRaw is! Map) {
       return;
     }
 
-    final map = gValue.raw as Map;
+    final map = gRaw;
     final manager = rootEnv.interpreter?.gc ?? GCAccess.defaultManager;
-    if (value is Value ? value.raw == null : value == null) {
+    if (rawLuaSlot(value) == null) {
       map.remove(name);
     } else {
-      final wrappedValue = value is Value ? value : Value(value);
+      final wrappedValue = cachedPrimitiveOrValue(rootEnv.interpreter, value);
       if (wrappedValue.interpreter == null && rootEnv.interpreter != null) {
         wrappedValue.interpreter = rootEnv.interpreter;
       }
@@ -365,7 +414,7 @@ class Environment extends GCObject {
       if (Logger.enabled) {
         Logger.debugLazy(
           () =>
-              "Found '$name' = $val (type: ${val is Value ? val.raw.runtimeType : val.runtimeType}) in env ($hashCode)",
+              "Found '$name' = $val (type: ${rawLuaSlot(val).runtimeType}) in env ($hashCode)",
           category: 'Env',
         );
       }
@@ -430,23 +479,23 @@ class Environment extends GCObject {
 
     // First check current scope if this is a closure
     if (isClosure && values.containsKey(name)) {
-      final currentValue = values[name]!.value;
+      final box = values[name]!;
+      final currentValue = box.value;
       Logger.debugLazy(
         () =>
             "Found existing value in closure scope: '$name' = "
             '$currentValue',
         category: 'Env',
       );
-      if (currentValue is Value &&
-          (currentValue.isConst || currentValue.isToBeClose)) {
+      if (box.preventsAssignment) {
         Logger.debugLazy(
           () => "Attempt to modify const variable '$name'",
           category: 'Env',
         );
         throw LuaError("attempt to assign to const variable '$name'");
       }
-      if (!_tryFastReplaceBoxValue(values[name]!, value)) {
-        values[name]!.value = value;
+      if (!_tryFastReplaceBoxValue(box, value)) {
+        box.value = value;
       }
       Logger.debugLazy(
         () => "Updated closure variable '$name' to $value",
@@ -457,9 +506,7 @@ class Environment extends GCObject {
 
     if (declaredGlobals.containsKey(name)) {
       final box = declaredGlobals[name]!;
-      final currentValue = box.value;
-      if (currentValue is Value &&
-          (currentValue.isConst || currentValue.isToBeClose)) {
+      if (box.preventsAssignment) {
         Logger.debugLazy(
           () => "Attempt to modify const declared global '$name'",
           category: 'Env',
@@ -477,23 +524,23 @@ class Environment extends GCObject {
     Environment? current = this;
     while (current != null) {
       if (current.values.containsKey(name)) {
-        final currentValue = current.values[name]!.value;
+        final box = current.values[name]!;
+        final currentValue = box.value;
         Logger.debugLazy(
           () =>
               "Found existing value in env (${current.hashCode}): "
               "'$name' = $currentValue",
           category: 'Env',
         );
-        if (currentValue is Value &&
-            (currentValue.isConst || currentValue.isToBeClose)) {
+        if (box.preventsAssignment) {
           Logger.debugLazy(
             () => "Attempt to modify const variable '$name'",
             category: 'Env',
           );
           throw LuaError("attempt to assign to const variable '$name'");
         }
-        if (!_tryFastReplaceBoxValue(current.values[name]!, value)) {
-          current.values[name]!.value = value;
+        if (!_tryFastReplaceBoxValue(box, value)) {
+          box.value = value;
         }
         Logger.debugLazy(
           () =>
@@ -528,7 +575,7 @@ class Environment extends GCObject {
     _syncGlobalTableEntry(name, value);
 
     // Track to-be-closed variables
-    if (value is Value && value.isToBeClose) {
+    if (box.isToBeClose) {
       rootEnv.toBeClosedVars.add(name);
       Logger.debugLazy(
         () => "Added '$name' to to-be-closed variables list in root env",
@@ -579,7 +626,7 @@ class Environment extends GCObject {
     _updateCredits();
 
     // Track to-be-closed variables
-    if (trackToBeClosed && value is Value && value.isToBeClose) {
+    if (trackToBeClosed && box.isToBeClose) {
       toBeClosedVars.add(name);
       Logger.debugLazy(
         () => "Added '$name' to to-be-closed variables list",
@@ -625,14 +672,13 @@ class Environment extends GCObject {
     Environment? current = this;
     while (current != null) {
       if (current.values.containsKey(name) && current.values[name]!.isLocal) {
-        final currentValue = current.values[name]!.value;
+        final box = current.values[name]!;
         Logger.debugLazy(
           () => "Found local variable '$name' in env (${current.hashCode})",
           category: 'Env',
         );
 
-        if (currentValue is Value &&
-            (currentValue.isConst || currentValue.isToBeClose)) {
+        if (box.preventsAssignment) {
           Logger.debugLazy(
             () => "Attempt to modify const variable '$name'",
             category: 'Env',
@@ -640,7 +686,7 @@ class Environment extends GCObject {
           throw LuaError("attempt to assign to const variable '$name'");
         }
 
-        current.values[name]!.value = value;
+        box.value = value;
         Logger.debugLazy(
           () =>
               "Updated local variable '$name' to $value in env "
@@ -699,8 +745,7 @@ class Environment extends GCObject {
     // Check if global variable already exists
     if (rootEnv.values.containsKey(name)) {
       final box = rootEnv.values[name]!;
-      final currentValue = box.value;
-      if (currentValue is Value && currentValue.isConst) {
+      if (box.preventsAssignment) {
         Logger.debugLazy(
           () => "Attempt to modify const global variable '$name'",
           category: 'Env',
@@ -741,7 +786,7 @@ class Environment extends GCObject {
     _syncGlobalTableEntry(name, rootEnv.values[name]!.value);
 
     // Track to-be-closed variables in root environment
-    if (value is Value && value.isToBeClose) {
+    if (rootEnv.values[name]!.isToBeClose) {
       rootEnv.toBeClosedVars.add(name);
       Logger.debugLazy(
         () => "Added '$name' to to-be-closed variables list in root env",
@@ -811,9 +856,9 @@ class Environment extends GCObject {
       return box.value;
     }
 
-    final gValue = rootEnv.values['_G']?.value;
-    if (gValue is Value && gValue.raw is Map) {
-      return (gValue.raw as Map)[name];
+    final rawGlobalTable = rawLuaSlot(rootEnv.values['_G']?.value);
+    if (rawGlobalTable is Map) {
+      return rawGlobalTable[name];
     }
     return null;
   }
@@ -886,8 +931,9 @@ class Environment extends GCObject {
         }
         return luaError.message;
       }
-      if (error case final Value value when value.raw is LuaError) {
-        final luaError = value.raw as LuaError;
+      final rawError = rawLuaSlot(error);
+      if (error is Value && rawError is LuaError) {
+        final luaError = rawError;
         if (luaError.cause != null && luaError.cause is! LuaError) {
           return luaError.cause;
         }
@@ -974,14 +1020,17 @@ class Environment extends GCObject {
     final envValue = Value(envTable, interpreter: rootEnv.interpreter);
     final inheritedEnvValue = switch (globalEnv.get('_ENV')) {
       final Value value => value,
-      final Object? value? => Value(value),
+      final Object? value? => cachedPrimitiveOrValue(
+        rootEnv.interpreter,
+        value,
+      ),
       _ => null,
     };
 
     final proxyHandler = <String, Function>{
       '__index': (List<Object?> args) {
         final key = args[1] as Value;
-        final keyStr = key.raw.toString();
+        final keyStr = rawLuaSlot(key).toString();
         Logger.debugLazy(
           () => "Module env __index: looking up '$keyStr'",
           category: 'Env',
@@ -989,8 +1038,9 @@ class Environment extends GCObject {
         if (envTable.containsKey(keyStr)) {
           return envTable[keyStr];
         }
-        if (inheritedEnvValue != null && inheritedEnvValue.raw is Map) {
-          final inheritedTable = inheritedEnvValue.raw as Map;
+        final inheritedRaw = rawLuaSlot(inheritedEnvValue);
+        if (inheritedEnvValue != null && inheritedRaw is Map) {
+          final inheritedTable = inheritedRaw;
           if (inheritedTable.containsKey(keyStr)) {
             return inheritedTable[keyStr];
           }
@@ -1000,7 +1050,7 @@ class Environment extends GCObject {
       '__newindex': (List<Object?> args) {
         final key = args[1] as Value;
         final value = args[2] as Value;
-        final keyStr = key.raw.toString();
+        final keyStr = rawLuaSlot(key).toString();
         final gc = rootEnv.interpreter?.gc ?? GCAccess.defaultManager;
         Logger.debugLazy(
           () => "Module env __newindex: setting '$keyStr' to $value",
@@ -1011,8 +1061,9 @@ class Environment extends GCObject {
         gc?.noteReferenceWrite(envValue, keyStr);
         gc?.noteReferenceWrite(envValue, value);
         envValue.markTableModified();
-        if (inheritedEnvValue != null && inheritedEnvValue.raw is Map) {
-          final inheritedTable = inheritedEnvValue.raw as Map;
+        final inheritedRaw = rawLuaSlot(inheritedEnvValue);
+        if (inheritedEnvValue != null && inheritedRaw is Map) {
+          final inheritedTable = inheritedRaw;
           inheritedTable[keyStr] = value;
           gc?.noteReferenceWrite(inheritedEnvValue, keyStr);
           gc?.noteReferenceWrite(inheritedEnvValue, value);
@@ -1020,7 +1071,8 @@ class Environment extends GCObject {
         } else {
           rootEnv.defineGlobal(keyStr, value);
         }
-        return Value(null);
+        return rootEnv.interpreter?.constantPrimitiveValue(null) ??
+            Value.primitive(null);
       },
     };
 
@@ -1065,13 +1117,6 @@ class Environment extends GCObject {
 }
 
 bool _tryFastReplaceBoxValue(Box<dynamic> box, dynamic incoming) {
-  bool isFastReplacePayload(Object? raw) =>
-      raw == null ||
-      raw is num ||
-      raw is bool ||
-      raw is String ||
-      raw is LuaString;
-
   if (incoming is! Value) {
     return false;
   }
@@ -1079,10 +1124,13 @@ bool _tryFastReplaceBoxValue(Box<dynamic> box, dynamic incoming) {
   if (existing is! Value) {
     return false;
   }
-  if (existing.isConst || existing.isToBeClose) {
+  if (existing.isSharedPrimitive) {
     return false;
   }
-  if (incoming.isMulti || incoming.isToBeClose) {
+  if (box.preventsAssignment || existing.isConst || existing.isToBeClose) {
+    return false;
+  }
+  if (incoming.isMulti || incoming.isConst || incoming.isToBeClose) {
     return false;
   }
   if (existing.metatable != null || incoming.metatable != null) {
@@ -1091,11 +1139,11 @@ bool _tryFastReplaceBoxValue(Box<dynamic> box, dynamic incoming) {
   if (incoming.upvalues != null || existing.upvalues != null) {
     return false;
   }
-  if (!isFastReplacePayload(existing.raw)) {
+  if (!isLuaPrimitiveSlot(rawLuaSlot(existing))) {
     return false;
   }
-  final raw = incoming.raw;
-  if (!isFastReplacePayload(raw)) {
+  final raw = rawLuaSlot(incoming);
+  if (!isLuaPrimitiveSlot(raw)) {
     return false;
   }
 

@@ -3,6 +3,7 @@ import 'dart:typed_data';
 import 'chunk.dart';
 import '../number_limits.dart';
 import '../number_utils.dart';
+import '../byte_data.dart' as b64;
 
 Uint8List serializeLuaBytecodeChunk(LuaBytecodeBinaryChunk chunk) {
   final writer = _LuaBytecodeWriter();
@@ -220,7 +221,7 @@ final class _LuaBytecodeWriter {
       case 4:
         data.setInt32(0, value, Endian.little);
       case 8:
-        data.setInt64(0, value, Endian.little);
+        b64.writeInt64(data, 0, value);
       default:
         throw ArgumentError.value(size, 'size', 'Unsupported integer size');
     }
@@ -237,7 +238,7 @@ final class _LuaBytecodeWriter {
       case 4:
         data.setUint32(0, value, Endian.little);
       case 8:
-        data.setUint64(0, value, Endian.little);
+        b64.writeUint64(data, 0, value);
       default:
         throw ArgumentError.value(size, 'size', 'Unsupported integer size');
     }
