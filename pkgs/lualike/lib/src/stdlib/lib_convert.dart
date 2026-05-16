@@ -11,6 +11,7 @@ import 'package:lualike/src/interpreter/interpreter.dart';
 import 'package:lualike/src/lua_error.dart';
 import 'package:lualike/src/lua_string.dart';
 import 'package:lualike/src/runtime/lua_slot.dart';
+import 'package:lualike/src/stdlib/doc.dart';
 import 'package:lualike/src/value.dart';
 import 'library.dart';
 
@@ -18,6 +19,10 @@ import 'library.dart';
 class ConvertLibrary extends Library {
   @override
   String get name => "convert";
+
+  @override
+  String get description =>
+      'Data conversion utilities between common formats.';
 
   @override
   void registerFunctions(LibraryRegistrationContext context) {
@@ -64,6 +69,16 @@ void defineConvertLibrary({required Environment env, LuaRuntime? vm}) {
 
 class JsonEncode extends BuiltinFunction {
   JsonEncode(super.interpreter);
+
+  @override
+  FunctionDoc? get doc => FunctionDoc(
+    summary: 'Encodes a Lua value into a JSON string.',
+    params: [DocParam('value', 'any', 'The value to encode.')],
+    returns: 'A JSON string.',
+    category: 'convert',
+    example: 'convert.jsonEncode({a=1, b=2})',
+  );
+
   @override
   Future<Object?> call(List<Object?> args) async {
     if (args.isEmpty) {
@@ -84,6 +99,15 @@ class JsonEncode extends BuiltinFunction {
 
 class JsonDecode extends BuiltinFunction {
   JsonDecode(super.interpreter);
+
+  @override
+  FunctionDoc? get doc => FunctionDoc(
+    summary: 'Decodes a JSON string into a Lua value.',
+    params: [DocParam('json', 'string', 'The JSON string to decode.')],
+    returns: 'The decoded Lua value.',
+    category: 'convert',
+    example: 'local t = convert.jsonDecode(\'{"a":1}\')',
+  );
 
   @override
   Future<Object?> call(List<Object?> args) async {
@@ -107,6 +131,15 @@ class Base64Encode extends BuiltinFunction {
   Base64Encode(super.interpreter);
 
   @override
+  FunctionDoc? get doc => FunctionDoc(
+    summary: 'Encodes a string to Base64.',
+    params: [DocParam('input', 'string', 'The input string.')],
+    returns: 'The Base64-encoded string.',
+    category: 'convert',
+    example: 'convert.base64Encode("hello")',
+  );
+
+  @override
   Future<Object?> call(List<Object?> args) async {
     if (args.isEmpty) {
       throw LuaError('dart.convert.base64Encode requires 1 argument');
@@ -122,6 +155,15 @@ class Base64Encode extends BuiltinFunction {
 
 class Base64Decode extends BuiltinFunction {
   Base64Decode(super.interpreter);
+
+  @override
+  FunctionDoc? get doc => FunctionDoc(
+    summary: 'Decodes a Base64 string back to its original value.',
+    params: [DocParam('input', 'string', 'The Base64 string.')],
+    returns: 'The decoded string.',
+    category: 'convert',
+    example: 'convert.base64Decode("aGVsbG8=")',
+  );
 
   @override
   Future<Object?> call(List<Object?> args) async {
@@ -145,6 +187,15 @@ class Base64UrlEncode extends BuiltinFunction {
   Base64UrlEncode(super.interpreter);
 
   @override
+  FunctionDoc? get doc => FunctionDoc(
+    summary: 'Encodes a string to URL-safe Base64.',
+    params: [DocParam('input', 'string', 'The input string.')],
+    returns: 'The URL-safe Base64-encoded string.',
+    category: 'convert',
+    example: 'convert.base64UrlEncode("hello")',
+  );
+
+  @override
   Future<Object?> call(List<Object?> args) async {
     if (args.isEmpty) {
       throw LuaError('dart.convert.base64UrlEncode requires 1 argument');
@@ -160,6 +211,15 @@ class Base64UrlEncode extends BuiltinFunction {
 
 class AsciiEncode extends BuiltinFunction {
   AsciiEncode(super.interpreter);
+
+  @override
+  FunctionDoc? get doc => FunctionDoc(
+    summary: 'Encodes a Lua string to ASCII bytes.',
+    params: [DocParam('input', 'string', 'The input string.')],
+    returns: 'The ASCII-encoded string.',
+    category: 'convert',
+    example: 'convert.asciiEncode("hello")',
+  );
 
   @override
   Future<Object?> call(List<Object?> args) async {
@@ -183,6 +243,15 @@ class AsciiDecode extends BuiltinFunction {
   AsciiDecode(super.interpreter);
 
   @override
+  FunctionDoc? get doc => FunctionDoc(
+    summary: 'Decodes ASCII bytes back to a Lua string.',
+    params: [DocParam('input', 'string', 'The ASCII byte string.')],
+    returns: 'The decoded string.',
+    category: 'convert',
+    example: 'convert.asciiDecode("hello")',
+  );
+
+  @override
   Future<Object?> call(List<Object?> args) async {
     if (args.isEmpty) {
       throw LuaError('dart.convert.asciiDecode requires 1 argument');
@@ -198,6 +267,15 @@ class AsciiDecode extends BuiltinFunction {
 
 class Latin1Encode extends BuiltinFunction {
   Latin1Encode(super.interpreter);
+
+  @override
+  FunctionDoc? get doc => FunctionDoc(
+    summary: 'Encodes a Lua string to Latin-1 (ISO 8859-1) bytes.',
+    params: [DocParam('input', 'string', 'The input string.')],
+    returns: 'The Latin-1 encoded string.',
+    category: 'convert',
+    example: 'convert.latin1Encode("héllo")',
+  );
 
   @override
   Future<Object?> call(List<Object?> args) async {
@@ -239,6 +317,15 @@ class Latin1Encode extends BuiltinFunction {
 
 class Latin1Decode extends BuiltinFunction {
   Latin1Decode(super.interpreter);
+
+  @override
+  FunctionDoc? get doc => FunctionDoc(
+    summary: 'Decodes Latin-1 (ISO 8859-1) bytes back to a Lua string.',
+    params: [DocParam('input', 'string', 'The Latin-1 byte string.')],
+    returns: 'The decoded string.',
+    category: 'convert',
+    example: 'convert.latin1Decode("héllo")',
+  );
 
   @override
   Future<Object?> call(List<Object?> args) async {

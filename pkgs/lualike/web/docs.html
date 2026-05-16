@@ -1,0 +1,240 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="utf-8">
+    <meta http-equiv="X-UA-Compatible" content="IE=edge">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="LuaLike Standard Library Reference">
+    <title>LuaLike | StdLib Reference</title>
+
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link
+        href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap"
+        rel="stylesheet">
+
+    <!-- Prism.js for Lua syntax highlighting on example code blocks -->
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/prism/1.30.0/themes/prism-tomorrow.min.css" rel="stylesheet" />
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.30.0/prism.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.30.0/components/prism-lua.min.js"></script>
+
+    <style>
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+        }
+
+        html {
+            font-size: 15px;
+            scroll-behavior: smooth;
+        }
+
+        body {
+            font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            display: flex;
+            min-height: 100vh;
+            color: #e4e4e7;
+            background: #18181b;
+        }
+
+        /* ---- Sidebar ---- */
+        .sidebar {
+            position: sticky;
+            top: 0;
+            width: 280px;
+            height: 100vh;
+            overflow-y: auto;
+            background: #1f1f23;
+            border-right: 1px solid #2a2a2e;
+            padding: 1.5rem 0;
+            flex-shrink: 0;
+        }
+
+        .sidebar .brand {
+            font-size: 1.1rem;
+            font-weight: 600;
+            padding: 0 1.25rem 1rem;
+            color: #f4f4f5;
+            border-bottom: 1px solid #2a2a2e;
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+        }
+
+        .sidebar .brand a {
+            color: #a1a1aa;
+            font-size: 0.75rem;
+            font-weight: 400;
+            text-decoration: none;
+            margin-left: auto;
+        }
+
+        .sidebar .brand a:hover {
+            color: #6366f1;
+        }
+
+        .sidebar h2 {
+            font-size: 0.7rem;
+            font-weight: 600;
+            text-transform: uppercase;
+            letter-spacing: 0.06em;
+            color: #71717a;
+            padding: 1.25rem 1.25rem 0.4rem;
+        }
+
+        .sidebar a.func {
+            display: block;
+            padding: 0.25rem 1.25rem 0.25rem 1.75rem;
+            font-family: 'JetBrains Mono', Consolas, monospace;
+            font-size: 0.78rem;
+            color: #a1a1aa;
+            text-decoration: none;
+            border-left: 2px solid transparent;
+        }
+
+        .sidebar a.func:hover {
+            color: #f4f4f5;
+            background: #27272a;
+            border-left-color: #6366f1;
+        }
+
+        /* ---- Content ---- */
+        .content {
+            flex: 1;
+            padding: 2rem 3rem;
+            max-width: 960px;
+        }
+
+        .content h2 {
+            font-size: 1.5rem;
+            font-weight: 600;
+            margin: 2rem 0 0.25rem;
+            padding-bottom: 0.5rem;
+            border-bottom: 1px solid #2a2a2e;
+            color: #f4f4f5;
+        }
+
+        .library-desc {
+            color: #a1a1aa;
+            font-size: 0.88rem;
+            margin-bottom: 1rem;
+        }
+
+        .func-entry {
+            margin: 1.25rem 0 2rem;
+            padding: 1rem;
+            border: 1px solid #2a2a2e;
+            border-radius: 8px;
+            background: #1f1f23;
+        }
+
+        .func-signature {
+            font-family: 'JetBrains Mono', Consolas, monospace;
+            font-size: 0.88rem;
+            color: #c4b5fd;
+            margin-bottom: 0.5rem;
+            word-break: break-all;
+        }
+
+        .func-summary {
+            color: #d4d4d8;
+            margin-bottom: 0.75rem;
+            line-height: 1.5;
+        }
+
+        .params-table {
+            width: 100%;
+            border-collapse: collapse;
+            margin: 0.5rem 0;
+            font-size: 0.83rem;
+        }
+
+        .params-table th {
+            text-align: left;
+            font-weight: 600;
+            color: #a1a1aa;
+            padding: 0.35rem 0.5rem;
+            border-bottom: 1px solid #2a2a2e;
+        }
+
+        .params-table td {
+            padding: 0.35rem 0.5rem;
+            border-bottom: 1px solid #27272a;
+            vertical-align: top;
+        }
+
+        .params-table .p-name {
+            font-family: 'JetBrains Mono', Consolas, monospace;
+            color: #c4b5fd;
+            white-space: nowrap;
+        }
+
+        .params-table .p-type {
+            color: #f08d49;
+            font-family: 'JetBrains Mono', Consolas, monospace;
+            font-size: 0.78rem;
+        }
+
+        .params-table .p-desc {
+            color: #d4d4d8;
+        }
+
+        .returns {
+            font-size: 0.83rem;
+            color: #d4d4d8;
+            margin: 0.5rem 0;
+        }
+
+        .returns strong {
+            color: #a1a1aa;
+        }
+
+        pre[class*="language-"] {
+            border-radius: 6px;
+            font-size: 0.8rem;
+            margin: 0.5rem 0;
+            padding: 1em;
+            overflow: auto;
+            background: #2d2d2d;
+        }
+
+        code[class*="language-"] {
+            color: #ccc;
+            font-family: 'JetBrains Mono', Consolas, Monaco, monospace;
+            font-size: 0.9em;
+        }
+
+        .loading {
+            padding: 3rem;
+            text-align: center;
+            color: #71717a;
+            font-size: 1.1rem;
+        }
+    </style>
+    <script>
+        window.onload = function () {
+            // Hide the loading message once the Dart app starts
+            document.getElementById('loading').style.display = 'none';
+        };
+    </script>
+    <script defer src="docs.dart.js"></script>
+</head>
+
+<body>
+    <nav class="sidebar" id="sidebar">
+        <div class="brand">
+            <span>LuaLike StdLib</span>
+            <a href="index.html">REPL</a>
+        </div>
+        <div id="sidebarLinks">
+            <p class="loading" id="loading">Loading…</p>
+        </div>
+    </nav>
+    <main class="content" id="content">
+        <p class="loading" id="contentLoading">Loading documentation…</p>
+    </main>
+</body>
+
+</html>

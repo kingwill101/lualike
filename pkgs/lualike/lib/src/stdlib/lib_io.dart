@@ -6,6 +6,7 @@ import 'package:lualike/src/lua_string.dart';
 import 'package:lualike/src/number_utils.dart';
 import 'package:lualike/src/runtime/lua_results.dart';
 import 'package:lualike/src/runtime/lua_slot.dart';
+import 'package:lualike/src/stdlib/doc.dart';
 import 'package:lualike/src/utils/io_abstractions.dart' as io_abs;
 import 'package:lualike/src/utils/platform_utils.dart' as platform;
 import 'package:lualike/src/utils/type.dart' show getLuaType;
@@ -20,6 +21,9 @@ import 'library.dart';
 class IOLibrary extends Library {
   @override
   String get name => "io";
+
+  @override
+  String get description => 'Basic I/O functions for file reading and writing.';
 
   @override
   Map<String, Function>? getMetamethods(LuaRuntime interpreter) => null;
@@ -342,6 +346,17 @@ class IOClose extends BuiltinFunction {
   IOClose([super.interpreter]);
 
   @override
+  FunctionDoc? get doc => FunctionDoc(
+    summary: 'Closes an open file handle, or closes the default output file.',
+    params: [
+      DocParam('file', 'file', 'Optional file handle to close.', optional: true),
+    ],
+    returns: 'true on success, or nil + error on failure.',
+    category: 'io',
+    example: 'io.close(file)',
+  );
+
+  @override
   Future<Object?> call(List<Object?> args) async {
     Logger.debugLazy(() => 'Executing IO close', category: 'IO');
     if (args.isEmpty) {
@@ -421,6 +436,15 @@ class IOFlush extends BuiltinFunction {
   IOFlush([super.interpreter]);
 
   @override
+  FunctionDoc? get doc => FunctionDoc(
+    summary: 'Flushes buffered data to the default output file.',
+    params: [],
+    returns: 'Nothing.',
+    category: 'io',
+    example: 'io.flush()',
+  );
+
+  @override
   Future<Object?> call(List<Object?> args) async {
     Logger.debugLazy(() => 'Executing IO flush', category: 'IO');
     final defaultOutput = IOLib.defaultOutput;
@@ -432,6 +456,17 @@ class IOFlush extends BuiltinFunction {
 
 class IOInput extends BuiltinFunction {
   IOInput([super.interpreter]);
+
+  @override
+  FunctionDoc? get doc => FunctionDoc(
+    summary: 'Sets or returns the default input file.',
+    params: [
+      DocParam('file', 'file|string', 'A file handle or filename to use as default input.', optional: true),
+    ],
+    returns: 'The default input file handle.',
+    category: 'io',
+    example: 'io.input("input.txt")',
+  );
 
   @override
   Future<Object?> call(List<Object?> args) async {
@@ -493,6 +528,18 @@ class IOInput extends BuiltinFunction {
 
 class IOLines extends BuiltinFunction {
   IOLines([super.interpreter]);
+
+  @override
+  FunctionDoc? get doc => FunctionDoc(
+    summary: 'Returns an iterator function that reads lines from a file.',
+    params: [
+      DocParam('filename', 'string', 'Optional filename to read from.', optional: true),
+      DocParam('...', 'any', 'Optional read format arguments.', optional: true),
+    ],
+    returns: 'An iterator function for reading lines.',
+    category: 'io',
+    example: 'for line in io.lines("file.txt") do print(line) end',
+  );
 
   @override
   Future<Object?> call(List<Object?> args) async {
@@ -594,6 +641,18 @@ class IOOpen extends BuiltinFunction {
   IOOpen([super.interpreter]);
 
   @override
+  FunctionDoc? get doc => FunctionDoc(
+    summary: 'Opens a file for reading or writing.',
+    params: [
+      DocParam('filename', 'string', 'Path to the file.'),
+      DocParam('mode', 'string', 'File mode: "r", "w", "a", "r+", "w+", "a+" (default "r").', optional: true),
+    ],
+    returns: 'A file handle, or nil + error message.',
+    category: 'io',
+    example: 'local f, err = io.open("file.txt", "r")',
+  );
+
+  @override
   Future<Object?> call(List<Object?> args) async {
     Logger.debugLazy(() => 'Executing IO open', category: 'IO');
     if (args.isEmpty) {
@@ -628,6 +687,17 @@ class IOOpen extends BuiltinFunction {
 
 class IOOutput extends BuiltinFunction {
   IOOutput([super.interpreter]);
+
+  @override
+  FunctionDoc? get doc => FunctionDoc(
+    summary: 'Sets or returns the default output file.',
+    params: [
+      DocParam('file', 'file|string', 'A file handle or filename to use as default output.', optional: true),
+    ],
+    returns: 'The default output file handle.',
+    category: 'io',
+    example: 'io.output("output.txt")',
+  );
 
   @override
   Future<Object?> call(List<Object?> args) async {
@@ -724,6 +794,18 @@ class IOPopen extends BuiltinFunction {
   IOPopen([super.interpreter]);
 
   @override
+  FunctionDoc? get doc => FunctionDoc(
+    summary: 'Opens a process by running a command.',
+    params: [
+      DocParam('prog', 'string', 'The program/command to run.'),
+      DocParam('mode', 'string', '"r" to read from process stdout, "w" to write to stdin.'),
+    ],
+    returns: 'A file handle for the process, or nil + error.',
+    category: 'io',
+    example: 'local f = io.popen("ls", "r")',
+  );
+
+  @override
   Future<Object?> call(List<Object?> args) async {
     Logger.debugLazy(() => 'Executing IO popen', category: 'IO');
     if (args.isEmpty) {
@@ -758,6 +840,17 @@ class IOPopen extends BuiltinFunction {
 
 class IORead extends BuiltinFunction {
   IORead([super.interpreter]);
+
+  @override
+  FunctionDoc? get doc => FunctionDoc(
+    summary: 'Reads from the default input file.',
+    params: [
+      DocParam('...', 'string|number', 'Read formats: "*l" (line), "*a" (all), "*n" (number), or a number (chars).', optional: true),
+    ],
+    returns: 'The read data, or nil on EOF.',
+    category: 'io',
+    example: 'local content = io.read("*a")',
+  );
 
   @override
   Future<Object?> call(List<Object?> args) async {
@@ -841,6 +934,15 @@ class IOTmpfile extends BuiltinFunction {
   IOTmpfile([super.interpreter]);
 
   @override
+  FunctionDoc? get doc => FunctionDoc(
+    summary: 'Returns a handle for a temporary file opened in "w+" mode.',
+    params: [],
+    returns: 'A temporary file handle.',
+    category: 'io',
+    example: 'local f = io.tmpfile()',
+  );
+
+  @override
   Future<Object?> call(List<Object?> args) async {
     Logger.debugLazy(() => 'Executing IO tmpfile', category: 'IO');
     try {
@@ -860,6 +962,15 @@ class IOType extends BuiltinFunction {
   IOType([super.interpreter]);
 
   @override
+  FunctionDoc? get doc => FunctionDoc(
+    summary: 'Returns "file" if the given object is a file handle, "closed file" if closed, or nil otherwise.',
+    params: [DocParam('obj', 'any', 'The object to check.')],
+    returns: '"file", "closed file", or nil.',
+    category: 'io',
+    example: 'print(io.type(f))',
+  );
+
+  @override
   Future<Object?> call(List<Object?> args) async {
     Logger.debugLazy(() => 'Executing IO type', category: 'IO');
     if (args.isEmpty) return primitiveValue(null);
@@ -876,6 +987,15 @@ class IOType extends BuiltinFunction {
 
 class IOWrite extends BuiltinFunction {
   IOWrite([super.interpreter]);
+
+  @override
+  FunctionDoc? get doc => FunctionDoc(
+    summary: 'Writes values to the default output file.',
+    params: [DocParam('...', 'any', 'Values to write (converted to strings).')],
+    returns: 'The file handle.',
+    category: 'io',
+    example: 'io.write("hello ", "world\\n")',
+  );
 
   @override
   Future<Object?> call(List<Object?> args) async {
@@ -967,6 +1087,15 @@ class FileClose extends BuiltinFunction {
   FileClose([super.interpreter]);
 
   @override
+  FunctionDoc? get doc => FunctionDoc(
+    summary: 'Closes this file handle.',
+    params: [],
+    returns: 'true on success, or nil + error.',
+    category: 'io',
+    example: 'file:close()',
+  );
+
+  @override
   Future<Object?> call(List<Object?> args) async {
     Logger.debugLazy(() => 'File method: close', category: 'IO');
 
@@ -1031,6 +1160,15 @@ class FileFlush extends BuiltinFunction {
   FileFlush([super.interpreter]);
 
   @override
+  FunctionDoc? get doc => FunctionDoc(
+    summary: 'Flushes buffered data to this file.',
+    params: [],
+    returns: 'Nothing.',
+    category: 'io',
+    example: 'file:flush()',
+  );
+
+  @override
   Future<Object?> call(List<Object?> args) async {
     Logger.debugLazy(() => 'File method: flush', category: 'IO');
     final file = args[0];
@@ -1044,6 +1182,17 @@ class FileFlush extends BuiltinFunction {
 
 class FileRead extends BuiltinFunction {
   FileRead([super.interpreter]);
+
+  @override
+  FunctionDoc? get doc => FunctionDoc(
+    summary: 'Reads data from this file using the specified formats.',
+    params: [
+      DocParam('...', 'string|number', 'Read formats: "*l" (line), "*a" (all), "*n" (number), or a number (chars).', optional: true),
+    ],
+    returns: 'The read data, or nil on EOF.',
+    category: 'io',
+    example: 'local line = file:read("*l")',
+  );
 
   @override
   Future<Object?> call(List<Object?> args) async {
@@ -1090,6 +1239,15 @@ class FileWrite extends BuiltinFunction {
   FileWrite([super.interpreter]);
 
   @override
+  FunctionDoc? get doc => FunctionDoc(
+    summary: 'Writes values to this file.',
+    params: [DocParam('...', 'any', 'Values to write (converted to strings).')],
+    returns: 'The file handle.',
+    category: 'io',
+    example: 'file:write("data\\n")',
+  );
+
+  @override
   Future<Object?> call(List<Object?> args) async {
     Logger.debugLazy(() => 'File method: write', category: 'IO');
     final file = args[0];
@@ -1134,6 +1292,18 @@ class FileSeek extends BuiltinFunction {
   FileSeek([super.interpreter]);
 
   @override
+  FunctionDoc? get doc => FunctionDoc(
+    summary: 'Sets and returns the current file position.',
+    params: [
+      DocParam('whence', 'string', 'Position: "set" (start), "cur" (current), "end" (end). Defaults to "cur".', optional: true),
+      DocParam('offset', 'number', 'Offset in bytes (defaults to 0).', optional: true),
+    ],
+    returns: 'The new position from the beginning of the file.',
+    category: 'io',
+    example: 'file:seek("set", 0)',
+  );
+
+  @override
   Future<Object?> call(List<Object?> args) async {
     Logger.debugLazy(() => 'File method: seek', category: 'IO');
     final file = args[0];
@@ -1153,6 +1323,17 @@ class FileSeek extends BuiltinFunction {
 
 class FileLines extends BuiltinFunction {
   FileLines([super.interpreter]);
+
+  @override
+  FunctionDoc? get doc => FunctionDoc(
+    summary: 'Returns an iterator function that reads lines from this file.',
+    params: [
+      DocParam('...', 'any', 'Optional read format arguments.', optional: true),
+    ],
+    returns: 'An iterator function.',
+    category: 'io',
+    example: 'for line in file:lines() do print(line) end',
+  );
 
   @override
   Future<Object?> call(List<Object?> args) async {
@@ -1175,6 +1356,18 @@ class FileLines extends BuiltinFunction {
 
 class FileSetvbuf extends BuiltinFunction {
   FileSetvbuf([super.interpreter]);
+
+  @override
+  FunctionDoc? get doc => FunctionDoc(
+    summary: 'Sets the buffering mode for this file.',
+    params: [
+      DocParam('mode', 'string', 'Buffering mode: "full", "line", or "no".'),
+      DocParam('size', 'number', 'Buffer size (optional).', optional: true),
+    ],
+    returns: 'true on success, or nil + error.',
+    category: 'io',
+    example: 'file:setvbuf("line")',
+  );
 
   @override
   Future<Object?> call(List<Object?> args) async {

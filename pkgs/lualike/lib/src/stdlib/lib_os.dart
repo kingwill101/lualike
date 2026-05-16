@@ -21,6 +21,10 @@ class OSLibraryNew extends Library {
   String get name => "os";
 
   @override
+  String get description =>
+      'Operating system facilities including date/time and system commands.';
+
+  @override
   void registerFunctions(LibraryRegistrationContext context) {
     // Register all OS functions directly
     final runtime = context.vm;
@@ -59,6 +63,14 @@ class OSLibrary {
 
 class _OSClock extends BuiltinFunction {
   _OSClock([super.interpreter]);
+  @override
+  FunctionDoc? get doc => FunctionDoc(
+    summary: 'Returns an approximation of the CPU time in seconds used by the program.',
+    params: [],
+    returns: 'The CPU time in seconds.',
+    category: 'os',
+    example: 'print(os.clock())',
+  );
   static final _start = DateTime.now();
 
   @override
@@ -71,6 +83,17 @@ class _OSClock extends BuiltinFunction {
 
 class _OSDate extends BuiltinFunction {
   _OSDate([super.interpreter]);
+  @override
+  FunctionDoc? get doc => FunctionDoc(
+    summary: 'Returns a formatted date/time string or a table of time fields.',
+    params: [
+      DocParam('format', 'string', 'Format string using strftime syntax, or "*t" for a time table.', optional: true),
+      DocParam('time', 'table', 'A time table from os.time(). Uses current time if omitted.', optional: true),
+    ],
+    returns: 'The formatted date string or a table of time fields.',
+    category: 'os',
+    example: 'print(os.date("%Y-%m-%d"))',
+  );
   @override
   Object? call(List<Object?> args) {
     String format = args.isNotEmpty ? _osStringArg(args, 0) : "%c";
@@ -267,6 +290,17 @@ class _OSDate extends BuiltinFunction {
 class _OSDiffTime extends BuiltinFunction {
   _OSDiffTime([super.interpreter]);
   @override
+  FunctionDoc? get doc => FunctionDoc(
+    summary: 'Returns the difference in seconds between two time values.',
+    params: [
+      DocParam('t2', 'number', 'Later time.'),
+      DocParam('t1', 'number', 'Earlier time.'),
+    ],
+    returns: 'The difference t2 - t1 in seconds.',
+    category: 'os',
+    example: 'print(os.difftime(t2, t1))',
+  );
+  @override
   Object? call(List<Object?> args) {
     if (args.length < 2) {
       throw LuaError.typeError("os.difftime requires two timestamps");
@@ -281,6 +315,14 @@ class _OSDiffTime extends BuiltinFunction {
 
 class _OSExecute extends BuiltinFunction {
   _OSExecute([super.interpreter]);
+  @override
+  FunctionDoc? get doc => FunctionDoc(
+    summary: 'Executes a system command with the shell.',
+    params: [DocParam('command', 'string', 'The shell command to execute.')],
+    returns: 'The exit status code.',
+    category: 'os',
+    example: 'os.execute("ls -la")',
+  );
   @override
   Object? call(List<Object?> args) {
     if (args.isEmpty) {
@@ -385,6 +427,16 @@ String _maybePrefixLocalLualike(String command) {
 class _OSExit extends BuiltinFunction {
   _OSExit([super.interpreter]);
   @override
+  FunctionDoc? get doc => FunctionDoc(
+    summary: 'Terminates the program with an optional exit code.',
+    params: [
+      DocParam('code', 'number', 'Exit code (defaults to 0).', optional: true),
+    ],
+    returns: 'This function never returns.',
+    category: 'os',
+    example: 'os.exit(1)',
+  );
+  @override
   Object? call(List<Object?> args) {
     final code = args.isNotEmpty ? _osIntArg(args, 0) : 0;
     exitProcess(code);
@@ -394,6 +446,14 @@ class _OSExit extends BuiltinFunction {
 
 class _OSGetEnv extends BuiltinFunction {
   _OSGetEnv([super.interpreter]);
+  @override
+  FunctionDoc? get doc => FunctionDoc(
+    summary: 'Returns the value of an environment variable, or nil if not set.',
+    params: [DocParam('varname', 'string', 'The environment variable name.')],
+    returns: 'The variable value as a string, or nil.',
+    category: 'os',
+    example: 'print(os.getenv("HOME"))',
+  );
   @override
   Object? call(List<Object?> args) {
     if (args.isEmpty) {
@@ -409,6 +469,14 @@ class _OSGetEnv extends BuiltinFunction {
 
 class _OSRemove extends BuiltinFunction {
   _OSRemove([super.interpreter]);
+  @override
+  FunctionDoc? get doc => FunctionDoc(
+    summary: 'Deletes a file from the filesystem.',
+    params: [DocParam('filename', 'string', 'Path to the file to delete.')],
+    returns: 'true on success, or nil + error message.',
+    category: 'os',
+    example: 'os.remove("temp.txt")',
+  );
   @override
   Object? call(List<Object?> args) async {
     if (args.isEmpty) {
@@ -436,6 +504,17 @@ class _OSRemove extends BuiltinFunction {
 class _OSRename extends BuiltinFunction {
   _OSRename([super.interpreter]);
   @override
+  FunctionDoc? get doc => FunctionDoc(
+    summary: 'Renames a file from old name to new name.',
+    params: [
+      DocParam('oldname', 'string', 'Current file path.'),
+      DocParam('newname', 'string', 'New file path.'),
+    ],
+    returns: 'true on success, or nil + error message.',
+    category: 'os',
+    example: 'os.rename("old.txt", "new.txt")',
+  );
+  @override
   Object? call(List<Object?> args) async {
     if (args.length < 2) {
       throw LuaError.typeError("os.rename requires old and new names");
@@ -462,6 +541,17 @@ class _OSRename extends BuiltinFunction {
 
 class _OSSetLocale extends BuiltinFunction {
   _OSSetLocale([super.interpreter]);
+  @override
+  FunctionDoc? get doc => FunctionDoc(
+    summary: 'Sets or returns the current program locale.',
+    params: [
+      DocParam('locale', 'string', 'Locale string, or "" for native, or nil to query.', optional: true),
+      DocParam('category', 'string', 'Locale category: "all", "collate", "ctype", "monetary", "numeric", "time".', optional: true),
+    ],
+    returns: 'The current locale name.',
+    category: 'os',
+    example: 'os.setlocale("en_US.UTF-8")',
+  );
   static String? _currentLocale;
 
   @override
@@ -497,6 +587,16 @@ class _OSSetLocale extends BuiltinFunction {
 
 class _OSTime extends BuiltinFunction {
   _OSTime([super.interpreter]);
+  @override
+  FunctionDoc? get doc => FunctionDoc(
+    summary: 'Returns the current time as a timestamp, or converts a time table to a timestamp.',
+    params: [
+      DocParam('t', 'table', 'A time table with year, month, day, etc.', optional: true),
+    ],
+    returns: 'The current time in seconds, or the timestamp for the given table.',
+    category: 'os',
+    example: 'print(os.time())',
+  );
   @override
   Object? call(List<Object?> args) {
     if (args.isEmpty) {
@@ -649,6 +749,14 @@ class _OSTime extends BuiltinFunction {
 
 class _OSTmpName extends BuiltinFunction {
   _OSTmpName([super.interpreter]);
+  @override
+  FunctionDoc? get doc => FunctionDoc(
+    summary: 'Returns a string for a temporary file name.',
+    params: [],
+    returns: 'A temporary file path string.',
+    category: 'os',
+    example: 'local tmp = os.tmpname()',
+  );
   static int _counter = 0;
 
   @override

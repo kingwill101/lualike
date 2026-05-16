@@ -183,6 +183,10 @@ class DebugLibrary extends Library {
   String get name => "debug";
 
   @override
+  String get description =>
+      'Debugging and introspection functions for inspecting the interpreter state.';
+
+  @override
   void registerFunctions(LibraryRegistrationContext context) {
     // Register all debug functions individually
     context.define("debug", _DebugInteractive());
@@ -211,6 +215,16 @@ class DebugLibrary extends Library {
 /// Interactive debug console
 class _DebugInteractive extends BuiltinFunction {
   _DebugInteractive() : super();
+
+  @override
+  FunctionDoc? get doc => FunctionDoc(
+    summary: 'Enters an interactive debug REPL for inspecting the current state.',
+    params: [],
+    returns: 'Nothing.',
+    category: 'debug',
+    example: 'debug.interactive()',
+  );
+
   @override
   dynamic call(List<dynamic> args) async {
     // Simple REPL-like debug console
@@ -240,6 +254,17 @@ class _DebugInteractive extends BuiltinFunction {
 
 class _GetHook extends BuiltinFunction {
   _GetHook(super.interpreter);
+
+  @override
+  FunctionDoc? get doc => FunctionDoc(
+    summary: 'Returns the current hook function and mask/count settings.',
+    params: [
+      DocParam('thread', 'thread', 'Optional coroutine to query.', optional: true),
+    ],
+    returns: 'The hook function, the event mask, and the count.',
+    category: 'debug',
+    example: 'debug.gethook()',
+  );
 
   @override
   Object? call(List<Object?> args) {
@@ -280,6 +305,18 @@ class _GetHook extends BuiltinFunction {
 
 class _GetLocal extends BuiltinFunction {
   _GetLocal(LuaRuntime super.i);
+
+  @override
+  FunctionDoc? get doc => FunctionDoc(
+    summary: 'Returns the name and value of a local variable at a given stack level.',
+    params: [
+      DocParam('f', 'function|number', 'Stack level or active function.'),
+      DocParam('local_index', 'number', 'Index of the local variable.'),
+    ],
+    returns: 'The variable name and its current value.',
+    category: 'debug',
+    example: 'debug.getlocal(1, 1)',
+  );
 
   @override
   bool get isBytecodeDebugGetLocalBuiltin => true;
@@ -649,6 +686,15 @@ class _GetMetatable extends BuiltinFunction {
   _GetMetatable([super.interpreter]);
 
   @override
+  FunctionDoc? get doc => FunctionDoc(
+    summary: 'Returns the metatable of a value, or nil if it has none.',
+    params: [DocParam('v', 'any', 'Any Lua value.')],
+    returns: 'The metatable, or nil.',
+    category: 'debug',
+    example: 'debug.getmetatable("hello")',
+  );
+
+  @override
   Object? call(List<Object?> args) {
     if (args.isEmpty) throw LuaError("debug.getmetatable requires a value");
     final value = args[0] as Value;
@@ -670,6 +716,15 @@ class _GetRegistry extends BuiltinFunction {
   _GetRegistry(super.interpreter);
 
   @override
+  FunctionDoc? get doc => FunctionDoc(
+    summary: 'Returns the interpreter\'s registry table.',
+    params: [],
+    returns: 'The registry table.',
+    category: 'debug',
+    example: 'debug.getregistry()',
+  );
+
+  @override
   Object? call(List<Object?> args) {
     return interpreter?.debugRegistry ??
         _debugTableValue(interpreter, <Object?, Object?>{});
@@ -678,6 +733,18 @@ class _GetRegistry extends BuiltinFunction {
 
 class _GetUpvalue extends BuiltinFunction {
   _GetUpvalue(LuaRuntime super.i);
+
+  @override
+  FunctionDoc? get doc => FunctionDoc(
+    summary: 'Returns the name and value of a closure\'s upvalue.',
+    params: [
+      DocParam('f', 'function', 'The function/closure.'),
+      DocParam('upvalue_index', 'number', 'Index of the upvalue.'),
+    ],
+    returns: 'The upvalue name and its current value.',
+    category: 'debug',
+    example: 'debug.getupvalue(fn, 1)',
+  );
 
   @override
   Object? call(List<Object?> args) {
@@ -756,6 +823,18 @@ class _GetUserValue extends BuiltinFunction {
   _GetUserValue([super.interpreter]);
 
   @override
+  FunctionDoc? get doc => FunctionDoc(
+    summary: 'Returns the user value stored at a given index in a userdata.',
+    params: [
+      DocParam('ud', 'userdata', 'The userdata.'),
+      DocParam('index', 'number', 'The user value index.'),
+    ],
+    returns: 'The user value.',
+    category: 'debug',
+    example: 'debug.getuservalue(ud, 1)',
+  );
+
+  @override
   Object? call(List<Object?> args) {
     if (args.length < 2) {
       throw LuaError(
@@ -769,6 +848,19 @@ class _GetUserValue extends BuiltinFunction {
 
 class _SetHook extends BuiltinFunction {
   _SetHook(super.interpreter);
+
+  @override
+  FunctionDoc? get doc => FunctionDoc(
+    summary: 'Sets a hook function for debugging events.',
+    params: [
+      DocParam('hook', 'function', 'The hook function, or nil to remove.'),
+      DocParam('mask', 'string', 'Event mask: "c" (call), "r" (return), "l" (line).'),
+      DocParam('count', 'number', 'Count for count-based hooks.', optional: true),
+    ],
+    returns: 'Nothing.',
+    category: 'debug',
+    example: 'debug.sethook(fn, "l")',
+  );
 
   @override
   Object? call(List<Object?> args) {
@@ -854,6 +946,19 @@ class _SetHook extends BuiltinFunction {
 
 class _SetLocal extends BuiltinFunction {
   _SetLocal(LuaRuntime super.interpreter);
+
+  @override
+  FunctionDoc? get doc => FunctionDoc(
+    summary: 'Sets the value of a local variable at a given stack level.',
+    params: [
+      DocParam('f', 'function|number', 'Stack level or active function.'),
+      DocParam('local_index', 'number', 'Index of the local variable.'),
+      DocParam('value', 'any', 'The new value.'),
+    ],
+    returns: 'The variable name.',
+    category: 'debug',
+    example: 'debug.setlocal(1, 1, 42)',
+  );
 
   @override
   bool get isBytecodeDebugSetLocalBuiltin => true;
@@ -1151,6 +1256,18 @@ class _SetMetatable extends BuiltinFunction {
   _SetMetatable([super.interpreter]);
 
   @override
+  FunctionDoc? get doc => FunctionDoc(
+    summary: 'Sets the metatable of a table.',
+    params: [
+      DocParam('t', 'table', 'The table.'),
+      DocParam('mt', 'table', 'The metatable, or nil.'),
+    ],
+    returns: 'The table.',
+    category: 'debug',
+    example: 'debug.setmetatable(t, {})',
+  );
+
+  @override
   Object? call(List<Object?> args) {
     if (args.length < 2) {
       throw LuaError("debug.setmetatable requires value and metatable");
@@ -1204,6 +1321,19 @@ class _SetMetatable extends BuiltinFunction {
 
 class _SetUpvalue extends BuiltinFunction {
   _SetUpvalue([super.interpreter]);
+
+  @override
+  FunctionDoc? get doc => FunctionDoc(
+    summary: 'Sets the value of a closure\'s upvalue.',
+    params: [
+      DocParam('f', 'function', 'The function/closure.'),
+      DocParam('upvalue_index', 'number', 'Index of the upvalue.'),
+      DocParam('value', 'any', 'The new value.'),
+    ],
+    returns: 'The upvalue name, or nil if invalid.',
+    category: 'debug',
+    example: 'debug.setupvalue(fn, 1, newVal)',
+  );
 
   @override
   Object? call(List<Object?> args) {
@@ -1280,6 +1410,19 @@ class _SetUserValue extends BuiltinFunction {
   _SetUserValue([super.interpreter]);
 
   @override
+  FunctionDoc? get doc => FunctionDoc(
+    summary: 'Sets a user value in a userdata at a given index.',
+    params: [
+      DocParam('ud', 'userdata', 'The userdata.'),
+      DocParam('index', 'number', 'The user value index.'),
+      DocParam('value', 'any', 'The new value.'),
+    ],
+    returns: 'The userdata.',
+    category: 'debug',
+    example: 'debug.setuservalue(ud, 1, val)',
+  );
+
+  @override
   Object? call(List<Object?> args) {
     if (args.length < 2) {
       throw LuaError("debug.setuservalue requires userdata and value");
@@ -1351,6 +1494,19 @@ class _SetUserValue extends BuiltinFunction {
 
 class _Traceback extends BuiltinFunction {
   _Traceback(super.interpreter);
+
+  @override
+  FunctionDoc? get doc => FunctionDoc(
+    summary: 'Returns a traceback string for debugging purposes.',
+    params: [
+      DocParam('thread', 'thread', 'Optional coroutine.', optional: true),
+      DocParam('message', 'string', 'Optional message to prepend.', optional: true),
+      DocParam('level', 'number', 'Starting stack level (defaults to 1).', optional: true),
+    ],
+    returns: 'The traceback string.',
+    category: 'debug',
+    example: 'print(debug.traceback())',
+  );
 
   int _intArg(Object? value, int fallback) {
     final raw = rawLuaSlot(value);
@@ -1694,6 +1850,18 @@ class _Traceback extends BuiltinFunction {
 class _UpvalueId extends BuiltinFunction {
   _UpvalueId([super.interpreter]);
 
+  @override
+  FunctionDoc? get doc => FunctionDoc(
+    summary: 'Returns a unique identifier for an upvalue of a closure.',
+    params: [
+      DocParam('f', 'function', 'The function/closure.'),
+      DocParam('upvalue_index', 'number', 'Index of the upvalue.'),
+    ],
+    returns: 'A unique ID for the upvalue.',
+    category: 'debug',
+    example: 'debug.upvalueid(fn, 1)',
+  );
+
   static final Expando<Value> _identityValues = Expando<Value>(
     'debugUpvalueIdValues',
   );
@@ -1747,6 +1915,18 @@ class _UpvalueId extends BuiltinFunction {
 
 class _UpvalueJoin extends BuiltinFunction {
   _UpvalueJoin([super.interpreter]);
+
+  @override
+  FunctionDoc? get doc => FunctionDoc(
+    summary: 'Makes the upvalues of closure f1 share the same upvalues as closure f2.',
+    params: [
+      DocParam('f1', 'function', 'Target closure.'),
+      DocParam('f2', 'function', 'Source closure.'),
+    ],
+    returns: 'Nothing.',
+    category: 'debug',
+    example: 'debug.upvaluejoin(fn1, 1, fn2, 1)',
+  );
 
   @override
   Object? call(List<Object?> args) {
@@ -1820,6 +2000,18 @@ class _UpvalueJoin extends BuiltinFunction {
 /// Implementation of debug.getinfo that correctly reports line numbers
 class _GetInfoImpl extends BuiltinFunction {
   _GetInfoImpl(super.interpreter);
+
+  @override
+  FunctionDoc? get doc => FunctionDoc(
+    summary: 'Returns information about a function, stack level, or active function.',
+    params: [
+      DocParam('what', 'string', 'Fields to retrieve: "n", "S", "l", "L", "u", "f".'),
+      DocParam('f', 'function|number', 'Stack level or function to query.'),
+    ],
+    returns: 'A table with requested info fields.',
+    category: 'debug',
+    example: 'debug.getinfo(1)',
+  );
 
   String? _frameSourceKey(CallFrame frame) {
     return _debugFrameSourceKey(frame);
@@ -2742,6 +2934,17 @@ class _MemTrace extends BuiltinFunction {
   _MemTrace([super.interpreter]);
 
   @override
+  FunctionDoc? get doc => FunctionDoc(
+    summary: 'Enables or disables memory tracing.',
+    params: [
+      DocParam('enable', 'boolean', 'Whether to enable memory tracing.'),
+    ],
+    returns: 'Nothing.',
+    category: 'debug',
+    example: 'debug.memtrace(true)',
+  );
+
+  @override
   Object? call(List<Object?> args) {
     if (args.isEmpty) {
       return primitiveValue(MemoryCredits.enableStackTraces);
@@ -2763,6 +2966,15 @@ class _MemTree extends BuiltinFunction {
   _MemTree([super.interpreter]);
 
   @override
+  FunctionDoc? get doc => FunctionDoc(
+    summary: 'Returns the current memory allocation tree as a string.',
+    params: [],
+    returns: 'A string representation of the memory tree.',
+    category: 'debug',
+    example: 'print(debug.memtree())',
+  );
+
+  @override
   Object? call(List<Object?> args) {
     MemoryCredits.instance.printAllocationTree();
     return primitiveValue(null);
@@ -2772,6 +2984,15 @@ class _MemTree extends BuiltinFunction {
 /// Clear tracked objects list for debugging specific allocations
 class _MemClear extends BuiltinFunction {
   _MemClear([super.interpreter]);
+
+  @override
+  FunctionDoc? get doc => FunctionDoc(
+    summary: 'Clears the memory trace buffer.',
+    params: [],
+    returns: 'Nothing.',
+    category: 'debug',
+    example: 'debug.memclear()',
+  );
 
   @override
   Object? call(List<Object?> args) {
