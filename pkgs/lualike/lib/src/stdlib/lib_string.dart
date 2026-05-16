@@ -611,6 +611,10 @@ class StringLibrary extends Library {
   @override
   String get name => "string";
 
+  @override
+  String get description =>
+      'Functions for string manipulation, pattern matching, and formatting.';
+
   // Metamethods for string values are handled in metatables.dart
   // This library only provides the string table functions
 
@@ -663,6 +667,19 @@ class _StringByte extends BuiltinFunction {
   _StringByte([super.interpreter]);
 
   @override
+  FunctionDoc? get doc => FunctionDoc(
+    summary: 'Returns the internal numerical codes of the characters in a string.',
+    params: [
+      DocParam('s', 'string', 'The input string.'),
+      DocParam('i', 'number', 'Optional start index (default 1).', optional: true),
+      DocParam('j', 'number', 'Optional end index (default i).', optional: true),
+    ],
+    returns: 'One or more integer byte values, or nil if no characters match.',
+    category: 'string',
+    example: 'print(string.byte("abc", 1, 2)) --> 97\t98',
+  );
+
+  @override
   Object? call(List<Object?> args) {
     if (args.isEmpty) {
       throw LuaError.typeError("string.byte requires a string argument");
@@ -709,6 +726,17 @@ class _StringChar extends BuiltinFunction {
   _StringChar([super.interpreter]);
 
   @override
+  FunctionDoc? get doc => FunctionDoc(
+    summary: 'Returns a string built from the given integer byte codes.',
+    params: [
+      DocParam('...', 'number', 'One or more integer byte codes (0–255).'),
+    ],
+    returns: 'A string of length equal to the number of arguments.',
+    category: 'string',
+    example: 'print(string.char(97, 98, 99)) --> abc',
+  );
+
+  @override
   Object? call(List<Object?> args) {
     final bytes = <int>[];
     for (final arg in args) {
@@ -737,6 +765,17 @@ class _StringDump extends BuiltinFunction {
   _StringDump([super.interpreter]);
 
   @override
+  FunctionDoc? get doc => FunctionDoc(
+    summary: 'Returns a binary string containing a binary representation of the given function.',
+    params: [
+      DocParam('f', 'function', 'The function to dump.'),
+      DocParam('strip', 'boolean', 'Whether to strip debug information.', optional: true),
+    ],
+    returns: 'A binary string representation of the function.',
+    category: 'string',
+  );
+
+  @override
   Object? call(List<Object?> args) {
     if (args.isEmpty) {
       throw LuaError.typeError("string.dump requires a function argument");
@@ -760,6 +799,20 @@ class _StringDump extends BuiltinFunction {
 
 class _StringFind extends BuiltinFunction {
   _StringFind([super.interpreter]);
+
+  @override
+  FunctionDoc? get doc => FunctionDoc(
+    summary: 'Looks for the first match of a pattern in a string.',
+    params: [
+      DocParam('s', 'string', 'The string to search.'),
+      DocParam('pattern', 'string', 'The pattern to match.'),
+      DocParam('init', 'number', 'Optional starting index (default 1).', optional: true),
+      DocParam('plain', 'boolean', 'Disable pattern matching (plain search).', optional: true),
+    ],
+    returns: 'The start and end indices of the match, or nil.',
+    category: 'string',
+    example: 'print(string.find("hello world", "world")) --> 7\t11',
+  );
 
   @override
   Object? call(List<Object?> args) {
@@ -1636,6 +1689,18 @@ class _StringFormat extends BuiltinFunction {
   _StringFormat([super.interpreter]);
 
   @override
+  FunctionDoc? get doc => FunctionDoc(
+    summary: 'Returns a formatted string based on a format specifier (similar to printf).',
+    params: [
+      DocParam('fmt', 'string', 'The format string.'),
+      DocParam('...', 'any', 'Values to be formatted.'),
+    ],
+    returns: 'The formatted string.',
+    category: 'string',
+    example: 'print(string.format("result: %d", 123)) --> result: 123',
+  );
+
+  @override
   Future<Object?> call(List<Object?> args) async {
     if (args.isEmpty) {
       throw LuaError.typeError("string.format requires a format string");
@@ -1832,6 +1897,18 @@ class _StringFormat extends BuiltinFunction {
 
 class _StringGmatch extends BuiltinFunction {
   _StringGmatch([super.interpreter]);
+
+  @override
+  FunctionDoc? get doc => FunctionDoc(
+    summary: 'Returns an iterator function that visits each match of the pattern in the string.',
+    params: [
+      DocParam('s', 'string', 'The string to search.'),
+      DocParam('pattern', 'string', 'The pattern to match.'),
+    ],
+    returns: 'An iterator function for the matches.',
+    category: 'string',
+    example: 'for w in string.gmatch("a,b,c", "([^,]+)") do print(w) end',
+  );
 
   @override
   Object? call(List<Object?> args) {
@@ -2032,6 +2109,20 @@ class _StringGmatch extends BuiltinFunction {
 
 class _StringGsub extends BuiltinFunction {
   _StringGsub([super.interpreter]);
+
+  @override
+  FunctionDoc? get doc => FunctionDoc(
+    summary: 'Returns a copy of the string where all occurrences of the pattern are replaced.',
+    params: [
+      DocParam('s', 'string', 'The source string.'),
+      DocParam('pattern', 'string', 'The pattern to match.'),
+      DocParam('repl', 'string|function|table', 'Replacement string, function, or table.'),
+      DocParam('n', 'number', 'Optional maximum number of replacements.', optional: true),
+    ],
+    returns: 'The resulting string and the number of substitutions.',
+    category: 'string',
+    example: 'print(string.gsub("hello world", "%w+", "Lua")) --> Lua Lua',
+  );
 
   @override
   Future<Object?> call(List<Object?> args) async {
@@ -2351,6 +2442,17 @@ class _StringLen extends BuiltinFunction {
   _StringLen([super.interpreter]);
 
   @override
+  FunctionDoc? get doc => FunctionDoc(
+    summary: 'Returns the length of the given string.',
+    params: [
+      DocParam('s', 'string', 'The input string.'),
+    ],
+    returns: 'The length as an integer.',
+    category: 'string',
+    example: 'print(string.len("hello")) --> 5',
+  );
+
+  @override
   Object? call(List<Object?> args) {
     if (args.isEmpty) {
       throw LuaError.typeError("string.len requires a string argument");
@@ -2369,6 +2471,17 @@ class _StringLen extends BuiltinFunction {
 
 class _StringLower extends BuiltinFunction {
   _StringLower([super.interpreter]);
+
+  @override
+  FunctionDoc? get doc => FunctionDoc(
+    summary: 'Returns a copy of the string with all uppercase letters converted to lowercase.',
+    params: [
+      DocParam('s', 'string', 'The input string.'),
+    ],
+    returns: 'The lowercased string.',
+    category: 'string',
+    example: 'print(string.lower("HELLO")) --> hello',
+  );
 
   @override
   Object? call(List<Object?> args) {
@@ -2416,6 +2529,19 @@ class _StringLower extends BuiltinFunction {
 
 class _StringMatch extends BuiltinFunction {
   _StringMatch([super.interpreter]);
+
+  @override
+  FunctionDoc? get doc => FunctionDoc(
+    summary: 'Looks for the first match of a pattern and returns captures.',
+    params: [
+      DocParam('s', 'string', 'The string to search.'),
+      DocParam('pattern', 'string', 'The pattern to match.'),
+      DocParam('init', 'number', 'Optional starting index (default 1).', optional: true),
+    ],
+    returns: 'The captures from the match, or nil.',
+    category: 'string',
+    example: 'print(string.match("hello world", "(%w+) (%w+)")) --> hello\tworld',
+  );
 
   @override
   Object? call(List<Object?> args) {
@@ -2587,6 +2713,19 @@ class _StringMatch extends BuiltinFunction {
 class _StringRep extends BuiltinFunction {
   _StringRep([super.interpreter]);
 
+  @override
+  FunctionDoc? get doc => FunctionDoc(
+    summary: 'Returns a string that is the concatenation of n copies of the given string.',
+    params: [
+      DocParam('s', 'string', 'The string to repeat.'),
+      DocParam('n', 'number', 'Number of repetitions.'),
+      DocParam('sep', 'string', 'Optional separator string.', optional: true),
+    ],
+    returns: 'The repeated string.',
+    category: 'string',
+    example: 'print(string.rep("ha", 3)) --> hahaha',
+  );
+
   Value _wrapRepeatedStringBytes(List<int> bytes) {
     return _luaStringResultValue(interpreter, LuaString.fromBytes(bytes));
   }
@@ -2707,6 +2846,17 @@ class _StringReverse extends BuiltinFunction {
   _StringReverse([super.interpreter]);
 
   @override
+  FunctionDoc? get doc => FunctionDoc(
+    summary: 'Returns the reverse of the given string.',
+    params: [
+      DocParam('s', 'string', 'The string to reverse.'),
+    ],
+    returns: 'The reversed string.',
+    category: 'string',
+    example: 'print(string.reverse("hello")) --> olleh',
+  );
+
+  @override
   Object? call(List<Object?> args) {
     if (args.isEmpty) {
       throw LuaError.typeError("string.reverse requires a string argument");
@@ -2727,6 +2877,19 @@ class _StringReverse extends BuiltinFunction {
 
 class _StringSub extends BuiltinFunction {
   _StringSub([super.interpreter]);
+
+  @override
+  FunctionDoc? get doc => FunctionDoc(
+    summary: 'Returns a substring of the given string from start to end.',
+    params: [
+      DocParam('s', 'string', 'The input string.'),
+      DocParam('i', 'number', 'Start index (1-based; negative means from end).'),
+      DocParam('j', 'number', 'Optional end index (defaults to string length).', optional: true),
+    ],
+    returns: 'The extracted substring.',
+    category: 'string',
+    example: 'print(string.sub("hello", 2, 4)) --> ell',
+  );
 
   @override
   Object? call(List<Object?> args) {
@@ -3672,6 +3835,17 @@ BigInt _unpackBigInt(List<int> bytes, int offset, int size, Endian endianness) {
 
 class _StringUpper extends BuiltinFunction {
   _StringUpper([super.interpreter]);
+
+  @override
+  FunctionDoc? get doc => FunctionDoc(
+    summary: 'Returns a copy of the string with all lowercase letters converted to uppercase.',
+    params: [
+      DocParam('s', 'string', 'The input string.'),
+    ],
+    returns: 'The uppercased string.',
+    category: 'string',
+    example: 'print(string.upper("hello")) --> HELLO',
+  );
 
   @override
   Object? call(List<Object?> args) {

@@ -14,6 +14,10 @@ class MathLibrary extends Library {
   String get name => "math";
 
   @override
+  String get description =>
+      'Standard mathematical functions including trigonometry, logarithms, and rounding.';
+
+  @override
   void registerFunctions(LibraryRegistrationContext context) {
     final interpreter = context.vm;
     Value primitiveConstant(Object? raw) {
@@ -122,6 +126,15 @@ class _MathAbs extends _MathBuiltin {
   _MathAbs([super.interpreter]);
 
   @override
+  FunctionDoc? get doc => FunctionDoc(
+    summary: 'Returns the absolute value of a number.',
+    params: [DocParam('x', 'number', 'The input value.')],
+    returns: 'The absolute value of x.',
+    category: 'math',
+    example: 'print(math.abs(-5)) --> 5',
+  );
+
+  @override
   Object? call(List<Object?> args) {
     if (args.isEmpty) {
       throw LuaError.typeError(
@@ -135,6 +148,15 @@ class _MathAbs extends _MathBuiltin {
 
 class _MathAcos extends _MathBuiltin {
   _MathAcos([super.interpreter]);
+
+  @override
+  FunctionDoc? get doc => FunctionDoc(
+    summary: 'Returns the arc cosine of a number in radians.',
+    params: [DocParam('x', 'number', 'The cosine value, must be in range [-1, 1].')],
+    returns: 'The arc cosine in radians.',
+    category: 'math',
+    example: 'print(math.acos(0)) --> 1.5707963267949',
+  );
 
   @override
   Object? call(List<Object?> args) {
@@ -152,6 +174,15 @@ class _MathAsin extends _MathBuiltin {
   _MathAsin([super.interpreter]);
 
   @override
+  FunctionDoc? get doc => FunctionDoc(
+    summary: 'Returns the arc sine of a number in radians.',
+    params: [DocParam('x', 'number', 'The sine value, must be in range [-1, 1].')],
+    returns: 'The arc sine in radians.',
+    category: 'math',
+    example: 'print(math.asin(1)) --> 1.5707963267949',
+  );
+
+  @override
   Object? call(List<Object?> args) {
     if (args.isEmpty) {
       throw LuaError.typeError(
@@ -167,6 +198,18 @@ class _MathAtan extends _MathBuiltin {
   _MathAtan([super.interpreter, this.functionName = "atan"]);
 
   final String functionName;
+
+  @override
+  FunctionDoc? get doc => FunctionDoc(
+    summary: 'Returns the arc tangent of a number in radians, or the angle of y/x.',
+    params: [
+      DocParam('y', 'number', 'The y coordinate.'),
+      DocParam('x', 'number', 'The x coordinate (optional).', optional: true),
+    ],
+    returns: 'The arc tangent in radians.',
+    category: 'math',
+    example: 'print(math.atan(1)) --> 0.78539816339745',
+  );
 
   @override
   Object? call(List<Object?> args) {
@@ -193,6 +236,15 @@ class _MathCeil extends _MathBuiltin {
   _MathCeil([super.interpreter]);
 
   @override
+  FunctionDoc? get doc => FunctionDoc(
+    summary: 'Returns the smallest integer greater than or equal to x.',
+    params: [DocParam('x', 'number', 'The input value.')],
+    returns: 'The ceiling of x as an integer.',
+    category: 'math',
+    example: 'print(math.ceil(3.14)) --> 4',
+  );
+
+  @override
   Object? call(List<Object?> args) {
     if (args.isEmpty) {
       throw LuaError.typeError(
@@ -215,6 +267,15 @@ class _MathCos extends _MathBuiltin {
   _MathCos([super.interpreter]);
 
   @override
+  FunctionDoc? get doc => FunctionDoc(
+    summary: 'Returns the cosine of an angle in radians.',
+    params: [DocParam('x', 'number', 'The angle in radians.')],
+    returns: 'The cosine of x.',
+    category: 'math',
+    example: 'print(math.cos(0)) --> 1',
+  );
+
+  @override
   Object? call(List<Object?> args) {
     if (args.isEmpty) {
       throw LuaError.typeError(
@@ -228,6 +289,15 @@ class _MathCos extends _MathBuiltin {
 
 class _MathDeg extends _MathBuiltin {
   _MathDeg([super.interpreter]);
+
+  @override
+  FunctionDoc? get doc => FunctionDoc(
+    summary: 'Converts a number from radians to degrees.',
+    params: [DocParam('x', 'number', 'The angle in radians.')],
+    returns: 'The angle in degrees.',
+    category: 'math',
+    example: 'print(math.deg(math.pi)) --> 180',
+  );
 
   @override
   Object? call(List<Object?> args) {
@@ -245,6 +315,15 @@ class _MathExp extends _MathBuiltin {
   _MathExp([super.interpreter]);
 
   @override
+  FunctionDoc? get doc => FunctionDoc(
+    summary: 'Returns e raised to the power of x (the exponential function).',
+    params: [DocParam('x', 'number', 'The exponent.')],
+    returns: 'e^x.',
+    category: 'math',
+    example: 'print(math.exp(1)) --> 2.718281828459',
+  );
+
+  @override
   Object? call(List<Object?> args) {
     if (args.isEmpty) {
       throw LuaError.typeError(
@@ -258,6 +337,15 @@ class _MathExp extends _MathBuiltin {
 
 class _MathFloor extends _MathBuiltin {
   _MathFloor([super.interpreter]);
+
+  @override
+  FunctionDoc? get doc => FunctionDoc(
+    summary: 'Returns the largest integer less than or equal to x.',
+    params: [DocParam('x', 'number', 'The input value.')],
+    returns: 'The floor of x as an integer.',
+    category: 'math',
+    example: 'print(math.floor(3.14)) --> 3',
+  );
 
   @override
   Object? call(List<Object?> args) {
@@ -280,6 +368,18 @@ class _MathFloor extends _MathBuiltin {
 
 class _MathFmod extends _MathBuiltin {
   _MathFmod([super.interpreter]);
+
+  @override
+  FunctionDoc? get doc => FunctionDoc(
+    summary: 'Returns the remainder of x divided by y (floating-point modulo).',
+    params: [
+      DocParam('x', 'number', 'The dividend.'),
+      DocParam('y', 'number', 'The divisor.'),
+    ],
+    returns: 'The remainder of x/y.',
+    category: 'math',
+    example: 'print(math.fmod(10, 3)) --> 1',
+  );
 
   @override
   Object? call(List<Object?> args) {
@@ -305,6 +405,15 @@ class _MathFrexp extends _MathBuiltin {
   _MathFrexp([super.interpreter]);
 
   @override
+  FunctionDoc? get doc => FunctionDoc(
+    summary: 'Decomposes a floating-point number into mantissa and exponent.',
+    params: [DocParam('x', 'number', 'The input value.')],
+    returns: 'The mantissa and exponent as two values.',
+    category: 'math',
+    example: 'local m, e = math.frexp(8) --> 0.5, 4',
+  );
+
+  @override
   Object? call(List<Object?> args) {
     if (args.isEmpty) {
       throw LuaError.typeError(
@@ -320,6 +429,18 @@ class _MathFrexp extends _MathBuiltin {
 
 class _MathLdexp extends _MathBuiltin {
   _MathLdexp([super.interpreter]);
+
+  @override
+  FunctionDoc? get doc => FunctionDoc(
+    summary: 'Returns x * 2^e (the inverse of frexp).',
+    params: [
+      DocParam('x', 'number', 'The mantissa.'),
+      DocParam('e', 'number', 'The exponent.'),
+    ],
+    returns: 'The computed value x * 2^e.',
+    category: 'math',
+    example: 'print(math.ldexp(0.5, 4)) --> 8',
+  );
 
   @override
   Object? call(List<Object?> args) {
@@ -358,6 +479,18 @@ class _MathLog extends _MathBuiltin {
   _MathLog([super.interpreter]);
 
   @override
+  FunctionDoc? get doc => FunctionDoc(
+    summary: 'Returns the logarithm of x in the given base.',
+    params: [
+      DocParam('x', 'number', 'The input value.'),
+      DocParam('base', 'number', 'The logarithm base (defaults to e).', optional: true),
+    ],
+    returns: 'The logarithm of x.',
+    category: 'math',
+    example: 'print(math.log(100, 10)) --> 2',
+  );
+
+  @override
   Object? call(List<Object?> args) {
     if (args.isEmpty) {
       throw LuaError.typeError(
@@ -380,6 +513,15 @@ class _MathLog extends _MathBuiltin {
 
 class _MathMax extends _MathBuiltin {
   _MathMax(super.interpreter);
+
+  @override
+  FunctionDoc? get doc => FunctionDoc(
+    summary: 'Returns the maximum value among its arguments.',
+    params: [DocParam('...', 'number', 'One or more numbers.')],
+    returns: 'The maximum value.',
+    category: 'math',
+    example: 'print(math.max(3, 7, 2, 9, 5)) --> 9',
+  );
 
   @override
   Object? fastCall2(Object? arg0, Object? arg1) {
@@ -414,6 +556,15 @@ class _MathMin extends _MathBuiltin {
   _MathMin(super.interpreter);
 
   @override
+  FunctionDoc? get doc => FunctionDoc(
+    summary: 'Returns the minimum value among its arguments.',
+    params: [DocParam('...', 'number', 'One or more numbers.')],
+    returns: 'The minimum value.',
+    category: 'math',
+    example: 'print(math.min(3, 7, 2, 9, 5)) --> 2',
+  );
+
+  @override
   Object? fastCall2(Object? arg0, Object? arg1) {
     final fastResult = _tryFastMinMaxNumericResult(arg0, arg1, wantMax: false);
     if (fastResult != null) {
@@ -446,6 +597,15 @@ class _MathModf extends _MathBuiltin {
   _MathModf(super.interpreter);
 
   @override
+  FunctionDoc? get doc => FunctionDoc(
+    summary: 'Decomposes a number into its integer and fractional parts.',
+    params: [DocParam('x', 'number', 'The input value.')],
+    returns: 'The integer part and the fractional part.',
+    category: 'math',
+    example: 'local int, frac = math.modf(3.14) --> 3, 0.14',
+  );
+
+  @override
   Object? call(List<Object?> args) {
     if (args.isEmpty) {
       throw LuaError.typeError("math.modf requires a number argument");
@@ -459,6 +619,18 @@ class _MathModf extends _MathBuiltin {
 
 class _MathPow extends _MathBuiltin {
   _MathPow([super.interpreter]);
+
+  @override
+  FunctionDoc? get doc => FunctionDoc(
+    summary: 'Returns x raised to the power y.',
+    params: [
+      DocParam('x', 'number', 'The base.'),
+      DocParam('y', 'number', 'The exponent.'),
+    ],
+    returns: 'x^y.',
+    category: 'math',
+    example: 'print(math.pow(2, 10)) --> 1024',
+  );
 
   @override
   Object? call(List<Object?> args) {
@@ -483,6 +655,15 @@ class _MathRad extends _MathBuiltin {
   _MathRad([super.interpreter]);
 
   @override
+  FunctionDoc? get doc => FunctionDoc(
+    summary: 'Converts a number from degrees to radians.',
+    params: [DocParam('x', 'number', 'The angle in degrees.')],
+    returns: 'The angle in radians.',
+    category: 'math',
+    example: 'print(math.rad(180)) --> 3.1415926535898',
+  );
+
+  @override
   Object? call(List<Object?> args) {
     if (args.isEmpty) {
       throw LuaError.typeError("math.rad requires a number argument");
@@ -494,6 +675,18 @@ class _MathRad extends _MathBuiltin {
 
 class _MathRandom extends _MathBuiltin {
   _MathRandom([super.interpreter]);
+
+  @override
+  FunctionDoc? get doc => FunctionDoc(
+    summary: 'Returns a pseudo-random number. With no arguments, returns a float in [0,1). With one argument m, returns an integer in [1, m]. With two arguments m, n, returns an integer in [m, n].',
+    params: [
+      DocParam('m', 'number', 'Upper bound (or lower bound if n is also given).', optional: true),
+      DocParam('n', 'number', 'Upper bound.', optional: true),
+    ],
+    returns: 'A pseudo-random number.',
+    category: 'math',
+    example: 'local r = math.random(1, 6) -- dice roll',
+  );
 
   Xoshiro256ss _random = Xoshiro256ss.seeded();
 
@@ -640,6 +833,15 @@ class _MathRandomseed extends _MathBuiltin {
   _MathRandomseed(this._randomFunc) : super(_randomFunc.interpreter);
 
   @override
+  FunctionDoc? get doc => FunctionDoc(
+    summary: 'Seeds the pseudo-random number generator.',
+    params: [DocParam('x', 'number', 'The seed value.')],
+    returns: 'Nothing.',
+    category: 'math',
+    example: 'math.randomseed(os.time())',
+  );
+
+  @override
   Object? call(List<Object?> args) {
     int n1;
     int n2;
@@ -671,6 +873,15 @@ class _MathSin extends _MathBuiltin {
   _MathSin([super.interpreter]);
 
   @override
+  FunctionDoc? get doc => FunctionDoc(
+    summary: 'Returns the sine of an angle in radians.',
+    params: [DocParam('x', 'number', 'The angle in radians.')],
+    returns: 'The sine of x.',
+    category: 'math',
+    example: 'print(math.sin(math.pi/2)) --> 1',
+  );
+
+  @override
   Object? call(List<Object?> args) {
     if (args.isEmpty) {
       throw LuaError.typeError("math.sin requires a number argument");
@@ -682,6 +893,15 @@ class _MathSin extends _MathBuiltin {
 
 class _MathSqrt extends _MathBuiltin {
   _MathSqrt([super.interpreter]);
+
+  @override
+  FunctionDoc? get doc => FunctionDoc(
+    summary: 'Returns the square root of x.',
+    params: [DocParam('x', 'number', 'The input value.')],
+    returns: 'The square root of x.',
+    category: 'math',
+    example: 'print(math.sqrt(9)) --> 3',
+  );
 
   @override
   Object? call(List<Object?> args) {
@@ -697,6 +917,15 @@ class _MathTan extends _MathBuiltin {
   _MathTan([super.interpreter]);
 
   @override
+  FunctionDoc? get doc => FunctionDoc(
+    summary: 'Returns the tangent of an angle in radians.',
+    params: [DocParam('x', 'number', 'The angle in radians.')],
+    returns: 'The tangent of x.',
+    category: 'math',
+    example: 'print(math.tan(math.pi/4)) --> 1',
+  );
+
+  @override
   Object? call(List<Object?> args) {
     if (args.isEmpty) {
       throw LuaError.typeError("math.tan requires a number argument");
@@ -708,6 +937,15 @@ class _MathTan extends _MathBuiltin {
 
 class _MathTointeger extends _MathBuiltin {
   _MathTointeger([super.interpreter]);
+
+  @override
+  FunctionDoc? get doc => FunctionDoc(
+    summary: 'Returns the integer part of x, or nil if x is not convertible.',
+    params: [DocParam('x', 'number', 'The input value.')],
+    returns: 'The integer value, or nil.',
+    category: 'math',
+    example: 'print(math.tointeger(3.14)) --> 3',
+  );
 
   @override
   Object? call(List<Object?> args) {
@@ -723,6 +961,15 @@ class _MathTointeger extends _MathBuiltin {
 
 class _MathType extends _MathBuiltin {
   _MathType([super.interpreter]);
+
+  @override
+  FunctionDoc? get doc => FunctionDoc(
+    summary: 'Returns the numeric type of a number: "integer" or "float".',
+    params: [DocParam('x', 'number', 'The input value.')],
+    returns: '"integer" or "float".',
+    category: 'math',
+    example: 'print(math.type(3)) --> integer',
+  );
 
   @override
   Object? call(List<Object?> args) {
@@ -743,6 +990,18 @@ class _MathType extends _MathBuiltin {
 
 class _MathUlt extends _MathBuiltin {
   _MathUlt([super.interpreter]);
+
+  @override
+  FunctionDoc? get doc => FunctionDoc(
+    summary: 'Returns true if m < n when both are compared as unsigned integers.',
+    params: [
+      DocParam('m', 'number', 'First value.'),
+      DocParam('n', 'number', 'Second value.'),
+    ],
+    returns: 'true if m is less than n in unsigned comparison.',
+    category: 'math',
+    example: 'print(math.ult(1, 2)) --> true',
+  );
 
   @override
   Object? call(List<Object?> args) {

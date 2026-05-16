@@ -10,12 +10,17 @@ import 'package:lualike/src/builtin_function.dart';
 import 'package:lualike/src/lua_error.dart';
 import 'package:lualike/src/runtime/lua_slot.dart';
 import 'package:lualike/src/lua_string.dart';
+import 'package:lualike/src/stdlib/doc.dart';
 import 'library.dart';
 
 /// Crypto library implementation using the new Library system
 class CryptoLibrary extends Library {
   @override
   String get name => "crypto";
+
+  @override
+  String get description =>
+      'Cryptographic hash functions (MD5, SHA1, SHA256).';
 
   @override
   void registerFunctions(LibraryRegistrationContext context) {
@@ -59,6 +64,18 @@ class _HashFunction extends BuiltinFunction {
   _HashFunction(this._hash, super.interpreter);
 
   @override
+  FunctionDoc? get doc => FunctionDoc(
+    summary: 'Computes a cryptographic hash of a string.',
+    params: [
+      DocParam('algorithm', 'string', 'Hash algorithm: "md5", "sha1", "sha256".'),
+      DocParam('input', 'string', 'The input string to hash.'),
+    ],
+    returns: 'The hex-encoded hash string.',
+    category: 'crypto',
+    example: 'crypto.hash("sha256", "hello")',
+  );
+
+  @override
   Future<Object?> call(List<Object?> args) async {
     if (args.isEmpty) {
       throw LuaError('hash function requires 1 argument');
@@ -71,6 +88,20 @@ class _HashFunction extends BuiltinFunction {
 
 class HmacFunction extends BuiltinFunction {
   HmacFunction(super.interpreter);
+
+  @override
+  FunctionDoc? get doc => FunctionDoc(
+    summary: 'Computes an HMAC for a message using a secret key.',
+    params: [
+      DocParam('algorithm', 'string', 'Hash algorithm: "md5", "sha1", "sha256".'),
+      DocParam('key', 'string', 'The secret key.'),
+      DocParam('message', 'string', 'The message to authenticate.'),
+    ],
+    returns: 'The hex-encoded HMAC string.',
+    category: 'crypto',
+    example: 'crypto.hmac("sha256", "key", "message")',
+  );
+
   @override
   Future<Object?> call(List<Object?> args) async {
     if (args.length < 3) {
@@ -96,6 +127,16 @@ class HmacFunction extends BuiltinFunction {
 
 class RandomBytesFunction extends BuiltinFunction {
   RandomBytesFunction(super.interpreter);
+
+  @override
+  FunctionDoc? get doc => FunctionDoc(
+    summary: 'Generates cryptographically secure random bytes.',
+    params: [DocParam('count', 'number', 'Number of random bytes to generate.')],
+    returns: 'A random byte string.',
+    category: 'crypto',
+    example: 'local bytes = crypto.randomBytes(16)',
+  );
+
   final _secureRandom = Random.secure();
 
   @override
@@ -119,6 +160,20 @@ class _AesCbcFunction extends BuiltinFunction {
   final bool _encrypt;
 
   _AesCbcFunction(this._encrypt, super.interpreter);
+
+  @override
+  FunctionDoc? get doc => FunctionDoc(
+    summary: 'Encrypts or decrypts data using AES-CBC.',
+    params: [
+      DocParam('mode', 'string', '"encrypt" or "decrypt".'),
+      DocParam('key', 'string', 'The AES key (16, 24, or 32 bytes).'),
+      DocParam('iv', 'string', 'The initialization vector (16 bytes).'),
+      DocParam('data', 'string', 'The data to encrypt or decrypt.'),
+    ],
+    returns: 'The encrypted or decrypted string.',
+    category: 'crypto',
+    example: 'crypto.aesCbc("encrypt", key, iv, data)',
+  );
 
   @override
   Future<Object?> call(List<Object?> args) async {

@@ -117,6 +117,15 @@ class _LoadLib extends BuiltinFunction {
   _LoadLib(super.interpreter);
 
   @override
+  FunctionDoc? get doc => FunctionDoc(
+    summary: 'Loads a Lua library module by name.',
+    params: [DocParam('name', 'string', 'The module name.')],
+    returns: 'The loaded module, or nil + error.',
+    category: 'package',
+    example: 'package.loadlib("mymodule")',
+  );
+
+  @override
   Future<Object?> call(List<Object?> args) async {
     if (args.length < 2) {
       throw LuaError("loadlib requires library path and function name");
@@ -165,6 +174,15 @@ class _SearchPath extends BuiltinFunction {
   _SearchPath(this.fileManager, super.interpreter);
 
   @override
+  FunctionDoc? get doc => FunctionDoc(
+    summary: 'Searches for a module file in the package path.',
+    params: [DocParam('name', 'string', 'The module name to search for.')],
+    returns: 'The file path if found, or nil + error.',
+    category: 'package',
+    example: 'package.searchpath("mymodule")',
+  );
+
+  @override
   Future<Object?> call(List<Object?> args) async {
     if (args.length < 2) {
       throw LuaError('searchpath requires name and path');
@@ -198,6 +216,15 @@ class _LuaLoader extends BuiltinFunction {
   final FileManager fileManager;
 
   _LuaLoader(this.fileManager, super.interpreter);
+
+  @override
+  FunctionDoc? get doc => FunctionDoc(
+    summary: 'Default Lua loader used by require to load modules.',
+    params: [DocParam('name', 'string', 'The module name.')],
+    returns: 'The loader function for the module.',
+    category: 'package',
+    example: 'package.searchers[1]("module")',
+  );
 
   @override
   Future<Object?> call(List<Object?> args) async {
@@ -506,6 +533,10 @@ class PackageLibrary extends Library {
   String get name => ""; // Empty name means base library (no namespace)
 
   @override
+  String get description =>
+      'Module management: loading, searching, and caching Lua modules.';
+
+  @override
   void registerFunctions(LibraryRegistrationContext context) {
     final packageLib = PackageLib(context.interpreter!);
 
@@ -514,6 +545,10 @@ class PackageLibrary extends Library {
     packageLib.createFunctions().forEach((key, value) {
       packageTable[key] = value;
     });
+
+    // Register docs for package functions (nested in table, not auto-collected)
+    context.describe('loadlib', _LoadLib(null).doc!);
+    context.describe('searchpath', _SearchPath(packageLib.fileManager, null).doc!);
 
     // Define package table globally
     context.define(

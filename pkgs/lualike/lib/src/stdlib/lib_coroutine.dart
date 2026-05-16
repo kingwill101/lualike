@@ -7,6 +7,7 @@ import 'package:lualike/src/lua_error.dart';
 import 'package:lualike/src/number_utils.dart';
 import 'package:lualike/src/runtime/lua_results.dart';
 import 'package:lualike/src/runtime/lua_slot.dart';
+import 'package:lualike/src/stdlib/doc.dart';
 import 'package:lualike/src/value.dart';
 
 import 'library.dart';
@@ -62,7 +63,6 @@ Environment _resolveClosureEnvironment(
 List<Object?> _cloneArgs(List<Object?> args) =>
     args.isEmpty ? const [] : List<Object?>.from(args);
 
-
 String _statusToString(LuaRuntime interpreter, Coroutine coroutine) {
   final Coroutine main = interpreter.getMainThread();
   final Coroutine? current = Coroutine.active;
@@ -106,6 +106,9 @@ Object? _resumeResultToValue(Object? resumeResult) {
 class CoroutineLibrary extends Library {
   @override
   String get name => "coroutine";
+
+  @override
+  String get description => 'Coroutine support for cooperative multitasking.';
 
   @override
   Map<String, Function>? getMetamethods(LuaRuntime interpreter) => {
@@ -154,6 +157,16 @@ class CoroutineLibrary extends Library {
 class _CoroutineRunning extends BuiltinFunction {
   _CoroutineRunning(this._interpreter);
 
+  @override
+  FunctionDoc? get doc => FunctionDoc(
+    summary:
+        'Returns the running coroutine and a boolean indicating if it is the main thread.',
+    params: [],
+    returns: 'The coroutine object and a boolean.',
+    category: 'coroutine',
+    example: 'local co, isMain = coroutine.running()',
+  );
+
   final LuaRuntime _interpreter;
 
   @override
@@ -167,6 +180,16 @@ class _CoroutineRunning extends BuiltinFunction {
 
 class _CoroutineStatus extends BuiltinFunction {
   _CoroutineStatus(this._interpreter);
+
+  @override
+  FunctionDoc? get doc => FunctionDoc(
+    summary:
+        'Returns the status of a coroutine: "running", "suspended", "normal", or "dead".',
+    params: [DocParam('co', 'thread', 'The coroutine to check.')],
+    returns: 'The status string.',
+    category: 'coroutine',
+    example: 'print(coroutine.status(co))',
+  );
 
   final LuaRuntime _interpreter;
 
@@ -188,6 +211,15 @@ class _CoroutineStatus extends BuiltinFunction {
 
 class _CoroutineCreate extends BuiltinFunction {
   _CoroutineCreate(this._interpreter);
+
+  @override
+  FunctionDoc? get doc => FunctionDoc(
+    summary: 'Creates a new coroutine from a function.',
+    params: [DocParam('f', 'function', 'The function for the coroutine body.')],
+    returns: 'A new coroutine (thread).',
+    category: 'coroutine',
+    example: 'local co = coroutine.create(function() print("hello") end)',
+  );
 
   final LuaRuntime _interpreter;
 
@@ -218,6 +250,23 @@ class _CoroutineCreate extends BuiltinFunction {
 
 class _CoroutineResume extends BuiltinFunction {
   _CoroutineResume(this._interpreter);
+
+  @override
+  FunctionDoc? get doc => FunctionDoc(
+    summary: 'Resumes execution of a coroutine, passing values as arguments.',
+    params: [
+      DocParam('co', 'thread', 'The coroutine to resume.'),
+      DocParam(
+        '...',
+        'any',
+        'Values to pass to the coroutine.',
+        optional: true,
+      ),
+    ],
+    returns: 'true if no error, plus values yielded/returned by the coroutine.',
+    category: 'coroutine',
+    example: 'local ok, res = coroutine.resume(co, 42)',
+  );
 
   final LuaRuntime _interpreter;
 
@@ -252,6 +301,16 @@ class _CoroutineResume extends BuiltinFunction {
 class _CoroutineYield extends BuiltinFunction {
   _CoroutineYield(this._interpreter);
 
+  @override
+  FunctionDoc? get doc => FunctionDoc(
+    summary:
+        'Suspends the running coroutine and returns values to the resumer.',
+    params: [DocParam('...', 'any', 'Values to yield back.', optional: true)],
+    returns: 'The values passed to coroutine.resume on the next resume.',
+    category: 'coroutine',
+    example: 'coroutine.yield("paused")',
+  );
+
   final LuaRuntime _interpreter;
 
   @override
@@ -276,6 +335,16 @@ class _CoroutineYield extends BuiltinFunction {
 
 class _CoroutineWrap extends BuiltinFunction {
   _CoroutineWrap(this._interpreter);
+
+  @override
+  FunctionDoc? get doc => FunctionDoc(
+    summary:
+        'Wraps a function into a coroutine-based function that auto-resumes.',
+    params: [DocParam('f', 'function', 'The function to wrap.')],
+    returns: 'A wrapped function that creates and resumes a coroutine.',
+    category: 'coroutine',
+    example: 'local f = coroutine.wrap(function() print("hi") end)',
+  );
 
   final LuaRuntime _interpreter;
 
@@ -356,6 +425,15 @@ class _WrappedCoroutineFunction extends BuiltinFunction
 class _CoroutineClose extends BuiltinFunction {
   _CoroutineClose([super.interpreter]);
 
+  @override
+  FunctionDoc? get doc => FunctionDoc(
+    summary: 'Closes a coroutine, setting it to the dead state.',
+    params: [DocParam('co', 'thread', 'The coroutine to close.')],
+    returns: 'true if successful.',
+    category: 'coroutine',
+    example: 'coroutine.close(co)',
+  );
+
   Object? _closeResultToValue(LuaRuntime runtime, List<Object?> result) {
     if (result.length == 1) {
       return valueFromLuaSlot(runtime, result.first);
@@ -405,6 +483,15 @@ class _CoroutineClose extends BuiltinFunction {
 
 class _CoroutineIsYieldable extends BuiltinFunction {
   _CoroutineIsYieldable([super.interpreter]);
+
+  @override
+  FunctionDoc? get doc => FunctionDoc(
+    summary: 'Returns true if the running coroutine can yield.',
+    params: [],
+    returns: 'true if yieldable, false otherwise.',
+    category: 'coroutine',
+    example: 'print(coroutine.isyieldable())',
+  );
 
   @override
   Object? call(List<Object?> args) {

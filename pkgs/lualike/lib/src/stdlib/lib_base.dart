@@ -26,6 +26,10 @@ class BaseLibrary extends Library {
   String get name => ""; // Empty name means global functions
 
   @override
+  String get description =>
+      'Global functions available in every LuaLike environment without a namespace prefix.';
+
+  @override
   void registerFunctions(LibraryRegistrationContext context) {
     final interpreter = context.vm;
     if (interpreter == null) {
@@ -86,6 +90,17 @@ class GetMetatableFunction extends BuiltinFunction {
   GetMetatableFunction(super.interpreter);
 
   @override
+  FunctionDoc? get doc => FunctionDoc(
+    summary: 'Returns the metatable of a value, or nil if it has none.',
+    params: [
+      DocParam('v', 'any', 'Any Lua value.'),
+    ],
+    returns: 'The metatable table, or nil.',
+    category: 'base',
+    example: 'print(getmetatable("hello"))',
+  );
+
+  @override
   Object? call(List<Object?> args) {
     if (args.isEmpty) {
       throw LuaError("getmetatable requires an argument");
@@ -135,6 +150,18 @@ class GetMetatableFunction extends BuiltinFunction {
 /// Only values wrapping a Map (table) can have a metatable set.
 class SetMetatableFunction extends BuiltinFunction {
   SetMetatableFunction(super.interpreter);
+
+  @override
+  FunctionDoc? get doc => FunctionDoc(
+    summary: 'Sets the metatable of a table.',
+    params: [
+      DocParam('table', 'table', 'The table.'),
+      DocParam('metatable', 'table', 'The metatable to set, or nil to remove it.'),
+    ],
+    returns: 'The table.',
+    category: 'base',
+    example: 'setmetatable({}, {})',
+  );
 
   @override
   Object? call(List<Object?> args) {
@@ -242,6 +269,19 @@ class RawSetFunction extends BuiltinFunction {
   RawSetFunction(super.interpreter);
 
   @override
+  FunctionDoc? get doc => FunctionDoc(
+    summary: 'Sets the real value of table[key] to value without invoking any metamethod.',
+    params: [
+      DocParam('table', 'table', 'The table.'),
+      DocParam('key', 'any', 'The key.'),
+      DocParam('value', 'any', 'The value to set.'),
+    ],
+    returns: 'The table.',
+    category: 'base',
+    example: 'rawset({}, "x", 10)',
+  );
+
+  @override
   Object? call(List<Object?> args) {
     if (args.length < 3) {
       throw LuaError("rawset expects three arguments (table, key, value)");
@@ -285,6 +325,18 @@ class RawSetFunction extends BuiltinFunction {
 
 class AssertFunction extends BuiltinFunction {
   AssertFunction(super.interpreter);
+
+  @override
+  FunctionDoc? get doc => FunctionDoc(
+    summary: 'Calls the given function with all arguments and returns its results, or raises an error on assertion failure.',
+    params: [
+      DocParam('value', 'any', 'The value to test. Raises an error if falsey.'),
+      DocParam('message', 'any', 'Optional error message.', optional: true),
+    ],
+    returns: 'All arguments passed to the function.',
+    category: 'base',
+    example: 'assert(2 + 2 == 4, "math works")',
+  );
 
   @override
   bool get canBytecodeInlineWithoutManagedFrame => true;
@@ -807,6 +859,18 @@ class ErrorFunction extends BuiltinFunction {
   ErrorFunction(super.interpreter);
 
   @override
+  FunctionDoc? get doc => FunctionDoc(
+    summary: 'Raises an error with the given message. If level is given, it indicates where the error occurred.',
+    params: [
+      DocParam('message', 'any', 'The error message.'),
+      DocParam('level', 'number', 'Error level (1=function call, 2=caller, etc).', optional: true),
+    ],
+    returns: 'This function never returns — it raises an error.',
+    category: 'base',
+    example: 'error("something went wrong")',
+  );
+
+  @override
   Object? call(List<Object?> args) {
     // If no arguments, throw nil as the error object (Lua behavior)
     if (args.isEmpty) {
@@ -892,6 +956,17 @@ class ErrorFunction extends BuiltinFunction {
 class IPairsFunction extends BuiltinFunction {
   IPairsFunction(super.interpreter);
 
+  @override
+  FunctionDoc? get doc => FunctionDoc(
+    summary: 'Returns an iterator function for numeric indices in a table, starting from index 1.',
+    params: [
+      DocParam('t', 'table', 'The table to iterate over.'),
+    ],
+    returns: 'An iterator function, the table, and the initial index (0).',
+    category: 'base',
+    example: 'for i, v in ipairs({10, 20, 30}) do print(i, v) end',
+  );
+
   late final Value _iteratorFunction = Value((List<Object?> iterArgs) async {
     if (iterArgs.length < 2) {
       throw LuaError("iterator requires a table and an index");
@@ -936,6 +1011,17 @@ class IPairsFunction extends BuiltinFunction {
 
 class PrintFunction extends BuiltinFunction {
   PrintFunction(super.interpreter);
+
+  @override
+  FunctionDoc? get doc => FunctionDoc(
+    summary: 'Writes the string representation of each argument to stdout, separated by tabs.',
+    params: [
+      DocParam('...', 'any', 'One or more values to print.'),
+    ],
+    returns: 'Nothing.',
+    category: 'base',
+    example: 'print("hello", "world")',
+  );
 
   @override
   Future<Object?> call(List<Object?> args) async {
@@ -992,6 +1078,17 @@ class TypeFunction extends BuiltinFunction {
   TypeFunction(super.interpreter);
 
   @override
+  FunctionDoc? get doc => FunctionDoc(
+    summary: 'Returns the type of its single argument as a string.',
+    params: [
+      DocParam('v', 'any', 'Any Lua value.'),
+    ],
+    returns: '"nil" | "number" | "string" | "boolean" | "table" | "function" | "thread" | "userdata"',
+    category: 'base',
+    example: 'print(type(42)) --> number',
+  );
+
+  @override
   Object? call(List<Object?> args) {
     if (args.isEmpty) throw LuaError("type requires an argument");
     final value = args[0];
@@ -1002,6 +1099,18 @@ class TypeFunction extends BuiltinFunction {
 
 class ToNumberFunction extends BuiltinFunction {
   ToNumberFunction(super.interpreter);
+
+  @override
+  FunctionDoc? get doc => FunctionDoc(
+    summary: 'Converts its argument to a number. Returns nil if conversion is not possible.',
+    params: [
+      DocParam('e', 'any', 'The value to convert.'),
+      DocParam('base', 'number', 'Optional base for integer string conversion (2-36).', optional: true),
+    ],
+    returns: 'The converted number, or nil.',
+    category: 'base',
+    example: 'print(tonumber("42")) --> 42',
+  );
 
   @override
   Object? call(List<Object?> args) {
@@ -1055,6 +1164,17 @@ class ToNumberFunction extends BuiltinFunction {
 
 class ToStringFunction extends BuiltinFunction {
   ToStringFunction(super.interpreter);
+
+  @override
+  FunctionDoc? get doc => FunctionDoc(
+    summary: 'Returns a string representation of its argument.',
+    params: [
+      DocParam('v', 'any', 'Any Lua value.'),
+    ],
+    returns: 'The string representation.',
+    category: 'base',
+    example: 'print(tostring(42)) --> 42',
+  );
 
   @override
   Future<Object?> call(List<Object?> args) async {
@@ -1153,6 +1273,17 @@ class _BaseTointeger extends BuiltinFunction {
   _BaseTointeger(super.interpreter);
 
   @override
+  FunctionDoc? get doc => FunctionDoc(
+    summary: 'Converts its argument to an integer if possible, returns nil otherwise.',
+    params: [
+      DocParam('v', 'any', 'The value to convert.'),
+    ],
+    returns: 'The integer value, or nil.',
+    category: 'base',
+    example: 'print(tointeger(3.14)) --> 3',
+  );
+
+  @override
   Object? call(List<Object?> args) {
     if (args.isEmpty) {
       throw LuaError.typeError('tointeger requires one argument');
@@ -1166,6 +1297,18 @@ class _BaseTointeger extends BuiltinFunction {
 
 class SelectFunction extends BuiltinFunction {
   SelectFunction(super.interpreter);
+
+  @override
+  FunctionDoc? get doc => FunctionDoc(
+    summary: 'Returns the arguments starting at the given index, or the total number of arguments when index is "#".',
+    params: [
+      DocParam('index', 'number|string', 'Selection index, or "#" to count arguments.'),
+      DocParam('...', 'any', 'One or more values to select from.'),
+    ],
+    returns: 'The selected arguments, or the count.',
+    category: 'base',
+    example: 'print(select(2, "a", "b", "c")) --> b\tc',
+  );
 
   @override
   Object? call(List<Object?> args) {
@@ -1211,6 +1354,20 @@ class SelectFunction extends BuiltinFunction {
 
 class LoadFunction extends BuiltinFunction {
   LoadFunction(super.interpreter);
+
+  @override
+  FunctionDoc? get doc => FunctionDoc(
+    summary: 'Loads a Lua chunk from a string or function.',
+    params: [
+      DocParam('ld', 'string|function', 'The chunk source.'),
+      DocParam('source', 'string', 'Optional source name for error messages.', optional: true),
+      DocParam('mode', 'string', 'Optional loading mode ("b", "t", or "bt").', optional: true),
+      DocParam('env', 'table', 'Optional environment table.', optional: true),
+    ],
+    returns: 'The loaded function, or nil + error message.',
+    category: 'base',
+    example: 'local f = load("return 1+1")',
+  );
 
   @override
   Future<Object?> call(List<Object?> args) async {
@@ -1269,6 +1426,17 @@ class LoadFunction extends BuiltinFunction {
 
 class DoFileFunction extends BuiltinFunction {
   DoFileFunction(super.interpreter);
+
+  @override
+  FunctionDoc? get doc => FunctionDoc(
+    summary: 'Executes a Lua file and returns its return values.',
+    params: [
+      DocParam('filename', 'string', 'Path to the Lua file.'),
+    ],
+    returns: 'The return values from the file.',
+    category: 'base',
+    example: 'dofile("script.lua")',
+  );
 
   @override
   Future<Object?> call(List<Object?> args) async {
@@ -1372,6 +1540,19 @@ class LoadfileFunction extends BuiltinFunction {
   LoadfileFunction(super.interpreter);
 
   @override
+  FunctionDoc? get doc => FunctionDoc(
+    summary: 'Loads a Lua chunk from a file and returns it as a function.',
+    params: [
+      DocParam('filename', 'string', 'Path to the Lua file.'),
+      DocParam('mode', 'string', 'Optional loading mode ("b", "t", or "bt").', optional: true),
+      DocParam('env', 'table', 'Optional environment table.', optional: true),
+    ],
+    returns: 'The loaded function, or nil + error message.',
+    category: 'base',
+    example: 'local f = loadfile("script.lua")',
+  );
+
+  @override
   Future<Object?> call(List<Object?> args) async {
     final filename = args.isNotEmpty ? rawLuaSlot(args[0]).toString() : null;
     final modeStr = args.length > 1 ? rawLuaSlot(args[1]).toString() : 'bt';
@@ -1445,6 +1626,18 @@ class LoadfileFunction extends BuiltinFunction {
 
 class NextFunction extends BuiltinFunction {
   NextFunction(LuaRuntime super.interpreter);
+
+  @override
+  FunctionDoc? get doc => FunctionDoc(
+    summary: 'Returns the next key-value pair from a table, or nil when all pairs have been enumerated.',
+    params: [
+      DocParam('table', 'table', 'The table.'),
+      DocParam('key', 'any', 'The previous key, or nil for the first call.', optional: true),
+    ],
+    returns: 'The next key and value, or nil.',
+    category: 'base',
+    example: 'print(next({a=1, b=2}, nil))',
+  );
 
   @override
   Object? call(List<Object?> args) {
@@ -1744,6 +1937,18 @@ class PCAllFunction extends BuiltinFunction {
   PCAllFunction(super.interpreter);
 
   @override
+  FunctionDoc? get doc => FunctionDoc(
+    summary: 'Calls the function in protected mode. Returns true + results on success, or false + error on failure.',
+    params: [
+      DocParam('f', 'function', 'The function to call.'),
+      DocParam('...', 'any', 'Arguments passed to the function.', optional: true),
+    ],
+    returns: 'true followed by return values, or false followed by error message.',
+    category: 'base',
+    example: 'local ok, res = pcall(function() return 1/1 end)',
+  );
+
+  @override
   bool get isBytecodeProtectedCallBuiltin => true;
 
   @override
@@ -1804,6 +2009,18 @@ class RawEqualFunction extends BuiltinFunction {
   RawEqualFunction(LuaRuntime super.interpreter);
 
   @override
+  FunctionDoc? get doc => FunctionDoc(
+    summary: 'Returns whether v1 and v2 are equal without invoking any metamethod.',
+    params: [
+      DocParam('v1', 'any', 'First value.'),
+      DocParam('v2', 'any', 'Second value.'),
+    ],
+    returns: 'true if the values are equal, false otherwise.',
+    category: 'base',
+    example: 'print(rawequal(1, 1)) --> true',
+  );
+
+  @override
   Object? call(List<Object?> args) {
     if (args.length < 2) throw LuaError("rawequal requires two arguments");
     final v1 = args[0];
@@ -1814,6 +2031,17 @@ class RawEqualFunction extends BuiltinFunction {
 
 class RawLenFunction extends BuiltinFunction {
   RawLenFunction(LuaRuntime super.interpreter);
+
+  @override
+  FunctionDoc? get doc => FunctionDoc(
+    summary: 'Returns the length of the given value without invoking any metamethod.',
+    params: [
+      DocParam('v', 'string|table', 'A string or table value.'),
+    ],
+    returns: 'The integer length.',
+    category: 'base',
+    example: 'print(rawlen("hello")) --> 5',
+  );
 
   @override
   Object? call(List<Object?> args) {
@@ -1833,6 +2061,18 @@ class RawLenFunction extends BuiltinFunction {
 
 class WarnFunction extends BuiltinFunction {
   WarnFunction(LuaRuntime super.interpreter);
+
+  @override
+  FunctionDoc? get doc => FunctionDoc(
+    summary: 'Emits a warning message.',
+    params: [
+      DocParam('msg', 'string', 'The warning message.'),
+      DocParam('...', 'any', 'Additional message parts.', optional: true),
+    ],
+    returns: 'Nothing.',
+    category: 'base',
+    example: 'warn("deprecated function")',
+  );
 
   bool _enabled = true;
 
@@ -1875,6 +2115,19 @@ class WarnFunction extends BuiltinFunction {
 
 class XPCallFunction extends BuiltinFunction {
   XPCallFunction(super.interpreter);
+
+  @override
+  FunctionDoc? get doc => FunctionDoc(
+    summary: 'Calls the function in protected mode with an error handler.',
+    params: [
+      DocParam('f', 'function', 'The function to call.'),
+      DocParam('handler', 'function', 'Error handler function called on failure.'),
+      DocParam('...', 'any', 'Arguments passed to the function.', optional: true),
+    ],
+    returns: 'true followed by return values, or false followed by handler result.',
+    category: 'base',
+    example: 'xpcall(function() error("fail") end, function(err) print(err) end)',
+  );
 
   Future<Object?> _invokeErrorHandler(
     Value handler,
@@ -1974,6 +2227,18 @@ class XPCallFunction extends BuiltinFunction {
 
 class CollectGarbageFunction extends BuiltinFunction {
   CollectGarbageFunction(super.interpreter);
+
+  @override
+  FunctionDoc? get doc => FunctionDoc(
+    summary: 'Controls the garbage collector. Acts as a control function for memory management.',
+    params: [
+      DocParam('opt', 'string', 'Operation: "collect", "stop", "restart", "count", "step", "setpause", "setstepmul".'),
+      DocParam('arg', 'any', 'Optional argument for the operation.', optional: true),
+    ],
+    returns: 'Depends on the operation.',
+    category: 'base',
+    example: 'print(collectgarbage("count"))',
+  );
 
   String _currentMode = "incremental"; // Default mode
 
@@ -2223,6 +2488,18 @@ class RawGetFunction extends BuiltinFunction {
   RawGetFunction(LuaRuntime super.interpreter);
 
   @override
+  FunctionDoc? get doc => FunctionDoc(
+    summary: 'Gets the real value of table[key] without invoking any metamethod.',
+    params: [
+      DocParam('table', 'table', 'The table.'),
+      DocParam('key', 'any', 'The key to look up.'),
+    ],
+    returns: 'The raw value stored in the table.',
+    category: 'base',
+    example: 'print(rawget({a=1}, "a")) --> 1',
+  );
+
+  @override
   Object? call(List<Object?> args) {
     if (args.length < 2) {
       throw LuaError("rawget requires table and index arguments");
@@ -2248,6 +2525,17 @@ class RawGetFunction extends BuiltinFunction {
 
 class PairsFunction extends BuiltinFunction {
   PairsFunction(super.interpreter);
+
+  @override
+  FunctionDoc? get doc => FunctionDoc(
+    summary: 'Returns an iterator function for all key-value pairs in a table.',
+    params: [
+      DocParam('t', 'table', 'The table to iterate over.'),
+    ],
+    returns: 'An iterator function, the table, and an initial key (nil).',
+    category: 'base',
+    example: 'for k, v in pairs({a=1, b=2}) do print(k, v) end',
+  );
 
   @override
   Future<Object?> call(List<Object?> args) async {
@@ -2279,6 +2567,17 @@ String _badTableArgumentMessage(String functionName, Value? value) {
 
 class RequireFunction extends BuiltinFunction {
   RequireFunction(super.interpreter, this.packageTable);
+
+  @override
+  FunctionDoc? get doc => FunctionDoc(
+    summary: 'Loads and caches a Lua module by name.',
+    params: [
+      DocParam('modname', 'string', 'The module name.'),
+    ],
+    returns: 'The module value.',
+    category: 'base',
+    example: 'local t = require("table")',
+  );
 
   final Value packageTable;
   static const List<String> _standardLibs = [

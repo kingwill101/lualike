@@ -20,6 +20,9 @@ class TableLibrary extends Library {
   String get name => "table";
 
   @override
+  String get description => 'Functions for table manipulation and inspection.';
+
+  @override
   Map<String, Function>? getMetamethods(LuaRuntime interpreter) => {
     "__index": (List<Object?> args) {
       final key = args[1];
@@ -195,6 +198,18 @@ class _TableCreate extends BuiltinFunction {
   _TableCreate([super.interpreter]);
 
   @override
+  FunctionDoc? get doc => FunctionDoc(
+    summary: 'Creates a table with pre-allocated array and hash parts.',
+    params: [
+      DocParam('narray', 'number', 'Number of array slots to pre-allocate.', optional: true),
+      DocParam('nhash', 'number', 'Number of hash slots to pre-allocate.', optional: true),
+    ],
+    returns: 'A new table.',
+    category: 'table',
+    example: 'table.create(10, 0)',
+  );
+
+  @override
   Object? call(List<Object?> args) {
     if (args.length > 2) {
       throw LuaError("wrong number of arguments to 'create'");
@@ -241,6 +256,20 @@ class _TableCreate extends BuiltinFunction {
 
 class _TableInsert extends BuiltinFunction {
   _TableInsert([super.interpreter]);
+
+  @override
+  FunctionDoc? get doc => FunctionDoc(
+    summary: 'Inserts an element at a given position in a table, shifting elements up.',
+    params: [
+      DocParam('t', 'table', 'The table to modify.'),
+      DocParam('pos', 'number|any', 'Position to insert at, or the value if no position given.'),
+      DocParam('value', 'any', 'The value to insert (omit if pos is the value).', optional: true),
+    ],
+    returns: 'Nothing.',
+    category: 'table',
+    example: 'table.insert(t, 1, "new first element")',
+  );
+
   @override
   Object? call(List<Object?> args) async {
     // Lua: table.insert(table, [pos,] value)
@@ -287,6 +316,19 @@ class _TableInsert extends BuiltinFunction {
 
 class _TableRemove extends BuiltinFunction {
   _TableRemove([super.interpreter]);
+
+  @override
+  FunctionDoc? get doc => FunctionDoc(
+    summary: 'Removes an element from a table at a given position, shifting elements down.',
+    params: [
+      DocParam('t', 'table', 'The table to modify.'),
+      DocParam('pos', 'number', 'Position to remove from (defaults to last index).', optional: true),
+    ],
+    returns: 'The removed element.',
+    category: 'table',
+    example: 'local e = table.remove(t, 1)',
+  );
+
   @override
   Future<Object?> call(List<Object?> args) async {
     if (args.isEmpty) {
@@ -334,6 +376,21 @@ class _TableRemove extends BuiltinFunction {
 
 class _TableConcat extends BuiltinFunction {
   _TableConcat([super.interpreter]);
+
+  @override
+  FunctionDoc? get doc => FunctionDoc(
+    summary: 'Concatenates table elements into a string, separated by a given separator.',
+    params: [
+      DocParam('t', 'table', 'The table.'),
+      DocParam('sep', 'string', 'Separator between elements.', optional: true),
+      DocParam('i', 'number', 'Starting index.', optional: true),
+      DocParam('j', 'number', 'Ending index.', optional: true),
+    ],
+    returns: 'The concatenated string.',
+    category: 'table',
+    example: 'print(table.concat({"a", "b", "c"}, ", ")) --> a, b, c',
+  );
+
   @override
   Future<Object?> call(List<Object?> args) async {
     if (args.isEmpty) {
@@ -427,6 +484,22 @@ class _TableConcat extends BuiltinFunction {
 
 class _TableMove extends BuiltinFunction {
   _TableMove([super.interpreter]);
+
+  @override
+  FunctionDoc? get doc => FunctionDoc(
+    summary: 'Moves elements from one table to another.',
+    params: [
+      DocParam('a1', 'table', 'Source table.'),
+      DocParam('f', 'number', 'Starting index in source.'),
+      DocParam('e', 'number', 'Ending index in source.'),
+      DocParam('t', 'number', 'Starting index in destination.'),
+      DocParam('a2', 'table', 'Destination table (defaults to source).', optional: true),
+    ],
+    returns: 'The destination table.',
+    category: 'table',
+    example: 'table.move({1,2,3}, 1, 2, 1, {})',
+  );
+
   @override
   Future<Object?> call(List<Object?> args) async {
     Logger.debugLazy(() => "_TableMove: Starting with ${args.length} args");
@@ -535,6 +608,19 @@ class _TableMove extends BuiltinFunction {
 
 class _TableSort extends BuiltinFunction {
   _TableSort([super.interpreter]);
+
+  @override
+  FunctionDoc? get doc => FunctionDoc(
+    summary: 'Sorts the table in-place using an optional comparator.',
+    params: [
+      DocParam('t', 'table', 'The table to sort.'),
+      DocParam('comp', 'function', 'Comparison function (a, b) returning true if a < b.', optional: true),
+    ],
+    returns: 'Nothing.',
+    category: 'table',
+    example: 'table.sort(t, function(a, b) return a > b end)',
+  );
+
   @override
   Object? call(List<Object?> args) async {
     if (args.isEmpty) {
@@ -1161,6 +1247,18 @@ class _TableSort extends BuiltinFunction {
 
 class _TablePack extends BuiltinFunction {
   _TablePack([super.interpreter]);
+
+  @override
+  FunctionDoc? get doc => FunctionDoc(
+    summary: 'Packs arguments into a table with a "n" field holding the count.',
+    params: [
+      DocParam('...', 'any', 'Values to pack.'),
+    ],
+    returns: 'A table containing all values.',
+    category: 'table',
+    example: 'local t = table.pack("a", "b", "c")',
+  );
+
   @override
   Object? call(List<Object?> args) {
     final table = TableStorage();
@@ -1178,6 +1276,20 @@ class _TablePack extends BuiltinFunction {
 
 class _TableUnpack extends BuiltinFunction {
   _TableUnpack([super.interpreter]);
+
+  @override
+  FunctionDoc? get doc => FunctionDoc(
+    summary: 'Unpacks a table into individual return values.',
+    params: [
+      DocParam('t', 'table', 'The table to unpack.'),
+      DocParam('i', 'number', 'Starting index (defaults to 1).', optional: true),
+      DocParam('j', 'number', 'Ending index (defaults to #t).', optional: true),
+    ],
+    returns: 'Multiple return values from the table.',
+    category: 'table',
+    example: 'local a, b, c = table.unpack({1, 2, 3})',
+  );
+
   @override
   Object? call(List<Object?> args) async {
     final bool log = Logger.enabled;

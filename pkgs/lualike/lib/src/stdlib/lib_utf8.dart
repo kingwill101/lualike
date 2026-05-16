@@ -12,8 +12,9 @@ import 'package:lualike/src/runtime/lua_results.dart';
 import 'package:lualike/src/runtime/lua_slot.dart';
 import 'package:lualike/src/value.dart' show Value;
 
-import '../../lualike.dart' show Value;
+import 'package:lualike/lualike.dart' show Value;
 import 'library.dart';
+import 'doc.dart' show DocParam, FunctionDoc;
 
 Uint8List _utf8StringBytes(Object? value, String functionName) {
   final raw = rawLuaSlot(value);
@@ -54,6 +55,9 @@ bool _utf8OptionalBool(Object? value, bool fallback) {
 class UTF8Library extends Library {
   @override
   String get name => "utf8";
+
+  @override
+  String get description => 'UTF-8 encoding support for Unicode text.';
 
   @override
   Map<String, Function>? getMetamethods(LuaRuntime interpreter) => {
@@ -163,6 +167,15 @@ class _UTF8Char extends BuiltinFunction {
   _UTF8Char([super.interpreter]);
 
   @override
+  FunctionDoc? get doc => FunctionDoc(
+    summary: 'Returns a UTF-8 string from one or more Unicode code points.',
+    params: [DocParam('...', 'number', 'One or more Unicode code points.')],
+    returns: 'A UTF-8 encoded string.',
+    category: 'utf8',
+    example: 'print(utf8.char(65, 66, 67)) --> ABC',
+  );
+
+  @override
   Object? call(List<Object?> args) {
     // Return empty string when no arguments provided (like standard Lua)
     if (args.isEmpty) {
@@ -213,6 +226,18 @@ class _UTF8Char extends BuiltinFunction {
 
 class _UTF8Codes extends BuiltinFunction {
   _UTF8Codes([super.interpreter]);
+
+  @override
+  FunctionDoc? get doc => FunctionDoc(
+    summary: 'Returns an iterator over Unicode code points in a UTF-8 string.',
+    params: [
+      DocParam('s', 'string', 'A UTF-8 encoded string.'),
+      DocParam('n', 'number', 'Optional starting byte position.', optional: true),
+    ],
+    returns: 'An iterator function that returns each code point.',
+    category: 'utf8',
+    example: 'for cp in utf8.codes("héllo") do print(cp) end',
+  );
 
   @override
   Object? call(List<Object?> args) {
@@ -318,6 +343,19 @@ class _UTF8CodePoint extends BuiltinFunction {
   _UTF8CodePoint([super.interpreter]);
 
   @override
+  FunctionDoc? get doc => FunctionDoc(
+    summary: 'Returns the Unicode code point and byte length for the character at a given position.',
+    params: [
+      DocParam('s', 'string', 'A UTF-8 encoded string.'),
+      DocParam('i', 'number', 'Byte position (defaults to 1).', optional: true),
+      DocParam('j', 'number', 'Ending byte position (defaults to i).', optional: true),
+    ],
+    returns: 'The code point(s) for the character(s) at position i..j.',
+    category: 'utf8',
+    example: 'local cp = utf8.codepoint("A")',
+  );
+
+  @override
   Object? call(List<Object?> args) {
     if (args.isEmpty) {
       throw LuaError("utf8.codepoint requires a string argument");
@@ -405,6 +443,19 @@ class _UTF8CodePoint extends BuiltinFunction {
 
 class _UTF8Len extends BuiltinFunction {
   _UTF8Len([super.interpreter]);
+
+  @override
+  FunctionDoc? get doc => FunctionDoc(
+    summary: 'Returns the number of Unicode code points in a UTF-8 string range.',
+    params: [
+      DocParam('s', 'string', 'A UTF-8 encoded string.'),
+      DocParam('i', 'number', 'Starting byte position (defaults to 1).', optional: true),
+      DocParam('j', 'number', 'Ending byte position (defaults to -1).', optional: true),
+    ],
+    returns: 'The number of code points in the range.',
+    category: 'utf8',
+    example: 'print(utf8.len("héllo")) --> 5',
+  );
 
   @override
   Object? call(List<Object?> args) {
@@ -497,6 +548,19 @@ class _UTF8Len extends BuiltinFunction {
 
 class _UTF8Offset extends BuiltinFunction {
   _UTF8Offset([super.interpreter]);
+
+  @override
+  FunctionDoc? get doc => FunctionDoc(
+    summary: 'Returns the byte offset of a given character position in a UTF-8 string.',
+    params: [
+      DocParam('s', 'string', 'A UTF-8 encoded string.'),
+      DocParam('n', 'number', 'Character position (can be negative for reverse).'),
+      DocParam('i', 'number', 'Starting byte position (defaults to 1).', optional: true),
+    ],
+    returns: 'The byte offset of the nth character, or nil.',
+    category: 'utf8',
+    example: 'print(utf8.offset("héllo", 3))',
+  );
 
   Object? _offsetResult(int start, int end) =>
       LuaResults([primitiveValue(start), primitiveValue(end)]);

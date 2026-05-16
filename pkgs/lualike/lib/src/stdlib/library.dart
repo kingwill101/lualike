@@ -4,6 +4,7 @@ import 'package:lualike/src/builtin_function.dart';
 import 'package:lualike/src/environment.dart';
 import 'package:lualike/src/runtime/lua_runtime.dart';
 import 'package:lualike/src/runtime/lua_slot.dart';
+import 'package:lualike/src/stdlib/doc.dart';
 import 'package:lualike/src/value.dart';
 import 'metatables.dart' show MetaTable;
 
@@ -30,6 +31,21 @@ abstract class Library {
   /// libraries can access the runtime through [LibraryContext.interpreter] and
   /// do not need to retain this field directly.
   LuaRuntime? interpreter;
+
+  /// Documentation metadata registered via [LibraryRegistrationContext.describe]
+  /// during [registerFunctions].  Populated automatically — subclasses do not
+  /// normally touch this field directly.
+  final Map<String, FunctionDoc> _docs = {};
+
+  /// Returns the documentation metadata collected for this library's exported
+  /// values.
+  Map<String, FunctionDoc> getDocs() => Map.unmodifiable(_docs);
+
+  /// A short description of the library for use in generated documentation.
+  ///
+  /// Override in concrete library classes.  Returning an empty string is fine —
+  /// the doc generator will simply skip the description section.
+  String get description => '';
 
   /// Optional metamethods attached to the exported library table.
   ///
@@ -189,6 +205,7 @@ class LibraryRegistry {
     final tempContext = LibraryRegistrationContext._internal(
       libraryContext,
       functionMap,
+      library,
     );
 
     // Register the library's functions
@@ -196,6 +213,23 @@ class LibraryRegistry {
 
     // Copy functions to the library table
     libraryTable.addAll(functionMap);
+
+    // Auto-collect docs from BuiltinFunction subclasses
+    for (final entry in functionMap.entries) {
+      final unwrapped = switch (entry.value) {
+        final Value v => v.raw,
+        final dynamic d => d,
+      };
+      if (unwrapped is BuiltinFunction) {
+        final doc = unwrapped.doc;
+        if (doc != null) {
+          library._docs.putIfAbsent(entry.key, () => doc);
+        }
+      } else {
+        // Not a BuiltinFunction, also not a doc we can auto-collect.
+        // Docs for non-BuiltinFunction values must be added via describe().
+      }
+    }
 
     // Handle base library (global functions) vs namespaced libraries
     if (library.name.isEmpty) {
@@ -339,14 +373,27 @@ class LazyLibraryMap extends MapBase<String, dynamic> {
 /// Registration context that collects the exported values for a [Library].
 class LibraryRegistrationContext extends LibraryContext {
   final Map<String, dynamic> _functionMap;
+  final Library _library;
 
-  LibraryRegistrationContext._internal(LibraryContext base, this._functionMap)
-    : super(environment: base.environment, interpreter: base.interpreter);
+  LibraryRegistrationContext._internal(
+    LibraryContext base,
+    this._functionMap,
+    this._library,
+  ) : super(environment: base.environment, interpreter: base.interpreter);
+
+  /// Attaches documentation metadata to an exported [name] without the need to
+  /// create a dedicated [BuiltinFunction] subclass.
+  ///
+  /// Use this for constants, plain closures, or any value registered with
+  /// [define] that does not override [BuiltinFunction.doc].
+  void describe(String name, FunctionDoc doc) {
+    _library._docs[name] = doc;
+  }
 
   /// Defines an exported [function] or constant under [name].
   ///
   /// Plain Dart callables and [BuiltinFunction] instances are wrapped once in a
-  /// [Value] during registration so repeated global lookups do not allocate new
+  /// [Value] during registration so repeated global lookups do allocate new
   /// wrappers.
   void define(String name, dynamic function) {
     // Wrap builtin functions in Value objects once during registration

@@ -5,6 +5,7 @@ import 'package:lualike/src/lua_error.dart';
 import 'package:lualike/src/lua_string.dart';
 import 'package:lualike/src/runtime/lua_slot.dart';
 
+import 'doc.dart';
 import 'library.dart';
 
 
@@ -25,6 +26,10 @@ import 'library.dart';
 class LoggingLibrary extends Library {
   @override
   String get name => "logging";
+
+  @override
+  String get description =>
+      'Structured logging with configurable severity levels.';
 
   @override
   void registerFunctions(LibraryRegistrationContext context) {
@@ -51,6 +56,15 @@ class _LoggingEnable extends BuiltinFunction {
   _LoggingEnable([super.interpreter]);
 
   @override
+  FunctionDoc? get doc => FunctionDoc(
+    summary: 'Enables logging output.',
+    params: [],
+    returns: 'Nothing.',
+    category: 'logging',
+    example: 'logging.enable()',
+  );
+
+  @override
   Object? call(List<Object?> args) {
     final level = _extractLevel(
       args.isNotEmpty ? args[0] : null,
@@ -73,6 +87,15 @@ class _LoggingDisable extends BuiltinFunction {
   _LoggingDisable([super.interpreter]);
 
   @override
+  FunctionDoc? get doc => FunctionDoc(
+    summary: 'Disables logging output.',
+    params: [],
+    returns: 'Nothing.',
+    category: 'logging',
+    example: 'logging.disable()',
+  );
+
+  @override
   Object? call(List<Object?> args) {
     Logger.setEnabled(false);
     return primitiveValue(true);
@@ -83,6 +106,15 @@ class _LoggingIsEnabled extends BuiltinFunction {
   _LoggingIsEnabled([super.interpreter]);
 
   @override
+  FunctionDoc? get doc => FunctionDoc(
+    summary: 'Returns whether logging is currently enabled.',
+    params: [],
+    returns: 'true if logging is enabled, false otherwise.',
+    category: 'logging',
+    example: 'print(logging.isEnabled())',
+  );
+
+  @override
   Object? call(List<Object?> args) {
     return primitiveValue(Logger.enabled);
   }
@@ -90,6 +122,15 @@ class _LoggingIsEnabled extends BuiltinFunction {
 
 class _LoggingSetLevel extends BuiltinFunction {
   _LoggingSetLevel([super.interpreter]);
+
+  @override
+  FunctionDoc? get doc => FunctionDoc(
+    summary: 'Sets the logging level threshold.',
+    params: [DocParam('level', 'number', 'Log level threshold value.')],
+    returns: 'Nothing.',
+    category: 'logging',
+    example: 'logging.setLevel(logging.INFO)',
+  );
 
   @override
   Object? call(List<Object?> args) {
@@ -107,6 +148,15 @@ class _LoggingGetLevel extends BuiltinFunction {
   _LoggingGetLevel([super.interpreter]);
 
   @override
+  FunctionDoc? get doc => FunctionDoc(
+    summary: 'Returns the current logging level threshold.',
+    params: [],
+    returns: 'The current log level value.',
+    category: 'logging',
+    example: 'print(logging.getLevel())',
+  );
+
+  @override
   Object? call(List<Object?> args) {
     final level = Logger.logLevelFilter;
     if (level == null) {
@@ -118,6 +168,15 @@ class _LoggingGetLevel extends BuiltinFunction {
 
 class _LoggingSetCategory extends BuiltinFunction {
   _LoggingSetCategory([super.interpreter]);
+
+  @override
+  FunctionDoc? get doc => FunctionDoc(
+    summary: 'Sets the logging category filter.',
+    params: [DocParam('category', 'string', 'The category name to filter by.')],
+    returns: 'Nothing.',
+    category: 'logging',
+    example: 'logging.setCategory("network")',
+  );
 
   @override
   Object? call(List<Object?> args) {
@@ -132,6 +191,15 @@ class _LoggingSetCategory extends BuiltinFunction {
 
 class _LoggingSetCategories extends BuiltinFunction {
   _LoggingSetCategories([super.interpreter]);
+
+  @override
+  FunctionDoc? get doc => FunctionDoc(
+    summary: 'Sets multiple logging category filters.',
+    params: [DocParam('categories', 'table', 'A table of category name strings.')],
+    returns: 'Nothing.',
+    category: 'logging',
+    example: 'logging.setCategories({"network", "database"})',
+  );
 
   @override
   Object? call(List<Object?> args) {
@@ -156,6 +224,15 @@ class _LoggingResetFilters extends BuiltinFunction {
   _LoggingResetFilters([super.interpreter]);
 
   @override
+  FunctionDoc? get doc => FunctionDoc(
+    summary: 'Resets all logging filters (categories, levels) to defaults.',
+    params: [],
+    returns: 'Nothing.',
+    category: 'logging',
+    example: 'logging.resetFilters()',
+  );
+
+  @override
   Object? call(List<Object?> args) {
     Logger.setCategoryFilter(null);
     Logger.setLevelFilter(null);
@@ -167,6 +244,15 @@ class _LoggingResetFilters extends BuiltinFunction {
 
 class _LoggingDebug extends BuiltinFunction {
   _LoggingDebug([super.interpreter]);
+
+  @override
+  FunctionDoc? get doc => FunctionDoc(
+    summary: 'Logs a debug-level message.',
+    params: [DocParam('...', 'any', 'Message parts to log.')],
+    returns: 'Nothing.',
+    category: 'logging',
+    example: 'logging.debug("value is", x)',
+  );
 
   @override
   Object? call(List<Object?> args) {
@@ -195,6 +281,15 @@ class _LoggingInfo extends BuiltinFunction {
   _LoggingInfo([super.interpreter]);
 
   @override
+  FunctionDoc? get doc => FunctionDoc(
+    summary: 'Logs an info-level message.',
+    params: [DocParam('...', 'any', 'Message parts to log.')],
+    returns: 'Nothing.',
+    category: 'logging',
+    example: 'logging.info("server started on port", port)',
+  );
+
+  @override
   Object? call(List<Object?> args) {
     if (args.isEmpty) {
       throw LuaError("logging.info expects a message");
@@ -219,6 +314,15 @@ class _LoggingWarning extends BuiltinFunction {
   _LoggingWarning([super.interpreter]);
 
   @override
+  FunctionDoc? get doc => FunctionDoc(
+    summary: 'Logs a warning-level message.',
+    params: [DocParam('...', 'any', 'Message parts to log.')],
+    returns: 'Nothing.',
+    category: 'logging',
+    example: 'logging.warning("disk space low")',
+  );
+
+  @override
   Object? call(List<Object?> args) {
     if (args.isEmpty) {
       throw LuaError("logging.warning expects a message");
@@ -241,6 +345,15 @@ class _LoggingWarning extends BuiltinFunction {
 
 class _LoggingError extends BuiltinFunction {
   _LoggingError([super.interpreter]);
+
+  @override
+  FunctionDoc? get doc => FunctionDoc(
+    summary: 'Logs an error-level message.',
+    params: [DocParam('...', 'any', 'Message parts to log.')],
+    returns: 'Nothing.',
+    category: 'logging',
+    example: 'logging.error("connection failed:", err)',
+  );
 
   @override
   Object? call(List<Object?> args) {
