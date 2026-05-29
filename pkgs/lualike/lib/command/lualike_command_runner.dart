@@ -1,8 +1,10 @@
 import 'dart:io';
 
 import 'package:artisanal/args.dart';
+import 'package:lualike/docs.dart';
 import 'package:lualike/command/version_command.dart';
 import 'package:lualike/src/config.dart';
+import 'package:lualike/src/interop.dart';
 import 'package:lualike/src/lua_bytecode/runtime.dart';
 import 'package:lualike/src/logging/level.dart' as ctx;
 import 'package:lualike/src/logging/logging.dart';
@@ -45,11 +47,7 @@ class LuaLikeCommandRunner extends CommandRunner {
         help: 'Set log category filter (repeatable or comma-separated)',
         splitCommas: true,
       )
-      ..addFlag(
-        'ast',
-        help: 'Use AST interpreter (default)',
-        defaultsTo: true,
-      )
+      ..addFlag('ast', help: 'Use AST interpreter (default)', defaultsTo: true)
       ..addFlag('ir', help: 'Use lualike IR runtime', defaultsTo: false)
       ..addFlag(
         'lua-bytecode',
@@ -82,11 +80,23 @@ class LuaLikeCommandRunner extends CommandRunner {
         help: 'Enter interactive mode after running script',
         negatable: false,
       )
+      ..addFlag('version', help: 'Print version information', negatable: false)
+      ..addOption(
+        'emit-docs',
+        help: 'Emit built-in library documentation and exit.',
+        allowed: const ['html', 'json', 'luals'],
+        allowedHelp: const {
+          'html': 'Shared documentation UI.',
+          'json': 'Editor-friendly library metadata manifest.',
+          'luals': 'LuaLS annotation stubs for existing Lua LSPs.',
+        },
+      )
+      ..addOption(
+        'emit-docs-output',
+        help: 'Output path for --emit-docs. Defaults to stdout.',
+        valueHelp: 'path',
+      )
       ..addFlag(
-        'version',
-        help: 'Print version information',
-        negatable: false,
-      )      ..addFlag(
         'stdin',
         help: 'Execute stdin as a file (use - on command line)',
         negatable: false,
@@ -99,19 +109,19 @@ class LuaLikeCommandRunner extends CommandRunner {
     // artisanal.run(args) handles global setup and catches UsageException.
     // However, it expects subcommands. Since Lua uses flags for logic,
     // we need to handle the parsed results if no command matches.
-    
+
     // Setup renderer etc by calling artisanal's run logic via super.run
     // But super.run will likely throw if we have no commands.
-    
+
     // Let's use artisanal's public properties to mimic its behavior.
-    
+
     final argResults = argParser.parse(args);
-    
+
     if (argResults['help'] as bool) {
       printUsage();
       return;
     }
-    
+
     if (argResults['version'] as bool) {
       final versionCmd = VersionCommand();
       await versionCmd.run();
@@ -135,6 +145,15 @@ class LuaLikeCommandRunner extends CommandRunner {
     }
     config.dumpIr = argResults['dump-ir'] as bool;
     BaseCommand.resetBridge();
+
+    final emitDocsFormat = argResults['emit-docs'] as String?;
+    if (emitDocsFormat != null) {
+      await _emitDocs(
+        format: emitDocsFormat,
+        output: argResults['emit-docs-output'] as String?,
+      );
+      return;
+    }
 
     // Handle debug mode
     if (argResults['debug'] as bool) {
@@ -164,9 +183,7 @@ class LuaLikeCommandRunner extends CommandRunner {
         // Terminal mode: show version and enter interactive mode
         final versionCmd = VersionCommand();
         await versionCmd.run();
-        final interactiveCmd = InteractiveCommandWrapper(
-          debugMode: debugMode,
-        );
+        final interactiveCmd = InteractiveCommandWrapper(debugMode: debugMode);
         await interactiveCmd.run();
       } else {
         // Non-terminal mode: read from stdin
@@ -214,6 +231,35 @@ class LuaLikeCommandRunner extends CommandRunner {
       final interactiveCmd = InteractiveCommandWrapper(debugMode: debugMode);
       await interactiveCmd.run();
     }
+  }
+
+  Future<void> _emitDocs({required String format, String? output}) async {
+    final lua = LuaLike();
+    final libraries = documentedLibrariesForRuntime(lua.vm);
+    final rendered = switch (format) {
+      'html' => renderDocsPage(libraries),
+      'json' => renderDocsJson(
+        libraries,
+        packageName: 'lualike',
+        packageVersion: lualikeVersion,
+      ),
+      'luals' => renderLuaLsAnnotations(
+        libraries,
+        packageName: 'lualike',
+        packageVersion: lualikeVersion,
+      ),
+      _ => throw ArgumentError.value(format, 'format'),
+    };
+
+    if (output == null || output == '-') {
+      stdout.write(rendered);
+      if (!rendered.endsWith('\n')) {
+        stdout.writeln();
+      }
+      return;
+    }
+
+    await File(output).writeAsString(rendered);
   }
 }
 

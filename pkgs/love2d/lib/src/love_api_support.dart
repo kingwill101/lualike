@@ -230,7 +230,13 @@ Value bindLoveApiFunction(
   required String symbol,
   required String publicName,
   required LoveApiImplementationMap implementations,
+  FunctionDoc? doc,
+  String? docName,
 }) {
+  if (doc != null) {
+    context.describe(docName ?? publicName, doc);
+  }
+
   final implementation =
       loveApiBindingFactories[symbol]?.call(context) ?? implementations[symbol];
   if (implementation == null) {
