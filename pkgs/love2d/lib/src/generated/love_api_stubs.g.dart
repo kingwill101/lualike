@@ -1335,6 +1335,16 @@ Object? stubFileGetBuffer(List<Object?> args) =>
 Object? stubFileGetFilename(List<Object?> args) =>
     loveApiUnimplemented("File:getFilename");
 
+/// Gets the extension of the File.
+///
+/// LOVE symbol: `File:getExtension`.
+/// Wiki: `https://www.love2d.org/wiki/File:getExtension`.
+/// Container: `File`.
+/// Variants:
+/// - `File:getExtension() -> ext`
+Object? stubFileGetExtension(List<Object?> args) =>
+    loveApiUnimplemented("File:getExtension");
+
 /// Gets the FileMode the file has been opened with.
 ///
 /// LOVE symbol: `File:getMode`.
@@ -1441,6 +1451,16 @@ Object? stubFileTell(List<Object?> args) => loveApiUnimplemented("File:tell");
 /// - `File:write(data, size) -> success, err`
 /// - `File:write(data, size) -> success, errorstr`
 Object? stubFileWrite(List<Object?> args) => loveApiUnimplemented("File:write");
+
+/// Creates a copy of the FileData.
+///
+/// LOVE symbol: `FileData:clone`.
+/// Wiki: `https://www.love2d.org/wiki/FileData:clone`.
+/// Container: `FileData`.
+/// Variants:
+/// - `FileData:clone() -> clone`
+Object? stubFileDataClone(List<Object?> args) =>
+    loveApiUnimplemented("FileData:clone");
 
 /// Gets the extension of the FileData.
 ///
@@ -9565,6 +9585,16 @@ Object? stubLoveTouchGetTouches(List<Object?> args) =>
 Object? stubLoveVideoNewVideoStream(List<Object?> args) =>
     loveApiUnimplemented("love.video.newVideoStream");
 
+/// Sets what the VideoStream should synchronize its playback position with.
+///
+/// LOVE symbol: `VideoStream:setSync`.
+/// Wiki: `https://www.love2d.org/wiki/VideoStream:setSync`.
+/// Container: `VideoStream`.
+/// Variants:
+/// - `VideoStream:setSync(sync)`
+Object? stubVideoStreamSetSync(List<Object?> args) =>
+    loveApiUnimplemented("VideoStream:setSync");
+
 /// Gets the filename of the VideoStream.
 ///
 /// LOVE symbol: `VideoStream:getFilename`.
@@ -10452,7 +10482,7 @@ Object? stubObjectType(List<Object?> args) =>
 Object? stubObjectTypeOf(List<Object?> args) =>
     loveApiUnimplemented("Object:typeOf");
 
-final LoveApiImplementationMap
+final Map<String, LoveApiImplementation>
 loveApiStubImplementations = <String, LoveApiImplementation>{
   "love.audio.getActiveEffects": stubLoveAudioGetActiveEffects,
   "love.audio.getActiveSourceCount": stubLoveAudioGetActiveSourceCount,
@@ -10583,6 +10613,7 @@ loveApiStubImplementations = <String, LoveApiImplementation>{
   "File:flush": stubFileFlush,
   "File:getBuffer": stubFileGetBuffer,
   "File:getFilename": stubFileGetFilename,
+  "File:getExtension": stubFileGetExtension,
   "File:getMode": stubFileGetMode,
   "File:getSize": stubFileGetSize,
   "File:isEOF": stubFileIsEOF,
@@ -10594,6 +10625,7 @@ loveApiStubImplementations = <String, LoveApiImplementation>{
   "File:setBuffer": stubFileSetBuffer,
   "File:tell": stubFileTell,
   "File:write": stubFileWrite,
+  "FileData:clone": stubFileDataClone,
   "FileData:getExtension": stubFileDataGetExtension,
   "FileData:getFilename": stubFileDataGetFilename,
   "love.font.newBMFontRasterizer": stubLoveFontNewBMFontRasterizer,
@@ -11338,6 +11370,7 @@ loveApiStubImplementations = <String, LoveApiImplementation>{
   "love.touch.getPressure": stubLoveTouchGetPressure,
   "love.touch.getTouches": stubLoveTouchGetTouches,
   "love.video.newVideoStream": stubLoveVideoNewVideoStream,
+  "VideoStream:setSync": stubVideoStreamSetSync,
   "VideoStream:getFilename": stubVideoStreamGetFilename,
   "VideoStream:isPlaying": stubVideoStreamIsPlaying,
   "VideoStream:pause": stubVideoStreamPause,

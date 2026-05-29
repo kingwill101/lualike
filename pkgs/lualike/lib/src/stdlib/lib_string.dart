@@ -732,6 +732,7 @@ class _StringChar extends BuiltinFunction {
       DocParam('...', 'number', 'One or more integer byte codes (0–255).'),
     ],
     returns: 'A string of length equal to the number of arguments.',
+    returnType: 'string',
     category: 'string',
     example: 'print(string.char(97, 98, 99)) --> abc',
   );
@@ -810,6 +811,7 @@ class _StringFind extends BuiltinFunction {
       DocParam('plain', 'boolean', 'Disable pattern matching (plain search).', optional: true),
     ],
     returns: 'The start and end indices of the match, or nil.',
+    returnType: 'integer|nil, integer|nil',
     category: 'string',
     example: 'print(string.find("hello world", "world")) --> 7\t11',
   );
@@ -2120,6 +2122,7 @@ class _StringGsub extends BuiltinFunction {
       DocParam('n', 'number', 'Optional maximum number of replacements.', optional: true),
     ],
     returns: 'The resulting string and the number of substitutions.',
+    returnType: 'string, integer',
     category: 'string',
     example: 'print(string.gsub("hello world", "%w+", "Lua")) --> Lua Lua',
   );

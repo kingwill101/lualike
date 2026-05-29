@@ -4401,6 +4401,27 @@ const List<LoveApiSymbolDoc> loveApiSymbols = <LoveApiSymbolDoc>[
     wikiPath: "https://www.love2d.org/wiki/File:getFilename",
   ),
   LoveApiSymbolDoc(
+    symbol: "File:getExtension",
+    module: "love.filesystem",
+    name: "getExtension",
+    kind: "method",
+    description: "Gets the extension of the File.",
+    container: "File",
+    variants: <LoveApiVariantDoc>[
+      LoveApiVariantDoc(
+        arguments: <LoveApiArgumentDoc>[],
+        returns: <LoveApiReturnDoc>[
+          LoveApiReturnDoc(
+            name: "ext",
+            type: "string",
+            description: "The extension of the file the File represents.",
+          ),
+        ],
+      ),
+    ],
+    wikiPath: "https://www.love2d.org/wiki/File:getExtension",
+  ),
+  LoveApiSymbolDoc(
     symbol: "File:getMode",
     module: "love.filesystem",
     name: "getMode",
@@ -4749,6 +4770,27 @@ const List<LoveApiSymbolDoc> loveApiSymbols = <LoveApiSymbolDoc>[
       ),
     ],
     wikiPath: "https://www.love2d.org/wiki/File:write",
+  ),
+  LoveApiSymbolDoc(
+    symbol: "FileData:clone",
+    module: "love.filesystem",
+    name: "clone",
+    kind: "method",
+    description: "Creates a copy of the FileData.",
+    container: "FileData",
+    variants: <LoveApiVariantDoc>[
+      LoveApiVariantDoc(
+        arguments: <LoveApiArgumentDoc>[],
+        returns: <LoveApiReturnDoc>[
+          LoveApiReturnDoc(
+            name: "clone",
+            type: "FileData",
+            description: "An exact copy of the FileData.",
+          ),
+        ],
+      ),
+    ],
+    wikiPath: "https://www.love2d.org/wiki/FileData:clone",
   ),
   LoveApiSymbolDoc(
     symbol: "FileData:getExtension",
@@ -30686,6 +30728,30 @@ const List<LoveApiSymbolDoc> loveApiSymbols = <LoveApiSymbolDoc>[
     wikiPath: "https://www.love2d.org/wiki/love.video.newVideoStream",
   ),
   LoveApiSymbolDoc(
+    symbol: "VideoStream:setSync",
+    module: "love.video",
+    name: "setSync",
+    kind: "method",
+    description:
+        "Sets what the VideoStream should synchronize its playback position with.",
+    container: "VideoStream",
+    variants: <LoveApiVariantDoc>[
+      LoveApiVariantDoc(
+        arguments: <LoveApiArgumentDoc>[
+          LoveApiArgumentDoc(
+            name: "sync",
+            type: "Source or VideoStream",
+            description:
+                "The Source or VideoStream to sync to. Pass nil to use independent timing.",
+            defaultValue: "nil",
+          ),
+        ],
+        returns: <LoveApiReturnDoc>[],
+      ),
+    ],
+    wikiPath: "https://www.love2d.org/wiki/VideoStream:setSync",
+  ),
+  LoveApiSymbolDoc(
     symbol: "VideoStream:getFilename",
     module: "love.video",
     name: "getFilename",
@@ -33287,6 +33353,7 @@ const List<LoveTypeDoc> loveApiTypes = <LoveTypeDoc>[
       "File:flush",
       "File:getBuffer",
       "File:getFilename",
+      "File:getExtension",
       "File:getMode",
       "File:getSize",
       "File:isEOF",
@@ -33307,7 +33374,11 @@ const List<LoveTypeDoc> loveApiTypes = <LoveTypeDoc>[
     name: "FileData",
     description: "Data representing the contents of a file.",
     supertypes: <String>["Data", "Object"],
-    methodSymbols: <String>["FileData:getExtension", "FileData:getFilename"],
+    methodSymbols: <String>[
+      "FileData:clone",
+      "FileData:getExtension",
+      "FileData:getFilename",
+    ],
     wikiPath: "https://www.love2d.org/wiki/FileData",
   ),
   LoveTypeDoc(
@@ -34326,6 +34397,7 @@ const List<LoveTypeDoc> loveApiTypes = <LoveTypeDoc>[
     description: "An object which decodes, streams, and controls Videos.",
     supertypes: <String>["Object"],
     methodSymbols: <String>[
+      "VideoStream:setSync",
       "VideoStream:getFilename",
       "VideoStream:isPlaying",
       "VideoStream:pause",
@@ -37268,6 +37340,41 @@ const List<LoveEnumDoc> loveApiEnums = <LoveEnumDoc>[
   ),
 ];
 
+Map<String, FunctionDoc> _buildLoveFunctionDocs() {
+  final map = <String, FunctionDoc>{};
+  for (final s in loveApiSymbols) {
+    if (s.kind != 'function' && s.kind != 'method') continue;
+    final params = <DocParam>[];
+    for (final v in s.variants) {
+      for (final a in v.arguments) {
+        params.add(
+          DocParam(
+            a.name,
+            a.type,
+            a.description,
+            optional: a.defaultValue != null,
+          ),
+        );
+      }
+    }
+    final returns = <String>{};
+    for (final v in s.variants) {
+      for (final r in v.returns) {
+        returns.add('${r.type} ${r.name}: ${r.description}');
+      }
+    }
+    map[s.symbol] = FunctionDoc(
+      summary: s.description,
+      params: params,
+      returns: returns.join('; '),
+      category: s.module,
+    );
+  }
+  return map;
+}
+
+final Map<String, FunctionDoc> _loveFunctionDocs = _buildLoveFunctionDocs();
+
 Value _bindGeneratedLoveFunction(
   LibraryRegistrationContext context, {
   required String symbol,
@@ -37277,11 +37384,15 @@ Value _bindGeneratedLoveFunction(
     ...loveApiStubImplementations,
     ...loveApiOverrides,
   };
+  final dot = symbol.indexOf('.');
+  final docName = dot == -1 ? publicName : symbol.substring(dot + 1);
   return bindLoveApiFunction(
     context,
     symbol: symbol,
     publicName: publicName,
     implementations: implementations,
+    doc: _loveFunctionDocs[symbol],
+    docName: docName,
   );
 }
 
@@ -38945,13 +39056,13 @@ Map<String, dynamic> _buildLoveWindowTable(LibraryRegistrationContext context) {
   };
 }
 
-/// No documentation available in the LOVE API inventory.
-///
-/// Generated from `love2d-community/love-api` commit `4fc0dff34270f338d8f47d0c95600aa2de6fd46c`.
-/// Installs the root `love` table plus nested module tables such as `love.graphics`.
 class LoveLibrary extends Library {
   @override
   String get name => 'love';
+
+  @override
+  String get description =>
+      'LÖVE 11.5 game framework APIs for graphics, audio, input, filesystem, and more.';
 
   @override
   void registerFunctions(LibraryRegistrationContext context) {
@@ -39299,7 +39410,8 @@ class LoveLibrary extends Library {
 
 /// Registers the generated LOVE 11.5 stub library into a LuaLike runtime.
 ///
-/// This installs the root `love` table immediately so nested module tables are available without additional lazy-loading support in `lualike`.
+/// This installs the root `love` table immediately so nested module tables
+/// are available without additional lazy-loading support in `lualike`.
 void installLove2d({required LuaRuntime runtime}) {
   final existing = runtime.getCurrentEnv().get('love');
   if (existing is Value && existing.raw is Map) {

@@ -55,6 +55,22 @@ class FunctionDoc {
   /// Description of the return value(s). Free-form text.
   final String? returns;
 
+  /// Explicit LuaLS return type annotation for [returns].
+  ///
+  /// When non-null, the LuaLS renderer uses this directly instead of inferring
+  /// from the free-text [returns]. Use comma-separated values for multi-return
+  /// functions (e.g. `'string, integer'` for [`string.gsub`]).
+  ///
+  /// The [returns] text is still used as the trailing `# description` on the
+  /// first `---@return` line.
+  ///
+  /// ---
+  /// **Why both?** [returns] is a human-readable description of what the
+  /// function produces, while [returnType] supplies the *machine-readable* type
+  /// that Lua tooling needs. Keeping them separate avoids fragile free-text
+  /// keyword matching (the old approach).
+  final String? returnType;
+
   /// Category name used to group entries in the generated docs
   /// (e.g. `"string"`, `"table"`, `"base"`).
   ///
@@ -70,6 +86,7 @@ class FunctionDoc {
     required this.summary,
     this.params = const [],
     this.returns,
+    this.returnType,
     required this.category,
     this.example,
   });

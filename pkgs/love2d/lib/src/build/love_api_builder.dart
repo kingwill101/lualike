@@ -69,9 +69,9 @@ class LoveApiBuilder implements Builder {
     buf.writeln("import 'love_api_stubs.g.dart';");
     buf.writeln();
 
-    buf.writeln('const String loveApiVersion = ${jsonEncode(version)};');
+    buf.writeln('const String loveApiVersion = ${_dartLiteral(version)};');
     buf.writeln(
-      'const String loveApiSourceCommit = ${jsonEncode(sourceCommit)};',
+      'const String loveApiSourceCommit = ${_dartLiteral(sourceCommit)};',
     );
     buf.writeln();
 
@@ -79,10 +79,10 @@ class LoveApiBuilder implements Builder {
     buf.writeln('const List<LoveModuleDoc> loveApiModules = <LoveModuleDoc>[');
     for (final m in modules) {
       buf.writeln('  LoveModuleDoc(');
-      buf.writeln('    symbol: ${jsonEncode(m['symbol'])},');
-      buf.writeln('    name: ${jsonEncode(m['name'])},');
-      buf.writeln('    description: ${jsonEncode(m['description'])},');
-      buf.writeln('    wikiPath: ${jsonEncode(m['wikiPath'])},');
+      buf.writeln('    symbol: ${_dartLiteral(m['symbol'])},');
+      buf.writeln('    name: ${_dartLiteral(m['name'])},');
+      buf.writeln('    description: ${_dartLiteral(m['description'])},');
+      buf.writeln('    wikiPath: ${_dartLiteral(m['wikiPath'])},');
       buf.writeln('  ),');
     }
     buf.writeln('];');
@@ -94,13 +94,13 @@ class LoveApiBuilder implements Builder {
     );
     for (final s in symbols) {
       buf.writeln('  LoveApiSymbolDoc(');
-      buf.writeln('    symbol: ${jsonEncode(s['symbol'])},');
-      buf.writeln('    module: ${jsonEncode(s['module'])},');
-      buf.writeln('    name: ${jsonEncode(s['name'])},');
-      buf.writeln('    kind: ${jsonEncode(s['kind'])},');
-      buf.writeln('    description: ${jsonEncode(s['description'])},');
+      buf.writeln('    symbol: ${_dartLiteral(s['symbol'])},');
+      buf.writeln('    module: ${_dartLiteral(s['module'])},');
+      buf.writeln('    name: ${_dartLiteral(s['name'])},');
+      buf.writeln('    kind: ${_dartLiteral(s['kind'])},');
+      buf.writeln('    description: ${_dartLiteral(s['description'])},');
       if (s['container'] != null) {
-        buf.writeln('    container: ${jsonEncode(s['container'])},');
+        buf.writeln('    container: ${_dartLiteral(s['container'])},');
       }
       final variants = (s['variants'] as List<Object?>)
           .cast<Map<String, Object?>>();
@@ -112,14 +112,14 @@ class LoveApiBuilder implements Builder {
         buf.writeln('        arguments: <LoveApiArgumentDoc>[');
         for (final a in args) {
           buf.writeln('          LoveApiArgumentDoc(');
-          buf.writeln('            name: ${jsonEncode(a['name'])},');
-          buf.writeln('            type: ${jsonEncode(a['type'])},');
+          buf.writeln('            name: ${_dartLiteral(a['name'])},');
+          buf.writeln('            type: ${_dartLiteral(a['type'])},');
           buf.writeln(
-            '            description: ${jsonEncode(a['description'])},',
+            '            description: ${_dartLiteral(a['description'])},',
           );
           if (a['defaultValue'] != null) {
             buf.writeln(
-              '            defaultValue: ${jsonEncode(a['defaultValue'])},',
+              '            defaultValue: ${_dartLiteral(a['defaultValue'])},',
             );
           }
           buf.writeln('          ),');
@@ -130,10 +130,10 @@ class LoveApiBuilder implements Builder {
         buf.writeln('        returns: <LoveApiReturnDoc>[');
         for (final r in rets) {
           buf.writeln('          LoveApiReturnDoc(');
-          buf.writeln('            name: ${jsonEncode(r['name'])},');
-          buf.writeln('            type: ${jsonEncode(r['type'])},');
+          buf.writeln('            name: ${_dartLiteral(r['name'])},');
+          buf.writeln('            type: ${_dartLiteral(r['type'])},');
           buf.writeln(
-            '            description: ${jsonEncode(r['description'])},',
+            '            description: ${_dartLiteral(r['description'])},',
           );
           buf.writeln('          ),');
         }
@@ -141,7 +141,7 @@ class LoveApiBuilder implements Builder {
         buf.writeln('      ),');
       }
       buf.writeln('    ],');
-      buf.writeln('    wikiPath: ${jsonEncode(s['wikiPath'])},');
+      buf.writeln('    wikiPath: ${_dartLiteral(s['wikiPath'])},');
       buf.writeln('  ),');
     }
     buf.writeln('];');
@@ -151,24 +151,24 @@ class LoveApiBuilder implements Builder {
     buf.writeln('const List<LoveTypeDoc> loveApiTypes = <LoveTypeDoc>[');
     for (final t in types) {
       buf.writeln('  LoveTypeDoc(');
-      buf.writeln('    symbol: ${jsonEncode(t['symbol'])},');
-      buf.writeln('    module: ${jsonEncode(t['module'])},');
-      buf.writeln('    name: ${jsonEncode(t['name'])},');
-      buf.writeln('    description: ${jsonEncode(t['description'])},');
+      buf.writeln('    symbol: ${_dartLiteral(t['symbol'])},');
+      buf.writeln('    module: ${_dartLiteral(t['module'])},');
+      buf.writeln('    name: ${_dartLiteral(t['name'])},');
+      buf.writeln('    description: ${_dartLiteral(t['description'])},');
       final supertypes = (t['supertypes'] as List<Object?>).cast<String>();
       buf.writeln('    supertypes: <String>[');
       for (final st in supertypes) {
-        buf.writeln('      ${jsonEncode(st)},');
+        buf.writeln('      ${_dartLiteral(st)},');
       }
       buf.writeln('    ],');
       final methodSymbols = (t['methodSymbols'] as List<Object?>)
           .cast<String>();
       buf.writeln('    methodSymbols: <String>[');
       for (final ms in methodSymbols) {
-        buf.writeln('      ${jsonEncode(ms)},');
+        buf.writeln('      ${_dartLiteral(ms)},');
       }
       buf.writeln('    ],');
-      buf.writeln('    wikiPath: ${jsonEncode(t['wikiPath'])},');
+      buf.writeln('    wikiPath: ${_dartLiteral(t['wikiPath'])},');
       buf.writeln('  ),');
     }
     buf.writeln('];');
@@ -178,24 +178,190 @@ class LoveApiBuilder implements Builder {
     buf.writeln('const List<LoveEnumDoc> loveApiEnums = <LoveEnumDoc>[');
     for (final e in enums) {
       buf.writeln('  LoveEnumDoc(');
-      buf.writeln('    symbol: ${jsonEncode(e['symbol'])},');
-      buf.writeln('    module: ${jsonEncode(e['module'])},');
-      buf.writeln('    name: ${jsonEncode(e['name'])},');
-      buf.writeln('    description: ${jsonEncode(e['description'])},');
+      buf.writeln('    symbol: ${_dartLiteral(e['symbol'])},');
+      buf.writeln('    module: ${_dartLiteral(e['module'])},');
+      buf.writeln('    name: ${_dartLiteral(e['name'])},');
+      buf.writeln('    description: ${_dartLiteral(e['description'])},');
       final constants = (e['constants'] as List<Object?>)
           .cast<Map<String, Object?>>();
       buf.writeln('    constants: <LoveEnumConstantDoc>[');
       for (final c in constants) {
         buf.writeln('      LoveEnumConstantDoc(');
-        buf.writeln('        name: ${jsonEncode(c['name'])},');
-        buf.writeln('        description: ${jsonEncode(c['description'])},');
+        buf.writeln('        name: ${_dartLiteral(c['name'])},');
+        buf.writeln('        description: ${_dartLiteral(c['description'])},');
         buf.writeln('      ),');
       }
       buf.writeln('    ],');
-      buf.writeln('    wikiPath: ${jsonEncode(e['wikiPath'])},');
+      buf.writeln('    wikiPath: ${_dartLiteral(e['wikiPath'])},');
       buf.writeln('  ),');
     }
     buf.writeln('];');
+    buf.writeln();
+
+    // -- Runtime wiring: docs map, bind function, table builders, library --------
+
+    buf.writeln('Map<String, FunctionDoc> _buildLoveFunctionDocs() {');
+    buf.writeln('  final map = <String, FunctionDoc>{};');
+    buf.writeln('  for (final s in loveApiSymbols) {');
+    buf.writeln(
+      "    if (s.kind != 'function' && s.kind != 'method') continue;",
+    );
+    buf.writeln('    final params = <DocParam>[];');
+    buf.writeln('    for (final v in s.variants) {');
+    buf.writeln('      for (final a in v.arguments) {');
+    buf.writeln('        params.add(DocParam(');
+    buf.writeln("          a.name, a.type, a.description,");
+    buf.writeln('          optional: a.defaultValue != null,');
+    buf.writeln('        ));');
+    buf.writeln('      }');
+    buf.writeln('    }');
+    buf.writeln('    final returns = <String>{};');
+    buf.writeln('    for (final v in s.variants) {');
+    buf.writeln('      for (final r in v.returns) {');
+    buf.writeln(
+      "        returns.add('\${r.type} \${r.name}: \${r.description}');",
+    );
+    buf.writeln('      }');
+    buf.writeln('    }');
+    buf.writeln('    map[s.symbol] = FunctionDoc(');
+    buf.writeln('      summary: s.description,');
+    buf.writeln('      params: params,');
+    buf.writeln("      returns: returns.join('; '),");
+    buf.writeln('      category: s.module,');
+    buf.writeln('    );');
+    buf.writeln('  }');
+    buf.writeln('  return map;');
+    buf.writeln('}');
+    buf.writeln();
+    buf.writeln(
+      'final Map<String, FunctionDoc> _loveFunctionDocs = _buildLoveFunctionDocs();',
+    );
+    buf.writeln();
+
+    // _bindGeneratedLoveFunction
+    buf.writeln('Value _bindGeneratedLoveFunction(');
+    buf.writeln('  LibraryRegistrationContext context, {');
+    buf.writeln('  required String symbol,');
+    buf.writeln('  required String publicName,');
+    buf.writeln('}) {');
+    buf.writeln('  final implementations = <String, LoveApiImplementation>{');
+    buf.writeln('    ...loveApiStubImplementations,');
+    buf.writeln('    ...loveApiOverrides,');
+    buf.writeln('  };');
+    buf.writeln("  final dot = symbol.indexOf('.');");
+    buf.writeln(
+      '  final docName = dot == -1 ? publicName : symbol.substring(dot + 1);',
+    );
+    buf.writeln('  return bindLoveApiFunction(');
+    buf.writeln('    context,');
+    buf.writeln('    symbol: symbol,');
+    buf.writeln('    publicName: publicName,');
+    buf.writeln('    implementations: implementations,');
+    buf.writeln('    doc: _loveFunctionDocs[symbol],');
+    buf.writeln('    docName: docName,');
+    buf.writeln('  );');
+    buf.writeln('}');
+    buf.writeln();
+
+    // Module table builders
+    for (final m in modules) {
+      final moduleName = m['name'] as String;
+      // The root "love" modules's symbols are registered directly on the love
+      // table, not in a sub-table.
+      if (moduleName == 'love') continue;
+      final capName = _capitalize(moduleName);
+      final moduleSymbols = symbols
+          .where((s) => s['module'] == 'love.$moduleName')
+          .where((s) => !(s['symbol'] as String).contains(':'))
+          .toList();
+
+      buf.writeln('Map<String, dynamic> _buildLove${capName}Table(');
+      buf.writeln('  LibraryRegistrationContext context) {');
+      buf.writeln('  return <String, dynamic>{');
+      for (final s in moduleSymbols) {
+        final sym = s['symbol'] as String;
+        final name = s['name'] as String;
+        buf.writeln('    ${_dartLiteral(name)}: _bindGeneratedLoveFunction(');
+        buf.writeln('      context,');
+        buf.writeln('      symbol: ${_dartLiteral(sym)},');
+        buf.writeln('      publicName: ${_dartLiteral(name)},');
+        buf.writeln('    ),');
+      }
+      buf.writeln('  };');
+      buf.writeln('}');
+      buf.writeln();
+    }
+
+    // LoveLibrary class
+    buf.writeln('class LoveLibrary extends Library {');
+    buf.writeln('  @override');
+    buf.writeln("  String get name => 'love';");
+    buf.writeln();
+    buf.writeln('  @override');
+    buf.writeln(
+      "  String get description => 'LÖVE 11.5 game framework APIs for graphics, audio, input, filesystem, and more.';",
+    );
+    buf.writeln();
+    buf.writeln('  @override');
+    buf.writeln(
+      '  void registerFunctions(LibraryRegistrationContext context) {',
+    );
+
+    // Top-level love symbols (module == "love")
+    final topLevelSymbols = symbols
+        .where((s) => s['module'] == 'love')
+        .where((s) => !(s['symbol'] as String).contains(':'))
+        .toList();
+    for (final s in topLevelSymbols) {
+      final sym = s['symbol'] as String;
+      final name = s['name'] as String;
+      buf.writeln('    context.define(');
+      buf.writeln('      ${_dartLiteral(name)},');
+      buf.writeln('      _bindGeneratedLoveFunction(');
+      buf.writeln('        context,');
+      buf.writeln('        symbol: ${_dartLiteral(sym)},');
+      buf.writeln('        publicName: ${_dartLiteral(name)},');
+      buf.writeln('      ),');
+      buf.writeln('    );');
+    }
+
+    // Module table registrations
+    for (final m in modules) {
+      final moduleName = m['name'] as String;
+      // Skip the root "love" module — its symbols are registered above.
+      if (moduleName == 'love') continue;
+      final capName = _capitalize(moduleName);
+      buf.writeln('    context.define(');
+      buf.writeln('      ${_dartLiteral(moduleName)},');
+      buf.writeln('      Value(_buildLove${capName}Table(context)),');
+      buf.writeln('    );');
+    }
+
+    buf.writeln('  }');
+    buf.writeln('}');
+    buf.writeln();
+
+    // installLove2d
+    buf.writeln(
+      "/// Registers the generated LOVE 11.5 stub library into a LuaLike runtime.",
+    );
+    buf.writeln("///");
+    buf.writeln(
+      "/// This installs the root `love` table immediately so nested module tables",
+    );
+    buf.writeln(
+      "/// are available without additional lazy-loading support in `lualike`.",
+    );
+    buf.writeln('void installLove2d({required LuaRuntime runtime}) {');
+    buf.writeln("  final existing = runtime.getCurrentEnv().get('love');");
+    buf.writeln("  if (existing is Value && existing.raw is Map) {");
+    buf.writeln('    return;');
+    buf.writeln('  }');
+    buf.writeln();
+    buf.writeln('  final library = LoveLibrary();');
+    buf.writeln('  runtime.libraryRegistry.register(library);');
+    buf.writeln('  runtime.libraryRegistry.initializeLibrary(library);');
+    buf.writeln('}');
 
     return buf.toString();
   }
@@ -226,7 +392,7 @@ class LoveApiBuilder implements Builder {
           .cast<Map<String, Object?>>();
 
       // Doc comment
-      buf.writeln('/// $description');
+      buf.writeln('/// ${_escapeDocLine(description)}');
       buf.writeln('///');
       buf.writeln('/// LOVE symbol: `$symbol`.');
       buf.writeln('/// Wiki: `$wikiPath`.');
@@ -241,9 +407,21 @@ class LoveApiBuilder implements Builder {
       // Function declaration
       final funcName = _stubName(symbol);
       buf.writeln('Object? $funcName(List<Object?> args) =>');
-      buf.writeln('    loveApiUnimplemented(${jsonEncode(symbol)});');
+      buf.writeln('    loveApiUnimplemented(${_dartLiteral(symbol)});');
       buf.writeln();
     }
+
+    // Stub implementations map: symbol -> stub function
+    buf.writeln(
+      'final Map<String, LoveApiImplementation> loveApiStubImplementations = '
+      '<String, LoveApiImplementation>{',
+    );
+    for (final s in symbols) {
+      final symbol = s['symbol'] as String;
+      final funcName = _stubName(symbol);
+      buf.writeln('  ${_dartLiteral(symbol)}: $funcName,');
+    }
+    buf.writeln('};');
 
     return buf.toString();
   }
@@ -251,6 +429,18 @@ class LoveApiBuilder implements Builder {
   // ---------------------------------------------------------------------------
   // Helpers
   // ---------------------------------------------------------------------------
+
+  /// Produces a Dart string literal with proper escaping (handles `$` and
+  /// other special characters that [jsonEncode] does not escape for Dart).
+  String _dartLiteral(Object? value) =>
+      jsonEncode(value).replaceAll(r'$', r'\$');
+
+  /// Escapes [text] so it is safe inside a `///` doc comment line.
+  ///
+  /// Newlines become `\n/// ` continuations so multi-line descriptions do not
+  /// break out of the comment.
+  String _escapeDocLine(String text) =>
+      text.replaceAll('\r\n', '\n').split('\n').join('\n/// ');
 
   /// Converts a LOVE symbol like `love.audio.getEffect` or
   /// `RecordingDevice:getBitDepth` into a stub function name like
