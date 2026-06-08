@@ -173,6 +173,43 @@ Future<void> main() async {
 
 This is the same registration path used by the built-in libraries in the repository.
 
+## LSP support for your scripts
+
+lualike generates LuaLS-compatible annotation stubs so your editor can provide
+completion, hover docs, and signature help for lualike scripts — including
+custom libraries you register from Dart.
+
+### Built-in stdlib only
+
+```sh
+dart run bin/main.dart --emit-docs luals --emit-docs-output annotations.lua
+```
+
+### Your own libraries
+
+Create `tool/generate_metadata.dart`:
+
+```dart
+import 'package:lualike/lualike.dart';
+import 'package:lualike/docs.dart';
+import 'package:your_project/your_project.dart';
+
+Future<void> main() async {
+  final lua = LuaLike();
+  lua.vm.libraryRegistry.register(MyGameLibrary());
+
+  await generateMetadata(
+    lua,
+    outputDir: 'doc/api',
+    formats: {MetadataFormat.luals},
+  );
+}
+```
+
+Then point your LuaLS workspace library at the generated file. See
+[doc/lsp.md](doc/lsp.md) for editor-specific configuration (Neovim, VS Code,
+`.luarc.json`).
+
 ## Guides and reference material
 
 Repository guides:
