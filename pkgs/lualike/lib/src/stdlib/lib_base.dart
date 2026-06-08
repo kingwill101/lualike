@@ -18,7 +18,6 @@ import 'package:path/path.dart' as path;
 import 'lib_io.dart';
 import 'library.dart';
 
-
 /// Base library implementation using the new Library system
 /// Note: Base functions are global, so they don't have a namespace
 class BaseLibrary extends Library {
@@ -92,9 +91,7 @@ class GetMetatableFunction extends BuiltinFunction {
   @override
   FunctionDoc? get doc => FunctionDoc(
     summary: 'Returns the metatable of a value, or nil if it has none.',
-    params: [
-      DocParam('v', 'any', 'Any Lua value.'),
-    ],
+    params: [DocParam('v', 'any', 'Any Lua value.')],
     returns: 'The metatable table, or nil.',
     category: 'base',
     example: 'print(getmetatable("hello"))',
@@ -156,7 +153,11 @@ class SetMetatableFunction extends BuiltinFunction {
     summary: 'Sets the metatable of a table.',
     params: [
       DocParam('table', 'table', 'The table.'),
-      DocParam('metatable', 'table', 'The metatable to set, or nil to remove it.'),
+      DocParam(
+        'metatable',
+        'table',
+        'The metatable to set, or nil to remove it.',
+      ),
     ],
     returns: 'The table.',
     category: 'base',
@@ -270,7 +271,8 @@ class RawSetFunction extends BuiltinFunction {
 
   @override
   FunctionDoc? get doc => FunctionDoc(
-    summary: 'Sets the real value of table[key] to value without invoking any metamethod.',
+    summary:
+        'Sets the real value of table[key] to value without invoking any metamethod.',
     params: [
       DocParam('table', 'table', 'The table.'),
       DocParam('key', 'any', 'The key.'),
@@ -328,7 +330,8 @@ class AssertFunction extends BuiltinFunction {
 
   @override
   FunctionDoc? get doc => FunctionDoc(
-    summary: 'Calls the given function with all arguments and returns its results, or raises an error on assertion failure.',
+    summary:
+        'Calls the given function with all arguments and returns its results, or raises an error on assertion failure.',
     params: [
       DocParam('value', 'any', 'The value to test. Raises an error if falsey.'),
       DocParam('message', 'any', 'Optional error message.', optional: true),
@@ -860,10 +863,16 @@ class ErrorFunction extends BuiltinFunction {
 
   @override
   FunctionDoc? get doc => FunctionDoc(
-    summary: 'Raises an error with the given message. If level is given, it indicates where the error occurred.',
+    summary:
+        'Raises an error with the given message. If level is given, it indicates where the error occurred.',
     params: [
       DocParam('message', 'any', 'The error message.'),
-      DocParam('level', 'number', 'Error level (1=function call, 2=caller, etc).', optional: true),
+      DocParam(
+        'level',
+        'number',
+        'Error level (1=function call, 2=caller, etc).',
+        optional: true,
+      ),
     ],
     returns: 'This function never returns — it raises an error.',
     category: 'base',
@@ -958,10 +967,9 @@ class IPairsFunction extends BuiltinFunction {
 
   @override
   FunctionDoc? get doc => FunctionDoc(
-    summary: 'Returns an iterator function for numeric indices in a table, starting from index 1.',
-    params: [
-      DocParam('t', 'table', 'The table to iterate over.'),
-    ],
+    summary:
+        'Returns an iterator function for numeric indices in a table, starting from index 1.',
+    params: [DocParam('t', 'table', 'The table to iterate over.')],
     returns: 'An iterator function, the table, and the initial index (0).',
     category: 'base',
     example: 'for i, v in ipairs({10, 20, 30}) do print(i, v) end',
@@ -1014,10 +1022,9 @@ class PrintFunction extends BuiltinFunction {
 
   @override
   FunctionDoc? get doc => FunctionDoc(
-    summary: 'Writes the string representation of each argument to stdout, separated by tabs.',
-    params: [
-      DocParam('...', 'any', 'One or more values to print.'),
-    ],
+    summary:
+        'Writes the string representation of each argument to stdout, separated by tabs.',
+    params: [DocParam('...', 'any', 'One or more values to print.')],
     returns: 'Nothing.',
     category: 'base',
     example: 'print("hello", "world")',
@@ -1080,10 +1087,9 @@ class TypeFunction extends BuiltinFunction {
   @override
   FunctionDoc? get doc => FunctionDoc(
     summary: 'Returns the type of its single argument as a string.',
-    params: [
-      DocParam('v', 'any', 'Any Lua value.'),
-    ],
-    returns: '"nil" | "number" | "string" | "boolean" | "table" | "function" | "thread" | "userdata"',
+    params: [DocParam('v', 'any', 'Any Lua value.')],
+    returns:
+        '"nil" | "number" | "string" | "boolean" | "table" | "function" | "thread" | "userdata"',
     category: 'base',
     example: 'print(type(42)) --> number',
   );
@@ -1102,10 +1108,16 @@ class ToNumberFunction extends BuiltinFunction {
 
   @override
   FunctionDoc? get doc => FunctionDoc(
-    summary: 'Converts its argument to a number. Returns nil if conversion is not possible.',
+    summary:
+        'Converts its argument to a number. Returns nil if conversion is not possible.',
     params: [
       DocParam('e', 'any', 'The value to convert.'),
-      DocParam('base', 'number', 'Optional base for integer string conversion (2-36).', optional: true),
+      DocParam(
+        'base',
+        'number',
+        'Optional base for integer string conversion (2-36).',
+        optional: true,
+      ),
     ],
     returns: 'The converted number, or nil.',
     category: 'base',
@@ -1168,9 +1180,7 @@ class ToStringFunction extends BuiltinFunction {
   @override
   FunctionDoc? get doc => FunctionDoc(
     summary: 'Returns a string representation of its argument.',
-    params: [
-      DocParam('v', 'any', 'Any Lua value.'),
-    ],
+    params: [DocParam('v', 'any', 'Any Lua value.')],
     returns: 'The string representation.',
     category: 'base',
     example: 'print(tostring(42)) --> 42',
@@ -1274,10 +1284,9 @@ class _BaseTointeger extends BuiltinFunction {
 
   @override
   FunctionDoc? get doc => FunctionDoc(
-    summary: 'Converts its argument to an integer if possible, returns nil otherwise.',
-    params: [
-      DocParam('v', 'any', 'The value to convert.'),
-    ],
+    summary:
+        'Converts its argument to an integer if possible, returns nil otherwise.',
+    params: [DocParam('v', 'any', 'The value to convert.')],
     returns: 'The integer value, or nil.',
     category: 'base',
     example: 'print(tointeger(3.14)) --> 3',
@@ -1300,9 +1309,14 @@ class SelectFunction extends BuiltinFunction {
 
   @override
   FunctionDoc? get doc => FunctionDoc(
-    summary: 'Returns the arguments starting at the given index, or the total number of arguments when index is "#".',
+    summary:
+        'Returns the arguments starting at the given index, or the total number of arguments when index is "#".',
     params: [
-      DocParam('index', 'number|string', 'Selection index, or "#" to count arguments.'),
+      DocParam(
+        'index',
+        'number|string',
+        'Selection index, or "#" to count arguments.',
+      ),
       DocParam('...', 'any', 'One or more values to select from.'),
     ],
     returns: 'The selected arguments, or the count.',
@@ -1360,8 +1374,18 @@ class LoadFunction extends BuiltinFunction {
     summary: 'Loads a Lua chunk from a string or function.',
     params: [
       DocParam('ld', 'string|function', 'The chunk source.'),
-      DocParam('source', 'string', 'Optional source name for error messages.', optional: true),
-      DocParam('mode', 'string', 'Optional loading mode ("b", "t", or "bt").', optional: true),
+      DocParam(
+        'source',
+        'string',
+        'Optional source name for error messages.',
+        optional: true,
+      ),
+      DocParam(
+        'mode',
+        'string',
+        'Optional loading mode ("b", "t", or "bt").',
+        optional: true,
+      ),
       DocParam('env', 'table', 'Optional environment table.', optional: true),
     ],
     returns: 'The loaded function, or nil + error message.',
@@ -1430,9 +1454,7 @@ class DoFileFunction extends BuiltinFunction {
   @override
   FunctionDoc? get doc => FunctionDoc(
     summary: 'Executes a Lua file and returns its return values.',
-    params: [
-      DocParam('filename', 'string', 'Path to the Lua file.'),
-    ],
+    params: [DocParam('filename', 'string', 'Path to the Lua file.')],
     returns: 'The return values from the file.',
     category: 'base',
     example: 'dofile("script.lua")',
@@ -1544,7 +1566,12 @@ class LoadfileFunction extends BuiltinFunction {
     summary: 'Loads a Lua chunk from a file and returns it as a function.',
     params: [
       DocParam('filename', 'string', 'Path to the Lua file.'),
-      DocParam('mode', 'string', 'Optional loading mode ("b", "t", or "bt").', optional: true),
+      DocParam(
+        'mode',
+        'string',
+        'Optional loading mode ("b", "t", or "bt").',
+        optional: true,
+      ),
       DocParam('env', 'table', 'Optional environment table.', optional: true),
     ],
     returns: 'The loaded function, or nil + error message.',
@@ -1629,10 +1656,16 @@ class NextFunction extends BuiltinFunction {
 
   @override
   FunctionDoc? get doc => FunctionDoc(
-    summary: 'Returns the next key-value pair from a table, or nil when all pairs have been enumerated.',
+    summary:
+        'Returns the next key-value pair from a table, or nil when all pairs have been enumerated.',
     params: [
       DocParam('table', 'table', 'The table.'),
-      DocParam('key', 'any', 'The previous key, or nil for the first call.', optional: true),
+      DocParam(
+        'key',
+        'any',
+        'The previous key, or nil for the first call.',
+        optional: true,
+      ),
     ],
     returns: 'The next key and value, or nil.',
     category: 'base',
@@ -1938,12 +1971,19 @@ class PCAllFunction extends BuiltinFunction {
 
   @override
   FunctionDoc? get doc => FunctionDoc(
-    summary: 'Calls the function in protected mode. Returns true + results on success, or false + error on failure.',
+    summary:
+        'Calls the function in protected mode. Returns true + results on success, or false + error on failure.',
     params: [
       DocParam('f', 'function', 'The function to call.'),
-      DocParam('...', 'any', 'Arguments passed to the function.', optional: true),
+      DocParam(
+        '...',
+        'any',
+        'Arguments passed to the function.',
+        optional: true,
+      ),
     ],
-    returns: 'true followed by return values, or false followed by error message.',
+    returns:
+        'true followed by return values, or false followed by error message.',
     category: 'base',
     example: 'local ok, res = pcall(function() return 1/1 end)',
   );
@@ -2010,7 +2050,8 @@ class RawEqualFunction extends BuiltinFunction {
 
   @override
   FunctionDoc? get doc => FunctionDoc(
-    summary: 'Returns whether v1 and v2 are equal without invoking any metamethod.',
+    summary:
+        'Returns whether v1 and v2 are equal without invoking any metamethod.',
     params: [
       DocParam('v1', 'any', 'First value.'),
       DocParam('v2', 'any', 'Second value.'),
@@ -2034,10 +2075,9 @@ class RawLenFunction extends BuiltinFunction {
 
   @override
   FunctionDoc? get doc => FunctionDoc(
-    summary: 'Returns the length of the given value without invoking any metamethod.',
-    params: [
-      DocParam('v', 'string|table', 'A string or table value.'),
-    ],
+    summary:
+        'Returns the length of the given value without invoking any metamethod.',
+    params: [DocParam('v', 'string|table', 'A string or table value.')],
     returns: 'The integer length.',
     category: 'base',
     example: 'print(rawlen("hello")) --> 5',
@@ -2121,12 +2161,23 @@ class XPCallFunction extends BuiltinFunction {
     summary: 'Calls the function in protected mode with an error handler.',
     params: [
       DocParam('f', 'function', 'The function to call.'),
-      DocParam('handler', 'function', 'Error handler function called on failure.'),
-      DocParam('...', 'any', 'Arguments passed to the function.', optional: true),
+      DocParam(
+        'handler',
+        'function',
+        'Error handler function called on failure.',
+      ),
+      DocParam(
+        '...',
+        'any',
+        'Arguments passed to the function.',
+        optional: true,
+      ),
     ],
-    returns: 'true followed by return values, or false followed by handler result.',
+    returns:
+        'true followed by return values, or false followed by handler result.',
     category: 'base',
-    example: 'xpcall(function() error("fail") end, function(err) print(err) end)',
+    example:
+        'xpcall(function() error("fail") end, function(err) print(err) end)',
   );
 
   Future<Object?> _invokeErrorHandler(
@@ -2230,10 +2281,20 @@ class CollectGarbageFunction extends BuiltinFunction {
 
   @override
   FunctionDoc? get doc => FunctionDoc(
-    summary: 'Controls the garbage collector. Acts as a control function for memory management.',
+    summary:
+        'Controls the garbage collector. Acts as a control function for memory management.',
     params: [
-      DocParam('opt', 'string', 'Operation: "collect", "stop", "restart", "count", "step", "setpause", "setstepmul".'),
-      DocParam('arg', 'any', 'Optional argument for the operation.', optional: true),
+      DocParam(
+        'opt',
+        'string',
+        'Operation: "collect", "stop", "restart", "count", "step", "setpause", "setstepmul".',
+      ),
+      DocParam(
+        'arg',
+        'any',
+        'Optional argument for the operation.',
+        optional: true,
+      ),
     ],
     returns: 'Depends on the operation.',
     category: 'base',
@@ -2489,7 +2550,8 @@ class RawGetFunction extends BuiltinFunction {
 
   @override
   FunctionDoc? get doc => FunctionDoc(
-    summary: 'Gets the real value of table[key] without invoking any metamethod.',
+    summary:
+        'Gets the real value of table[key] without invoking any metamethod.',
     params: [
       DocParam('table', 'table', 'The table.'),
       DocParam('key', 'any', 'The key to look up.'),
@@ -2529,9 +2591,7 @@ class PairsFunction extends BuiltinFunction {
   @override
   FunctionDoc? get doc => FunctionDoc(
     summary: 'Returns an iterator function for all key-value pairs in a table.',
-    params: [
-      DocParam('t', 'table', 'The table to iterate over.'),
-    ],
+    params: [DocParam('t', 'table', 'The table to iterate over.')],
     returns: 'An iterator function, the table, and an initial key (nil).',
     category: 'base',
     example: 'for k, v in pairs({a=1, b=2}) do print(k, v) end',
@@ -2571,9 +2631,7 @@ class RequireFunction extends BuiltinFunction {
   @override
   FunctionDoc? get doc => FunctionDoc(
     summary: 'Loads and caches a Lua module by name.',
-    params: [
-      DocParam('modname', 'string', 'The module name.'),
-    ],
+    params: [DocParam('modname', 'string', 'The module name.')],
     returns: 'The module value.',
     category: 'base',
     example: 'local t = require("table")',

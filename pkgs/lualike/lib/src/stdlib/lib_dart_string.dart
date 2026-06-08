@@ -8,7 +8,6 @@ import 'package:lualike/src/stdlib/doc.dart';
 import 'lib_dart_bytes.dart';
 import 'library.dart';
 
-
 String _dartStringPattern(Object? value) {
   final raw = rawLuaSlot(value);
   return raw is String ? raw : raw.toString();
@@ -73,11 +72,17 @@ class DartStringLibrary extends Library {
     stringFunctions['lastIndexOf'] = DartStringLastIndexOf(runtime);
     context.describe('string.lastIndexOf', DartStringLastIndexOf(runtime).doc!);
     stringFunctions['replaceFirst'] = DartStringReplaceFirst(runtime);
-    context.describe('string.replaceFirst', DartStringReplaceFirst(runtime).doc!);
+    context.describe(
+      'string.replaceFirst',
+      DartStringReplaceFirst(runtime).doc!,
+    );
     stringFunctions['isEmpty'] = DartStringIsEmpty(runtime);
     context.describe('string.isEmpty', DartStringIsEmpty(runtime).doc!);
     stringFunctions['fromCharCodes'] = DartStringFromCharCodes(runtime);
-    context.describe('string.fromCharCodes', DartStringFromCharCodes(runtime).doc!);
+    context.describe(
+      'string.fromCharCodes',
+      DartStringFromCharCodes(runtime).doc!,
+    );
 
     // Add bytes sub-library
     stringFunctions['bytes'] = valueFromOptionalLuaSlot(runtime, {
@@ -274,7 +279,12 @@ class DartStringSubstring extends BuiltinFunction {
     params: [
       DocParam('input', 'string', 'The input string.'),
       DocParam('start', 'number', 'Start index (0-based).'),
-      DocParam('end', 'number', 'End index (exclusive, defaults to end).', optional: true),
+      DocParam(
+        'end',
+        'number',
+        'End index (exclusive, defaults to end).',
+        optional: true,
+      ),
     ],
     returns: 'The extracted substring.',
     category: 'dart',
@@ -354,11 +364,17 @@ class DartStringPadLeft extends BuiltinFunction {
 
   @override
   FunctionDoc? get doc => FunctionDoc(
-    summary: 'Pads the left side of a string to a minimum width with a fill character.',
+    summary:
+        'Pads the left side of a string to a minimum width with a fill character.',
     params: [
       DocParam('input', 'string', 'The input string.'),
       DocParam('width', 'number', 'Minimum total width.'),
-      DocParam('fill', 'string', 'Fill character (defaults to space).', optional: true),
+      DocParam(
+        'fill',
+        'string',
+        'Fill character (defaults to space).',
+        optional: true,
+      ),
     ],
     returns: 'The padded string.',
     category: 'dart',
@@ -391,11 +407,17 @@ class DartStringPadRight extends BuiltinFunction {
 
   @override
   FunctionDoc? get doc => FunctionDoc(
-    summary: 'Pads the right side of a string to a minimum width with a fill character.',
+    summary:
+        'Pads the right side of a string to a minimum width with a fill character.',
     params: [
       DocParam('input', 'string', 'The input string.'),
       DocParam('width', 'number', 'Minimum total width.'),
-      DocParam('fill', 'string', 'Fill character (defaults to space).', optional: true),
+      DocParam(
+        'fill',
+        'string',
+        'Fill character (defaults to space).',
+        optional: true,
+      ),
     ],
     returns: 'The padded string.',
     category: 'dart',
@@ -489,7 +511,12 @@ class DartStringIndexOf extends BuiltinFunction {
     params: [
       DocParam('input', 'string', 'The string to search in.'),
       DocParam('substring', 'string', 'The substring to find.'),
-      DocParam('start', 'number', 'Starting index (0-based, optional).', optional: true),
+      DocParam(
+        'start',
+        'number',
+        'Starting index (0-based, optional).',
+        optional: true,
+      ),
     ],
     returns: 'The index or -1.',
     category: 'dart',
@@ -519,7 +546,12 @@ class DartStringLastIndexOf extends BuiltinFunction {
     params: [
       DocParam('input', 'string', 'The string to search in.'),
       DocParam('substring', 'string', 'The substring to find.'),
-      DocParam('start', 'number', 'Starting index (0-based, optional).', optional: true),
+      DocParam(
+        'start',
+        'number',
+        'Starting index (0-based, optional).',
+        optional: true,
+      ),
     ],
     returns: 'The index or -1.',
     category: 'dart',

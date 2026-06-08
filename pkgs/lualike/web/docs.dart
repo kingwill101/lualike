@@ -16,7 +16,8 @@ void main() {
 
   final result = renderDocs(vm.libraryRegistry.libraries);
 
-  final sidebar = web.document.querySelector('#sidebarLinks') as web.HTMLElement;
+  final sidebar =
+      web.document.querySelector('#sidebarLinks') as web.HTMLElement;
   final content = web.document.querySelector('#content') as web.HTMLElement;
   sidebar.textContent = '';
   content.textContent = '';

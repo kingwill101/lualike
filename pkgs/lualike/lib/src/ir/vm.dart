@@ -1222,7 +1222,9 @@ class LualikeIrVm {
             } on LuaError catch (error) {
               if (error.message ==
                   'to-be-closed variable value must have a __close metamethod') {
-                final localName = frame.prototype.debugInfo
+                final localName = frame
+                    .prototype
+                    .debugInfo
                     ?.toBeClosedNamesByPc[frame.pc - 1];
                 if (localName != null) {
                   throw LuaError(
@@ -2699,8 +2701,6 @@ class LualikeIrVm {
       'attempt to compare ${leftRaw.runtimeType} with ${rightRaw.runtimeType}',
     );
   }
-
-
 
   bool _isNilControl(dynamic value) {
     if (rawLuaSlot(value) == null) {

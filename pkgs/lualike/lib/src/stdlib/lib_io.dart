@@ -155,10 +155,7 @@ class IOLib {
     }
   }
 
-  static void unregisterOpenFile(
-    Value fileValue, {
-    LuaRuntime? interpreter,
-  }) {
+  static void unregisterOpenFile(Value fileValue, {LuaRuntime? interpreter}) {
     if (extractLuaFile(fileValue) case final LuaFile luaFile) {
       final rt = interpreter ?? fileValue.interpreter;
       _debugOpenFileLog(
@@ -181,7 +178,10 @@ class IOLib {
     );
   }
 
-  static Value? trackedOpenFileWrapper(LuaFile file, {LuaRuntime? interpreter}) {
+  static Value? trackedOpenFileWrapper(
+    LuaFile file, {
+    LuaRuntime? interpreter,
+  }) {
     final set = interpreter?.openFiles;
     if (set == null) {
       _debugOpenFileLog(
@@ -349,7 +349,12 @@ class IOClose extends BuiltinFunction {
   FunctionDoc? get doc => FunctionDoc(
     summary: 'Closes an open file handle, or closes the default output file.',
     params: [
-      DocParam('file', 'file', 'Optional file handle to close.', optional: true),
+      DocParam(
+        'file',
+        'file',
+        'Optional file handle to close.',
+        optional: true,
+      ),
     ],
     returns: 'true on success, or nil + error on failure.',
     category: 'io',
@@ -461,7 +466,12 @@ class IOInput extends BuiltinFunction {
   FunctionDoc? get doc => FunctionDoc(
     summary: 'Sets or returns the default input file.',
     params: [
-      DocParam('file', 'file|string', 'A file handle or filename to use as default input.', optional: true),
+      DocParam(
+        'file',
+        'file|string',
+        'A file handle or filename to use as default input.',
+        optional: true,
+      ),
     ],
     returns: 'The default input file handle.',
     category: 'io',
@@ -515,10 +525,7 @@ class IOInput extends BuiltinFunction {
     final previousDefault = IOLib._defaultInput;
     if (!identical(previousDefault, newFile)) {
       if (previousDefault != null) {
-        IOLib.unregisterOpenFile(
-          previousDefault,
-          interpreter: interpreter,
-        );
+        IOLib.unregisterOpenFile(previousDefault, interpreter: interpreter);
       }
       IOLib._defaultInput = newFile;
     }
@@ -533,7 +540,12 @@ class IOLines extends BuiltinFunction {
   FunctionDoc? get doc => FunctionDoc(
     summary: 'Returns an iterator function that reads lines from a file.',
     params: [
-      DocParam('filename', 'string', 'Optional filename to read from.', optional: true),
+      DocParam(
+        'filename',
+        'string',
+        'Optional filename to read from.',
+        optional: true,
+      ),
       DocParam('...', 'any', 'Optional read format arguments.', optional: true),
     ],
     returns: 'An iterator function for reading lines.',
@@ -645,7 +657,12 @@ class IOOpen extends BuiltinFunction {
     summary: 'Opens a file for reading or writing.',
     params: [
       DocParam('filename', 'string', 'Path to the file.'),
-      DocParam('mode', 'string', 'File mode: "r", "w", "a", "r+", "w+", "a+" (default "r").', optional: true),
+      DocParam(
+        'mode',
+        'string',
+        'File mode: "r", "w", "a", "r+", "w+", "a+" (default "r").',
+        optional: true,
+      ),
     ],
     returns: 'A file handle, or nil + error message.',
     category: 'io',
@@ -692,7 +709,12 @@ class IOOutput extends BuiltinFunction {
   FunctionDoc? get doc => FunctionDoc(
     summary: 'Sets or returns the default output file.',
     params: [
-      DocParam('file', 'file|string', 'A file handle or filename to use as default output.', optional: true),
+      DocParam(
+        'file',
+        'file|string',
+        'A file handle or filename to use as default output.',
+        optional: true,
+      ),
     ],
     returns: 'The default output file handle.',
     category: 'io',
@@ -769,7 +791,10 @@ class IOOutput extends BuiltinFunction {
           category: 'IO',
         );
         await currentFile.close();
-        IOLib.unregisterOpenFileForLuaFile(currentFile, interpreter: interpreter);
+        IOLib.unregisterOpenFileForLuaFile(
+          currentFile,
+          interpreter: interpreter,
+        );
       }
     }
 
@@ -798,7 +823,11 @@ class IOPopen extends BuiltinFunction {
     summary: 'Opens a process by running a command.',
     params: [
       DocParam('prog', 'string', 'The program/command to run.'),
-      DocParam('mode', 'string', '"r" to read from process stdout, "w" to write to stdin.'),
+      DocParam(
+        'mode',
+        'string',
+        '"r" to read from process stdout, "w" to write to stdin.',
+      ),
     ],
     returns: 'A file handle for the process, or nil + error.',
     category: 'io',
@@ -845,7 +874,12 @@ class IORead extends BuiltinFunction {
   FunctionDoc? get doc => FunctionDoc(
     summary: 'Reads from the default input file.',
     params: [
-      DocParam('...', 'string|number', 'Read formats: "*l" (line), "*a" (all), "*n" (number), or a number (chars).', optional: true),
+      DocParam(
+        '...',
+        'string|number',
+        'Read formats: "*l" (line), "*a" (all), "*n" (number), or a number (chars).',
+        optional: true,
+      ),
     ],
     returns: 'The read data, or nil on EOF.',
     category: 'io',
@@ -963,7 +997,8 @@ class IOType extends BuiltinFunction {
 
   @override
   FunctionDoc? get doc => FunctionDoc(
-    summary: 'Returns "file" if the given object is a file handle, "closed file" if closed, or nil otherwise.',
+    summary:
+        'Returns "file" if the given object is a file handle, "closed file" if closed, or nil otherwise.',
     params: [DocParam('obj', 'any', 'The object to check.')],
     returns: '"file", "closed file", or nil.',
     category: 'io',
@@ -1187,7 +1222,12 @@ class FileRead extends BuiltinFunction {
   FunctionDoc? get doc => FunctionDoc(
     summary: 'Reads data from this file using the specified formats.',
     params: [
-      DocParam('...', 'string|number', 'Read formats: "*l" (line), "*a" (all), "*n" (number), or a number (chars).', optional: true),
+      DocParam(
+        '...',
+        'string|number',
+        'Read formats: "*l" (line), "*a" (all), "*n" (number), or a number (chars).',
+        optional: true,
+      ),
     ],
     returns: 'The read data, or nil on EOF.',
     category: 'io',
@@ -1295,8 +1335,18 @@ class FileSeek extends BuiltinFunction {
   FunctionDoc? get doc => FunctionDoc(
     summary: 'Sets and returns the current file position.',
     params: [
-      DocParam('whence', 'string', 'Position: "set" (start), "cur" (current), "end" (end). Defaults to "cur".', optional: true),
-      DocParam('offset', 'number', 'Offset in bytes (defaults to 0).', optional: true),
+      DocParam(
+        'whence',
+        'string',
+        'Position: "set" (start), "cur" (current), "end" (end). Defaults to "cur".',
+        optional: true,
+      ),
+      DocParam(
+        'offset',
+        'number',
+        'Offset in bytes (defaults to 0).',
+        optional: true,
+      ),
     ],
     returns: 'The new position from the beginning of the file.',
     category: 'io',

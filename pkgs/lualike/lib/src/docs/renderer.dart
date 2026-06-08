@@ -744,10 +744,7 @@ String _luaLsTrailingDescription(String description) {
 }
 
 String _luaLsType(String type) {
-  final normalized = type
-      .trim()
-      .replaceAll(' ', '')
-      .replaceAll(',', '|');
+  final normalized = type.trim().replaceAll(' ', '').replaceAll(',', '|');
   if (normalized.isEmpty) {
     return 'any';
   }

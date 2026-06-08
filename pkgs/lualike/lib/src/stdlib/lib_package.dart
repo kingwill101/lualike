@@ -7,8 +7,6 @@ import 'package:lualike/src/utils/platform_utils.dart' as platform;
 import 'package:path/path.dart' as path_lib;
 import 'library.dart';
 
-
-
 class PackageLib {
   static const _defaultPath = "?.lua;?/?;?/init";
   static const _defaultCPath = "?.so";
@@ -191,7 +189,9 @@ class _SearchPath extends BuiltinFunction {
     final name = rawLuaSlotString(args[0]);
     final searchPath = rawLuaSlotString(args[1]);
     final sep = args.length > 2 ? rawLuaSlotString(args[2]) : '.';
-    final rep = args.length > 3 ? rawLuaSlotString(args[3]) : path_lib.separator;
+    final rep = args.length > 3
+        ? rawLuaSlotString(args[3])
+        : path_lib.separator;
 
     // Avoid Dart's replaceAll behavior with empty pattern
     final replacedName = sep.isEmpty ? name : name.replaceAll(sep, rep);
@@ -548,7 +548,10 @@ class PackageLibrary extends Library {
 
     // Register docs for package functions (nested in table, not auto-collected)
     context.describe('loadlib', _LoadLib(null).doc!);
-    context.describe('searchpath', _SearchPath(packageLib.fileManager, null).doc!);
+    context.describe(
+      'searchpath',
+      _SearchPath(packageLib.fileManager, null).doc!,
+    );
 
     // Define package table globally
     context.define(

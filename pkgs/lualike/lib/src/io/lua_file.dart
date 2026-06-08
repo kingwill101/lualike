@@ -118,10 +118,7 @@ final fileMetamethods = {
     if (fileValue is Value && file != null) {
       final result = await file.close();
       if (result.isNotEmpty && result[0] == true) {
-        IOLib.unregisterOpenFile(
-          fileValue,
-          interpreter: fileValue.interpreter,
-        );
+        IOLib.unregisterOpenFile(fileValue, interpreter: fileValue.interpreter);
       }
       return LuaResults(result);
     } else {

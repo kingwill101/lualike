@@ -23,7 +23,6 @@ import 'library.dart' show LibraryRegistry, LazyLibraryMap;
 import 'metatables.dart';
 // import 'lib_convert.dart';
 
-
 /// Initialize standard libraries using the Library system
 /// All libraries have been migrated to the new system with proper metamethod handling
 void initializeStandardLibrary({required LuaRuntime vm}) {

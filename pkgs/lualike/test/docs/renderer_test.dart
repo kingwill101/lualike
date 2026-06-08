@@ -74,14 +74,8 @@ void main() {
       expect(annotations, contains('---Generator: lualike.docs'));
       expect(annotations, contains('---@type table\nsample = sample or {}'));
       expect(annotations, contains('---Returns the provided value.'));
-      expect(
-        annotations,
-        contains('---@param value any # Value to return.'),
-      );
-      expect(
-        annotations,
-        contains('---@return any # The original value.'),
-      );
+      expect(annotations, contains('---@param value any # Value to return.'));
+      expect(annotations, contains('---@return any # The original value.'));
       expect(annotations, contains('function sample.echo(value) end'));
     });
 

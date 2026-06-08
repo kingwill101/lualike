@@ -218,7 +218,8 @@ class _DebugInteractive extends BuiltinFunction {
 
   @override
   FunctionDoc? get doc => FunctionDoc(
-    summary: 'Enters an interactive debug REPL for inspecting the current state.',
+    summary:
+        'Enters an interactive debug REPL for inspecting the current state.',
     params: [],
     returns: 'Nothing.',
     category: 'debug',
@@ -259,7 +260,12 @@ class _GetHook extends BuiltinFunction {
   FunctionDoc? get doc => FunctionDoc(
     summary: 'Returns the current hook function and mask/count settings.',
     params: [
-      DocParam('thread', 'thread', 'Optional coroutine to query.', optional: true),
+      DocParam(
+        'thread',
+        'thread',
+        'Optional coroutine to query.',
+        optional: true,
+      ),
     ],
     returns: 'The hook function, the event mask, and the count.',
     category: 'debug',
@@ -308,7 +314,8 @@ class _GetLocal extends BuiltinFunction {
 
   @override
   FunctionDoc? get doc => FunctionDoc(
-    summary: 'Returns the name and value of a local variable at a given stack level.',
+    summary:
+        'Returns the name and value of a local variable at a given stack level.',
     params: [
       DocParam('f', 'function|number', 'Stack level or active function.'),
       DocParam('local_index', 'number', 'Index of the local variable.'),
@@ -854,8 +861,17 @@ class _SetHook extends BuiltinFunction {
     summary: 'Sets a hook function for debugging events.',
     params: [
       DocParam('hook', 'function', 'The hook function, or nil to remove.'),
-      DocParam('mask', 'string', 'Event mask: "c" (call), "r" (return), "l" (line).'),
-      DocParam('count', 'number', 'Count for count-based hooks.', optional: true),
+      DocParam(
+        'mask',
+        'string',
+        'Event mask: "c" (call), "r" (return), "l" (line).',
+      ),
+      DocParam(
+        'count',
+        'number',
+        'Count for count-based hooks.',
+        optional: true,
+      ),
     ],
     returns: 'Nothing.',
     category: 'debug',
@@ -1500,8 +1516,18 @@ class _Traceback extends BuiltinFunction {
     summary: 'Returns a traceback string for debugging purposes.',
     params: [
       DocParam('thread', 'thread', 'Optional coroutine.', optional: true),
-      DocParam('message', 'string', 'Optional message to prepend.', optional: true),
-      DocParam('level', 'number', 'Starting stack level (defaults to 1).', optional: true),
+      DocParam(
+        'message',
+        'string',
+        'Optional message to prepend.',
+        optional: true,
+      ),
+      DocParam(
+        'level',
+        'number',
+        'Starting stack level (defaults to 1).',
+        optional: true,
+      ),
     ],
     returns: 'The traceback string.',
     category: 'debug',
@@ -1918,7 +1944,8 @@ class _UpvalueJoin extends BuiltinFunction {
 
   @override
   FunctionDoc? get doc => FunctionDoc(
-    summary: 'Makes the upvalues of closure f1 share the same upvalues as closure f2.',
+    summary:
+        'Makes the upvalues of closure f1 share the same upvalues as closure f2.',
     params: [
       DocParam('f1', 'function', 'Target closure.'),
       DocParam('f2', 'function', 'Source closure.'),
@@ -2003,9 +2030,14 @@ class _GetInfoImpl extends BuiltinFunction {
 
   @override
   FunctionDoc? get doc => FunctionDoc(
-    summary: 'Returns information about a function, stack level, or active function.',
+    summary:
+        'Returns information about a function, stack level, or active function.',
     params: [
-      DocParam('what', 'string', 'Fields to retrieve: "n", "S", "l", "L", "u", "f".'),
+      DocParam(
+        'what',
+        'string',
+        'Fields to retrieve: "n", "S", "l", "L", "u", "f".',
+      ),
       DocParam('f', 'function|number', 'Stack level or function to query.'),
     ],
     returns: 'A table with requested info fields.',

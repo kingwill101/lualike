@@ -82,7 +82,7 @@ class CallFrame {
     this.isDebugHook = false,
     this.isTailCall = false,
     this.engineFrameState,
-  })  : debugLocals = debugLocals ?? <MapEntry<String, Value>>[],
+  }) : debugLocals = debugLocals ?? <MapEntry<String, Value>>[],
        transferValues = transferValues ?? <Value>[];
 
   static final List<MapEntry<String, Value>> _emptyMapEntryList =
@@ -207,8 +207,7 @@ class CallStack {
   ///
   /// The view is cached and only re-allocated when the stack structure
   /// changes (push/pop), not on every read.
-  List<CallFrame> get frames =>
-      _framesView ??= List.unmodifiable(_frames);
+  List<CallFrame> get frames => _framesView ??= List.unmodifiable(_frames);
 
   /// Clears the call stack.
   void clear() {

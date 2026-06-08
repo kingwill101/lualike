@@ -511,11 +511,14 @@ class Interpreter extends AstVisitor<Object?>
       FunctionCall() ||
       MethodCall() ||
       ReturnStatement() =>
-        node.cachedStartLine >= 0 ? node.cachedStartLine : node.span!.start.line,
-      _ => _debugHookLineForNode(node) ??
-          (node.cachedStartLine >= 0
-              ? node.cachedStartLine
-              : node.span!.start.line),
+        node.cachedStartLine >= 0
+            ? node.cachedStartLine
+            : node.span!.start.line,
+      _ =>
+        _debugHookLineForNode(node) ??
+            (node.cachedStartLine >= 0
+                ? node.cachedStartLine
+                : node.span!.start.line),
     };
   }
 
@@ -826,7 +829,9 @@ class Interpreter extends AstVisitor<Object?>
       _currentCoroutine, // Currently executing coroutine
       _mainThread, // Main thread coroutine
       debugRegistry, // Persistent debug registry
-      ...IOLib.gcRootsFor(this), // Current/default I/O handles live outside environments
+      ...IOLib.gcRootsFor(
+        this,
+      ), // Current/default I/O handles live outside environments
       if (activeFunction != null) activeFunction.closureEnvironment,
       if (activeFunction != null && activeFunction.upvalues != null) ...[
         ...activeFunction.upvalues!,

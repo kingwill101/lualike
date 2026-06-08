@@ -65,7 +65,8 @@ class _OSClock extends BuiltinFunction {
   _OSClock([super.interpreter]);
   @override
   FunctionDoc? get doc => FunctionDoc(
-    summary: 'Returns an approximation of the CPU time in seconds used by the program.',
+    summary:
+        'Returns an approximation of the CPU time in seconds used by the program.',
     params: [],
     returns: 'The CPU time in seconds.',
     category: 'os',
@@ -87,8 +88,18 @@ class _OSDate extends BuiltinFunction {
   FunctionDoc? get doc => FunctionDoc(
     summary: 'Returns a formatted date/time string or a table of time fields.',
     params: [
-      DocParam('format', 'string', 'Format string using strftime syntax, or "*t" for a time table.', optional: true),
-      DocParam('time', 'table', 'A time table from os.time(). Uses current time if omitted.', optional: true),
+      DocParam(
+        'format',
+        'string',
+        'Format string using strftime syntax, or "*t" for a time table.',
+        optional: true,
+      ),
+      DocParam(
+        'time',
+        'table',
+        'A time table from os.time(). Uses current time if omitted.',
+        optional: true,
+      ),
     ],
     returns: 'The formatted date string or a table of time fields.',
     category: 'os',
@@ -545,8 +556,18 @@ class _OSSetLocale extends BuiltinFunction {
   FunctionDoc? get doc => FunctionDoc(
     summary: 'Sets or returns the current program locale.',
     params: [
-      DocParam('locale', 'string', 'Locale string, or "" for native, or nil to query.', optional: true),
-      DocParam('category', 'string', 'Locale category: "all", "collate", "ctype", "monetary", "numeric", "time".', optional: true),
+      DocParam(
+        'locale',
+        'string',
+        'Locale string, or "" for native, or nil to query.',
+        optional: true,
+      ),
+      DocParam(
+        'category',
+        'string',
+        'Locale category: "all", "collate", "ctype", "monetary", "numeric", "time".',
+        optional: true,
+      ),
     ],
     returns: 'The current locale name.',
     category: 'os',
@@ -589,11 +610,18 @@ class _OSTime extends BuiltinFunction {
   _OSTime([super.interpreter]);
   @override
   FunctionDoc? get doc => FunctionDoc(
-    summary: 'Returns the current time as a timestamp, or converts a time table to a timestamp.',
+    summary:
+        'Returns the current time as a timestamp, or converts a time table to a timestamp.',
     params: [
-      DocParam('t', 'table', 'A time table with year, month, day, etc.', optional: true),
+      DocParam(
+        't',
+        'table',
+        'A time table with year, month, day, etc.',
+        optional: true,
+      ),
     ],
-    returns: 'The current time in seconds, or the timestamp for the given table.',
+    returns:
+        'The current time in seconds, or the timestamp for the given table.',
     category: 'os',
     example: 'print(os.time())',
   );
