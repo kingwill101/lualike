@@ -19,3 +19,5 @@ luac.out
 # Generated maps and local benchmark output snapshots.
 web/*.map
 benchmarks/*.log
+AGENT.md
+AGENTs.m:
