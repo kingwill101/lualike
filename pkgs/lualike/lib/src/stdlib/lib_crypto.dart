@@ -19,8 +19,7 @@ class CryptoLibrary extends Library {
   String get name => "crypto";
 
   @override
-  String get description =>
-      'Cryptographic hash functions (MD5, SHA1, SHA256).';
+  String get description => 'Cryptographic hash functions (MD5, SHA1, SHA256).';
 
   @override
   void registerFunctions(LibraryRegistrationContext context) {
@@ -67,7 +66,11 @@ class _HashFunction extends BuiltinFunction {
   FunctionDoc? get doc => FunctionDoc(
     summary: 'Computes a cryptographic hash of a string.',
     params: [
-      DocParam('algorithm', 'string', 'Hash algorithm: "md5", "sha1", "sha256".'),
+      DocParam(
+        'algorithm',
+        'string',
+        'Hash algorithm: "md5", "sha1", "sha256".',
+      ),
       DocParam('input', 'string', 'The input string to hash.'),
     ],
     returns: 'The hex-encoded hash string.',
@@ -93,7 +96,11 @@ class HmacFunction extends BuiltinFunction {
   FunctionDoc? get doc => FunctionDoc(
     summary: 'Computes an HMAC for a message using a secret key.',
     params: [
-      DocParam('algorithm', 'string', 'Hash algorithm: "md5", "sha1", "sha256".'),
+      DocParam(
+        'algorithm',
+        'string',
+        'Hash algorithm: "md5", "sha1", "sha256".',
+      ),
       DocParam('key', 'string', 'The secret key.'),
       DocParam('message', 'string', 'The message to authenticate.'),
     ],
@@ -131,7 +138,9 @@ class RandomBytesFunction extends BuiltinFunction {
   @override
   FunctionDoc? get doc => FunctionDoc(
     summary: 'Generates cryptographically secure random bytes.',
-    params: [DocParam('count', 'number', 'Number of random bytes to generate.')],
+    params: [
+      DocParam('count', 'number', 'Number of random bytes to generate.'),
+    ],
     returns: 'A random byte string.',
     category: 'crypto',
     example: 'local bytes = crypto.randomBytes(16)',

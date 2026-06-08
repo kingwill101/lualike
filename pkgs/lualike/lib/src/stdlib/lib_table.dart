@@ -11,7 +11,6 @@ import 'library.dart';
 
 import '../number_limits.dart';
 
-
 bool _isTrueTableValue(Object? value) => rawLuaSlot(value) == true;
 
 /// Table library implementation using the new Library system
@@ -201,8 +200,18 @@ class _TableCreate extends BuiltinFunction {
   FunctionDoc? get doc => FunctionDoc(
     summary: 'Creates a table with pre-allocated array and hash parts.',
     params: [
-      DocParam('narray', 'number', 'Number of array slots to pre-allocate.', optional: true),
-      DocParam('nhash', 'number', 'Number of hash slots to pre-allocate.', optional: true),
+      DocParam(
+        'narray',
+        'number',
+        'Number of array slots to pre-allocate.',
+        optional: true,
+      ),
+      DocParam(
+        'nhash',
+        'number',
+        'Number of hash slots to pre-allocate.',
+        optional: true,
+      ),
     ],
     returns: 'A new table.',
     category: 'table',
@@ -259,11 +268,21 @@ class _TableInsert extends BuiltinFunction {
 
   @override
   FunctionDoc? get doc => FunctionDoc(
-    summary: 'Inserts an element at a given position in a table, shifting elements up.',
+    summary:
+        'Inserts an element at a given position in a table, shifting elements up.',
     params: [
       DocParam('t', 'table', 'The table to modify.'),
-      DocParam('pos', 'number|any', 'Position to insert at, or the value if no position given.'),
-      DocParam('value', 'any', 'The value to insert (omit if pos is the value).', optional: true),
+      DocParam(
+        'pos',
+        'number|any',
+        'Position to insert at, or the value if no position given.',
+      ),
+      DocParam(
+        'value',
+        'any',
+        'The value to insert (omit if pos is the value).',
+        optional: true,
+      ),
     ],
     returns: 'Nothing.',
     category: 'table',
@@ -319,10 +338,16 @@ class _TableRemove extends BuiltinFunction {
 
   @override
   FunctionDoc? get doc => FunctionDoc(
-    summary: 'Removes an element from a table at a given position, shifting elements down.',
+    summary:
+        'Removes an element from a table at a given position, shifting elements down.',
     params: [
       DocParam('t', 'table', 'The table to modify.'),
-      DocParam('pos', 'number', 'Position to remove from (defaults to last index).', optional: true),
+      DocParam(
+        'pos',
+        'number',
+        'Position to remove from (defaults to last index).',
+        optional: true,
+      ),
     ],
     returns: 'The removed element.',
     category: 'table',
@@ -379,7 +404,8 @@ class _TableConcat extends BuiltinFunction {
 
   @override
   FunctionDoc? get doc => FunctionDoc(
-    summary: 'Concatenates table elements into a string, separated by a given separator.',
+    summary:
+        'Concatenates table elements into a string, separated by a given separator.',
     params: [
       DocParam('t', 'table', 'The table.'),
       DocParam('sep', 'string', 'Separator between elements.', optional: true),
@@ -493,7 +519,12 @@ class _TableMove extends BuiltinFunction {
       DocParam('f', 'number', 'Starting index in source.'),
       DocParam('e', 'number', 'Ending index in source.'),
       DocParam('t', 'number', 'Starting index in destination.'),
-      DocParam('a2', 'table', 'Destination table (defaults to source).', optional: true),
+      DocParam(
+        'a2',
+        'table',
+        'Destination table (defaults to source).',
+        optional: true,
+      ),
     ],
     returns: 'The destination table.',
     category: 'table',
@@ -614,7 +645,12 @@ class _TableSort extends BuiltinFunction {
     summary: 'Sorts the table in-place using an optional comparator.',
     params: [
       DocParam('t', 'table', 'The table to sort.'),
-      DocParam('comp', 'function', 'Comparison function (a, b) returning true if a < b.', optional: true),
+      DocParam(
+        'comp',
+        'function',
+        'Comparison function (a, b) returning true if a < b.',
+        optional: true,
+      ),
     ],
     returns: 'Nothing.',
     category: 'table',
@@ -1251,9 +1287,7 @@ class _TablePack extends BuiltinFunction {
   @override
   FunctionDoc? get doc => FunctionDoc(
     summary: 'Packs arguments into a table with a "n" field holding the count.',
-    params: [
-      DocParam('...', 'any', 'Values to pack.'),
-    ],
+    params: [DocParam('...', 'any', 'Values to pack.')],
     returns: 'A table containing all values.',
     category: 'table',
     example: 'local t = table.pack("a", "b", "c")',
@@ -1282,7 +1316,12 @@ class _TableUnpack extends BuiltinFunction {
     summary: 'Unpacks a table into individual return values.',
     params: [
       DocParam('t', 'table', 'The table to unpack.'),
-      DocParam('i', 'number', 'Starting index (defaults to 1).', optional: true),
+      DocParam(
+        'i',
+        'number',
+        'Starting index (defaults to 1).',
+        optional: true,
+      ),
       DocParam('j', 'number', 'Ending index (defaults to #t).', optional: true),
     ],
     returns: 'Multiple return values from the table.',

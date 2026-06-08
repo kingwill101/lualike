@@ -232,7 +232,12 @@ class _UTF8Codes extends BuiltinFunction {
     summary: 'Returns an iterator over Unicode code points in a UTF-8 string.',
     params: [
       DocParam('s', 'string', 'A UTF-8 encoded string.'),
-      DocParam('n', 'number', 'Optional starting byte position.', optional: true),
+      DocParam(
+        'n',
+        'number',
+        'Optional starting byte position.',
+        optional: true,
+      ),
     ],
     returns: 'An iterator function that returns each code point.',
     category: 'utf8',
@@ -344,11 +349,17 @@ class _UTF8CodePoint extends BuiltinFunction {
 
   @override
   FunctionDoc? get doc => FunctionDoc(
-    summary: 'Returns the Unicode code point and byte length for the character at a given position.',
+    summary:
+        'Returns the Unicode code point and byte length for the character at a given position.',
     params: [
       DocParam('s', 'string', 'A UTF-8 encoded string.'),
       DocParam('i', 'number', 'Byte position (defaults to 1).', optional: true),
-      DocParam('j', 'number', 'Ending byte position (defaults to i).', optional: true),
+      DocParam(
+        'j',
+        'number',
+        'Ending byte position (defaults to i).',
+        optional: true,
+      ),
     ],
     returns: 'The code point(s) for the character(s) at position i..j.',
     category: 'utf8',
@@ -446,11 +457,22 @@ class _UTF8Len extends BuiltinFunction {
 
   @override
   FunctionDoc? get doc => FunctionDoc(
-    summary: 'Returns the number of Unicode code points in a UTF-8 string range.',
+    summary:
+        'Returns the number of Unicode code points in a UTF-8 string range.',
     params: [
       DocParam('s', 'string', 'A UTF-8 encoded string.'),
-      DocParam('i', 'number', 'Starting byte position (defaults to 1).', optional: true),
-      DocParam('j', 'number', 'Ending byte position (defaults to -1).', optional: true),
+      DocParam(
+        'i',
+        'number',
+        'Starting byte position (defaults to 1).',
+        optional: true,
+      ),
+      DocParam(
+        'j',
+        'number',
+        'Ending byte position (defaults to -1).',
+        optional: true,
+      ),
     ],
     returns: 'The number of code points in the range.',
     category: 'utf8',
@@ -551,11 +573,21 @@ class _UTF8Offset extends BuiltinFunction {
 
   @override
   FunctionDoc? get doc => FunctionDoc(
-    summary: 'Returns the byte offset of a given character position in a UTF-8 string.',
+    summary:
+        'Returns the byte offset of a given character position in a UTF-8 string.',
     params: [
       DocParam('s', 'string', 'A UTF-8 encoded string.'),
-      DocParam('n', 'number', 'Character position (can be negative for reverse).'),
-      DocParam('i', 'number', 'Starting byte position (defaults to 1).', optional: true),
+      DocParam(
+        'n',
+        'number',
+        'Character position (can be negative for reverse).',
+      ),
+      DocParam(
+        'i',
+        'number',
+        'Starting byte position (defaults to 1).',
+        optional: true,
+      ),
     ],
     returns: 'The byte offset of the nth character, or nil.',
     category: 'utf8',

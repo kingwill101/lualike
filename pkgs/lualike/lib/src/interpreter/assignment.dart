@@ -47,7 +47,6 @@ FutureOr<Object?> _resolveAssignmentFutureValue(
   return value;
 }
 
-
 Value _wrapMutableLocalReadValue(Interpreter interpreter, Object? value) {
   return cachedPrimitiveOrValue(interpreter, value);
 }

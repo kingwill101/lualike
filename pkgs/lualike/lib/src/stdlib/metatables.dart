@@ -6,8 +6,6 @@ import 'package:lualike/src/utils/type.dart';
 
 import '../../lualike.dart';
 
-
-
 Object? _callMetatableCallable(Object? callable, List<Object?> args) {
   final rawCallable = rawLuaSlot(callable);
   if (rawCallable is Function) {

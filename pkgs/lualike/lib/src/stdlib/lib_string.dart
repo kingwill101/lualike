@@ -83,7 +83,6 @@ bool _shouldUseBytePatternProcessing(dynamic subject, dynamic pattern) =>
     (subject is String && _containsNonAscii(subject)) ||
     (pattern is String && _containsNonAscii(pattern));
 
-
 String _toPatternProcessingString(dynamic value, {required bool byteLevel}) {
   if (!byteLevel) {
     return value is LuaString ? value.toString() : value.toString();
@@ -668,11 +667,22 @@ class _StringByte extends BuiltinFunction {
 
   @override
   FunctionDoc? get doc => FunctionDoc(
-    summary: 'Returns the internal numerical codes of the characters in a string.',
+    summary:
+        'Returns the internal numerical codes of the characters in a string.',
     params: [
       DocParam('s', 'string', 'The input string.'),
-      DocParam('i', 'number', 'Optional start index (default 1).', optional: true),
-      DocParam('j', 'number', 'Optional end index (default i).', optional: true),
+      DocParam(
+        'i',
+        'number',
+        'Optional start index (default 1).',
+        optional: true,
+      ),
+      DocParam(
+        'j',
+        'number',
+        'Optional end index (default i).',
+        optional: true,
+      ),
     ],
     returns: 'One or more integer byte values, or nil if no characters match.',
     category: 'string',
@@ -767,10 +777,16 @@ class _StringDump extends BuiltinFunction {
 
   @override
   FunctionDoc? get doc => FunctionDoc(
-    summary: 'Returns a binary string containing a binary representation of the given function.',
+    summary:
+        'Returns a binary string containing a binary representation of the given function.',
     params: [
       DocParam('f', 'function', 'The function to dump.'),
-      DocParam('strip', 'boolean', 'Whether to strip debug information.', optional: true),
+      DocParam(
+        'strip',
+        'boolean',
+        'Whether to strip debug information.',
+        optional: true,
+      ),
     ],
     returns: 'A binary string representation of the function.',
     category: 'string',
@@ -807,8 +823,18 @@ class _StringFind extends BuiltinFunction {
     params: [
       DocParam('s', 'string', 'The string to search.'),
       DocParam('pattern', 'string', 'The pattern to match.'),
-      DocParam('init', 'number', 'Optional starting index (default 1).', optional: true),
-      DocParam('plain', 'boolean', 'Disable pattern matching (plain search).', optional: true),
+      DocParam(
+        'init',
+        'number',
+        'Optional starting index (default 1).',
+        optional: true,
+      ),
+      DocParam(
+        'plain',
+        'boolean',
+        'Disable pattern matching (plain search).',
+        optional: true,
+      ),
     ],
     returns: 'The start and end indices of the match, or nil.',
     returnType: 'integer|nil, integer|nil',
@@ -1692,7 +1718,8 @@ class _StringFormat extends BuiltinFunction {
 
   @override
   FunctionDoc? get doc => FunctionDoc(
-    summary: 'Returns a formatted string based on a format specifier (similar to printf).',
+    summary:
+        'Returns a formatted string based on a format specifier (similar to printf).',
     params: [
       DocParam('fmt', 'string', 'The format string.'),
       DocParam('...', 'any', 'Values to be formatted.'),
@@ -1902,7 +1929,8 @@ class _StringGmatch extends BuiltinFunction {
 
   @override
   FunctionDoc? get doc => FunctionDoc(
-    summary: 'Returns an iterator function that visits each match of the pattern in the string.',
+    summary:
+        'Returns an iterator function that visits each match of the pattern in the string.',
     params: [
       DocParam('s', 'string', 'The string to search.'),
       DocParam('pattern', 'string', 'The pattern to match.'),
@@ -2114,12 +2142,22 @@ class _StringGsub extends BuiltinFunction {
 
   @override
   FunctionDoc? get doc => FunctionDoc(
-    summary: 'Returns a copy of the string where all occurrences of the pattern are replaced.',
+    summary:
+        'Returns a copy of the string where all occurrences of the pattern are replaced.',
     params: [
       DocParam('s', 'string', 'The source string.'),
       DocParam('pattern', 'string', 'The pattern to match.'),
-      DocParam('repl', 'string|function|table', 'Replacement string, function, or table.'),
-      DocParam('n', 'number', 'Optional maximum number of replacements.', optional: true),
+      DocParam(
+        'repl',
+        'string|function|table',
+        'Replacement string, function, or table.',
+      ),
+      DocParam(
+        'n',
+        'number',
+        'Optional maximum number of replacements.',
+        optional: true,
+      ),
     ],
     returns: 'The resulting string and the number of substitutions.',
     returnType: 'string, integer',
@@ -2447,9 +2485,7 @@ class _StringLen extends BuiltinFunction {
   @override
   FunctionDoc? get doc => FunctionDoc(
     summary: 'Returns the length of the given string.',
-    params: [
-      DocParam('s', 'string', 'The input string.'),
-    ],
+    params: [DocParam('s', 'string', 'The input string.')],
     returns: 'The length as an integer.',
     category: 'string',
     example: 'print(string.len("hello")) --> 5',
@@ -2477,10 +2513,9 @@ class _StringLower extends BuiltinFunction {
 
   @override
   FunctionDoc? get doc => FunctionDoc(
-    summary: 'Returns a copy of the string with all uppercase letters converted to lowercase.',
-    params: [
-      DocParam('s', 'string', 'The input string.'),
-    ],
+    summary:
+        'Returns a copy of the string with all uppercase letters converted to lowercase.',
+    params: [DocParam('s', 'string', 'The input string.')],
     returns: 'The lowercased string.',
     category: 'string',
     example: 'print(string.lower("HELLO")) --> hello',
@@ -2539,11 +2574,17 @@ class _StringMatch extends BuiltinFunction {
     params: [
       DocParam('s', 'string', 'The string to search.'),
       DocParam('pattern', 'string', 'The pattern to match.'),
-      DocParam('init', 'number', 'Optional starting index (default 1).', optional: true),
+      DocParam(
+        'init',
+        'number',
+        'Optional starting index (default 1).',
+        optional: true,
+      ),
     ],
     returns: 'The captures from the match, or nil.',
     category: 'string',
-    example: 'print(string.match("hello world", "(%w+) (%w+)")) --> hello\tworld',
+    example:
+        'print(string.match("hello world", "(%w+) (%w+)")) --> hello\tworld',
   );
 
   @override
@@ -2718,7 +2759,8 @@ class _StringRep extends BuiltinFunction {
 
   @override
   FunctionDoc? get doc => FunctionDoc(
-    summary: 'Returns a string that is the concatenation of n copies of the given string.',
+    summary:
+        'Returns a string that is the concatenation of n copies of the given string.',
     params: [
       DocParam('s', 'string', 'The string to repeat.'),
       DocParam('n', 'number', 'Number of repetitions.'),
@@ -2851,9 +2893,7 @@ class _StringReverse extends BuiltinFunction {
   @override
   FunctionDoc? get doc => FunctionDoc(
     summary: 'Returns the reverse of the given string.',
-    params: [
-      DocParam('s', 'string', 'The string to reverse.'),
-    ],
+    params: [DocParam('s', 'string', 'The string to reverse.')],
     returns: 'The reversed string.',
     category: 'string',
     example: 'print(string.reverse("hello")) --> olleh',
@@ -2886,8 +2926,17 @@ class _StringSub extends BuiltinFunction {
     summary: 'Returns a substring of the given string from start to end.',
     params: [
       DocParam('s', 'string', 'The input string.'),
-      DocParam('i', 'number', 'Start index (1-based; negative means from end).'),
-      DocParam('j', 'number', 'Optional end index (defaults to string length).', optional: true),
+      DocParam(
+        'i',
+        'number',
+        'Start index (1-based; negative means from end).',
+      ),
+      DocParam(
+        'j',
+        'number',
+        'Optional end index (defaults to string length).',
+        optional: true,
+      ),
     ],
     returns: 'The extracted substring.',
     category: 'string',
@@ -3841,10 +3890,9 @@ class _StringUpper extends BuiltinFunction {
 
   @override
   FunctionDoc? get doc => FunctionDoc(
-    summary: 'Returns a copy of the string with all lowercase letters converted to uppercase.',
-    params: [
-      DocParam('s', 'string', 'The input string.'),
-    ],
+    summary:
+        'Returns a copy of the string with all lowercase letters converted to uppercase.',
+    params: [DocParam('s', 'string', 'The input string.')],
     returns: 'The uppercased string.',
     category: 'string',
     example: 'print(string.upper("hello")) --> HELLO',

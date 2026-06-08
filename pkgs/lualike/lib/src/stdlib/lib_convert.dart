@@ -21,8 +21,7 @@ class ConvertLibrary extends Library {
   String get name => "convert";
 
   @override
-  String get description =>
-      'Data conversion utilities between common formats.';
+  String get description => 'Data conversion utilities between common formats.';
 
   @override
   void registerFunctions(LibraryRegistrationContext context) {

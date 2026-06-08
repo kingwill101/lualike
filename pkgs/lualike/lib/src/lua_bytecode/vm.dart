@@ -1659,7 +1659,8 @@ final class LuaBytecodeVm {
                 // always Lua-spec compliant.
                 final localName = frame.localNameForError(word.a);
                 final baseMessage = error.message ?? error.toString();
-                final message = localName != null &&
+                final message =
+                    localName != null &&
                         baseMessage ==
                             'to-be-closed variable value must have a __close metamethod'
                     ? "variable '$localName' got a non-closable value"
@@ -8859,7 +8860,8 @@ Value _cloneBytecodeValue(Value source) {
       skipAllocationDebt:
           source.skipAllocationDebt || isLuaPrimitiveSlot(rawLuaSlot(source)),
       skipGcRegistration:
-          source.skipGcRegistration || isLuaScalarPrimitiveSlot(rawLuaSlot(source)),
+          source.skipGcRegistration ||
+          isLuaScalarPrimitiveSlot(rawLuaSlot(source)),
       upvalues: source.upvalues,
       interpreter: source.interpreter,
       functionBody: source.functionBody,
@@ -8882,7 +8884,8 @@ Value _cloneBytecodeValue(Value source) {
     skipAllocationDebt:
         source.skipAllocationDebt || isLuaPrimitiveSlot(rawLuaSlot(source)),
     skipGcRegistration:
-        source.skipGcRegistration || isLuaScalarPrimitiveSlot(rawLuaSlot(source)),
+        source.skipGcRegistration ||
+        isLuaScalarPrimitiveSlot(rawLuaSlot(source)),
     upvalues: source.upvalues,
     interpreter: source.interpreter,
     functionBody: source.functionBody,
@@ -8907,14 +8910,16 @@ bool _canUsePrimitiveBytecodeClone(Value source) {
   return source.metatable == null && source.metatableRef == null;
 }
 
-
 Value _canonicalizeBytecodeValue(Value value) {
   final raw = rawLuaSlot(value);
   if (raw is! LuaFile) {
     return value;
   }
 
-  final tracked = IOLib.trackedOpenFileWrapper(raw, interpreter: value.interpreter);
+  final tracked = IOLib.trackedOpenFileWrapper(
+    raw,
+    interpreter: value.interpreter,
+  );
   if (tracked == null || identical(tracked, value)) {
     return value;
   }
@@ -9083,8 +9088,6 @@ String _shortSource(String source) {
     return source;
   }
 }
-
-
 
 bool _isInteger(Value value) => rawLuaSlot(value) is int;
 
@@ -9317,8 +9320,6 @@ int? _positiveIntegerKey(Object? key) {
     _ => null,
   };
 }
-
-
 
 String? _stringLike(Object? value) => switch (value) {
   final LuaString stringValue => stringValue.toString(),

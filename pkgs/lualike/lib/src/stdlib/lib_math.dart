@@ -152,7 +152,9 @@ class _MathAcos extends _MathBuiltin {
   @override
   FunctionDoc? get doc => FunctionDoc(
     summary: 'Returns the arc cosine of a number in radians.',
-    params: [DocParam('x', 'number', 'The cosine value, must be in range [-1, 1].')],
+    params: [
+      DocParam('x', 'number', 'The cosine value, must be in range [-1, 1].'),
+    ],
     returns: 'The arc cosine in radians.',
     category: 'math',
     example: 'print(math.acos(0)) --> 1.5707963267949',
@@ -176,7 +178,9 @@ class _MathAsin extends _MathBuiltin {
   @override
   FunctionDoc? get doc => FunctionDoc(
     summary: 'Returns the arc sine of a number in radians.',
-    params: [DocParam('x', 'number', 'The sine value, must be in range [-1, 1].')],
+    params: [
+      DocParam('x', 'number', 'The sine value, must be in range [-1, 1].'),
+    ],
     returns: 'The arc sine in radians.',
     category: 'math',
     example: 'print(math.asin(1)) --> 1.5707963267949',
@@ -201,7 +205,8 @@ class _MathAtan extends _MathBuiltin {
 
   @override
   FunctionDoc? get doc => FunctionDoc(
-    summary: 'Returns the arc tangent of a number in radians, or the angle of y/x.',
+    summary:
+        'Returns the arc tangent of a number in radians, or the angle of y/x.',
     params: [
       DocParam('y', 'number', 'The y coordinate.'),
       DocParam('x', 'number', 'The x coordinate (optional).', optional: true),
@@ -483,7 +488,12 @@ class _MathLog extends _MathBuiltin {
     summary: 'Returns the logarithm of x in the given base.',
     params: [
       DocParam('x', 'number', 'The input value.'),
-      DocParam('base', 'number', 'The logarithm base (defaults to e).', optional: true),
+      DocParam(
+        'base',
+        'number',
+        'The logarithm base (defaults to e).',
+        optional: true,
+      ),
     ],
     returns: 'The logarithm of x.',
     category: 'math',
@@ -678,9 +688,15 @@ class _MathRandom extends _MathBuiltin {
 
   @override
   FunctionDoc? get doc => FunctionDoc(
-    summary: 'Returns a pseudo-random number. With no arguments, returns a float in [0,1). With one argument m, returns an integer in [1, m]. With two arguments m, n, returns an integer in [m, n].',
+    summary:
+        'Returns a pseudo-random number. With no arguments, returns a float in [0,1). With one argument m, returns an integer in [1, m]. With two arguments m, n, returns an integer in [m, n].',
     params: [
-      DocParam('m', 'number', 'Upper bound (or lower bound if n is also given).', optional: true),
+      DocParam(
+        'm',
+        'number',
+        'Upper bound (or lower bound if n is also given).',
+        optional: true,
+      ),
       DocParam('n', 'number', 'Upper bound.', optional: true),
     ],
     returns: 'A pseudo-random number.',
@@ -993,7 +1009,8 @@ class _MathUlt extends _MathBuiltin {
 
   @override
   FunctionDoc? get doc => FunctionDoc(
-    summary: 'Returns true if m < n when both are compared as unsigned integers.',
+    summary:
+        'Returns true if m < n when both are compared as unsigned integers.',
     params: [
       DocParam('m', 'number', 'First value.'),
       DocParam('n', 'number', 'Second value.'),

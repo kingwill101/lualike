@@ -337,7 +337,7 @@ final class _LuaBytecodeReader {
       1 => _byteData.getUint8(_advance(size) - size),
       2 => _byteData.getUint16(_advance(size) - size, Endian.little),
       4 => _byteData.getUint32(_advance(size) - size, Endian.little),
-       8 => b64.readUint64(_byteData, _advance(size) - size),
+      8 => b64.readUint64(_byteData, _advance(size) - size),
       _ => _readArbitraryFixedInt(size, signed: false),
     };
     return value;
@@ -349,7 +349,7 @@ final class _LuaBytecodeReader {
       1 => _byteData.getInt8(_advance(size) - size),
       2 => _byteData.getInt16(_advance(size) - size, Endian.little),
       4 => _byteData.getInt32(_advance(size) - size, Endian.little),
-       8 => b64.readInt64(_byteData, _advance(size) - size),
+      8 => b64.readInt64(_byteData, _advance(size) - size),
       _ => _readArbitraryFixedInt(size, signed: true),
     };
     return value;

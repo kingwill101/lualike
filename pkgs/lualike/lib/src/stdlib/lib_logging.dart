@@ -8,7 +8,6 @@ import 'package:lualike/src/runtime/lua_slot.dart';
 import 'doc.dart';
 import 'library.dart';
 
-
 /// Enhanced Lua logging library that exposes the full power of contextual logging
 ///
 /// Features:
@@ -195,7 +194,9 @@ class _LoggingSetCategories extends BuiltinFunction {
   @override
   FunctionDoc? get doc => FunctionDoc(
     summary: 'Sets multiple logging category filters.',
-    params: [DocParam('categories', 'table', 'A table of category name strings.')],
+    params: [
+      DocParam('categories', 'table', 'A table of category name strings.'),
+    ],
     returns: 'Nothing.',
     category: 'logging',
     example: 'logging.setCategories({"network", "database"})',
