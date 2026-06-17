@@ -708,7 +708,7 @@ final class _ProtectedCallSuspension implements CoroutineContinuation {
     runtime.enterProtectedCall();
 
     try {
-      return switch (phase) {
+      return await switch (phase) {
         _ProtectedCallPhase.call => _resumeCall(args),
         _ProtectedCallPhase.errorHandler => _resumeErrorHandler(args),
       };

@@ -38,8 +38,8 @@ jobs:
 
       - run: dart format --output=none --set-exit-if-changed .
         if: matrix.sdk == 'stable'
-
       - run: dart analyze
+        if: matrix.sdk == 'stable'
 
       - name: Run tests
         run: dart test
