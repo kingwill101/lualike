@@ -85,10 +85,6 @@ class CallFrame {
   }) : debugLocals = debugLocals ?? <MapEntry<String, Value>>[],
        transferValues = transferValues ?? <Value>[];
 
-  static final List<MapEntry<String, Value>> _emptyMapEntryList =
-      <MapEntry<String, Value>>[];
-  static final List<Value> _emptyValueList = <Value>[];
-
   /// Creates a LuaStackFrame from this call frame.
   LuaStackFrame toLuaStackFrame() {
     if (callNode != null) {

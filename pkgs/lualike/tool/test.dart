@@ -726,7 +726,7 @@ class TestRunner extends CommandRunner {
   @override
   Future<void> run(Iterable<String> args) async {
     // Link the global console to the runner's io
-    console = this.io;
+    console = io;
 
     // Get the injected Dart executable path from compilation
     const injectedDartPath = String.fromEnvironment('DART_EXECUTABLE_PATH');

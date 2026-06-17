@@ -11,13 +11,14 @@ lualike
 lualikebc
 test_runner
 test_runnerbc
-tool/test_runner_dbg
+tool/
+web/
 tmp/
 tmp_db_debug.lua
 luac.out
 
 # Generated maps and local benchmark output snapshots.
 web/*.map
-benchmarks/*.log
+benchmarks/
 AGENT.md
 AGENTs.m:
