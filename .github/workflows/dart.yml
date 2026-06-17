@@ -26,6 +26,9 @@ jobs:
       - uses: leafo/gh-actions-lua@v13
         with:
           luaVersion: "5.5"
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: ${{ matrix.sdk == 'beta' && 'beta' || 'stable' }}
       - uses: dart-lang/setup-dart@v1
         with:
           sdk: ${{ matrix.sdk }}
