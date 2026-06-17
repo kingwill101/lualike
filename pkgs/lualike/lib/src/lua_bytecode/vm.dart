@@ -483,7 +483,7 @@ final class LuaBytecodeVm {
             currentExtraArgs = prepared.extraArgs;
             continue;
           }
-          return _invokePreparedCall(
+          return await _invokePreparedCall(
             (callee: callee, args: prepared.args),
             callName: tail.callName != null
                 ? tailNameInfo.name

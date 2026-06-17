@@ -2262,7 +2262,7 @@ class _StringGsub extends BuiltinFunction {
             }
             final result = rawCallable(captures);
             final awaited = result is Future ? await result : result;
-            return resolveTailSignal(awaited);
+            return await resolveTailSignal(awaited);
           }
           if (runtime == null) {
             throw LuaError.typeError("Invalid replacement type");
