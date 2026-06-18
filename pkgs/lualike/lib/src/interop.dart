@@ -16,7 +16,9 @@ import 'package:lualike/src/semantic_checker.dart';
 import 'package:lualike/src/stdlib/lib_debug.dart';
 import 'package:lualike/src/value.dart';
 import 'package:lualike/src/utils/file_system_utils.dart' as fs;
+import 'package:lualike/src/file_manager.dart';
 import 'package:lualike/src/ir/runtime.dart';
+import 'package:lualike/src/stdlib/library.dart';
 import 'package:path/path.dart' as path;
 
 /// Wrapper for Dart functions to make them callable from LuaLike.
@@ -240,6 +242,33 @@ class LuaLike {
   void expose(String name, Function function) {
     vm.registerDartFunction(name, function);
   }
+
+  /// Register and initialize a [Library] with this runtime.
+  ///
+  /// This is a convenience shorthand for:
+  /// ```dart
+  /// lua.vm.libraryRegistry.register(MyLibrary());
+  /// lua.vm.libraryRegistry.initializeLibrary(MyLibrary());
+  /// ```
+  ///
+  /// Set [initialize] to `false` to register without initializing (e.g. when
+  /// you want to defer setup).
+  void register(Library library, {bool initialize = true}) {
+    vm.libraryRegistry.register(library);
+    if (initialize) {
+      vm.libraryRegistry.initializeLibrary(library);
+    }
+  }
+
+  /// The file manager used for module resolution and virtual files.
+  ///
+  /// Register virtual files without a physical filesystem:
+  /// ```dart
+  /// lua.fileManager.registerVirtualFile('config.lua', '''
+  ///   return {debug = true}
+  /// ''');
+  /// ```
+  FileManager get fileManager => vm.fileManager;
 
   /// Run LuaLike code
   ///

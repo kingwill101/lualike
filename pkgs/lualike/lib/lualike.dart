@@ -66,6 +66,7 @@ export 'src/extensions/extensions.dart';
 export 'src/file_manager.dart';
 export 'src/interop.dart';
 export 'src/interpreter/interpreter.dart';
+export 'src/stdlib/library.dart' show Library;
 export 'src/logging/logging.dart';
 export 'src/lua_error.dart';
 export 'src/lua_stack_trace.dart';
