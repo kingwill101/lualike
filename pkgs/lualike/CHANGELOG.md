@@ -1,3 +1,13 @@
+## 0.2.1
+
+- Fix bytecode coroutine yield-through-pcall regression caused by premature
+  `exitProtectedCall` in `_ProtectedCallSuspension.resume()`.
+- Add `LuaLike.register(Library)` convenience shorthand.
+- Add `LuaLike.fileManager` getter for easy access to virtual file/module API.
+- Re-export `Library` base class from `package:lualike/lualike.dart`.
+- Update README with feature demonstrations, inline docs pattern, and
+  custom I/O backend documentation.
+
 ## 0.2.0
 
 - Improve runtime performance with centralized raw slot access, primitive wrapper
