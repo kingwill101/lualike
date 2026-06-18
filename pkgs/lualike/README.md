@@ -57,6 +57,103 @@ Future<void> main() async {
 }
 ```
 
+## Features
+
+### Dart ↔ Lua interop
+
+Expose Dart functions and call them from Lua, or call Lua functions from Dart. Share complex data structures like maps, lists, and tables between the two languages.
+
+```dart
+lualike.expose('getCurrentTime', () => DateTime.now().toString());
+lualike.expose('pow', (num x, num y) => x * y);
+
+await lualike.execute('''
+  print("2^8 =", pow(2, 8))
+  print("Time:", getCurrentTime())
+''');
+```
+
+See [example/interop_example.dart](example/interop_example.dart).
+
+### Lua tables as Dart maps
+
+Lua tables are exposed as Dart `Map` objects, so you can read, write, and pass them back and forth seamlessly.
+
+```dart
+// Send a config map to Lua
+lua.setGlobal('config', {
+  'debug': true,
+  'maxRetries': 3,
+});
+
+// Read tables back from Lua
+final summary = lua.getGlobal('summary')?.unwrap() as Map;
+print(summary['playerLevel']);
+```
+
+This works for complex nested structures too — see [example/dart_library_example.dart](example/dart_library_example.dart).
+
+### Error handling with pcall / xpcall
+
+Both synchronous and asynchronous Dart functions work with Lua's `pcall` and `xpcall` error handling, including nested protected calls.
+
+```dart
+await bridge.execute('''
+  local status, result = pcall(function()
+    local inner, err = pcall(function()
+      error("inner error")
+    end)
+    return inner
+  end)
+''');
+```
+
+See [example/error_handling_example.dart](example/error_handling_example.dart).
+
+### Virtual file system and modules
+
+Register virtual files so Lua's `require` can load them without a physical filesystem:
+
+```dart
+lua.fileManager.registerVirtualFile('mathutils.lua', '''
+  local M = {}
+  function M.factorial(n)
+    if n <= 1 then return 1 end
+    return n * M.factorial(n - 1)
+  end
+  return M
+''');
+
+await lua.execute('local m = require("mathutils"); print(m.factorial(5))');
+```
+
+See `moduleExample()` in [example/dart_library_example.dart](example/dart_library_example.dart).
+
+### Custom I/O backend
+
+For web platforms or testing, the `io` library's physical file backend can be
+replaced with an in-memory adapter. The [web/main.dart](web/main.dart) demo
+does this with `IOLib.fileSystemProvider.setIODeviceFactory()`. Check the
+[`FileSystemProvider`](src/io/filesystem_provider.dart) and
+[`InMemoryIODevice`](src/io/in_memory_io_device.dart) source for the pattern.
+
+### AST parsing
+
+Parse Lua source into an AST tree without executing it, then traverse or transform the tree.
+
+```dart
+final program = parse('''
+  local answer = 42
+  return answer
+''', url: 'example.lua');
+
+final expression = parseExpression('a + b * c');
+print(program.statements.length);
+print(expression.runtimeType);
+```
+
+See [example/lualike_example.dart](example/lualike_example.dart).
+
 ## Choose an engine
 
 LuaLike currently ships three execution modes:
@@ -158,20 +255,45 @@ class GreetingLibrary extends Library {
       final who = args.isEmpty ? 'world' : Value.wrap(args.first).unwrap();
       return Value('hello, $who');
     }));
+
+    // Inline documentation for IDE completion and doc generation:
+    context.describe('hello', FunctionDoc(
+      summary: 'Returns a greeting.',
+      params: [DocParam('who', 'string', 'Name to greet.', optional: true)],
+      returns: 'string',
+      category: 'greeting',
+    ));
   }
 }
 
 Future<void> main() async {
   final lua = LuaLike();
-  lua.vm.libraryRegistry.register(GreetingLibrary());
-  lua.vm.libraryRegistry.initializeLibraryByName('greeting');
+  lua.register(GreetingLibrary()); // shorthand for register + initialize
 
   final result = await lua.execute('return greeting.hello("LuaLike")');
   print((result as Value).unwrap());
 }
 ```
 
-This is the same registration path used by the built-in libraries in the repository.
+This is the same registration path used by the built-in libraries in the repository. Add inline `FunctionDoc` metadata via `context.describe()` to power IDE completions and documentation generation (see [doc/lsp.md](doc/lsp.md)).
+
+## Examples
+
+Run any example directly:
+
+```bash
+dart run example/interop_example.dart
+dart run example/error_handling_example.dart
+dart run example/dart_library_example.dart
+dart run example/lualike_example.dart
+```
+
+| File | Demonstrates |
+|------|-------------|
+| [interop_example.dart](example/interop_example.dart) | Exposing Dart functions, calling Lua from Dart, sharing data |
+| [error_handling_example.dart](example/error_handling_example.dart) | pcall, xpcall, async error handling, nested protected calls |
+| [dart_library_example.dart](example/dart_library_example.dart) | Full-featured: basic usage, value exchange, tables, modules, config, custom functions |
+| [lualike_example.dart](example/lualike_example.dart) | AST parsing: method syntax, varargs, complex source snippets |
 
 ## LSP support for your scripts
 
