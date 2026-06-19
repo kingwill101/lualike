@@ -515,8 +515,8 @@ void main() {
             for i = 1, 120 do
               for j = 1, 5 do
                 io.input(file)
-                assert(io.open(file, "r"))
-                io.lines(file)
+                local f = assert(io.open(file, "r"))
+                f:close()
               end
               collectgarbage()
             end
