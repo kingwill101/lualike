@@ -161,7 +161,10 @@ class PluginManifest {
 /// Colour scheme configuration.
 @TableSchema(name: 'ColorScheme', description: 'UI colour palette definition.')
 class ColorPalette {
-  @SchemaField(description: 'Primary brand colour (hex).', defaultValue: '#6366f1')
+  @SchemaField(
+    description: 'Primary brand colour (hex).',
+    defaultValue: '#6366f1',
+  )
   final String primary;
 
   @SchemaField(description: 'Background colour (hex).', defaultValue: '#18181b')
