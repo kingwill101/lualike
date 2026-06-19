@@ -277,6 +277,44 @@ Future<void> main() async {
 
 This is the same registration path used by the built-in libraries in the repository. Add inline `FunctionDoc` metadata via `context.describe()` to power IDE completions and documentation generation (see [doc/lsp.md](doc/lsp.md)).
 
+### Generate table schema docs from Dart annotations
+
+Annotate your Dart classes with `@TableSchema()` / `@SchemaField()` and use the `table_schema` builder to auto-generate `TableDoc` constants:
+
+```dart
+import 'package:lualike/annotations.dart';
+
+@TableSchema(description: 'Metadata table every plugin must export.')
+class PluginManifest {
+  @SchemaField(description: 'Unique plugin identifier.', required: true)
+  final String id;
+
+  @SchemaField(description: 'Semantic version string.', required: true)
+  final String version;
+
+  @SchemaField(
+    description: 'Runtime capabilities required.',
+    type: 'string[]',
+    defaultValue: [],
+  )
+  final List<String> capabilities;
+}
+```
+
+Configure `build.yaml`:
+
+```yaml
+targets:
+  $default:
+    builders:
+      lualike|table_schema:
+        enabled: true
+        generate_for:
+          - "lib/**_schema.dart"
+```
+
+Then run `dart run build_runner build` to produce `.table_schema.g.dart` files. Register the generated constants via `context.describeTable()` in your library. See [example/builder_demo](example/builder_demo/) for a complete walkthrough covering annotations, functions, classes, and constants.
+
 ## Examples
 
 Run any example directly:
@@ -294,6 +332,7 @@ dart run example/lualike_example.dart
 | [error_handling_example.dart](example/error_handling_example.dart) | pcall, xpcall, async error handling, nested protected calls |
 | [dart_library_example.dart](example/dart_library_example.dart) | Full-featured: basic usage, value exchange, tables, modules, config, custom functions |
 | [lualike_example.dart](example/lualike_example.dart) | AST parsing: method syntax, varargs, complex source snippets |
+| [builder_demo](example/builder_demo/) | Build runner integration, `@TableSchema` annotations, generated docs, and library registration |
 
 ## LSP support for your scripts
 
