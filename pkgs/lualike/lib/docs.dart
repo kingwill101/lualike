@@ -1,4 +1,5 @@
 library;
 
-export 'src/docs/metadata_generator.dart' show MetadataFormat, generateMetadata;
+export 'src/docs/metadata_format.dart';
 export 'src/docs/renderer.dart';
+export 'src/stdlib/doc.dart' show FieldDoc, TableDoc;

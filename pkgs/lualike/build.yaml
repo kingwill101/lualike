@@ -1,0 +1,19 @@
+targets:
+  $default:
+    builders:
+      lualike|table_schema:
+        enabled: true
+        generate_for:
+          - "lib/**_schema.dart"
+          - "lib/**_plugin_info.dart"
+          - "lib/**/*_table.dart"
+
+builders:
+  table_schema:
+    import: "package:lualike/builder.dart"
+    builder_factories: ["tableSchemaBuilder"]
+    build_extensions:
+      ".dart":
+        - ".table_schema.g.dart"
+    auto_apply: dependents
+    build_to: source

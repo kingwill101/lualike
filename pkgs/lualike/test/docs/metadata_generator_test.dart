@@ -4,6 +4,7 @@ import 'dart:io';
 import 'package:lualike/docs.dart';
 import 'package:lualike/library_builder.dart';
 import 'package:lualike/lualike.dart';
+import 'package:lualike/src/docs/metadata_generator.dart';
 import 'package:path/path.dart' as p;
 import 'package:test/test.dart';
 

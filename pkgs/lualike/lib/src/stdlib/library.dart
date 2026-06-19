@@ -37,9 +37,16 @@ abstract class Library {
   /// normally touch this field directly.
   final Map<String, FunctionDoc> _docs = {};
 
+  /// Table schema documentation registered via
+  /// [LibraryRegistrationContext.describeTable] during [registerFunctions].
+  final Map<String, TableDoc> _tableDocs = {};
+
   /// Returns the documentation metadata collected for this library's exported
   /// values.
   Map<String, FunctionDoc> getDocs() => Map.unmodifiable(_docs);
+
+  /// Returns the table schema documentation collected for this library.
+  Map<String, TableDoc> getTableDocs() => Map.unmodifiable(_tableDocs);
 
   /// A short description of the library for use in generated documentation.
   ///
@@ -388,6 +395,15 @@ class LibraryRegistrationContext extends LibraryContext {
   /// [define] that does not override [BuiltinFunction.doc].
   void describe(String name, FunctionDoc doc) {
     _library._docs[name] = doc;
+  }
+
+  /// Registers a [TableDoc] describing the shape of a Lua table value exported
+  /// by this library.
+  ///
+  /// Use this to document configuration tables, plugin manifests, UI setting
+  /// schemas, or any other structured table type that scripts interact with.
+  void describeTable(String name, TableDoc doc) {
+    _library._tableDocs[name] = doc;
   }
 
   /// Defines an exported [function] or constant under [name].

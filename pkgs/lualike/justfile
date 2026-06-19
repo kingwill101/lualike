@@ -59,5 +59,9 @@ file +ARG:
 example +ARG:
     dart run example/{{ARG}}.dart
 
+# Build web playground and docs viewer
+webdedev:
+    dart run build_runner build --delete-conflicting-outputs
+
 download-luasuite:
      dart tool/test.dart --download-suite --force

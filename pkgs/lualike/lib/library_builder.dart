@@ -31,7 +31,7 @@
 library;
 
 export 'src/builtin_function.dart' show BuiltinFunction, BuiltinFunctionGcRefs;
-export 'src/stdlib/doc.dart' show DocParam, FunctionDoc;
+export 'src/stdlib/doc.dart' show DocParam, FieldDoc, FunctionDoc, TableDoc;
 export 'src/environment.dart' show Environment;
 export 'src/runtime/lua_runtime.dart'
     show LuaChunkLoadRequest, LuaChunkLoadResult, LuaRuntime;

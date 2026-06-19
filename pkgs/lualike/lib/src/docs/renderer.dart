@@ -3,7 +3,7 @@ library;
 import 'dart:convert';
 
 import '../runtime/lua_runtime.dart' show LuaRuntime;
-import '../stdlib/doc.dart' show DocParam, FunctionDoc;
+import '../stdlib/doc.dart' show DocParam, FieldDoc, FunctionDoc, TableDoc;
 import '../stdlib/library.dart' show Library;
 
 /// Result of rendering documentation to HTML fragments.
@@ -645,16 +645,35 @@ String renderLuaLsAnnotations(
   final emittedTables = <String>{};
   for (final lib in libraries) {
     final docs = lib.getDocs();
-    if (docs.isEmpty) {
+    if (docs.isEmpty && lib.getTableDocs().isEmpty) {
       continue;
     }
     final libraryName = _libraryDocName(lib, docs);
-    if (libraryName != 'base') {
+    if (lib.name.isNotEmpty) {
       _emitLuaLsTable(buf, libraryName, emittedTables);
     }
 
+    // Table docs from empty-name (global) libraries are not namespaced.
+    final useNamespace = lib.name.isNotEmpty;
+
+    // Emit table schema class definitions
+    final tableDocs = lib.getTableDocs();
+    for (final entry in tableDocs.entries) {
+      final qualifiedName = useNamespace
+          ? _qualifiedFunctionName(libraryName, entry.key)
+          : entry.key;
+      _emitLuaLsTableDoc(buf, qualifiedName, entry.value);
+    }
+
+    // Emit function definitions (skip names already defined as tables)
     for (final entry in docs.entries) {
       final qualifiedName = _qualifiedFunctionName(libraryName, entry.key);
+      if (tableDocs.containsKey(entry.key) ||
+          tableDocs.containsKey(qualifiedName)) {
+        final globalName = useNamespace ? qualifiedName : entry.key;
+        _emitLuaLsTypedGlobal(buf, globalName, emittedTables);
+        continue;
+      }
       _emitLuaLsFunction(
         buf,
         qualifiedName: qualifiedName,
@@ -724,6 +743,56 @@ void _emitLuaLsFunction(
       .join(', ');
   buf
     ..writeln('function $qualifiedName($parameters) end')
+    ..writeln();
+}
+
+void _emitLuaLsTableDoc(
+  StringBuffer buf,
+  String qualifiedName,
+  TableDoc doc,
+) {
+  buf.writeln('---@class $qualifiedName');
+  for (final line in _docLines(doc.description)) {
+    buf.writeln('---$line');
+  }
+  buf.writeln('---');
+  for (final field in doc.fields) {
+    _emitLuaLsField(buf, qualifiedName, field, '');
+  }
+  buf.writeln();
+}
+
+void _emitLuaLsField(
+  StringBuffer buf,
+  String className,
+  FieldDoc field,
+  String prefix,
+) {
+  final opt = field.required ? '' : '?';
+  final key = '$prefix${field.key}';
+  final type = _luaLsType(field.type);
+  final description = _luaLsTrailingDescription(field.description);
+  buf.writeln('---@field $key$opt $type$description');
+
+  if (field.fields != null && field.fields!.isNotEmpty) {
+    for (final sub in field.fields!) {
+      _emitLuaLsField(buf, className, sub, '$key.');
+    }
+  }
+}
+
+void _emitLuaLsTypedGlobal(
+  StringBuffer buf,
+  String qualifiedName,
+  Set<String> emittedTables,
+) {
+  final parentPath = _parentPath(qualifiedName);
+  if (parentPath != null) {
+    _emitLuaLsTable(buf, parentPath, emittedTables);
+  }
+  buf
+    ..writeln('---@type $qualifiedName')
+    ..writeln('$qualifiedName = {}')
     ..writeln();
 }
 
