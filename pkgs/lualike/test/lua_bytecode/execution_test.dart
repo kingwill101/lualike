@@ -572,12 +572,15 @@ String? _resolveLuacBinary() {
     }
   }
 
-  final result = Process.runSync('sh', const [
-    '-lc',
-    'command -v luac55 || command -v luac',
-  ]);
-  final path = (result.stdout as String).trim();
-  return path.isEmpty ? null : path;
+  for (final name in ['luac55', 'luac']) {
+    try {
+      final result = Process.runSync(name, ['-v']);
+      if (result.exitCode == 0) return name;
+    } catch (_) {
+      continue;
+    }
+  }
+  return null;
 }
 
 ({List<int> chunkBytes, String sourcePath}) _compileFixture(
