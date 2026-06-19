@@ -75,18 +75,54 @@
             color: #6366f1;
         }
 
-        .sidebar h2 {
-            font-size: 0.7rem;
-            font-weight: 600;
-            text-transform: uppercase;
-            letter-spacing: 0.06em;
+        .section-group { margin: 0 0 0.4rem; }
+
+        .section-toggle {
+            width: 100%;
+            border: 0;
+            background: transparent;
             color: #71717a;
-            padding: 1.25rem 1.25rem 0.4rem;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            gap: 0.45rem;
+            font: inherit;
+            font-weight: 700;
+            text-align: left;
+            user-select: none;
+        }
+
+        .sidebar .section-toggle {
+            padding: 0.7rem 1.1rem 0.3rem;
+            font-size: 0.72rem;
+            letter-spacing: 0.06em;
+            text-transform: uppercase;
+        }
+
+        .section-toggle:hover { color: #6366f1; }
+
+        .toggle-icon {
+            font-family: 'JetBrains Mono', Consolas, monospace;
+            font-size: 0.75em;
+            transition: transform 0.16s ease;
+        }
+
+        .section-toggle.collapsed .toggle-icon {
+            transform: rotate(-90deg);
+        }
+
+        .section-items {
+            overflow: hidden;
+            transition: max-height 0.2s ease;
+        }
+
+        .section-toggle.collapsed + .section-items {
+            max-height: 0 !important;
         }
 
         .sidebar a.func {
             display: block;
-            padding: 0.25rem 1.25rem 0.25rem 1.75rem;
+            padding: 0.25rem 1.1rem 0.25rem 1.75rem;
             font-family: 'JetBrains Mono', Consolas, monospace;
             font-size: 0.78rem;
             color: #a1a1aa;

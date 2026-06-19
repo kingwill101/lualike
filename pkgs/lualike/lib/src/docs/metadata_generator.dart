@@ -7,19 +7,8 @@ import 'package:yaml/yaml.dart';
 
 import '../interop.dart' show LuaLike;
 import '../stdlib/library.dart' show Library;
+import 'metadata_format.dart';
 import 'renderer.dart';
-
-/// Output format for generated metadata.
-enum MetadataFormat {
-  /// Standalone HTML documentation page.
-  html,
-
-  /// JSON manifest for editor tooling and language servers.
-  json,
-
-  /// LuaLS annotation stubs for existing Lua LSPs.
-  luals,
-}
 
 extension _MetadataFormatExt on MetadataFormat {
   String get extension => switch (this) {
@@ -27,15 +16,6 @@ extension _MetadataFormatExt on MetadataFormat {
     MetadataFormat.json => 'json',
     MetadataFormat.luals => 'lua',
   };
-}
-
-/// Returns the names of libraries that ship with lualike by default.
-///
-/// Creates a temporary [LuaLike] instance, initializes all standard libraries
-/// through [documentedLibrariesForRuntime], and snapshots their names.
-Set<String> _defaultStdlibNames() {
-  final tmp = LuaLike();
-  return documentedLibrariesForRuntime(tmp.vm).map((lib) => lib.name).toSet();
 }
 
 /// Generates metadata files for all libraries registered on [lua].
@@ -115,8 +95,12 @@ Future<void> generateMetadata(
 }
 
 List<Library> _filterUserLibraries(List<Library> all) {
-  final stdlib = _defaultStdlibNames();
-  return all.where((lib) => !stdlib.contains(lib.name)).toList();
+  final tmp = LuaLike();
+  final stdlibTypes = <Type>{};
+  for (final lib in documentedLibrariesForRuntime(tmp.vm)) {
+    stdlibTypes.add(lib.runtimeType);
+  }
+  return all.where((lib) => !stdlibTypes.contains(lib.runtimeType)).toList();
 }
 
 Future<void> _writeCombined(
