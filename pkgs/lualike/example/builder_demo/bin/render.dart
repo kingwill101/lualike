@@ -6,7 +6,7 @@ library;
 import 'package:lualike/docs.dart';
 import 'package:lualike/lualike.dart';
 
-import '../lib/plugin_api_library.dart' show PluginApiLibrary;
+import 'package:builder_demo/plugin_api_library.dart' show PluginApiLibrary;
 
 void main() {
   final lua = LuaLike();

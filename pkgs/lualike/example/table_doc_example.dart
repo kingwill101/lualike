@@ -31,7 +31,7 @@ const settingsEntryDoc = TableDoc(
   ],
 );
 
-const pluginInfoDoc = TableDoc(
+final pluginInfoDoc = TableDoc(
   name: 'PluginInfo',
   description: 'Metadata table every plugin must export.',
   fields: [
