@@ -2,6 +2,7 @@ import 'dart:io';
 
 import 'package:lualike/docs.dart';
 import 'package:lualike/lualike.dart';
+import 'package:lualike/src/docs/metadata_generator.dart' show generateMetadata;
 
 import 'package:love2d/src/generated/love_api_reference.g.dart'
     show LoveLibrary;
