@@ -1,0 +1,14 @@
+name: builder_demo
+description: Shows how to use lualike's build_runner builder to generate TableDoc schemas from annotated Dart classes.
+publish_to: none
+
+environment:
+  sdk: ^3.9.0
+
+dependencies:
+  lualike:
+    path: ../../
+
+dev_dependencies:
+  build_runner: ^2.15.0
+  build: '>=2.1.0 <5.0.0'
