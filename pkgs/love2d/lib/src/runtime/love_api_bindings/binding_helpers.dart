@@ -419,6 +419,9 @@ Object? _rawValue(Object? value) {
   if (value is LuaString) {
     return value.toString();
   }
+  if (value is LuaResults) {
+    return value.values.map((v) => v is Value ? v.unwrap() : v).toList();
+  }
   return value;
 }
 

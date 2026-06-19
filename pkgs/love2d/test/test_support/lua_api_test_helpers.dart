@@ -1,5 +1,6 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:lualike/lualike.dart';
+import 'package:lualike/src/runtime/lua_results.dart';
 import 'package:love2d/love2d.dart';
 
 typedef LuaTestValueUnwrapper = Object? Function(Object? value);
@@ -186,6 +187,12 @@ Future<Object?> _luaResolveCallResult(
   }
   if (unwrapPlainListResults && resolved is List<Object?>) {
     return List<Object?>.from(resolved.map(unwrapValue), growable: false);
+  }
+  if (resolved is LuaResults) {
+    return List<Object?>.from(
+      resolved.values.map(unwrapValue),
+      growable: false,
+    );
   }
   return unwrapValue(resolved);
 }
