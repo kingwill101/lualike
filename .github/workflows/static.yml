@@ -1,10 +1,8 @@
 name: Deploy Dart Web App to Pages
 
 on:
-  workflow_run:
-    workflows: ["Lua Test Suite"]   # <-- depend on Lua Test Suite only
-    types: [completed]
-    branches: ["master"]
+  release:
+    types: [published]
   workflow_dispatch:
 
 permissions:
@@ -18,8 +16,7 @@ concurrency:
 
 jobs:
   deploy:
-    # Run only when Lua Test Suite succeeded, or when manually dispatched
-    if: ${{ github.event.workflow_run.conclusion == 'success' || github.event_name == 'workflow_dispatch' }}
+    if: github.event_name == 'release' || github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-latest
     defaults:
       run:
