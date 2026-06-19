@@ -41,6 +41,11 @@ The main types are:
 - `Value`
 - `ValueClass`
 
+Related annotation APIs (see [Auto-generating table documentation](#auto-generating-table-documentation-with-tableschema)):
+
+- `package:lualike/annotations.dart` — `@TableSchema`, `@SchemaField`
+- `package:lualike/builder.dart` — `tableSchemaBuilder` factory
+
 ## The basic structure
 
 There are two moving parts:
@@ -154,6 +159,112 @@ print(tostring(builder)) -- "MyBuilder(2 items)"
 builder:clear():add("new"):add("content")
 print(builder:build())   -- "new content"
 ```
+
+## Auto-generating table documentation with @TableSchema
+
+When your library exposes Lua tables (config objects, plugin manifests, API
+options), you can document their shape by hand with `FieldDoc` / `TableDoc`
+constructors. For larger schemas, annotate your Dart classes with
+`@TableSchema()` and `@SchemaField()` and let `build_runner` generate the
+`TableDoc` constants automatically.
+
+### 1. Annotate a Dart class
+
+```dart
+import 'package:lualike/annotations.dart';
+
+@TableSchema(description: 'Metadata table every plugin must export.')
+class PluginManifest {
+  @SchemaField(description: 'Unique identifier.', required: true)
+  final String id;
+
+  @SchemaField(description: 'Semantic version.', required: true)
+  final String version;
+
+  @SchemaField(
+    description: 'Runtime capabilities.',
+    type: 'string[]',
+    defaultValue: [],
+  )
+  final List<String> capabilities;
+}
+```
+
+Type inference maps common Dart types to Lua type names automatically:
+
+| Dart type | Inferred Lua type |
+|-----------|-------------------|
+| `String` | `string` |
+| `int` | `integer` |
+| `double` / `num` | `number` |
+| `bool` | `boolean` |
+| `List` | `array` |
+| `Map` | `table` |
+
+Pass an explicit `type:` argument to `@SchemaField()` to override inference
+(e.g. `type: 'string[]'` for a `List<String>` that should appear as a string
+array, or `type: '"on" | "off"'` for a union type).
+
+### 2. Configure the builder
+
+Add `build.yaml` to your package root:
+
+```yaml
+targets:
+  $default:
+    builders:
+      lualike|table_schema:
+        enabled: true
+        generate_for:
+          - "lib/**_schema.dart"
+```
+
+### 3. Generate
+
+```sh
+dart run build_runner build
+```
+
+This produces a `.table_schema.g.dart` file next to each matching source with a
+`TableDoc` constant:
+
+```dart
+// GENERATED CODE — DO NOT MODIFY BY HAND.
+final pluginManifest = TableDoc(
+  name: 'PluginManifest',
+  description: 'Metadata table every plugin must export.',
+  fields: [
+    FieldDoc(key: 'id', type: 'string',
+        description: 'Unique identifier.', required: true),
+    FieldDoc(key: 'version', type: 'string',
+        description: 'Semantic version.', required: true),
+    FieldDoc(key: 'capabilities', type: 'string[]',
+        description: 'Runtime capabilities.',
+        defaultValue: [], required: false),
+  ],
+);
+```
+
+### 4. Register in your library
+
+```dart
+class MyLibrary extends Library {
+  @override
+  String get name => 'my_library';
+
+  @override
+  void registerFunctions(LibraryRegistrationContext context) {
+    context.describeTable('PluginManifest', pluginManifest);
+  }
+}
+```
+
+The documented fields appear in both LuaLS annotations and JSON output
+alongside any `FunctionDoc` entries registered via `context.describe()`.
+
+See [example/builder_demo](../../pkgs/lualike/example/builder_demo/) for a
+complete walkthrough covering annotations, functions, `ValueClass`, constants,
+and `build_runner` automation.
 
 ## Design notes
 
