@@ -30,6 +30,7 @@ import 'package:lualike/lualike.dart'
 import 'package:lualike/src/ast.dart';
 import 'package:lualike/src/environment.dart';
 import 'package:lualike/src/number_limits.dart' show NumberLimits;
+import 'package:lualike/src/runtime/lua_results.dart';
 import 'package:lualike/src/upvalue.dart';
 import 'package:path/path.dart' as path;
 import 'package:vector_math/vector_math_64.dart' show Matrix4, Vector3;
