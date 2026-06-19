@@ -279,7 +279,9 @@ This is the same registration path used by the built-in libraries in the reposit
 
 ### Generate table schema docs from Dart annotations
 
-Annotate your Dart classes with `@TableSchema()` / `@SchemaField()` and use the `table_schema` builder to auto-generate `TableDoc` constants:
+Annotate your Dart classes with `@TableSchema()` / `@SchemaField()` and use the `table_schema` builder to auto-generate `TableDoc` constants — no manual `FieldDoc` boilerplate.
+
+**1. Annotate a class**
 
 ```dart
 import 'package:lualike/annotations.dart';
@@ -301,7 +303,9 @@ class PluginManifest {
 }
 ```
 
-Configure `build.yaml`:
+Type inference is automatic — the `List<String>` above maps to `array` unless you pass an explicit `type:` override. Supported: `String` → `string`, `int` → `integer`, `double`/`num` → `number`, `bool` → `boolean`, `List` → `array`, `Map` → `table`.
+
+**2. Configure `build.yaml`**
 
 ```yaml
 targets:
@@ -313,7 +317,46 @@ targets:
           - "lib/**_schema.dart"
 ```
 
-Then run `dart run build_runner build` to produce `.table_schema.g.dart` files. Register the generated constants via `context.describeTable()` in your library. See [example/builder_demo](example/builder_demo/) for a complete walkthrough covering annotations, functions, classes, and constants.
+**3. Run the builder**
+
+```sh
+dart run build_runner build
+```
+
+This produces a `.table_schema.g.dart` file next to each matching source file:
+
+```dart
+// GENERATED CODE — DO NOT MODIFY BY HAND.
+final pluginManifest = TableDoc(
+  name: 'PluginManifest',
+  description: 'Metadata table every plugin must export.',
+  fields: [
+    FieldDoc(key: 'id', type: 'string',
+        description: 'Unique plugin identifier.', required: true),
+    FieldDoc(key: 'version', type: 'string',
+        description: 'Semantic version string.', required: true),
+    FieldDoc(key: 'capabilities', type: 'string[]',
+        description: 'Runtime capabilities required.',
+        defaultValue: [], required: false),
+  ],
+);
+```
+
+**4. Register in your library**
+
+```dart
+class MyLibrary extends Library {
+  @override
+  String get name => 'my_library';
+
+  @override
+  void registerFunctions(LibraryRegistrationContext context) {
+    context.describeTable('PluginManifest', pluginManifest);
+  }
+}
+```
+
+The annotated fields, types, defaults, and constraints are all included in the generated output and appear in both LuaLS annotations and JSON manifests. See [example/builder_demo](example/builder_demo/) for a complete walkthrough covering annotations, functions, `ValueClass`, constants, and `build_runner` automation.
 
 ## Examples
 
