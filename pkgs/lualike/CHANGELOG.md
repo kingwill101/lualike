@@ -1,3 +1,15 @@
+## 0.2.2
+
+- Add `@TableSchema()` / `@SchemaField()` annotations and `table_schema` build_runner builder
+  for auto-generating `TableDoc` constants from Dart classes.
+- Add `FieldDoc` and `TableDoc` types to `lib/src/stdlib/doc.dart`.
+- Extract `MetadataFormat` into `metadata_format.dart` for web-safe exports from `docs.dart`.
+- Add CSS styles for section toggles in `web/docs.html`.
+- Rewrite `example/table_doc_example.dart` to use only built-in types.
+- Add `example/builder_demo/` demonstrating all registration mechanisms (annotations,
+  BuiltinFunction, ValueClass, constants, table schemas).
+- Update README with annotations/builder documentation and example links.
+
 ## 0.2.1
 
 - Fix bytecode coroutine yield-through-pcall regression caused by premature
