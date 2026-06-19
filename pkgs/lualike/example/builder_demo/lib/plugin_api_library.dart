@@ -31,25 +31,35 @@ class PluginApiLibrary extends Library {
     context.define('newConfig', configClass);
 
     // ---- FunctionDoc attached manually (for values that don't self-doc) --
-    context.describe('VERSION', FunctionDoc(
-      summary: 'Plugin API version (major * 100 + minor).',
-      returns: 'integer',
-      category: 'plugin_api',
-      example: 'print(plugin_api.VERSION)',
-    ));
-    context.describe('API_NAME', FunctionDoc(
-      summary: 'Canonical name of this API module.',
-      returns: 'string',
-      category: 'plugin_api',
-    ));
-    context.describe('newConfig', FunctionDoc(
-      summary: 'Creates a new empty config object with get/set methods.',
-      returns: 'Config — a table with :set(key, value) and :get(key).',
-      category: 'plugin_api',
-      example: 'local cfg = plugin_api.newConfig()\n'
-          'cfg:set("theme", "dark")\n'
-          'print(cfg:get("theme"))',
-    ));
+    context.describe(
+      'VERSION',
+      FunctionDoc(
+        summary: 'Plugin API version (major * 100 + minor).',
+        returns: 'integer',
+        category: 'plugin_api',
+        example: 'print(plugin_api.VERSION)',
+      ),
+    );
+    context.describe(
+      'API_NAME',
+      FunctionDoc(
+        summary: 'Canonical name of this API module.',
+        returns: 'string',
+        category: 'plugin_api',
+      ),
+    );
+    context.describe(
+      'newConfig',
+      FunctionDoc(
+        summary: 'Creates a new empty config object with get/set methods.',
+        returns: 'Config — a table with :set(key, value) and :get(key).',
+        category: 'plugin_api',
+        example:
+            'local cfg = plugin_api.newConfig()\n'
+            'cfg:set("theme", "dark")\n'
+            'print(cfg:get("theme"))',
+      ),
+    );
 
     // ---- TableDoc schemas ------------------------------------------------
     context.describeTable('SettingsEntry', settingsEntry);

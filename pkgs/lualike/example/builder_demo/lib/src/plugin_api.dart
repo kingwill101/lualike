@@ -9,7 +9,8 @@ class DiscoverPlugins extends BuiltinFunction {
 
   @override
   FunctionDoc? get doc => FunctionDoc(
-    summary: 'Scans the plugin directory and returns available plugin manifests.',
+    summary:
+        'Scans the plugin directory and returns available plugin manifests.',
     params: [
       DocParam(
         'directory',
@@ -41,16 +42,19 @@ class ResolveDependencies extends BuiltinFunction {
 
   @override
   FunctionDoc? get doc => FunctionDoc(
-    summary:
-        'Validates that all declared dependency IDs can be resolved.',
+    summary: 'Validates that all declared dependency IDs can be resolved.',
     params: [
-      DocParam('manifest', 'table', 'A PluginManifest table with a '
-          '"dependencies" field.'),
+      DocParam(
+        'manifest',
+        'table',
+        'A PluginManifest table with a '
+            '"dependencies" field.',
+      ),
     ],
-    returns: 'true if all dependencies exist, false + first missing ID otherwise.',
+    returns:
+        'true if all dependencies exist, false + first missing ID otherwise.',
     category: 'plugin_api',
-    example:
-        'local ok, missing = plugin_api.resolveDependencies(manifest)',
+    example: 'local ok, missing = plugin_api.resolveDependencies(manifest)',
   );
 
   @override
@@ -67,8 +71,11 @@ class FormatColor extends BuiltinFunction {
   FunctionDoc? get doc => FunctionDoc(
     summary: 'Wraps a colour hex string in terminal ANSI escape codes.',
     params: [
-      DocParam('hex', 'string',
-          'Hex colour string such as "#6366f1" or "#fff".'),
+      DocParam(
+        'hex',
+        'string',
+        'Hex colour string such as "#6366f1" or "#fff".',
+      ),
     ],
     returns: 'A string with the ANSI-wrapped colour for terminal display.',
     category: 'plugin_api',
@@ -94,9 +101,7 @@ class FormatColor extends BuiltinFunction {
 final ValueClass configClass = ValueClass.create({
   '__tostring': (Object? self) {
     if (self is Map) {
-      return self.entries
-          .map((e) => '  ${e.key}: ${e.value}')
-          .join('\n');
+      return self.entries.map((e) => '  ${e.key}: ${e.value}').join('\n');
     }
     return '(empty config)';
   },

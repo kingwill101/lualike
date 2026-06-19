@@ -201,4 +201,3 @@ final colorPalette = TableDoc(
     ),
   ],
 );
-

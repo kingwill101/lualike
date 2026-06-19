@@ -746,11 +746,7 @@ void _emitLuaLsFunction(
     ..writeln();
 }
 
-void _emitLuaLsTableDoc(
-  StringBuffer buf,
-  String qualifiedName,
-  TableDoc doc,
-) {
+void _emitLuaLsTableDoc(StringBuffer buf, String qualifiedName, TableDoc doc) {
   buf.writeln('---@class $qualifiedName');
   for (final line in _docLines(doc.description)) {
     buf.writeln('---$line');
