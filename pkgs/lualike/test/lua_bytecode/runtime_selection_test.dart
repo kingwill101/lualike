@@ -178,12 +178,20 @@ String? _resolveLuacBinary() {
   }
 
   // Search PATH for known names
-  final result = Process.runSync('sh', const [
-    '-c',
-    'command -v luac55 || command -v luac5.5 || command -v luac',
-  ]);
-  final path = (result.stdout as String).trim();
-  if (path.isEmpty) return null;
+  String? foundPath;
+  for (final name in ['luac55', 'luac5.5', 'luac']) {
+    try {
+      final result = Process.runSync(name, ['-v']);
+      if (result.exitCode == 0) {
+        foundPath = name;
+        break;
+      }
+    } catch (_) {
+      continue;
+    }
+  }
+  final path = foundPath;
+  if (path == null) return null;
 
   // Verify the binary produces Lua 5.5 bytecode
   final versionCheck = Process.runSync(path, ['-v']);
