@@ -321,6 +321,13 @@ See [Writing Native Functions in Dart](./writing_builtin_functions.md) and
 [Building a Lua-like Library with Builder Interface](./BUILDER_PATTERN.md) for
 the full extension patterns.
 
+For documenting Lua table shapes that your library exposes, you can either
+write `TableDoc` / `FieldDoc` constants by hand or annotate your Dart classes
+with `@TableSchema()` / `@SchemaField()` and let `build_runner` generate the
+constants automatically. See the Builder Interface guide's
+[Auto-generating table documentation](./BUILDER_PATTERN.md#auto-generating-table-documentation-with-tableschema)
+section and the [builder_demo example](../../pkgs/lualike/example/builder_demo/).
+
 ## Performance notes
 
 - `EngineMode.ast` is currently the default and the fastest general-purpose
