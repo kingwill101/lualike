@@ -1,0 +1,11 @@
+services:
+  sftp:
+    image: atmoz/sftp:latest
+    ports:
+      - "2222:22"
+    command: testuser:testpass:1001:1000:upload
+    healthcheck:
+      test: ["CMD-SHELL", "sshd -t && exit 0 || exit 1"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
