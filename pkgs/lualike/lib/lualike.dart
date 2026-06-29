@@ -85,5 +85,7 @@ export 'src/stack.dart';
 export 'src/utils/file_system_backend.dart';
 export 'src/utils/file_system_utils.dart';
 export 'src/utils/platform_utils.dart';
+export 'src/utils/process_backend.dart';
+export 'src/utils/process_utils.dart';
 export 'src/value.dart';
 export 'src/value_class.dart';

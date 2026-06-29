@@ -4,7 +4,8 @@ import 'package:lualike/src/runtime/lua_results.dart';
 import 'package:lualike/src/runtime/lua_slot.dart';
 import 'package:lualike/src/utils/file_system_utils.dart';
 import 'package:lualike/src/number_limits.dart';
-import 'package:lualike/src/utils/io_abstractions.dart';
+import 'package:lualike/src/utils/io_abstractions.dart'
+    hide setProcessBackend, currentProcessBackend;
 import 'package:lualike/src/utils/platform_utils.dart' as platform;
 import 'package:lualike/src/utils/command_parser.dart';
 import 'package:path/path.dart' as path_lib;
@@ -337,7 +338,11 @@ class _OSExecute extends BuiltinFunction {
   @override
   Object? call(List<Object?> args) {
     if (args.isEmpty) {
-      // Check if shell is available
+      // Check if shell is available — use custom backend if installed
+      final customBackend = currentProcessBackend;
+      if (customBackend != null) {
+        return primitiveValue(customBackend.isShellAvailable);
+      }
       return primitiveValue(
         platform.isWindows || platform.isLinux || platform.isMacOS,
       );
