@@ -1,3 +1,8 @@
+## 0.2.3
+
+- Add `FileSystemBackend` abstract class with `setFileSystemBackend`/`currentFileSystemBackend` injection point for pluggable filesystem metadata backends.
+- Export `IODevice`, `FileSystemProvider`, `FileSystemBackend`, `file_system_utils.dart` from `package:lualike/lualike.dart` (web-safe; no `dart:io` in public signatures).
+
 ## 0.2.2
 
 - Add `@TableSchema()` / `@SchemaField()` annotations and `table_schema` build_runner builder
