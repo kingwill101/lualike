@@ -6,3 +6,5 @@ workspace:
   - pkgs/lualike
   - pkgs/test
   - pkgs/love2d
+  - pkgs/file_lualike
+  - pkgs/process_lualike
