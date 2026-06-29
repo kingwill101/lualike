@@ -66,6 +66,9 @@ export 'src/extensions/extensions.dart';
 export 'src/file_manager.dart';
 export 'src/interop.dart';
 export 'src/interpreter/interpreter.dart';
+export 'src/io/io_device_shared.dart';
+export 'src/io/filesystem_provider.dart';
+export 'src/io/lua_file.dart';
 export 'src/stdlib/library.dart' show Library;
 export 'src/logging/logging.dart';
 export 'src/lua_error.dart';
@@ -79,6 +82,8 @@ export 'src/parse.dart'
 export 'src/parsers/parsers.dart';
 export 'src/return_exception.dart';
 export 'src/stack.dart';
+export 'src/utils/file_system_backend.dart';
+export 'src/utils/file_system_utils.dart';
 export 'src/utils/platform_utils.dart';
 export 'src/value.dart';
 export 'src/value_class.dart';
