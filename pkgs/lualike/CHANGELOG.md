@@ -1,3 +1,12 @@
+## 0.2.4
+
+- Add public `setFileSystemProvider()` API to bridge `package:lualike`'s
+  `FileSystemProvider` into the built-in `IOLib.fileSystemProvider`.
+- Fix `file_lualike` `io.open()` routing: `useFileSystem()` now assigns the
+  configured `FileSystemProvider` to `IOLib.fileSystemProvider` so `io.open()` /
+  `io.lines()` / `io.input()` / `io.output()` / `io.tmpfile()` all delegate to
+  the remote/backend filesystem instead of falling through to local `dart:io`.
+
 ## 0.2.3
 
 - Add `FileSystemBackend` abstract class with `setFileSystemBackend`/`currentFileSystemBackend` injection point for pluggable filesystem metadata backends.

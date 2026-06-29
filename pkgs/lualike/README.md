@@ -5,6 +5,8 @@
 ![GitHub Actions Workflow Status](https://img.shields.io/github/actions/workflow/status/kingwill101/lualike/.github%2Fworkflows%2Fdart.yml)
 [![License](https://img.shields.io/badge/License-MIT-blue)](https://github.com/kingwill101/lualike/blob/master/LICENSE)
 [![issues - lualike](https://img.shields.io/github/issues/kingwill101/lualike)](https://github.com/kingwill101/lualike/issues)
+[![Pub Version](https://img.shields.io/pub/v/file_lualike)](https://pub.dev/packages/file_lualike)
+[![Pub Version](https://img.shields.io/pub/v/process_lualike)](https://pub.dev/packages/process_lualike)
 
 LuaLike is an embeddable Lua-like runtime and tooling package for Dart.
 
@@ -431,6 +433,11 @@ Examples and source:
 - [Dart embedding examples](https://github.com/kingwill101/lualike/tree/master/pkgs/lualike/example)
 - [Standard library implementations](https://github.com/kingwill101/lualike/tree/master/pkgs/lualike/lib/src/stdlib)
 - [Bytecode engine tests and examples](https://github.com/kingwill101/lualike/tree/master/pkgs/lualike/test/lua_bytecode)
+
+## Companion packages
+
+- [file_lualike](https://pub.dev/packages/file_lualike) — bridges `package:file` filesystems (SFTP, in-memory, local) into lualike so `io.open()`, `os.remove()`, `dofile()`, and module loading all delegate to a remote/backend filesystem.
+- [process_lualike](https://pub.dev/packages/process_lualike) — bridges remote process execution into lualike so `os.execute()` runs over SSH, Docker, or any custom backend without changing Lua code.
 
 ## Notes on public API stability
 
