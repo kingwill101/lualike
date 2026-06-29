@@ -1,0 +1,10 @@
+services:
+  ssh:
+    build: .
+    ports:
+      - "2223:22"
+    healthcheck:
+      test: ["CMD-SHELL", "sshd -t && exit 0 || exit 1"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
