@@ -41,12 +41,33 @@ abstract class Library {
   /// [LibraryRegistrationContext.describeTable] during [registerFunctions].
   final Map<String, TableDoc> _tableDocs = {};
 
+  /// Alias documentation registered via
+  /// [LibraryRegistrationContext.describeAlias].
+  final Map<String, AliasDoc> _aliasDocs = {};
+
+  /// Enum documentation registered via
+  /// [LibraryRegistrationContext.describeEnum].
+  final Map<String, EnumDoc> _enumDocs = {};
+
+  /// Value/constant documentation registered via
+  /// [LibraryRegistrationContext.describeValue].
+  final Map<String, ValueDoc> _valueDocs = {};
+
   /// Returns the documentation metadata collected for this library's exported
   /// values.
   Map<String, FunctionDoc> getDocs() => Map.unmodifiable(_docs);
 
   /// Returns the table schema documentation collected for this library.
   Map<String, TableDoc> getTableDocs() => Map.unmodifiable(_tableDocs);
+
+  /// Returns the alias documentation collected for this library.
+  Map<String, AliasDoc> getAliasDocs() => Map.unmodifiable(_aliasDocs);
+
+  /// Returns the enum documentation collected for this library.
+  Map<String, EnumDoc> getEnumDocs() => Map.unmodifiable(_enumDocs);
+
+  /// Returns the value/constant documentation collected for this library.
+  Map<String, ValueDoc> getValueDocs() => Map.unmodifiable(_valueDocs);
 
   /// A short description of the library for use in generated documentation.
   ///
@@ -406,24 +427,113 @@ class LibraryRegistrationContext extends LibraryContext {
     _library._tableDocs[name] = doc;
   }
 
-  /// Defines an exported [function] or constant under [name].
+  /// Registers an [AliasDoc] describing a type alias exported by this library.
   ///
-  /// Plain Dart callables and [BuiltinFunction] instances are wrapped once in a
-  /// [Value] during registration so repeated global lookups do allocate new
-  /// wrappers.
-  void define(String name, dynamic function) {
-    // Wrap builtin functions in Value objects once during registration
-    // to avoid creating new Value wrappers on every identifier access.
-    // This prevents temporary Value allocations that affect collectgarbage("count").
-    if ((function is BuiltinFunction || function is Function) &&
-        function is! Value) {
+  /// Aliases can be simple (`---@alias userID integer`) or string literal
+  /// unions with multi-line variants (`---@alias DeviceSide ---| '"left"'`).
+  void describeAlias(String name, AliasDoc doc) {
+    _library._aliasDocs[name] = doc;
+  }
+
+  /// Registers an [EnumDoc] describing an enum table exported by this library.
+  ///
+  /// Enums are Lua tables usable at runtime, as opposed to [AliasDoc] which are
+  /// compile-time type definitions.
+  void describeEnum(String name, EnumDoc doc) {
+    _library._enumDocs[name] = doc;
+  }
+
+  /// Registers a [ValueDoc] describing a constant or typed global value
+  /// exported by this library.
+  ///
+  /// Use this for scalar constants like `math.pi`, version strings like
+  /// `_VERSION`, or any exported value that is not a function, table, alias,
+  /// or enum.
+  void describeValue(String name, ValueDoc doc) {
+    _library._valueDocs[name] = doc;
+  }
+
+  /// Defines an exported value under [name].
+  ///
+  /// When [descriptorOrValue] is a [DocDescriptor], the descriptor carries both
+  /// the documentation metadata and optionally the runtime value:
+  ///
+  /// ```dart
+  /// context.define('echo', FunctionDescriptor(
+  ///   summary: 'Echoes input.',
+  ///   params: [DocParam('v', 'any', 'Value.')],
+  ///   category: 'base',
+  ///   rawValue: (args) => args.first,
+  /// ));
+  ///
+  /// context.define('pi', ConstantDescriptor(
+  ///   summary: 'The value of π.',
+  ///   type: 'number',
+  ///   rawValue: 3.1415,
+  /// ));
+  ///
+  /// context.define('DeviceSide', AliasDescriptor(
+  ///   name: 'DeviceSide',
+  ///   variants: [AliasVariant(value: 'left')],
+  /// ));
+  /// ```
+  ///
+  /// When [descriptorOrValue] is a raw value (e.g. a [BuiltinFunction] or
+  /// [Function] closure), it is stored directly in the library table. Any
+  /// documentation from [BuiltinFunction.doc] is auto-collected during
+  /// initialization.
+  ///
+  /// For registering documentation separately from a value, the [describe],
+  /// [describeValue], [describeAlias], [describeEnum], and [describeTable]
+  /// methods are still available.
+  void define(String name, Object? descriptorOrValue) {
+    if (descriptorOrValue is DocDescriptor) {
+      _defineWithDescriptor(name, descriptorOrValue);
+    } else {
+      _defineRaw(name, descriptorOrValue);
+    }
+  }
+
+  void _defineRaw(String name, Object? value) {
+    if ((value is BuiltinFunction || value is Function) && value is! Value) {
       _functionMap[name] = Value(
-        function,
+        value,
         functionName: name,
         interpreter: interpreter,
       );
     } else {
-      _functionMap[name] = function;
+      _functionMap[name] = value;
+    }
+  }
+
+  void _defineWithDescriptor(String name, DocDescriptor descriptor) {
+    switch (descriptor) {
+      case FunctionDescriptor(:final doc, :final rawValue):
+        if (rawValue != null) {
+          if (rawValue is BuiltinFunction || rawValue is Function) {
+            _functionMap[name] = Value(
+              rawValue,
+              functionName: name,
+              interpreter: interpreter,
+            );
+          } else {
+            _functionMap[name] = rawValue;
+          }
+        }
+        if (doc.summary.isNotEmpty) {
+          _library._docs[name] = doc;
+        }
+      case ConstantDescriptor(:final doc, :final rawValue):
+        if (rawValue != null) {
+          _functionMap[name] = rawValue;
+        }
+        _library._valueDocs[name] = doc;
+      case AliasDescriptor(:final doc):
+        _library._aliasDocs[name] = doc;
+      case EnumDescriptor(:final doc):
+        _library._enumDocs[name] = doc;
+      case TableDescriptor(:final doc):
+        _library._tableDocs[name] = doc;
     }
   }
 }

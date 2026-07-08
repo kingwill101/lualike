@@ -74,6 +74,14 @@ class SchemaField {
   /// Restricted set of allowed values.
   final List<String>? choices;
 
+  /// Whether this field is deprecated.
+  final bool deprecated;
+
+  /// Access scope for this field.
+  ///
+  /// Supported values: `"public"`, `"private"`, `"protected"`, `"package"`.
+  final String scope;
+
   const SchemaField({
     this.type,
     required this.description,
@@ -85,5 +93,7 @@ class SchemaField {
     this.max,
     this.step,
     this.choices,
+    this.deprecated = false,
+    this.scope = 'public',
   });
 }
