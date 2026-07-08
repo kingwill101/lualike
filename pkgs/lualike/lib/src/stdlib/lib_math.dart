@@ -26,44 +26,104 @@ class MathLibrary extends Library {
 
     final atanFunc = _MathAtan(interpreter);
 
-    // Register all math functions directly
-    context.define("abs", _MathAbs(interpreter));
-    context.define("acos", _MathAcos(interpreter));
-    context.define("asin", _MathAsin(interpreter));
-    context.define("atan", atanFunc);
-    context.define("atan2", _MathAtan(interpreter, "atan2"));
-    context.define("ceil", _MathCeil(interpreter));
-    context.define("cos", _MathCos(interpreter));
-    context.define("deg", _MathDeg(interpreter));
-    context.define("exp", _MathExp(interpreter));
-    context.define("floor", _MathFloor(interpreter));
-    context.define("fmod", _MathFmod(interpreter));
-    context.define("frexp", _MathFrexp(interpreter));
-    context.define("ldexp", _MathLdexp(interpreter));
-    context.define("log", _MathLog(interpreter));
-    context.define("max", _MathMax(interpreter));
-    context.define("min", _MathMin(interpreter));
-    context.define("modf", _MathModf(interpreter));
-    context.define("pi", primitiveConstant(math.pi));
-    context.define("pow", _MathPow(interpreter));
-    context.define("rad", _MathRad(interpreter));
+    context.define("abs", FunctionDescriptor(rawValue: _MathAbs(interpreter)));
+    context.define(
+      "acos",
+      FunctionDescriptor(rawValue: _MathAcos(interpreter)),
+    );
+    context.define(
+      "asin",
+      FunctionDescriptor(rawValue: _MathAsin(interpreter)),
+    );
+    context.define("atan", FunctionDescriptor(rawValue: atanFunc));
+    context.define(
+      "atan2",
+      FunctionDescriptor(rawValue: _MathAtan(interpreter, "atan2")),
+    );
+    context.define(
+      "ceil",
+      FunctionDescriptor(rawValue: _MathCeil(interpreter)),
+    );
+    context.define("cos", FunctionDescriptor(rawValue: _MathCos(interpreter)));
+    context.define("deg", FunctionDescriptor(rawValue: _MathDeg(interpreter)));
+    context.define("exp", FunctionDescriptor(rawValue: _MathExp(interpreter)));
+    context.define(
+      "floor",
+      FunctionDescriptor(rawValue: _MathFloor(interpreter)),
+    );
+    context.define(
+      "fmod",
+      FunctionDescriptor(rawValue: _MathFmod(interpreter)),
+    );
+    context.define(
+      "frexp",
+      FunctionDescriptor(rawValue: _MathFrexp(interpreter)),
+    );
+    context.define(
+      "ldexp",
+      FunctionDescriptor(rawValue: _MathLdexp(interpreter)),
+    );
+    context.define("log", FunctionDescriptor(rawValue: _MathLog(interpreter)));
+    context.define("max", FunctionDescriptor(rawValue: _MathMax(interpreter)));
+    context.define("min", FunctionDescriptor(rawValue: _MathMin(interpreter)));
+    context.define(
+      "modf",
+      FunctionDescriptor(rawValue: _MathModf(interpreter)),
+    );
+    context.define(
+      "pi",
+      ConstantDescriptor(
+        summary: 'The value of π.',
+        type: 'number',
+        rawValue: primitiveConstant(math.pi),
+      ),
+    );
+    context.define("pow", FunctionDescriptor(rawValue: _MathPow(interpreter)));
+    context.define("rad", FunctionDescriptor(rawValue: _MathRad(interpreter)));
     final randomFunc = _MathRandom(interpreter);
-    context.define("random", randomFunc);
-    context.define("randomseed", _MathRandomseed(randomFunc));
-    context.define("sin", _MathSin(interpreter));
-    context.define("sqrt", _MathSqrt(interpreter));
-    context.define("tan", _MathTan(interpreter));
-    context.define("tointeger", _MathTointeger(interpreter));
-    context.define("ult", _MathUlt(interpreter));
-    context.define("type", _MathType(interpreter));
-    context.define("huge", primitiveConstant(double.infinity));
+    context.define("random", FunctionDescriptor(rawValue: randomFunc));
+    context.define(
+      "randomseed",
+      FunctionDescriptor(rawValue: _MathRandomseed(randomFunc)),
+    );
+    context.define("sin", FunctionDescriptor(rawValue: _MathSin(interpreter)));
+    context.define(
+      "sqrt",
+      FunctionDescriptor(rawValue: _MathSqrt(interpreter)),
+    );
+    context.define("tan", FunctionDescriptor(rawValue: _MathTan(interpreter)));
+    context.define(
+      "tointeger",
+      FunctionDescriptor(rawValue: _MathTointeger(interpreter)),
+    );
+    context.define("ult", FunctionDescriptor(rawValue: _MathUlt(interpreter)));
+    context.define(
+      "type",
+      FunctionDescriptor(rawValue: _MathType(interpreter)),
+    );
+    context.define(
+      "huge",
+      ConstantDescriptor(
+        summary: 'The floating-point value representing infinity (∞).',
+        type: 'number',
+        rawValue: primitiveConstant(double.infinity),
+      ),
+    );
     context.define(
       "maxinteger",
-      primitiveConstant(limits.NumberLimits.maxInteger),
+      ConstantDescriptor(
+        summary: 'The maximum representable integer value.',
+        type: 'integer',
+        rawValue: primitiveConstant(limits.NumberLimits.maxInteger),
+      ),
     );
     context.define(
       "mininteger",
-      primitiveConstant(limits.NumberLimits.minInteger),
+      ConstantDescriptor(
+        summary: 'The minimum representable integer value.',
+        type: 'integer',
+        rawValue: primitiveConstant(limits.NumberLimits.minInteger),
+      ),
     );
   }
 }
