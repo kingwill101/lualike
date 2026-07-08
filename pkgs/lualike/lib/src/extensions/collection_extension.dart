@@ -1,4 +1,4 @@
-import '../runtime/lua_slot.dart';
+import '../lua_string.dart';
 import '../value.dart';
 
 /// Extension methods for Lists to simplify Value operations
@@ -9,7 +9,7 @@ extension ListValueExtension on List<dynamic> {
 
   /// Unwrap all Value objects in a list
   List<Object?> unwrapValueList() =>
-      map((e) => e is Value ? rawLuaSlot(e) : e).toList();
+      map((e) => e.unwrap()).toList();
 
   /// Convert to a Lua-style multi-return Value
   Value toMultiValue() => Value.multi(this);
@@ -37,9 +37,12 @@ extension MapValueExtension on Map<dynamic, dynamic> {
 
   /// Read [key] from a Lua table, unwrapping any [Value] wrapper.
   ///
-  /// Returns the raw Dart value (or `null` if absent).
+  /// Returns the raw Dart value (or `null` if absent). [LuaString] values
+  /// are converted to Dart [String] via [Value.unwrap].
   Object? unwrap(Object? key) {
     final v = this[key];
-    return v is Value ? rawLuaSlot(v) : v;
+    if (v is Value) return v.unwrap();
+    if (v is LuaString) return v.toString();
+    return v;
   }
 }
