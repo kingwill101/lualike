@@ -110,15 +110,6 @@ extension ValueExtension<T> on T {
     return rawValue;
   }
 
-  dynamic unwrap() {
-    if (this is Value) {
-      return (this as Value).completeUnwrap();
-    } else if (this is LuaString) {
-      return (this as LuaString).toLatin1String();
-    }
-    return this;
-  }
-
   /// Checks if this Value is nil (null in Lua sense)
   bool get isNil => raw == null;
 

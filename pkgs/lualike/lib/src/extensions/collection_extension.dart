@@ -8,7 +8,8 @@ extension ListValueExtension on List<dynamic> {
       map((item) => item is Value ? item : Value.wrap(item)).toList();
 
   /// Unwrap all Value objects in a list
-  List<dynamic> unwrapValueList() => map(rawLuaSlot).toList();
+  List<Object?> unwrapValueList() =>
+      map((e) => e is Value ? rawLuaSlot(e) : e).toList();
 
   /// Convert to a Lua-style multi-return Value
   Value toMultiValue() => Value.multi(this);
@@ -32,5 +33,13 @@ extension MapValueExtension on Map<dynamic, dynamic> {
       table[key] = value is Value ? value : Value.wrap(value);
     });
     return table;
+  }
+
+  /// Read [key] from a Lua table, unwrapping any [Value] wrapper.
+  ///
+  /// Returns the raw Dart value (or `null` if absent).
+  Object? unwrap(Object? key) {
+    final v = this[key];
+    return v is Value ? rawLuaSlot(v) : v;
   }
 }
