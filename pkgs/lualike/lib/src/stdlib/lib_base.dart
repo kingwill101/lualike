@@ -79,7 +79,11 @@ class BaseLibrary extends Library {
     // Global variables
     context.define(
       "_VERSION",
-      interpreter.constantDartStringValue("LuaLike 0.1"),
+      ConstantDescriptor(
+        summary: 'The interpreter version string.',
+        type: 'string',
+        rawValue: interpreter.constantDartStringValue("LuaLike 0.1"),
+      ),
     );
   }
 }
