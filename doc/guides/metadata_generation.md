@@ -183,37 +183,10 @@ All CSS and JavaScript is inline — no external dependencies.
 ## Custom filesystem backends
 
 LuaLike uses a pluggable `FileSystemBackend` for operations like `dofile()`,
-`require()`, `os.remove()`, and module loading.
-
-### Built-in backends
-
-| Backend | Package | Description |
-|---|---|---|
-| `PackageFileSystemBackend` | `file_lualike` | Wraps any `package:file` `FileSystem` (local, SFTP, memory) |
-| `AssetBundleFileSystemBackend` | `flutter_lualike` | Read-only backend for Flutter asset bundles |
-| `CompositeFileSystemBackend` | core lualike | Chains multiple backends in priority order |
-
-### Setting a custom backend
-
-```dart
-import 'package:lualike/lualike.dart';
-
-setFileSystemBackend(MyCustomBackend());
-```
-
-### Desktop example (asset bundle + local filesystem)
-
-```dart
-import 'package:file/local.dart';
-import 'package:file_lualike/file_lualike.dart';
-import 'package:flutter_lualike/flutter_lualike.dart';
-import 'package:lualike/lualike.dart';
-
-setFileSystemBackend(CompositeFileSystemBackend([
-  AssetBundleFileSystemBackend(rootBundle, assetRoot: 'assets'),
-  PackageFileSystemBackend(LocalFileSystem()),
-]));
-```
+`require()`, and module loading. See the
+[Custom Filesystem Backends](./custom_filesystem_backends.md) guide for
+built-in backends, the composite backend pattern, Flutter asset bundle
+integration, and how to write your own.
 
 ## .unwrap() extension
 
