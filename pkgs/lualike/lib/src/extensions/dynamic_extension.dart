@@ -1,8 +1,13 @@
+import '../lua_string.dart';
 import '../runtime/lua_slot.dart';
 import '../value.dart';
 
-/// Extension methods for dynamic objects to simplify Value conversion
-extension DynamicValueExtension on dynamic {
+/// Extension methods for all objects to simplify Value conversion.
+///
+/// IMPORTANT: This extension is on [Object?] — NOT on `dynamic` — so that
+/// it resolves properly in Dart's extension method system. Extensions on
+/// `dynamic` are silently ignored by the compiler.
+extension DynamicValueExtension on Object? {
   /// Convert any object to a Value if it's not already one
   /// Recursively converts any object to a LuaLike Value.
   ///
@@ -16,35 +21,33 @@ extension DynamicValueExtension on dynamic {
       final val = this as Value;
       final raw = rawLuaSlot(val);
 
-      // If the underlying raw is a Map, recursively convert each entry.
       if (raw is Map) {
         final rawMap = raw.map((k, v) => MapEntry(k, v.toValue()));
         return Value(rawMap, metatable: val.metatable);
-      }
-      // If the underlying raw is a List, recursively convert each element.
-      else if (raw is List) {
+      } else if (raw is List) {
         final rawList = raw.map((e) => e.toValue()).toList();
         return Value(rawList, metatable: val.metatable);
       }
 
-      // Otherwise, it's already a Value wrapping a primitive.
       return val;
     } else if (this is Map) {
-      // Recursively convert each value in the map.
       final map = (this as Map).map((k, v) => MapEntry(k, v.toValue()));
       return Value(map);
     } else if (this is List) {
-      // Recursively convert list elements.
       final list = (this as List).map((e) => e.toValue()).toList();
       return Value(list);
     }
-    // For any other type, simply wrap it.
     return Value.wrap(this);
   }
 
-  /// Safely unwrap a Value or return the original object
-  dynamic unwrapValue() {
-    if (this is Value) return rawLuaSlot(this as Value);
+  /// Unwrap this value to its raw Dart equivalent.
+  ///
+  /// If the value is a [Value], it is recursively unwrapped (handles nested
+  /// Value wrappers). If the value is a [LuaString], it is converted to a
+  /// Dart [String]. Otherwise the original value is returned.
+  Object? unwrap() {
+    if (this is Value) return (this as Value).completeUnwrap();
+    if (this is LuaString) return (this as LuaString).toLatin1String();
     return this;
   }
 

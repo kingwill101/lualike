@@ -535,6 +535,13 @@ class Value with GCObject implements Map<String, dynamic> {
   /// Get the raw value
   dynamic get raw => _raw;
 
+  /// Same as [raw] but typed as [Object?].
+  ///
+  /// Prefer this when you need extension method dispatch, which doesn't work
+  /// on `dynamic` receivers. Use [raw] when you need the value's interface
+  /// methods (e.g. calling the value as a function).
+  Object? get rawObject => _raw;
+
   /// Values carried by this public multi-result wrapper, if any.
   ///
   /// This is the compatibility bridge for internals that can consume either the
