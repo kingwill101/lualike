@@ -13,8 +13,15 @@ The guides in this directory explain how to use and extend LuaLike from Dart.
   Shows how to expose builder-style objects and method chaining through
   metatables, and how to document libraries using DocDescriptor.
 - [Generating Metadata](./metadata_generation.md)
-  Covers LuaLS, JSON, and HTML documentation output, custom filesystem
-  backends, and the .unwrap() extension.
+  Covers LuaLS, JSON, and HTML documentation output and the .unwrap()
+  extension.
+- [Custom Filesystem Backends](./custom_filesystem_backends.md)
+  Covers the FileSystemBackend interface, built-in backends, composite
+  backend pattern, Flutter asset bundle integration, and writing custom
+  backends.
+- [Custom Process Handlers](./custom_process_handlers.md)
+  Covers the ProcessBackend interface, SSH backend, Docker backend, and
+  writing custom or mock backends for testing.
 - [The Standard Library in LuaLike](./standard_library.md)
   Explains how the built-in libraries are organized and registered.
 - [Value handling](./value_handling.md)
