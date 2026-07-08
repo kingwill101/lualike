@@ -3,7 +3,20 @@ library;
 import 'dart:convert';
 
 import '../runtime/lua_runtime.dart' show LuaRuntime;
-import '../stdlib/doc.dart' show DocParam, FieldDoc, FunctionDoc, TableDoc;
+import '../stdlib/doc.dart'
+    show
+        AccessScope,
+        AliasDoc,
+        AliasVariant,
+        DocParam,
+        EnumDoc,
+        FieldDoc,
+        FunctionDoc,
+        GenericParam,
+        OperatorDoc,
+        OverloadDoc,
+        TableDoc,
+        ValueDoc;
 import '../stdlib/library.dart' show Library;
 
 /// Result of rendering documentation to HTML fragments.
@@ -169,11 +182,20 @@ DocHtmlResult renderDocs(List<Library> libraries) {
 
   for (final lib in libraries) {
     final docs = lib.getDocs();
-    if (docs.isEmpty) continue;
+    final valueDocs = lib.getValueDocs();
+    if (docs.isEmpty &&
+        lib.getTableDocs().isEmpty &&
+        valueDocs.isEmpty &&
+        lib.getAliasDocs().isEmpty &&
+        lib.getEnumDocs().isEmpty) {
+      continue;
+    }
     final cat = _libraryDocName(lib, docs);
     final sectionId = 'section-$sectionIndex-${_escapeAttribute(cat)}';
     final anchors = <String, String>{
       for (final name in docs.keys) name: _uniqueAnchor(cat, name, usedAnchors),
+      for (final name in valueDocs.keys)
+        name: _uniqueAnchor(cat, name, usedAnchors),
     };
     sectionIndex++;
 
@@ -186,6 +208,10 @@ DocHtmlResult renderDocs(List<Library> libraries) {
     );
     sidebarBuf.writeln('<div class="section-items" id="$sectionId-nav">');
     for (final name in docs.keys) {
+      final href = _escapeAttribute(anchors[name]!);
+      sidebarBuf.writeln('<a class="func" href="#$href">${_escape(name)}</a>');
+    }
+    for (final name in valueDocs.keys) {
       final href = _escapeAttribute(anchors[name]!);
       sidebarBuf.writeln('<a class="func" href="#$href">${_escape(name)}</a>');
     }
@@ -206,6 +232,62 @@ DocHtmlResult renderDocs(List<Library> libraries) {
       );
     }
 
+    for (final entry in valueDocs.entries) {
+      final name = entry.key;
+      final doc = entry.value;
+      final anchor = anchors[name]!;
+
+      contentBuf.writeln('<article class="func-entry">');
+      contentBuf.writeln('<a id="${_escapeAttribute(anchor)}"></a>');
+      contentBuf.writeln(
+        '<div class="func-signature">${_escape(name)}: '
+        '${_escape(doc.type)}</div>',
+      );
+
+      final badges = <String>[];
+      if (doc.deprecated) {
+        badges.add('<span class="badge badge-deprecated">deprecated</span>');
+      }
+      if (badges.isNotEmpty) {
+        contentBuf.writeln('<div class="badges">${badges.join(' ')}</div>');
+      }
+
+      if (doc.deprecated) {
+        contentBuf.writeln(
+          '<div class="func-summary deprecated">${_escape(doc.summary)}</div>',
+        );
+      } else {
+        contentBuf.writeln(
+          '<div class="func-summary">${_escape(doc.summary)}</div>',
+        );
+      }
+      if (doc.value != null) {
+        contentBuf.writeln(
+          '<div class="returns"><strong>Value:</strong> '
+          '<code>${_escape(doc.value!)}</code></div>',
+        );
+      }
+      if (doc.see != null) {
+        contentBuf.writeln(
+          '<div class="see"><strong>See:</strong> '
+          '<code>${_escape(doc.see!)}</code></div>',
+        );
+      }
+      if (doc.source != null) {
+        contentBuf.writeln(
+          '<div class="source"><strong>Source:</strong> '
+          '<code>${_escape(doc.source!)}</code></div>',
+        );
+      }
+      if (doc.version != null) {
+        contentBuf.writeln(
+          '<div class="version"><strong>Version:</strong> '
+          '<code>${_escape(doc.version!)}</code></div>',
+        );
+      }
+      contentBuf.writeln('</article>');
+    }
+
     for (final entry in docs.entries) {
       final name = entry.key;
       final doc = entry.value;
@@ -215,9 +297,33 @@ DocHtmlResult renderDocs(List<Library> libraries) {
       contentBuf.writeln('<article class="func-entry">');
       contentBuf.writeln('<a id="${_escapeAttribute(anchor)}"></a>');
       contentBuf.writeln('<div class="func-signature">${_escape(sig)}</div>');
-      contentBuf.writeln(
-        '<div class="func-summary">${_escape(doc.summary)}</div>',
-      );
+
+      final badges = <String>[];
+      if (doc.deprecated) {
+        badges.add('<span class="badge badge-deprecated">deprecated</span>');
+      }
+      if (doc.async) {
+        badges.add('<span class="badge badge-async">async</span>');
+      }
+      if (doc.nodiscard) {
+        badges.add('<span class="badge badge-nodiscard">nodiscard</span>');
+      }
+      if (doc.scope != AccessScope.public) {
+        badges.add('<span class="badge badge-scope">${doc.scope.name}</span>');
+      }
+      if (badges.isNotEmpty) {
+        contentBuf.writeln('<div class="badges">${badges.join(' ')}</div>');
+      }
+
+      if (doc.deprecated) {
+        contentBuf.writeln(
+          '<div class="func-summary deprecated">${_escape(doc.summary)}</div>',
+        );
+      } else {
+        contentBuf.writeln(
+          '<div class="func-summary">${_escape(doc.summary)}</div>',
+        );
+      }
       if (doc.params.isNotEmpty) {
         contentBuf.write(_paramRowsHtml(doc.params));
       }
@@ -225,6 +331,24 @@ DocHtmlResult renderDocs(List<Library> libraries) {
         contentBuf.writeln(
           '<div class="returns"><strong>Returns:</strong> '
           '${_escape(doc.returns!)}</div>',
+        );
+      }
+      if (doc.see != null) {
+        contentBuf.writeln(
+          '<div class="see"><strong>See:</strong> '
+          '<code>${_escape(doc.see!)}</code></div>',
+        );
+      }
+      if (doc.source != null) {
+        contentBuf.writeln(
+          '<div class="source"><strong>Source:</strong> '
+          '<code>${_escape(doc.source!)}</code></div>',
+        );
+      }
+      if (doc.version != null) {
+        contentBuf.writeln(
+          '<div class="version"><strong>Version:</strong> '
+          '<code>${_escape(doc.version!)}</code></div>',
         );
       }
       if (doc.example != null) {
@@ -278,6 +402,9 @@ String renderDocsPage(
       --accent: #5fb3a1;
       --code: #e2c06d;
       --type: #f08d6c;
+      --deprecated: #e06c75;
+      --async: #61afef;
+      --nodiscard: #c678dd;
       --sidebar-width: 18rem;
       --font-ui: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI",
         sans-serif;
@@ -429,6 +556,40 @@ String renderDocsPage(
       border-radius: 8px;
       background: rgb(255 255 255 / 0.025);
     }
+    .func-entry.deprecated {
+      opacity: 0.6;
+    }
+    .badges {
+      margin-bottom: 0.4rem;
+      display: flex;
+      flex-wrap: wrap;
+      gap: 0.3rem;
+    }
+    .badge {
+      display: inline-block;
+      padding: 0.1rem 0.45rem;
+      border-radius: 4px;
+      font-size: 0.7rem;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+    }
+    .badge-deprecated {
+      background: var(--deprecated);
+      color: #fff;
+    }
+    .badge-async {
+      background: var(--async);
+      color: #fff;
+    }
+    .badge-nodiscard {
+      background: var(--nodiscard);
+      color: #fff;
+    }
+    .badge-scope {
+      background: var(--soft);
+      color: #fff;
+    }
     .func-signature {
       margin-bottom: 0.5rem;
       color: var(--code);
@@ -436,6 +597,10 @@ String renderDocsPage(
       overflow-wrap: anywhere;
     }
     .func-summary { color: #d8dbe0; margin-bottom: 0.75rem; }
+    .func-summary.deprecated {
+      text-decoration: line-through;
+      color: var(--deprecated);
+    }
     .params-table {
       width: 100%;
       border-collapse: collapse;
@@ -457,9 +622,10 @@ String renderDocsPage(
     .p-name, .p-type { font-family: var(--font-code); }
     .p-name { color: var(--code); white-space: nowrap; }
     .p-type { color: var(--type); font-size: 0.8rem; }
-    .p-desc, .returns { color: #d8dbe0; }
-    .returns { margin: 0.6rem 0; font-size: 0.86rem; }
-    .returns strong { color: var(--soft); }
+    .p-desc, .returns, .see, .source, .version { color: #d8dbe0; }
+    .returns, .see, .source, .version { margin: 0.6rem 0; font-size: 0.86rem; }
+    .returns strong, .see strong, .source strong, .version strong { color: var(--soft); }
+    .see code, .source code, .version code { color: var(--accent); }
     pre {
       overflow: auto;
       margin: 0.7rem 0 0;
@@ -551,9 +717,16 @@ Map<String, Object?> buildDocsManifest(
   final documentedLibraries = <Map<String, Object?>>[];
   for (final lib in libraries) {
     final docs = lib.getDocs();
-    if (docs.isEmpty) continue;
+    final valueDocs = lib.getValueDocs();
+    if (docs.isEmpty &&
+        valueDocs.isEmpty &&
+        lib.getTableDocs().isEmpty &&
+        lib.getAliasDocs().isEmpty &&
+        lib.getEnumDocs().isEmpty) {
+      continue;
+    }
     final libraryName = _libraryDocName(lib, docs);
-    documentedLibraries.add(<String, Object?>{
+    final libraryEntry = <String, Object?>{
       'name': libraryName,
       'description': lib.description,
       'functions': [
@@ -564,11 +737,42 @@ Map<String, Object?> buildDocsManifest(
             doc: entry.value,
           ),
       ],
-    });
+    };
+
+    if (valueDocs.isNotEmpty) {
+      libraryEntry['values'] = [
+        for (final entry in valueDocs.entries)
+          _valueManifestEntry(entry.key, entry.value),
+      ];
+    }
+
+    final aliases = lib.getAliasDocs();
+    if (aliases.isNotEmpty) {
+      libraryEntry['aliases'] = [
+        for (final entry in aliases.entries) _aliasManifestEntry(entry.value),
+      ];
+    }
+
+    final enums = lib.getEnumDocs();
+    if (enums.isNotEmpty) {
+      libraryEntry['enums'] = [
+        for (final entry in enums.entries) _enumManifestEntry(entry.value),
+      ];
+    }
+
+    final tableDocs = lib.getTableDocs();
+    if (tableDocs.isNotEmpty) {
+      libraryEntry['tables'] = [
+        for (final entry in tableDocs.entries)
+          _tableDocManifestEntry(entry.key, entry.value),
+      ];
+    }
+
+    documentedLibraries.add(libraryEntry);
   }
 
   final manifest = <String, Object?>{
-    'schemaVersion': 1,
+    'schemaVersion': 2,
     'generator': 'lualike.docs',
     'package': packageName,
   };
@@ -584,7 +788,7 @@ Map<String, Object?> _functionManifestEntry({
   required String libraryName,
   required FunctionDoc doc,
 }) {
-  return <String, Object?>{
+  final entry = <String, Object?>{
     'name': name,
     'qualifiedName': _qualifiedFunctionName(libraryName, name),
     'kind': 'function',
@@ -602,7 +806,143 @@ Map<String, Object?> _functionManifestEntry({
         },
     ],
     if (doc.returns != null) 'returns': doc.returns,
+    if (doc.returnType != null) 'returnType': doc.returnType,
     if (doc.example != null) 'example': doc.example,
+  };
+
+  if (doc.deprecated) {
+    entry['deprecated'] = true;
+    if (doc.deprecatedReason != null) {
+      entry['deprecatedReason'] = doc.deprecatedReason;
+    }
+  }
+  if (doc.async) {
+    entry['async'] = true;
+  }
+  if (doc.nodiscard) {
+    entry['nodiscard'] = true;
+  }
+  if (doc.scope != AccessScope.public) {
+    entry['scope'] = doc.scope.name;
+  }
+  if (doc.generics.isNotEmpty) {
+    entry['generics'] = doc.generics
+        .map(
+          (g) => <String, Object?>{
+            'name': g.name,
+            if (g.parentType != null) 'parentType': g.parentType,
+          },
+        )
+        .toList();
+  }
+  if (doc.overloads.isNotEmpty) {
+    entry['overloads'] = doc.overloads.map(_overloadManifestEntry).toList();
+  }
+  if (doc.see != null) {
+    entry['see'] = doc.see;
+  }
+  if (doc.source != null) {
+    entry['source'] = doc.source;
+  }
+  if (doc.version != null) {
+    entry['version'] = doc.version;
+  }
+
+  return entry;
+}
+
+Map<String, Object?> _overloadManifestEntry(OverloadDoc doc) {
+  return <String, Object?>{
+    'params': [
+      for (final param in doc.params)
+        <String, Object?>{
+          'name': param.name,
+          'type': param.type,
+          'description': param.description,
+          'optional': param.optional,
+        },
+    ],
+    if (doc.returnType != null) 'returnType': doc.returnType,
+    if (doc.returns != null) 'returns': doc.returns,
+  };
+}
+
+Map<String, Object?> _aliasManifestEntry(AliasDoc doc) {
+  return <String, Object?>{
+    'name': doc.name,
+    if (doc.type != null) 'type': doc.type,
+    if (doc.description != null) 'description': doc.description,
+    if (doc.variants.isNotEmpty)
+      'variants': doc.variants
+          .map(
+            (v) => <String, Object?>{
+              'value': v.value,
+              if (v.description != null) 'description': v.description,
+            },
+          )
+          .toList(),
+  };
+}
+
+Map<String, Object?> _valueManifestEntry(String name, ValueDoc doc) {
+  return <String, Object?>{
+    'name': name,
+    'type': doc.type,
+    'summary': doc.summary,
+    if (doc.value != null) 'value': doc.value,
+    if (doc.deprecated) 'deprecated': true,
+    if (doc.deprecatedReason != null) 'deprecatedReason': doc.deprecatedReason,
+    if (doc.see != null) 'see': doc.see,
+    if (doc.source != null) 'source': doc.source,
+    if (doc.version != null) 'version': doc.version,
+  };
+}
+
+Map<String, Object?> _enumManifestEntry(EnumDoc doc) {
+  return <String, Object?>{
+    'name': doc.name,
+    if (doc.description != null) 'description': doc.description,
+    'useKeys': doc.useKeys,
+    'entries': doc.entries,
+  };
+}
+
+Map<String, Object?> _tableDocManifestEntry(String name, TableDoc doc) {
+  return <String, Object?>{
+    'name': doc.name,
+    'description': doc.description,
+    'fields': doc.fields.map(_fieldDocManifestEntry).toList(),
+    if (doc.version != null) 'version': doc.version,
+    if (doc.operators.isNotEmpty)
+      'operators': doc.operators
+          .map(
+            (o) => <String, Object?>{
+              'operation': o.operation,
+              if (o.paramType != null) 'paramType': o.paramType,
+              'returnType': o.returnType,
+            },
+          )
+          .toList(),
+  };
+}
+
+Map<String, Object?> _fieldDocManifestEntry(FieldDoc doc) {
+  return <String, Object?>{
+    'key': doc.key,
+    'type': doc.type,
+    'description': doc.description,
+    'required': doc.required,
+    if (doc.deprecated) 'deprecated': true,
+    if (doc.scope != AccessScope.public) 'scope': doc.scope.name,
+    if (doc.defaultValue != null) 'defaultValue': '${doc.defaultValue}',
+    if (doc.group != null) 'group': doc.group,
+    if (doc.dependsOn != null) 'dependsOn': doc.dependsOn,
+    if (doc.min != null) 'min': doc.min,
+    if (doc.max != null) 'max': doc.max,
+    if (doc.step != null) 'step': doc.step,
+    if (doc.choices != null) 'choices': doc.choices,
+    if (doc.fields != null && doc.fields!.isNotEmpty)
+      'fields': doc.fields!.map(_fieldDocManifestEntry).toList(),
   };
 }
 
@@ -636,7 +976,7 @@ String renderLuaLsAnnotations(
     ..writeln('---Generated LuaLS annotations for $packageName.')
     ..writeln('---Do not execute this file; add it to LuaLS as a library.')
     ..writeln('---Generator: lualike.docs')
-    ..writeln('---Schema: 1');
+    ..writeln('---Schema: 2');
   if (packageVersion != null) {
     buf.writeln('---Package version: $packageVersion');
   }
@@ -645,7 +985,16 @@ String renderLuaLsAnnotations(
   final emittedTables = <String>{};
   for (final lib in libraries) {
     final docs = lib.getDocs();
-    if (docs.isEmpty && lib.getTableDocs().isEmpty) {
+    final tableDocs = lib.getTableDocs();
+    final aliasDocs = lib.getAliasDocs();
+    final enumDocs = lib.getEnumDocs();
+    final valueDocs = lib.getValueDocs();
+
+    if (docs.isEmpty &&
+        tableDocs.isEmpty &&
+        aliasDocs.isEmpty &&
+        enumDocs.isEmpty &&
+        valueDocs.isEmpty) {
       continue;
     }
     final libraryName = _libraryDocName(lib, docs);
@@ -653,11 +1002,27 @@ String renderLuaLsAnnotations(
       _emitLuaLsTable(buf, libraryName, emittedTables);
     }
 
-    // Table docs from empty-name (global) libraries are not namespaced.
     final useNamespace = lib.name.isNotEmpty;
 
+    // Emit aliases
+    for (final entry in aliasDocs.entries) {
+      _emitLuaLsAliasDoc(buf, entry.value);
+    }
+
+    // Emit enums
+    for (final entry in enumDocs.entries) {
+      _emitLuaLsEnumDoc(buf, entry.value);
+    }
+
+    // Emit value/constant definitions
+    for (final entry in valueDocs.entries) {
+      final qualifiedName = useNamespace
+          ? _qualifiedFunctionName(libraryName, entry.key)
+          : entry.key;
+      _emitLuaLsValueDoc(buf, qualifiedName, entry.value, emittedTables);
+    }
+
     // Emit table schema class definitions
-    final tableDocs = lib.getTableDocs();
     for (final entry in tableDocs.entries) {
       final qualifiedName = useNamespace
           ? _qualifiedFunctionName(libraryName, entry.key)
@@ -704,6 +1069,85 @@ void _emitLuaLsTable(
   }
 }
 
+void _emitLuaLsAliasDoc(StringBuffer buf, AliasDoc doc) {
+  if (doc.variants.isNotEmpty) {
+    buf.writeln('---@alias ${doc.name}');
+    if (doc.description != null) {
+      for (final line in _docLines(doc.description!)) {
+        buf.writeln('---$line');
+      }
+    }
+    for (final variant in doc.variants) {
+      final desc = variant.description != null
+          ? ' # ${variant.description}'
+          : '';
+      buf.writeln("---| '${variant.value}'$desc");
+    }
+  } else {
+    final type = doc.type ?? 'any';
+    final desc = doc.description != null ? ' ${doc.description}' : '';
+    buf.writeln('---@alias ${doc.name} $type$desc');
+  }
+  buf.writeln();
+}
+
+void _emitLuaLsEnumDoc(StringBuffer buf, EnumDoc doc) {
+  final attr = doc.useKeys ? '(key) ' : '';
+  buf.writeln('---@enum $attr${doc.name}');
+  if (doc.description != null) {
+    for (final line in _docLines(doc.description!)) {
+      buf.writeln('---$line');
+    }
+  }
+  buf.writeln('local ${_luaIdentifier(doc.name)} = {');
+  for (final entry in doc.entries.entries) {
+    buf.writeln('  ${entry.key} = ${entry.value},');
+  }
+  buf.writeln('}');
+  buf.writeln();
+}
+
+void _emitLuaLsValueDoc(
+  StringBuffer buf,
+  String qualifiedName,
+  ValueDoc doc,
+  Set<String> emittedTables,
+) {
+  final parentPath = _parentPath(qualifiedName);
+  if (parentPath != null) {
+    _emitLuaLsTable(buf, parentPath, emittedTables);
+  }
+
+  if (doc.deprecated) {
+    buf.writeln('---@deprecated');
+  }
+
+  for (final line in _docLines(doc.summary)) {
+    buf.writeln('---$line');
+  }
+
+  if (doc.see != null) {
+    buf.writeln('---@see ${doc.see}');
+  }
+
+  if (doc.source != null) {
+    buf.writeln('---@source ${doc.source}');
+  }
+
+  if (doc.version != null) {
+    buf.writeln('---@version ${doc.version}');
+  }
+
+  buf.writeln('---@type ${doc.type}');
+
+  if (doc.value != null) {
+    buf.writeln('$qualifiedName = ${doc.value}');
+  } else {
+    buf.writeln('$qualifiedName = $qualifiedName or {}');
+  }
+  buf.writeln();
+}
+
 void _emitLuaLsFunction(
   StringBuffer buf, {
   required String qualifiedName,
@@ -715,9 +1159,56 @@ void _emitLuaLsFunction(
     _emitLuaLsTable(buf, parentPath, emittedTables);
   }
 
+  // Deprecated
+  if (doc.deprecated) {
+    buf.writeln('---@deprecated');
+  }
+
+  // Async
+  if (doc.async) {
+    buf.writeln('---@async');
+  }
+
+  // Nodiscard
+  if (doc.nodiscard) {
+    buf.writeln('---@nodiscard');
+  }
+
+  // Scope
+  if (doc.scope != AccessScope.public) {
+    buf.writeln('---@${doc.scope.name}');
+  }
+
+  // Summary
   for (final line in _docLines(doc.summary)) {
     buf.writeln('---$line');
   }
+
+  // See
+  if (doc.see != null) {
+    buf.writeln('---@see ${doc.see}');
+  }
+
+  // Source
+  if (doc.source != null) {
+    buf.writeln('---@source ${doc.source}');
+  }
+
+  // Version
+  if (doc.version != null) {
+    buf.writeln('---@version ${doc.version}');
+  }
+
+  // Generics
+  for (final generic in doc.generics) {
+    if (generic.parentType != null) {
+      buf.writeln('---@generic ${generic.name} : ${generic.parentType}');
+    } else {
+      buf.writeln('---@generic ${generic.name}');
+    }
+  }
+
+  // Params
   for (final param in doc.params) {
     final name = _luaIdentifier(param.name);
     final optional = param.optional && name != '...' ? '?' : '';
@@ -725,6 +1216,8 @@ void _emitLuaLsFunction(
     final description = _luaLsTrailingDescription(param.description);
     buf.writeln('---@param $name$optional $type$description');
   }
+
+  // Returns
   if (doc.returns != null && !_returnsNothing(doc.returns!)) {
     final description = _luaLsTrailingDescription(doc.returns!);
     final types = doc.returnType ?? _returnTypeForLuaLs(doc.returns!);
@@ -735,6 +1228,19 @@ void _emitLuaLsFunction(
           : '---@return ${parts[i]}';
       buf.writeln(annotation);
     }
+  }
+
+  // Overloads
+  for (final overload in doc.overloads) {
+    final params = overload.params
+        .map((p) => '${p.name}: ${_luaLsType(p.type)}')
+        .join(', ');
+    final returnTypes = overload.returnType != null
+        ? overload.returnType!
+        : (overload.returns != null
+              ? _returnTypeForLuaLs(overload.returns!)
+              : 'any');
+    buf.writeln('---@overload fun($params): $returnTypes');
   }
 
   final parameters = doc.params
@@ -748,6 +1254,12 @@ void _emitLuaLsFunction(
 
 void _emitLuaLsTableDoc(StringBuffer buf, String qualifiedName, TableDoc doc) {
   buf.writeln('---@class $qualifiedName');
+
+  // Version
+  if (doc.version != null) {
+    buf.writeln('---@version ${doc.version}');
+  }
+
   for (final line in _docLines(doc.description)) {
     buf.writeln('---$line');
   }
@@ -755,6 +1267,18 @@ void _emitLuaLsTableDoc(StringBuffer buf, String qualifiedName, TableDoc doc) {
   for (final field in doc.fields) {
     _emitLuaLsField(buf, qualifiedName, field, '');
   }
+
+  // Operators
+  for (final op in doc.operators) {
+    if (op.paramType != null) {
+      buf.writeln(
+        '---@operator ${op.operation}(${op.paramType}): ${op.returnType}',
+      );
+    } else {
+      buf.writeln('---@operator ${op.operation}:${op.returnType}');
+    }
+  }
+
   buf.writeln();
 }
 
@@ -764,11 +1288,15 @@ void _emitLuaLsField(
   FieldDoc field,
   String prefix,
 ) {
+  if (field.deprecated) {
+    buf.writeln('---@deprecated');
+  }
   final opt = field.required ? '' : '?';
   final key = '$prefix${field.key}';
   final type = _luaLsType(field.type);
   final description = _luaLsTrailingDescription(field.description);
-  buf.writeln('---@field $key$opt $type$description');
+  final scope = field.scope != AccessScope.public ? '${field.scope.name} ' : '';
+  buf.writeln('---@field $scope$key$opt $type$description');
 
   if (field.fields != null && field.fields!.isNotEmpty) {
     for (final sub in field.fields!) {
