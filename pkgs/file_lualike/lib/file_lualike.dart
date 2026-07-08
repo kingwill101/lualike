@@ -15,3 +15,7 @@ library;
 export 'src/config.dart';
 export 'src/package_file_io_device.dart';
 export 'src/package_file_system_backend.dart';
+
+// Re-exported from core lualike for convenience when working with file
+// systems that chain multiple backends (e.g., asset bundle + local disk).
+export 'package:lualike/lualike.dart' show CompositeFileSystemBackend;
