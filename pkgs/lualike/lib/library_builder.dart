@@ -31,7 +31,26 @@
 library;
 
 export 'src/builtin_function.dart' show BuiltinFunction, BuiltinFunctionGcRefs;
-export 'src/stdlib/doc.dart' show DocParam, FieldDoc, FunctionDoc, TableDoc;
+export 'src/stdlib/doc.dart'
+    show
+        AccessScope,
+        AliasDescriptor,
+        AliasDoc,
+        AliasVariant,
+        ConstantDescriptor,
+        DocDescriptor,
+        DocParam,
+        EnumDescriptor,
+        EnumDoc,
+        FieldDoc,
+        FunctionDescriptor,
+        FunctionDoc,
+        GenericParam,
+        OperatorDoc,
+        OverloadDoc,
+        TableDescriptor,
+        TableDoc,
+        ValueDoc;
 export 'src/environment.dart' show Environment;
 export 'src/runtime/lua_runtime.dart'
     show LuaChunkLoadRequest, LuaChunkLoadResult, LuaRuntime;
