@@ -11,7 +11,10 @@ The guides in this directory explain how to use and extend LuaLike from Dart.
   Explains the low-level extension surface for builtins and library functions.
 - [Building a Lua-like Library with Builder Interface](./BUILDER_PATTERN.md)
   Shows how to expose builder-style objects and method chaining through
-  metatables.
+  metatables, and how to document libraries using DocDescriptor.
+- [Generating Metadata](./metadata_generation.md)
+  Covers LuaLS, JSON, and HTML documentation output, custom filesystem
+  backends, and the .unwrap() extension.
 - [The Standard Library in LuaLike](./standard_library.md)
   Explains how the built-in libraries are organized and registered.
 - [Value handling](./value_handling.md)

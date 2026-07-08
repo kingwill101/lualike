@@ -260,7 +260,181 @@ class MyLibrary extends Library {
 ```
 
 The documented fields appear in both LuaLS annotations and JSON output
-alongside any `FunctionDoc` entries registered via `context.describe()`.
+alongside any function documentation registered via `context.define()`.
+
+## Unified registration with DocDescriptor
+
+Instead of separate `define()` + `describe()` calls, the modern API bundles the
+runtime value and its documentation together using a `DocDescriptor`:
+
+### Functions
+
+```dart
+context.define('echo', FunctionDescriptor(
+  summary: 'Returns the first argument.',
+  params: [DocParam('v', 'any', 'Value to return.')],
+  returns: 'The original value.',
+  category: 'base',
+  rawValue: (List<Object?> args) => args.isEmpty ? null : args.first,
+));
+```
+
+Generates:
+```lua
+---Returns the first argument.
+---@param v any # Value to return.
+---@return any # The original value.
+function base.echo(v) end
+```
+
+### Constants
+
+```dart
+context.define('pi', ConstantDescriptor(
+  summary: 'The value of π.',
+  type: 'number',
+  rawValue: 3.1415,
+));
+```
+
+Generates:
+```lua
+---The value of π.
+---@type number
+```
+
+### Deprecated & async functions
+
+```dart
+context.define('legacy', FunctionDescriptor(
+  summary: 'Old API, use newApi instead.',
+  deprecated: true,
+  async: true,
+  nodiscard: true,
+  scope: AccessScope.private,
+  category: 'old',
+  rawValue: (args) => null,
+));
+```
+
+Generates:
+```lua
+---@deprecated
+---@async
+---@nodiscard
+---@private
+---Old API, use newApi instead.
+```
+
+### Generics & overloads
+
+```dart
+context.define('find', FunctionDescriptor(
+  summary: 'Finds an element.',
+  params: [DocParam('id', 'integer', 'Element ID.')],
+  returns: 'The element or nil.',
+  generics: [GenericParam(name: 'T', parentType: 'integer')],
+  overloads: [
+    OverloadDoc(
+      params: [DocParam('name', 'string', 'Search by name.')],
+      returnType: 'boolean',
+      returns: 'Whether found.',
+    ),
+  ],
+  category: 'search',
+  rawValue: (args) => null,
+));
+```
+
+Generates:
+```lua
+---Finds an element.
+---@generic T : integer
+---@param id integer # Element ID.
+---@return any|nil # The element or nil.
+---@overload fun(name: string): boolean
+```
+
+### Aliases
+
+```dart
+context.define('DeviceSide', AliasDescriptor(
+  name: 'DeviceSide',
+  variants: [
+    AliasVariant(value: 'left', description: 'The left side'),
+    AliasVariant(value: 'right', description: 'The right side'),
+  ],
+));
+```
+
+Generates:
+```lua
+---@alias DeviceSide
+---| 'left' # The left side
+---| 'right' # The right side
+```
+
+### Enums
+
+```dart
+context.define('Direction', EnumDescriptor(
+  name: 'Direction',
+  useKeys: true,
+  entries: {'LEFT': '1', 'RIGHT': '2'},
+));
+```
+
+Generates:
+```lua
+---@enum (key) Direction
+local Direction = { LEFT = 1, RIGHT = 2 }
+```
+
+### Tables with operators
+
+```dart
+context.describeTable('Vector', TableDoc(
+  name: 'Vector',
+  description: 'A 2D vector.',
+  fields: [
+    FieldDoc(key: 'x', type: 'number', description: 'X coordinate.'),
+  ],
+  operators: [
+    OperatorDoc(operation: 'add', paramType: 'Vector', returnType: 'Vector'),
+  ],
+));
+```
+
+Generates:
+```lua
+---@class Vector
+---A 2D vector.
+---
+---@field x? number # X coordinate.
+---@operator add(Vector): Vector
+```
+
+## Emitting documentation
+
+After registering libraries, generate metadata in any of three formats:
+
+```dart
+import 'package:lualike/docs.dart';
+
+final libraries = documentedLibrariesForRuntime(lua.vm);
+
+// LuaLS annotation stubs (.lua)
+final luals = renderLuaLsAnnotations(libraries);
+
+// JSON manifest for editors
+final json = renderDocsJson(libraries, packageName: 'my_app');
+
+// HTML documentation page
+final html = renderDocsPage(libraries);
+```
+
+See the [Metadata generation guide](./metadata_generation.md) for more details
+and file output helpers.
 
 See [example/builder_demo](../../pkgs/lualike/example/builder_demo/) for a
 complete walkthrough covering annotations, functions, `ValueClass`, constants,
