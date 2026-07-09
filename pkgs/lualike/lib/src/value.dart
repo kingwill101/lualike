@@ -863,6 +863,28 @@ class Value with GCObject implements Map<String, dynamic> {
     }
   }
 
+  Value.transientPrimitive(
+    Object? raw, {
+    LuaRuntime? interpreter,
+  }) : _raw = raw {
+    final metadata = _metadataPayloadForWrite();
+    metadata.skipAllocationDebt = true;
+    metadata.skipGcRegistration = true;
+    metadata.interpreter = interpreter;
+
+    final type = switch (raw) {
+      null => 'nil',
+      bool() => 'boolean',
+      int() || double() || BigInt() => 'number',
+      String() => 'string',
+      LuaString() => 'string',
+      _ => 'number', // keep existing fallback for any other numeric-like types
+    };
+    if (MetaTable().isDefaultMetatableActive(type)) {
+      MetaTable().applyDefaultMetatable(this);
+    }
+  }
+
   // ---------------------------------------------------------------------------
   // Identity registry for table (Map) values
   // ---------------------------------------------------------------------------
