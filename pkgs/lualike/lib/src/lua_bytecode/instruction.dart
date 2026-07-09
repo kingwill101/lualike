@@ -1,11 +1,12 @@
+export 'instruction_mode.dart';
+import 'opcode.dart';
+
 typedef LuaBytecodeAbcFields = ({int a, int b, int c, bool k});
 typedef LuaBytecodeVAbcFields = ({int a, int b, int c, bool k});
 typedef LuaBytecodeAbxFields = ({int a, int bx});
 typedef LuaBytecodeAsBxFields = ({int a, int sBx});
 typedef LuaBytecodeAxFields = ({int ax});
 typedef LuaBytecodeSjFields = ({int sJ});
-
-enum LuaBytecodeInstructionMode { iabc, ivabc, iabx, iasbx, iax, isj }
 
 abstract final class LuaBytecodeInstructionLayout {
   static const int sizeOp = 7;
@@ -224,6 +225,7 @@ extension type const LuaBytecodeInstructionWord(int value) {
     LuaBytecodeInstructionLayout.posOp,
     LuaBytecodeInstructionLayout.sizeOp,
   );
+  Opcode get opcode => Opcode.fromCode(opcodeValue);
   int get a => _getBits(
     rawValue,
     LuaBytecodeInstructionLayout.posA,
