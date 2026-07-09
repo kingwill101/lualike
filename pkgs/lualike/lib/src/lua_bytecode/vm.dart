@@ -6610,6 +6610,14 @@ final class _LuaBytecodeFrame implements LuaBytecodeGCRootProvider {
         ),
       );
     }
+    // Always clone shared runtime constants before storing them in a
+    // register even when they wrap a scalar primitive.  The resulting
+    // Value must be mutable because later operations such as
+    // debug.setlocal rely on _overwriteValue to mutate the register
+    // value in-place (target.raw = …).  Skipping the clone for scalar
+    // primitives would leave a shared-primitive Value in the register,
+    // and _overwriteValue would throw when it tries to set `raw` on a
+    // shared primitive.
     final storedValue =
         !value.skipAllocationDebt && _isSharedRuntimeConstant(runtime, value)
         ? _cloneBytecodeValue(value)
@@ -8825,6 +8833,9 @@ Value _runtimeValue(LuaRuntime runtime, Object? value) {
 }
 
 Value _framePrimitiveValue(LuaRuntime runtime, Object? value) {
+  if (isLuaScalarPrimitiveSlot(value)) {
+    return runtime.constantPrimitiveValue(value);
+  }
   return Value.primitive(
     value,
     interpreter: runtime,
@@ -8857,11 +8868,9 @@ Value _cloneBytecodeValue(Value source) {
       isConst: source.isConst,
       isToBeClose: source.isToBeClose,
       isTempKey: source.isTempKey,
-      skipAllocationDebt:
-          source.skipAllocationDebt || isLuaPrimitiveSlot(rawLuaSlot(source)),
+      skipAllocationDebt: source.skipAllocationDebt || isLuaPrimitiveSlot(raw),
       skipGcRegistration:
-          source.skipGcRegistration ||
-          isLuaScalarPrimitiveSlot(rawLuaSlot(source)),
+          source.skipGcRegistration || isLuaScalarPrimitiveSlot(raw),
       upvalues: source.upvalues,
       interpreter: source.interpreter,
       functionBody: source.functionBody,
@@ -8881,11 +8890,9 @@ Value _cloneBytecodeValue(Value source) {
     isConst: source.isConst,
     isToBeClose: source.isToBeClose,
     isTempKey: source.isTempKey,
-    skipAllocationDebt:
-        source.skipAllocationDebt || isLuaPrimitiveSlot(rawLuaSlot(source)),
+    skipAllocationDebt: source.skipAllocationDebt || isLuaPrimitiveSlot(raw),
     skipGcRegistration:
-        source.skipGcRegistration ||
-        isLuaScalarPrimitiveSlot(rawLuaSlot(source)),
+        source.skipGcRegistration || isLuaScalarPrimitiveSlot(raw),
     upvalues: source.upvalues,
     interpreter: source.interpreter,
     functionBody: source.functionBody,
