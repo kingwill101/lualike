@@ -63,7 +63,7 @@ void main() {
 
       expect([
         for (final instruction in disassembly.mainPrototype.instructions)
-          instruction.opcode.name,
+          instruction.opcode.luaName,
       ], equals(<String>['VARARGPREP', 'LOADI', 'MOVE', 'RETURN', 'RETURN']));
       expect(
         parsed.mainPrototype.localVariables.map((local) => local.name).toList(),
@@ -83,7 +83,7 @@ void main() {
             .disassemble(const LuaBytecodeParser().parse(emitted.bytes))
             .mainPrototype
             .instructions
-            .map((instruction) => instruction.opcode.name)
+            .map((instruction) => instruction.opcode.luaName)
             .toList(growable: false);
         final oracle = _parseOpcodeSections(fixture.listing).single;
 

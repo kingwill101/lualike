@@ -14,7 +14,7 @@ final class LuaBytecodeDecodedInstruction {
   final int pc;
   final int? lineNumber;
   final LuaBytecodeInstructionWord word;
-  final LuaBytecodeOpcodeInfo opcode;
+  final Opcode opcode;
   final String operands;
 }
 
@@ -91,7 +91,7 @@ final class LuaBytecodeDisassembler {
     required int pc,
     required LuaBytecodeInstructionWord word,
   }) {
-    final opcode = LuaBytecodeOpcodes.byCode(word.opcodeValue);
+    final opcode = word.opcode;
     return LuaBytecodeDecodedInstruction(
       pc: pc,
       lineNumber: prototype.lineForPc(pc),
@@ -102,7 +102,7 @@ final class LuaBytecodeDisassembler {
   }
 
   String _formatOperands(
-    LuaBytecodeOpcodeInfo opcode,
+    Opcode opcode,
     LuaBytecodeInstructionWord word,
   ) {
     return switch (opcode.mode) {
@@ -142,7 +142,7 @@ final class LuaBytecodeDisassembler {
         '$indent'
         '${(instruction.pc + 1).toString().padLeft(4, '0')} '
         '[${lineLabel.padLeft(2, ' ')}] '
-        '${instruction.opcode.name.padRight(10)} '
+        '${instruction.opcode.luaName.padRight(10)} '
         '${instruction.operands}',
       );
     }

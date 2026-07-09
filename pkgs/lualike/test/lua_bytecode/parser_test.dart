@@ -50,7 +50,7 @@ return t.foo, 7 + 8
         for (final prototype in _flattenPrototypes(disassembly.mainPrototype))
           [
             for (final instruction in prototype.instructions)
-              instruction.opcode.name,
+              instruction.opcode.luaName,
           ],
       ];
       final oracleSections = _parseOpcodeSections(fixture.listing);
