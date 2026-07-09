@@ -498,7 +498,7 @@ List<String> opcodeNames(LuaBytecodeBinaryChunk chunk) {
   final disassembly = const LuaBytecodeDisassembler().disassemble(chunk);
   return [
     for (final instruction in disassembly.mainPrototype.instructions)
-      instruction.opcode.name,
+      instruction.opcode.luaName,
   ];
 }
 
@@ -508,7 +508,7 @@ List<List<String>> childOpcodeNames(LuaBytecodeBinaryChunk chunk) {
     for (final prototype in disassembly.mainPrototype.children)
       [
         for (final instruction in prototype.instructions)
-          instruction.opcode.name,
+          instruction.opcode.luaName,
       ],
   ];
 }

@@ -346,7 +346,7 @@ List<String> opcodeNames(LuaBytecodeBinaryChunk chunk) {
   final disassembly = const LuaBytecodeDisassembler().disassemble(chunk);
   return [
     for (final instruction in disassembly.mainPrototype.instructions)
-      instruction.opcode.name,
+      instruction.opcode.luaName,
   ];
 }
 
