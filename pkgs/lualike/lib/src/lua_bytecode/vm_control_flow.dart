@@ -355,10 +355,13 @@ extension LuaBytecodeVmControlFlow on LuaBytecodeVm {
                 negativeStepDivisor(stepValue);
       frame.setRegister(
         base,
-        framePrimitiveValue(runtime, signedInt64FromUnsigned(count)),
+        transientPrimitiveValue(
+          runtime,
+          signedInt64FromUnsigned(count),
+        ),
       );
-      frame.setRegister(base + 1, framePrimitiveValue(runtime, stepValue));
-      frame.setRegister(base + 2, framePrimitiveValue(runtime, init));
+      frame.setRegister(base + 1, transientPrimitiveValue(runtime, stepValue));
+      frame.setRegister(base + 2, transientPrimitiveValue(runtime, init));
       return false;
     }
 
@@ -373,9 +376,9 @@ extension LuaBytecodeVmControlFlow on LuaBytecodeVm {
       return true;
     }
 
-    frame.setRegister(base, runtimeValue(runtime, limitValue));
-    frame.setRegister(base + 1, framePrimitiveValue(runtime, stepValue));
-    frame.setRegister(base + 2, framePrimitiveValue(runtime, init));
+    frame.setRegister(base, transientPrimitiveValue(runtime, limitValue));
+    frame.setRegister(base + 1, transientPrimitiveValue(runtime, stepValue));
+    frame.setRegister(base + 2, transientPrimitiveValue(runtime, init));
     return false;
   }
 
@@ -392,10 +395,13 @@ extension LuaBytecodeVmControlFlow on LuaBytecodeVm {
           rawCount > 0 &&
           rawStep is int &&
           rawIndex is int) {
-        frame.setRegister(base, framePrimitiveValue(runtime, rawCount - 1));
+        frame.setRegister(
+          base,
+          transientPrimitiveValue(runtime, rawCount - 1),
+        );
         frame.setRegister(
           base + 2,
-          framePrimitiveValue(runtime, rawIndex + rawStep),
+          transientPrimitiveValue(runtime, rawIndex + rawStep),
         );
         return true;
       }
