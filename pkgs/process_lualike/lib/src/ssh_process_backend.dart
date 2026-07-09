@@ -2,7 +2,8 @@ import 'dart:async';
 import 'dart:convert';
 
 import 'package:dartssh2/dartssh2.dart';
-import 'package:lualike/lualike.dart';
+import 'package:lualike/lualike.dart'
+    show LuaError, ProcessBackend, ProcessRunResult;
 
 /// [ProcessBackend] that executes commands over SSH via [dartssh2].
 ///
@@ -18,10 +19,9 @@ class SshProcessBackend implements ProcessBackend {
 
   @override
   ProcessRunResult runSync(String command) {
-    throw UnsupportedError('''
-SshProcessBackend requires async I/O under the hood.
-Use the async `run()` method instead.
-''');
+    throw LuaError(
+      'SshProcessBackend requires async I/O — use the run() method instead.',
+    );
   }
 
   @override
@@ -62,12 +62,14 @@ Use the async `run()` method instead.
     await session.done;
 
     var exitCode = session.exitCode;
-    while (exitCode == null) {
+    var pollAttempts = 0;
+    while (exitCode == null && pollAttempts < 100) {
       await Future.delayed(const Duration(milliseconds: 10));
       exitCode = session.exitCode;
+      pollAttempts++;
     }
 
     onDone?.call();
-    return exitCode;
+    return exitCode ?? -1;
   }
 }
