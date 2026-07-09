@@ -6,12 +6,12 @@ import '../number_utils.dart';
 import '../byte_data.dart' as b64;
 
 Uint8List serializeLuaBytecodeChunk(LuaBytecodeBinaryChunk chunk) {
-  final writer = _LuaBytecodeWriter();
+  final writer = LuaBytecodeWriter();
   writer.writeChunk(chunk);
   return writer.takeBytes();
 }
 
-final class _LuaBytecodeWriter {
+final class LuaBytecodeWriter {
   final BytesBuilder _bytes = BytesBuilder(copy: false);
   final Map<String, int> _savedStrings = <String, int>{};
   var _length = 0;

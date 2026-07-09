@@ -75,7 +75,7 @@ final class LuaBytecodeEmitter {
       chunkName: chunkName,
       sourceName: sourceName,
     );
-    final compiler = _LuaBytecodeStructuredCompiler.topLevel(
+    final compiler = LuaBytecodeStructuredCompiler.topLevel(
       builder.mainPrototype,
     );
     compiler.compileProgram(program);
@@ -135,8 +135,8 @@ const Set<String> _leftLinearBinaryOps = <String>{
   '>>',
 };
 
-final class _LuaBytecodeStructuredCompiler {
-  _LuaBytecodeStructuredCompiler.topLevel(this._prototype)
+final class LuaBytecodeStructuredCompiler {
+  LuaBytecodeStructuredCompiler.topLevel(this._prototype)
     : _parent = null,
       _virtualVarargName = null,
       _declaredGlobals = <String>{},
@@ -146,7 +146,7 @@ final class _LuaBytecodeStructuredCompiler {
     _enterScope();
   }
 
-  _LuaBytecodeStructuredCompiler.nested(
+  LuaBytecodeStructuredCompiler.nested(
     this._prototype,
     this._parent, {
     required List<Identifier> parameters,
@@ -167,26 +167,26 @@ final class _LuaBytecodeStructuredCompiler {
   }
 
   final LuaBytecodePrototypeBuilder _prototype;
-  final _LuaBytecodeStructuredCompiler? _parent;
+  final LuaBytecodeStructuredCompiler? _parent;
   final String? _virtualVarargName;
   final Set<String> _declaredGlobals;
   final Set<String> _inheritedDeclaredGlobals;
-  final Map<String, List<_LuaBytecodeStructuredLocal>> _localsByName =
-      <String, List<_LuaBytecodeStructuredLocal>>{};
-  final List<List<_LuaBytecodeStructuredLocal>> _scopes =
-      <List<_LuaBytecodeStructuredLocal>>[];
+  final Map<String, List<LuaBytecodeStructuredLocal>> _localsByName =
+      <String, List<LuaBytecodeStructuredLocal>>{};
+  final List<List<LuaBytecodeStructuredLocal>> _scopes =
+      <List<LuaBytecodeStructuredLocal>>[];
   final List<bool> _scopesInsideToBeClosed = <bool>[];
-  final List<List<_LuaBytecodeStructuredLabel>> _labelScopes =
-      <List<_LuaBytecodeStructuredLabel>>[];
+  final List<List<LuaBytecodeStructuredLabel>> _labelScopes =
+      <List<LuaBytecodeStructuredLabel>>[];
   final List<int> _scopeIds = <int>[];
-  final Map<String, _LuaBytecodeStructuredUpvalue> _upvaluesByName =
-      <String, _LuaBytecodeStructuredUpvalue>{};
-  final Set<_LuaBytecodeStructuredLocal> _capturedLocals =
-      <_LuaBytecodeStructuredLocal>{};
-  final Map<String, List<_LuaBytecodeStructuredLabel>> _labelsByName =
-      <String, List<_LuaBytecodeStructuredLabel>>{};
-  final List<_LuaBytecodeStructuredPendingGoto> _pendingGotos =
-      <_LuaBytecodeStructuredPendingGoto>[];
+  final Map<String, LuaBytecodeStructuredUpvalue> _upvaluesByName =
+      <String, LuaBytecodeStructuredUpvalue>{};
+  final Set<LuaBytecodeStructuredLocal> _capturedLocals =
+      <LuaBytecodeStructuredLocal>{};
+  final Map<String, List<LuaBytecodeStructuredLabel>> _labelsByName =
+      <String, List<LuaBytecodeStructuredLabel>>{};
+  final List<LuaBytecodeStructuredPendingGoto> _pendingGotos =
+      <LuaBytecodeStructuredPendingGoto>[];
   final List<List<int>> _breakFixups = <List<int>>[];
   final List<LuaBytecodeLocalFact> _factLocals = <LuaBytecodeLocalFact>[];
   var _nextRegister = 0;
@@ -411,7 +411,7 @@ final class _LuaBytecodeStructuredCompiler {
       );
     }
 
-    final pendingLocals = <_LuaBytecodeStructuredLocal>[];
+    final pendingLocals = <LuaBytecodeStructuredLocal>[];
     for (
       var localIndex = 0;
       localIndex < statement.names.length;
@@ -548,14 +548,14 @@ final class _LuaBytecodeStructuredCompiler {
       final expr = _unwrapExpression(rawExpr);
       if (expr case Identifier(name: final name)) {
         switch (_resolveVariable(name)) {
-          case _LuaBytecodeStructuredResolvedVariable(
-            kind: _LuaBytecodeStructuredResolvedVariableKind.local,
+          case LuaBytecodeStructuredResolvedVariable(
+            kind: LuaBytecodeStructuredResolvedVariableKind.local,
             register: final register,
           ):
             _prototype.emitReturn(firstRegister: register!, resultCount: 1);
             return;
-          case _LuaBytecodeStructuredResolvedVariable(
-            kind: _LuaBytecodeStructuredResolvedVariableKind.upvalue,
+          case LuaBytecodeStructuredResolvedVariable(
+            kind: LuaBytecodeStructuredResolvedVariableKind.upvalue,
             upvalueIndex: final upvalueIndex,
           ):
             final scratch = _reserveTempBlock(1);
@@ -928,7 +928,7 @@ final class _LuaBytecodeStructuredCompiler {
     if (existing != null && existing.isNotEmpty) {
       throw UnsupportedError("label '$name' already defined");
     }
-    final label = _LuaBytecodeStructuredLabel(
+    final label = LuaBytecodeStructuredLabel(
       name: name,
       targetPc: _prototype.currentPc,
       scopeDepth: _scopes.length,
@@ -937,7 +937,7 @@ final class _LuaBytecodeStructuredCompiler {
       visibleLocals: visible,
     );
     _labelScopes.last.add(label);
-    (_labelsByName[name] ??= <_LuaBytecodeStructuredLabel>[]).add(label);
+    (_labelsByName[name] ??= <LuaBytecodeStructuredLabel>[]).add(label);
     _resolvePendingGotos(name);
   }
 
@@ -945,7 +945,7 @@ final class _LuaBytecodeStructuredCompiler {
     final jumpPc = _prototype.emitJumpPlaceholder();
     final closePc = _prototype.currentPc;
     _prototype.emitClose(fromRegister: 0);
-    final pending = _LuaBytecodeStructuredPendingGoto(
+    final pending = LuaBytecodeStructuredPendingGoto(
       label: statement.label.name,
       jumpPc: jumpPc,
       closePc: closePc,
@@ -1287,23 +1287,23 @@ final class _LuaBytecodeStructuredCompiler {
 
   void _emitIdentifierToRegister(String name, int targetRegister) {
     switch (_resolveVariable(name)) {
-      case _LuaBytecodeStructuredResolvedVariable(
-        kind: _LuaBytecodeStructuredResolvedVariableKind.local,
+      case LuaBytecodeStructuredResolvedVariable(
+        kind: LuaBytecodeStructuredResolvedVariableKind.local,
         register: final register,
       ):
         if (register != targetRegister) {
           _prototype.emitMove(target: targetRegister, source: register!);
         }
-      case _LuaBytecodeStructuredResolvedVariable(
-        kind: _LuaBytecodeStructuredResolvedVariableKind.upvalue,
+      case LuaBytecodeStructuredResolvedVariable(
+        kind: LuaBytecodeStructuredResolvedVariableKind.upvalue,
         upvalueIndex: final upvalueIndex,
       ):
         _prototype.emitGetUpvalue(
           target: targetRegister,
           upvalue: upvalueIndex!,
         );
-      case _LuaBytecodeStructuredResolvedVariable(
-        kind: _LuaBytecodeStructuredResolvedVariableKind.global,
+      case LuaBytecodeStructuredResolvedVariable(
+        kind: LuaBytecodeStructuredResolvedVariableKind.global,
         name: final globalName,
       ):
         _emitGlobalAccessToRegister(globalName!, targetRegister);
@@ -1312,8 +1312,8 @@ final class _LuaBytecodeStructuredCompiler {
 
   void _emitGlobalAccessToRegister(String name, int targetRegister) {
     switch (_resolveVariable('_ENV')) {
-      case _LuaBytecodeStructuredResolvedVariable(
-        kind: _LuaBytecodeStructuredResolvedVariableKind.local,
+      case LuaBytecodeStructuredResolvedVariable(
+        kind: LuaBytecodeStructuredResolvedVariableKind.local,
         register: final register,
       ):
         _emitFieldAccessToRegister(
@@ -1322,8 +1322,8 @@ final class _LuaBytecodeStructuredCompiler {
           targetRegister: targetRegister,
         );
         return;
-      case _LuaBytecodeStructuredResolvedVariable(
-        kind: _LuaBytecodeStructuredResolvedVariableKind.upvalue,
+      case LuaBytecodeStructuredResolvedVariable(
+        kind: LuaBytecodeStructuredResolvedVariableKind.upvalue,
       ):
         break;
       default:
@@ -1408,8 +1408,8 @@ final class _LuaBytecodeStructuredCompiler {
 
   void _emitGlobalStore(String name, int sourceRegister) {
     switch (_resolveVariable('_ENV')) {
-      case _LuaBytecodeStructuredResolvedVariable(
-        kind: _LuaBytecodeStructuredResolvedVariableKind.local,
+      case LuaBytecodeStructuredResolvedVariable(
+        kind: LuaBytecodeStructuredResolvedVariableKind.local,
         register: final register,
       ):
         _emitFieldStore(
@@ -1418,8 +1418,8 @@ final class _LuaBytecodeStructuredCompiler {
           sourceRegister: sourceRegister,
         );
         return;
-      case _LuaBytecodeStructuredResolvedVariable(
-        kind: _LuaBytecodeStructuredResolvedVariableKind.upvalue,
+      case LuaBytecodeStructuredResolvedVariable(
+        kind: LuaBytecodeStructuredResolvedVariableKind.upvalue,
       ):
         break;
       default:
@@ -1455,8 +1455,8 @@ final class _LuaBytecodeStructuredCompiler {
   void _emitCheckGlobalUndefined(String name) {
     final constantIndex = _prototype.addStringConstant(name);
     switch (_resolveVariable('_ENV')) {
-      case _LuaBytecodeStructuredResolvedVariable(
-        kind: _LuaBytecodeStructuredResolvedVariableKind.local,
+      case LuaBytecodeStructuredResolvedVariable(
+        kind: LuaBytecodeStructuredResolvedVariableKind.local,
         register: final register,
       ):
         _prototype.emitCheckGlobal(
@@ -1464,8 +1464,8 @@ final class _LuaBytecodeStructuredCompiler {
           constantIndex: constantIndex,
         );
         return;
-      case _LuaBytecodeStructuredResolvedVariable(
-        kind: _LuaBytecodeStructuredResolvedVariableKind.upvalue,
+      case LuaBytecodeStructuredResolvedVariable(
+        kind: LuaBytecodeStructuredResolvedVariableKind.upvalue,
         upvalueIndex: final upvalueIndex,
       ):
         final scratch = _reserveTempBlock(1);
@@ -1744,7 +1744,7 @@ final class _LuaBytecodeStructuredCompiler {
   int _emitComparisonOperand(AstNode node, int targetRegister) {
     if (_unwrapExpression(node) case Identifier(name: final name)) {
       final resolved = _resolveVariable(name);
-      if (resolved.kind == _LuaBytecodeStructuredResolvedVariableKind.local) {
+      if (resolved.kind == LuaBytecodeStructuredResolvedVariableKind.local) {
         return resolved.register!;
       }
     }
@@ -2169,7 +2169,7 @@ final class _LuaBytecodeStructuredCompiler {
       flags: flags,
       source: _prototype.source,
     );
-    final childCompiler = _LuaBytecodeStructuredCompiler.nested(
+    final childCompiler = LuaBytecodeStructuredCompiler.nested(
       childPrototype,
       this,
       parameters: parameterList,
@@ -2805,38 +2805,38 @@ final class _LuaBytecodeStructuredCompiler {
     ),
   };
 
-  _LuaBytecodeStructuredResolvedVariable _resolveVariable(String name) {
+  LuaBytecodeStructuredResolvedVariable _resolveVariable(String name) {
     final currentFunctionBinding = _resolveCurrentFunctionBinding(name);
     if (currentFunctionBinding != null) {
       return currentFunctionBinding;
     }
 
     if (_declaredGlobals.contains(name)) {
-      return _LuaBytecodeStructuredResolvedVariable.global(name: name);
+      return LuaBytecodeStructuredResolvedVariable.global(name: name);
     }
 
     final capture = _provideCapture(name);
     if (capture != null) {
-      return _LuaBytecodeStructuredResolvedVariable.upvalue(
+      return LuaBytecodeStructuredResolvedVariable.upvalue(
         name: name,
         upvalueIndex: capture.index,
       );
     }
 
     if (_inheritedDeclaredGlobals.contains(name)) {
-      return _LuaBytecodeStructuredResolvedVariable.global(name: name);
+      return LuaBytecodeStructuredResolvedVariable.global(name: name);
     }
 
-    return _LuaBytecodeStructuredResolvedVariable.global(name: name);
+    return LuaBytecodeStructuredResolvedVariable.global(name: name);
   }
 
-  _LuaBytecodeStructuredResolvedVariable? _resolveCurrentFunctionBinding(
+  LuaBytecodeStructuredResolvedVariable? _resolveCurrentFunctionBinding(
     String name,
   ) {
     for (final scope in _scopes.reversed) {
       for (final local in scope.reversed) {
         if (local.hasStorage && local.name == name) {
-          return _LuaBytecodeStructuredResolvedVariable.local(
+          return LuaBytecodeStructuredResolvedVariable.local(
             name: name,
             register: local.register,
           );
@@ -2844,20 +2844,20 @@ final class _LuaBytecodeStructuredCompiler {
       }
       for (final local in scope.reversed) {
         if (!local.hasStorage && local.name == name) {
-          return _LuaBytecodeStructuredResolvedVariable.global(name: name);
+          return LuaBytecodeStructuredResolvedVariable.global(name: name);
         }
       }
     }
     return null;
   }
 
-  _LuaBytecodeStructuredStoreTarget _resolveStoreTarget(AstNode node) {
+  LuaBytecodeStructuredStoreTarget _resolveStoreTarget(AstNode node) {
     final target = _unwrapExpression(node);
     switch (target) {
       case Identifier(name: final name):
         final resolved = _resolveVariable(name);
         return switch (resolved.kind) {
-          _LuaBytecodeStructuredResolvedVariableKind.local => (() {
+          LuaBytecodeStructuredResolvedVariableKind.local => (() {
             final local = _lookupLocal(name)!;
             if (_isImmutableLocalAttribute(local.attribute)) {
               throw UnsupportedError(
@@ -2865,11 +2865,11 @@ final class _LuaBytecodeStructuredCompiler {
                 "'$name'",
               );
             }
-            return _LuaBytecodeStructuredStoreTarget.local(
+            return LuaBytecodeStructuredStoreTarget.local(
               register: resolved.register!,
             );
           })(),
-          _LuaBytecodeStructuredResolvedVariableKind.upvalue => (() {
+          LuaBytecodeStructuredResolvedVariableKind.upvalue => (() {
             final capturedLocal = _lookupCapturedLocalInAncestors(name);
             if (capturedLocal != null &&
                 _isImmutableLocalAttribute(capturedLocal.attribute)) {
@@ -2878,17 +2878,17 @@ final class _LuaBytecodeStructuredCompiler {
                 "'$name'",
               );
             }
-            return _LuaBytecodeStructuredStoreTarget.upvalue(
+            return LuaBytecodeStructuredStoreTarget.upvalue(
               upvalueIndex: resolved.upvalueIndex!,
             );
           })(),
-          _LuaBytecodeStructuredResolvedVariableKind.global =>
-            _LuaBytecodeStructuredStoreTarget.global(name: resolved.name!),
+          LuaBytecodeStructuredResolvedVariableKind.global =>
+            LuaBytecodeStructuredStoreTarget.global(name: resolved.name!),
         };
       case TableFieldAccess(table: final table, fieldName: final fieldName):
         final tableRegister = _reserveTempBlock(1);
         _emitExpressionToRegister(table, tableRegister);
-        return _LuaBytecodeStructuredStoreTarget.field(
+        return LuaBytecodeStructuredStoreTarget.field(
           tableRegister: tableRegister,
           fieldName: fieldName.name,
           tempWidth: 1,
@@ -2898,7 +2898,7 @@ final class _LuaBytecodeStructuredCompiler {
         if (immediateIndex != null) {
           final tableRegister = _reserveTempBlock(1);
           _emitExpressionToRegister(table, tableRegister);
-          return _LuaBytecodeStructuredStoreTarget.immediateIndex(
+          return LuaBytecodeStructuredStoreTarget.immediateIndex(
             tableRegister: tableRegister,
             index: immediateIndex,
             tempWidth: 1,
@@ -2907,7 +2907,7 @@ final class _LuaBytecodeStructuredCompiler {
         final tempBase = _reserveTempBlock(2);
         _emitExpressionToRegister(table, tempBase);
         _emitExpressionToRegister(index, tempBase + 1);
-        return _LuaBytecodeStructuredStoreTarget.computedIndex(
+        return LuaBytecodeStructuredStoreTarget.computedIndex(
           tableRegister: tempBase,
           keyRegister: tempBase + 1,
           tempWidth: 2,
@@ -2916,7 +2916,7 @@ final class _LuaBytecodeStructuredCompiler {
         if (_unwrapExpression(index) case Identifier(name: final name)) {
           final tableRegister = _reserveTempBlock(1);
           _emitExpressionToRegister(table, tableRegister);
-          return _LuaBytecodeStructuredStoreTarget.field(
+          return LuaBytecodeStructuredStoreTarget.field(
             tableRegister: tableRegister,
             fieldName: name,
             tempWidth: 1,
@@ -2932,33 +2932,33 @@ final class _LuaBytecodeStructuredCompiler {
 
   void _storeRegisterToTarget(
     int sourceRegister,
-    _LuaBytecodeStructuredStoreTarget target,
+    LuaBytecodeStructuredStoreTarget target,
   ) {
     switch (target.kind) {
-      case _LuaBytecodeStructuredStoreTargetKind.local:
+      case LuaBytecodeStructuredStoreTargetKind.local:
         if (target.register != sourceRegister) {
           _prototype.emitMove(target: target.register!, source: sourceRegister);
         }
-      case _LuaBytecodeStructuredStoreTargetKind.upvalue:
+      case LuaBytecodeStructuredStoreTargetKind.upvalue:
         _prototype.emitSetUpvalue(
           source: sourceRegister,
           upvalue: target.upvalueIndex!,
         );
-      case _LuaBytecodeStructuredStoreTargetKind.global:
+      case LuaBytecodeStructuredStoreTargetKind.global:
         _emitGlobalStore(target.name!, sourceRegister);
-      case _LuaBytecodeStructuredStoreTargetKind.field:
+      case LuaBytecodeStructuredStoreTargetKind.field:
         _emitFieldStore(
           tableRegister: target.tableRegister!,
           fieldName: target.name!,
           sourceRegister: sourceRegister,
         );
-      case _LuaBytecodeStructuredStoreTargetKind.immediateIndex:
+      case LuaBytecodeStructuredStoreTargetKind.immediateIndex:
         _prototype.emitSetI(
           table: target.tableRegister!,
           index: target.index!,
           source: sourceRegister,
         );
-      case _LuaBytecodeStructuredStoreTargetKind.keyedIndex:
+      case LuaBytecodeStructuredStoreTargetKind.keyedIndex:
         _prototype.emitSetTable(
           table: target.tableRegister!,
           key: target.keyRegister!,
@@ -2967,7 +2967,7 @@ final class _LuaBytecodeStructuredCompiler {
     }
   }
 
-  void _releaseStoreTargetTemps(_LuaBytecodeStructuredStoreTarget target) {
+  void _releaseStoreTargetTemps(LuaBytecodeStructuredStoreTarget target) {
     final width = target.tempWidth;
     if (width == null || width == 0) {
       return;
@@ -2975,11 +2975,11 @@ final class _LuaBytecodeStructuredCompiler {
     _releaseTempBlock(target.tableRegister!, width);
   }
 
-  _LuaBytecodeStructuredCapture? _provideCapture(String name) {
+  LuaBytecodeStructuredCapture? _provideCapture(String name) {
     final local = _lookupLocal(name);
     if (local != null) {
       _capturedLocals.add(local);
-      return _LuaBytecodeStructuredCapture(
+      return LuaBytecodeStructuredCapture(
         index: local.register,
         inStack: true,
       );
@@ -2987,7 +2987,7 @@ final class _LuaBytecodeStructuredCompiler {
 
     final existing = _upvaluesByName[name];
     if (existing != null) {
-      return _LuaBytecodeStructuredCapture(
+      return LuaBytecodeStructuredCapture(
         index: existing.index,
         inStack: false,
       );
@@ -2995,7 +2995,7 @@ final class _LuaBytecodeStructuredCompiler {
 
     if (_parent == null) {
       if (name == '_ENV') {
-        return const _LuaBytecodeStructuredCapture(index: 0, inStack: false);
+        return const LuaBytecodeStructuredCapture(index: 0, inStack: false);
       }
       return null;
     }
@@ -3016,11 +3016,11 @@ final class _LuaBytecodeStructuredCompiler {
         name: name,
       ),
     );
-    _upvaluesByName[name] = _LuaBytecodeStructuredUpvalue(
+    _upvaluesByName[name] = LuaBytecodeStructuredUpvalue(
       name: name,
       index: index,
     );
-    return _LuaBytecodeStructuredCapture(index: index, inStack: false);
+    return LuaBytecodeStructuredCapture(index: index, inStack: false);
   }
 
   int get _environmentUpvalueIndex => _provideCapture('_ENV')!.index;
@@ -3038,7 +3038,7 @@ final class _LuaBytecodeStructuredCompiler {
     );
   }
 
-  _LuaBytecodeStructuredLocal? _lookupLocal(String name) {
+  LuaBytecodeStructuredLocal? _lookupLocal(String name) {
     final candidates = _localsByName[name];
     if (candidates == null || candidates.isEmpty) {
       return null;
@@ -3046,7 +3046,7 @@ final class _LuaBytecodeStructuredCompiler {
     return candidates.last;
   }
 
-  _LuaBytecodeStructuredLocal? _lookupCapturedLocalInAncestors(String name) {
+  LuaBytecodeStructuredLocal? _lookupCapturedLocalInAncestors(String name) {
     if (_parent == null) {
       return null;
     }
@@ -3057,13 +3057,13 @@ final class _LuaBytecodeStructuredCompiler {
   bool _isImmutableLocalAttribute(String attribute) =>
       attribute == 'const' || attribute == 'close';
 
-  _LuaBytecodeStructuredLocal _prepareLocal(
+  LuaBytecodeStructuredLocal _prepareLocal(
     String name, {
     required int statementIndex,
     required String attribute,
   }) {
     final register = _allocateRegisters(1);
-    return _LuaBytecodeStructuredLocal(
+    return LuaBytecodeStructuredLocal(
       name: name,
       register: register,
       startPc: _prototype.currentPc + 1,
@@ -3075,7 +3075,7 @@ final class _LuaBytecodeStructuredCompiler {
   }
 
   void _activatePreparedLocal(
-    _LuaBytecodeStructuredLocal local, {
+    LuaBytecodeStructuredLocal local, {
     required int startPc,
   }) {
     _bindAllocatedRegister(
@@ -3104,7 +3104,7 @@ final class _LuaBytecodeStructuredCompiler {
     required String attribute,
     required int startPc,
   }) {
-    final local = _LuaBytecodeStructuredLocal(
+    final local = LuaBytecodeStructuredLocal(
       name: name,
       register: register,
       startPc: startPc,
@@ -3114,7 +3114,7 @@ final class _LuaBytecodeStructuredCompiler {
       sequence: _nextLocalSequence++,
     );
     _scopes.last.add(local);
-    (_localsByName[name] ??= <_LuaBytecodeStructuredLocal>[]).add(local);
+    (_localsByName[name] ??= <LuaBytecodeStructuredLocal>[]).add(local);
     if (_isTopLevel && statementIndex >= 0) {
       _factLocals.add(
         LuaBytecodeLocalFact(
@@ -3144,7 +3144,7 @@ final class _LuaBytecodeStructuredCompiler {
 
   void _bindScopeBarrier(String name, {required int startPc}) {
     _scopes.last.add(
-      _LuaBytecodeStructuredLocal(
+      LuaBytecodeStructuredLocal(
         name: name,
         register: -1,
         startPc: startPc,
@@ -3184,16 +3184,16 @@ final class _LuaBytecodeStructuredCompiler {
   }
 
   void _enterScope() {
-    _scopes.add(<_LuaBytecodeStructuredLocal>[]);
+    _scopes.add(<LuaBytecodeStructuredLocal>[]);
     _scopesInsideToBeClosed.add(_isInsideToBeClosedScope);
-    _labelScopes.add(<_LuaBytecodeStructuredLabel>[]);
+    _labelScopes.add(<LuaBytecodeStructuredLabel>[]);
     _scopeIds.add(_nextScopeId++);
   }
 
   void _exitScope({required int endPc, bool emitCloseInstruction = true}) {
     final locals = _scopes.last;
     final scopePath = List<int>.from(_scopeIds);
-    final scopeLocals = Set<_LuaBytecodeStructuredLocal>.from(locals);
+    final scopeLocals = Set<LuaBytecodeStructuredLocal>.from(locals);
     final scopeCloseFrom = _minimumCloseRegisterForLocals(locals);
     final emittedCloseFrom = emitCloseInstruction ? scopeCloseFrom : null;
     if (emittedCloseFrom != null) {
@@ -3262,8 +3262,8 @@ final class _LuaBytecodeStructuredCompiler {
     _nextTemp = _nextRegister;
   }
 
-  Set<_LuaBytecodeStructuredLocal> _visibleLocals() {
-    return <_LuaBytecodeStructuredLocal>{for (final scope in _scopes) ...scope};
+  Set<LuaBytecodeStructuredLocal> _visibleLocals() {
+    return <LuaBytecodeStructuredLocal>{for (final scope in _scopes) ...scope};
   }
 
   bool get _isInsideToBeClosedScope =>
@@ -3306,10 +3306,10 @@ final class _LuaBytecodeStructuredCompiler {
       }
       final resolution = _resolveGotoToLabelResult(pending, label);
       switch (resolution) {
-        case _LuaBytecodeGotoResolution.noMatch:
+        case LuaBytecodeGotoResolution.noMatch:
           index += 1;
           continue;
-        case _LuaBytecodeGotoResolution.jumpsIntoScope:
+        case LuaBytecodeGotoResolution.jumpsIntoScope:
           final missing = label.visibleLocals
               .difference(pending.visibleLocals)
               .reduce(
@@ -3319,7 +3319,7 @@ final class _LuaBytecodeStructuredCompiler {
             "<goto ${pending.label}> at line ${pending.line} jumps into the "
             "scope of '${missing.name}'",
           );
-        case _LuaBytecodeGotoResolution.match:
+        case LuaBytecodeGotoResolution.match:
           break;
       }
       _patchResolvedGoto(pending, label);
@@ -3328,8 +3328,8 @@ final class _LuaBytecodeStructuredCompiler {
   }
 
   void _patchResolvedGoto(
-    _LuaBytecodeStructuredPendingGoto pending,
-    _LuaBytecodeStructuredLabel label,
+    LuaBytecodeStructuredPendingGoto pending,
+    LuaBytecodeStructuredLabel label,
   ) {
     final visibilityCloseFrom = _minimumCloseRegisterForVisibilityExit(
       pending.visibleLocals,
@@ -3361,27 +3361,27 @@ final class _LuaBytecodeStructuredCompiler {
     );
   }
 
-  _LuaBytecodeGotoResolution _resolveGotoToLabelResult(
-    _LuaBytecodeStructuredPendingGoto pending,
-    _LuaBytecodeStructuredLabel label,
+  LuaBytecodeGotoResolution _resolveGotoToLabelResult(
+    LuaBytecodeStructuredPendingGoto pending,
+    LuaBytecodeStructuredLabel label,
   ) {
     if (label.scopeDepth > pending.scopeDepth) {
-      return _LuaBytecodeGotoResolution.noMatch;
+      return LuaBytecodeGotoResolution.noMatch;
     }
     if (label.scopePath.length > pending.scopePath.length) {
-      return _LuaBytecodeGotoResolution.noMatch;
+      return LuaBytecodeGotoResolution.noMatch;
     }
     for (var index = 0; index < label.scopePath.length; index++) {
       if (label.scopePath[index] != pending.scopePath[index]) {
-        return _LuaBytecodeGotoResolution.noMatch;
+        return LuaBytecodeGotoResolution.noMatch;
       }
     }
     for (final local in label.visibleLocals) {
       if (!pending.visibleLocals.contains(local)) {
-        return _LuaBytecodeGotoResolution.jumpsIntoScope;
+        return LuaBytecodeGotoResolution.jumpsIntoScope;
       }
     }
-    return _LuaBytecodeGotoResolution.match;
+    return LuaBytecodeGotoResolution.match;
   }
 
   void _ensureResolvedGotos() {
@@ -3494,7 +3494,7 @@ final class _LuaBytecodeStructuredCompiler {
   }
 
   int? _minimumCloseRegisterForLocals(
-    Iterable<_LuaBytecodeStructuredLocal> locals,
+    Iterable<LuaBytecodeStructuredLocal> locals,
   ) {
     int? closeFrom;
     for (final local in locals) {
@@ -3512,8 +3512,8 @@ final class _LuaBytecodeStructuredCompiler {
   }
 
   int? _minimumCloseRegisterForVisibilityExit(
-    Set<_LuaBytecodeStructuredLocal> from,
-    Set<_LuaBytecodeStructuredLocal> to,
+    Set<LuaBytecodeStructuredLocal> from,
+    Set<LuaBytecodeStructuredLocal> to,
   ) {
     int? closeFrom;
     for (final local in from) {
@@ -3534,8 +3534,8 @@ final class _LuaBytecodeStructuredCompiler {
   }
 }
 
-final class _LuaBytecodeStructuredLocal {
-  const _LuaBytecodeStructuredLocal({
+final class LuaBytecodeStructuredLocal {
+  const LuaBytecodeStructuredLocal({
     required this.name,
     required this.register,
     required this.startPc,
@@ -3554,8 +3554,8 @@ final class _LuaBytecodeStructuredLocal {
   final int sequence;
 }
 
-final class _LuaBytecodeStructuredUpvalue {
-  const _LuaBytecodeStructuredUpvalue({
+final class LuaBytecodeStructuredUpvalue {
+  const LuaBytecodeStructuredUpvalue({
     required this.name,
     required this.index,
   });
@@ -3564,8 +3564,8 @@ final class _LuaBytecodeStructuredUpvalue {
   final int index;
 }
 
-final class _LuaBytecodeStructuredCapture {
-  const _LuaBytecodeStructuredCapture({
+final class LuaBytecodeStructuredCapture {
+  const LuaBytecodeStructuredCapture({
     required this.index,
     required this.inStack,
   });
@@ -3574,8 +3574,8 @@ final class _LuaBytecodeStructuredCapture {
   final bool inStack;
 }
 
-final class _LuaBytecodeStructuredLabel {
-  const _LuaBytecodeStructuredLabel({
+final class LuaBytecodeStructuredLabel {
+  const LuaBytecodeStructuredLabel({
     required this.name,
     required this.targetPc,
     required this.scopeDepth,
@@ -3589,11 +3589,11 @@ final class _LuaBytecodeStructuredLabel {
   final int scopeDepth;
   final List<int> scopePath;
   final int loopDepth;
-  final Set<_LuaBytecodeStructuredLocal> visibleLocals;
+  final Set<LuaBytecodeStructuredLocal> visibleLocals;
 }
 
-final class _LuaBytecodeStructuredPendingGoto {
-  _LuaBytecodeStructuredPendingGoto({
+final class LuaBytecodeStructuredPendingGoto {
+  LuaBytecodeStructuredPendingGoto({
     required this.label,
     required this.jumpPc,
     required this.closePc,
@@ -3612,53 +3612,53 @@ final class _LuaBytecodeStructuredPendingGoto {
   int scopeDepth;
   List<int> scopePath;
   final int loopDepth;
-  Set<_LuaBytecodeStructuredLocal> visibleLocals;
+  Set<LuaBytecodeStructuredLocal> visibleLocals;
   int? closeFrom;
 }
 
-enum _LuaBytecodeGotoResolution { noMatch, jumpsIntoScope, match }
+enum LuaBytecodeGotoResolution { noMatch, jumpsIntoScope, match }
 
-enum _LuaBytecodeStructuredResolvedVariableKind { local, upvalue, global }
+enum LuaBytecodeStructuredResolvedVariableKind { local, upvalue, global }
 
-final class _LuaBytecodeStructuredResolvedVariable {
-  const _LuaBytecodeStructuredResolvedVariable.local({
+final class LuaBytecodeStructuredResolvedVariable {
+  const LuaBytecodeStructuredResolvedVariable.local({
     required String name,
     required int register,
   }) : this._(
-         kind: _LuaBytecodeStructuredResolvedVariableKind.local,
+         kind: LuaBytecodeStructuredResolvedVariableKind.local,
          name: name,
          register: register,
        );
 
-  const _LuaBytecodeStructuredResolvedVariable.upvalue({
+  const LuaBytecodeStructuredResolvedVariable.upvalue({
     required String name,
     required int upvalueIndex,
   }) : this._(
-         kind: _LuaBytecodeStructuredResolvedVariableKind.upvalue,
+         kind: LuaBytecodeStructuredResolvedVariableKind.upvalue,
          name: name,
          upvalueIndex: upvalueIndex,
        );
 
-  const _LuaBytecodeStructuredResolvedVariable.global({required String name})
+  const LuaBytecodeStructuredResolvedVariable.global({required String name})
     : this._(
-        kind: _LuaBytecodeStructuredResolvedVariableKind.global,
+        kind: LuaBytecodeStructuredResolvedVariableKind.global,
         name: name,
       );
 
-  const _LuaBytecodeStructuredResolvedVariable._({
+  const LuaBytecodeStructuredResolvedVariable._({
     required this.kind,
     this.name,
     this.register,
     this.upvalueIndex,
   });
 
-  final _LuaBytecodeStructuredResolvedVariableKind kind;
+  final LuaBytecodeStructuredResolvedVariableKind kind;
   final String? name;
   final int? register;
   final int? upvalueIndex;
 }
 
-enum _LuaBytecodeStructuredStoreTargetKind {
+enum LuaBytecodeStructuredStoreTargetKind {
   local,
   upvalue,
   global,
@@ -3667,56 +3667,56 @@ enum _LuaBytecodeStructuredStoreTargetKind {
   keyedIndex,
 }
 
-final class _LuaBytecodeStructuredStoreTarget {
-  const _LuaBytecodeStructuredStoreTarget.local({required int register})
+final class LuaBytecodeStructuredStoreTarget {
+  const LuaBytecodeStructuredStoreTarget.local({required int register})
     : this._(
-        kind: _LuaBytecodeStructuredStoreTargetKind.local,
+        kind: LuaBytecodeStructuredStoreTargetKind.local,
         register: register,
       );
 
-  const _LuaBytecodeStructuredStoreTarget.upvalue({required int upvalueIndex})
+  const LuaBytecodeStructuredStoreTarget.upvalue({required int upvalueIndex})
     : this._(
-        kind: _LuaBytecodeStructuredStoreTargetKind.upvalue,
+        kind: LuaBytecodeStructuredStoreTargetKind.upvalue,
         upvalueIndex: upvalueIndex,
       );
 
-  const _LuaBytecodeStructuredStoreTarget.global({required String name})
-    : this._(kind: _LuaBytecodeStructuredStoreTargetKind.global, name: name);
+  const LuaBytecodeStructuredStoreTarget.global({required String name})
+    : this._(kind: LuaBytecodeStructuredStoreTargetKind.global, name: name);
 
-  const _LuaBytecodeStructuredStoreTarget.field({
+  const LuaBytecodeStructuredStoreTarget.field({
     required int tableRegister,
     required String fieldName,
     required int tempWidth,
   }) : this._(
-         kind: _LuaBytecodeStructuredStoreTargetKind.field,
+         kind: LuaBytecodeStructuredStoreTargetKind.field,
          tableRegister: tableRegister,
          name: fieldName,
          tempWidth: tempWidth,
        );
 
-  const _LuaBytecodeStructuredStoreTarget.immediateIndex({
+  const LuaBytecodeStructuredStoreTarget.immediateIndex({
     required int tableRegister,
     required int index,
     required int tempWidth,
   }) : this._(
-         kind: _LuaBytecodeStructuredStoreTargetKind.immediateIndex,
+         kind: LuaBytecodeStructuredStoreTargetKind.immediateIndex,
          tableRegister: tableRegister,
          index: index,
          tempWidth: tempWidth,
        );
 
-  const _LuaBytecodeStructuredStoreTarget.computedIndex({
+  const LuaBytecodeStructuredStoreTarget.computedIndex({
     required int tableRegister,
     required int keyRegister,
     required int tempWidth,
   }) : this._(
-         kind: _LuaBytecodeStructuredStoreTargetKind.keyedIndex,
+         kind: LuaBytecodeStructuredStoreTargetKind.keyedIndex,
          tableRegister: tableRegister,
          keyRegister: keyRegister,
          tempWidth: tempWidth,
        );
 
-  const _LuaBytecodeStructuredStoreTarget._({
+  const LuaBytecodeStructuredStoreTarget._({
     required this.kind,
     this.register,
     this.upvalueIndex,
@@ -3727,7 +3727,7 @@ final class _LuaBytecodeStructuredStoreTarget {
     this.tempWidth,
   });
 
-  final _LuaBytecodeStructuredStoreTargetKind kind;
+  final LuaBytecodeStructuredStoreTargetKind kind;
   final int? register;
   final int? upvalueIndex;
   final String? name;

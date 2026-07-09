@@ -17,13 +17,13 @@ final class LuaBytecodeParser {
   const LuaBytecodeParser();
 
   LuaBytecodeBinaryChunk parse(List<int> bytes) {
-    final reader = _LuaBytecodeReader(bytes);
+    final reader = LuaBytecodeReader(bytes);
     return reader.readChunk();
   }
 }
 
-final class _LuaBytecodeReader {
-  _LuaBytecodeReader(List<int> bytes)
+final class LuaBytecodeReader {
+  LuaBytecodeReader(List<int> bytes)
     : _bytes = bytes is Uint8List ? bytes : Uint8List.fromList(bytes),
       _savedStrings = <String?>[null] {
     _byteData = ByteData.sublistView(_bytes);
