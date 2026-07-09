@@ -1,9 +1,6 @@
 import 'package:test/test.dart';
 import 'package:lualike/lualike.dart';
 import 'package:lualike/src/stdlib/lib_io.dart';
-import 'package:lualike/src/io/filesystem_provider.dart';
-import 'package:lualike/src/io/lua_file.dart';
-import 'package:lualike/src/io/io_device.dart';
 import 'package:lualike/src/io/memory_io_device.dart';
 import 'package:lualike/src/runtime/lua_results.dart';
 

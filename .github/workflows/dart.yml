@@ -43,3 +43,23 @@ jobs:
 
       - name: Run tests
         run: dart test
+
+  extra-packages:
+    name: Extra packages (file, process)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dart-lang/setup-dart@v1
+        with:
+          sdk: stable
+
+      - name: Install dependencies
+        run: dart pub get
+
+      - name: Test file_lualike
+        run: dart test
+        working-directory: pkgs/file_lualike
+
+      - name: Test process_lualike
+        run: dart test
+        working-directory: pkgs/process_lualike

@@ -6,12 +6,10 @@ import 'package:lualike/lualike.dart';
 
 import 'package:lualike/src/coroutine.dart';
 import 'package:lualike/src/gc/gc.dart';
-import 'package:lualike/src/io/lua_file.dart';
 import 'package:lualike/src/runtime/lua_results.dart';
 import 'package:lualike/src/runtime/lua_slot.dart';
 import 'package:lualike/src/runtime/runtime_hints.dart';
 import 'package:lualike/src/table_storage.dart';
-import 'package:lualike/src/utils/file_system_utils.dart';
 import 'package:lualike/src/utils/type.dart';
 import 'package:path/path.dart' as path;
 

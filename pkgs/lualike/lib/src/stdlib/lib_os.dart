@@ -2,7 +2,6 @@ import 'package:lualike/lualike.dart';
 
 import 'package:lualike/src/runtime/lua_results.dart';
 import 'package:lualike/src/runtime/lua_slot.dart';
-import 'package:lualike/src/utils/file_system_utils.dart';
 import 'package:lualike/src/number_limits.dart';
 import 'package:lualike/src/utils/io_abstractions.dart'
     hide setProcessBackend, currentProcessBackend;

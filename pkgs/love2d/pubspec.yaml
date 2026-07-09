@@ -6,7 +6,7 @@ repository: https://github.com/kingwill101/lualike
 
 resolution: workspace
 environment:
-  sdk: ^3.9.0
+  sdk: ^3.10.0
   flutter: ">=3.35.0"
 
 dependencies:

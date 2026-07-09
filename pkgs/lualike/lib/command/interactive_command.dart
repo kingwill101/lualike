@@ -2,8 +2,6 @@ import 'package:artisanal/artisanal.dart' show Console;
 import 'package:artisanal/bubbles.dart';
 import 'package:lualike/history.dart';
 import 'package:lualike/lualike.dart';
-import 'package:lualike/src/io/io_device.dart';
-import 'package:lualike/src/io/lua_file.dart';
 import 'package:lualike/src/io/virtual_io_device.dart';
 import 'package:lualike/src/stdlib/lib_io.dart';
 

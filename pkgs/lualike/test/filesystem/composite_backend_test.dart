@@ -45,7 +45,7 @@ class _TestBackend implements FileSystemBackend {
   @override
   Future<List<int>?> readFileAsBytes(String path) async {
     final content = files[path];
-    return content != null ? content.codeUnits : null;
+    return content?.codeUnits;
   }
 
   @override

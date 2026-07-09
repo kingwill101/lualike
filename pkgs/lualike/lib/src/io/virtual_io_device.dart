@@ -3,8 +3,6 @@ import 'dart:typed_data';
 
 import 'package:lualike/lualike.dart';
 
-import 'io_device.dart';
-
 /// A virtual IO device that operates on a string buffer.
 /// Useful for testing and REPL mode.
 class VirtualIODevice extends BaseIODevice {

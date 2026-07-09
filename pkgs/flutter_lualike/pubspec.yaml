@@ -14,12 +14,12 @@ topics:
   - asset-bundle
 
 environment:
-  sdk: ">=3.9.0 <4.0.0"
+  sdk: ">=3.10.0 <4.0.0"
 
 dependencies:
   flutter:
     sdk: flutter
-  lualike: ^0.2.4
+  lualike: ^0.3.0
 
 dev_dependencies:
   flutter_test:

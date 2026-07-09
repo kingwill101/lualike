@@ -1,32 +1,49 @@
-# .github/workflows/publish.yml
 name: Publish to pub.dev
 
 on:
   push:
     tags:
-      - "v[0-9]+.[0-9]+.[0-9]+*" # tag pattern on pub.dev: 'v{{version}}'
+      - "v[0-9]+.[0-9]+.[0-9]+*"
+      - "lualike-v[0-9]+.[0-9]+.[0-9]+*"
+      - "file_lualike-v[0-9]+.[0-9]+.[0-9]+*"
+      - "process_lualike-v[0-9]+.[0-9]+.[0-9]+*"
+      - "flutter_lualike-v[0-9]+.[0-9]+.[0-9]+*"
   workflow_run:
     workflows: ["Dart", "Lua Test Suite"]
     types: [completed]
     branches: ["master"]
-defaults:
-  run:
-    working-directory: pkgs/lualike
-# Publish using custom workflow
+
 jobs:
   publish:
     if: ${{ github.event.workflow_run.conclusion == 'success' || github.ref_type == 'tag' }}
     permissions:
-      id-token: write # Required for authentication using OIDC
+      id-token: write
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
       - uses: subosito/flutter-action@v2
         with:
           channel: stable
+
+      - name: Parse package name from tag
+        id: parse-tag
+        run: |
+          TAG="${{ github.ref_name }}"
+          if [[ "$TAG" == lualike-v* ]]; then
+            echo "package=lualike" >> "$GITHUB_OUTPUT"
+          elif [[ "$TAG" == file_lualike-v* ]]; then
+            echo "package=file_lualike" >> "$GITHUB_OUTPUT"
+          elif [[ "$TAG" == process_lualike-v* ]]; then
+            echo "package=process_lualike" >> "$GITHUB_OUTPUT"
+          elif [[ "$TAG" == flutter_lualike-v* ]]; then
+            echo "package=flutter_lualike" >> "$GITHUB_OUTPUT"
+          else
+            echo "package=lualike" >> "$GITHUB_OUTPUT"
+          fi
+
       - name: Install dependencies
-        run: flutter pub get
-      # Here you can insert custom steps you need
-      # - run: dart tool/generate-code.dart
+        run: dart pub get
+
       - name: Publish
         run: dart pub publish --force
+        working-directory: pkgs/${{ steps.parse-tag.outputs.package }}

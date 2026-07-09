@@ -1,3 +1,21 @@
+## 0.3.0
+
+- Add `ValueDoc`, `DocDescriptor`, `AccessScope`, `GenericParam`, `OverloadDoc`,
+  `OperatorDoc`, `AliasDoc`, `EnumDoc` to core doc model for rich library metadata.
+- `LibraryRegistrationContext.define()` now accepts `DocDescriptor` objects
+  (`FunctionDescriptor`, `ConstantDescriptor`, `AliasDescriptor`, `EnumDescriptor`,
+  `TableDescriptor`) for structured library registration.
+- Add full LuaLS annotation support across all three renderers: deprecated, async,
+  nodiscard, scope, generic, overload, alias, enum, operator, see, source, version,
+  and type annotations for ValueDoc constants.
+- Add `CompositeFileSystemBackend` to core lualike for layered filesystem backends.
+- Consolidate extension dispatch: `unwrap()` on `Object?`, `Value.rawObject` getter,
+  and `Map.unwrap(key)` that properly handles `LuaString` conversion.
+- Add `DerivedDocumentedLibrary` mixin for composing library metadata.
+- Expose new doc model types in public API (`package:lualike/lualike.dart`).
+- Document math constants (`pi`, `huge`, `maxinteger`, `mininteger`) and `_VERSION`
+  via `ValueDoc`.
+
 ## 0.2.4
 
 - Add public `setFileSystemProvider()` API to bridge `package:lualike`'s
