@@ -11,7 +11,7 @@ Bridges remote process execution into the [LuaLike](https://github.com/kingwill1
 ```yaml
 dependencies:
   lualike: ^0.3.0
-  process_lualike: ^0.1.0
+  process_lualike: ^0.1.1
 ```
 
 Then run:

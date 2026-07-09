@@ -2,7 +2,7 @@ name: process_lualike
 description: >
     Bridges remote process execution into the lualike scripting runtime.
     Enables os.execute() over SSH, Docker, or other custom backends.
-version: 0.1.0
+version: 0.1.1
 resolution: workspace
 repository: https://github.com/kingwill101/lualike
 homepage: https://github.com/kingwill101/lualike
