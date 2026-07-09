@@ -1,15 +1,14 @@
 import 'package:lualike/lualike.dart';
-import 'ssh_process_backend.dart';
 
-/// Wires an SSH-based process backend into the current lualike runtime.
+/// Wires a custom [ProcessBackend] into the current lualike runtime.
 ///
-/// After calling this, `os.execute()` and `io.popen()` run commands on the
-/// remote host via [backend] instead of the local machine.
+/// After calling this, `os.execute()` and `io.popen()` use [backend]
+/// instead of the platform default.
 ///
 /// ```dart
-/// final session = SshClient(...);
-/// await useProcessBackend(SshProcessBackend(session));
+/// class DockerBackend implements ProcessBackend { ... }
+/// await useProcessBackend(DockerBackend());
 /// ```
-void useProcessBackend(SshProcessBackend backend) {
+void useProcessBackend(ProcessBackend backend) {
   setProcessBackend(backend);
 }
