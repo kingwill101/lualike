@@ -16,6 +16,7 @@ import 'package:lualike/src/lua_bytecode/instruction_analysis.dart';
 import 'package:lualike/src/lua_bytecode/debug_local_caches.dart';
 import 'package:lualike/src/lua_bytecode/vm_value_helpers.dart';
 import 'package:lualike/src/lua_bytecode/vm_frame_helpers.dart';
+import 'package:lualike/src/lua_bytecode/vm_call_frame_state.dart';
 import 'package:lualike/src/lua_bytecode/vm_profile.dart';
 import 'package:lualike/src/lua_error.dart';
 import 'package:lualike/src/lua_string.dart';
@@ -43,47 +44,6 @@ final bool _profileBytecode =
 final RegExp _bytecodeFormattedLuaErrorPattern = RegExp(
   r'^(?:\[[^\n]+\]|[^:\n]+):(?:\d+|\?): ',
 );
-
-final Expando<LuaBytecodeFrame> _callFrameBytecodeFrames =
-    Expando<LuaBytecodeFrame>();
-final Expando<bool> _closeSignalYieldableStates = Expando<bool>();
-
-LuaBytecodeFrame? _bytecodeFrameForCallFrame(CallFrame? callFrame) {
-  if (callFrame == null) {
-    return null;
-  }
-  final mapped = _callFrameBytecodeFrames[callFrame];
-  if (mapped != null) {
-    return mapped;
-  }
-  return switch (callFrame.engineFrameState) {
-    final LuaBytecodeFrame bytecodeFrame => bytecodeFrame,
-    _ => null,
-  };
-}
-
-void _bindBytecodeCallFrame(CallFrame callFrame, LuaBytecodeFrame frame) {
-  _callFrameBytecodeFrames[callFrame] = frame;
-  callFrame.engineFrameState = frame;
-}
-
-void _clearBytecodeCallFrame(CallFrame callFrame) {
-  _callFrameBytecodeFrames[callFrame] = null;
-  if (callFrame.engineFrameState case final LuaBytecodeFrame _) {
-    callFrame.engineFrameState = null;
-  }
-}
-
-void _rememberCloseSignalYieldable(
-  CoroutineCloseSignal signal,
-  bool isYieldable,
-) {
-  final previous = _closeSignalYieldableStates[signal];
-  _closeSignalYieldableStates[signal] = switch (previous) {
-    null => isYieldable,
-    final bool prior => prior && isYieldable,
-  };
-}
 
 void _debugFileLog(String message) {
   if (_debugFileOps) {
@@ -288,7 +248,7 @@ final class LuaBytecodeVm {
     }
     final activeCallFrame = runtime.callStack.top;
     if (activeCallFrame != null) {
-      _bindBytecodeCallFrame(activeCallFrame, frame);
+      bindBytecodeCallFrame(activeCallFrame, frame);
       final isHookCallback =
           frame.callName == 'hook' ||
           frame.callNameWhat == 'hook' ||
@@ -297,7 +257,7 @@ final class LuaBytecodeVm {
           // that wrapper is still the hook callback, but helper calls made from
           // inside the hook should not inherit hook visibility.
           (parentFrame?.isDebugHook == true &&
-              _bytecodeFrameForCallFrame(parentFrame!) == null);
+              bytecodeFrameForCallFrame(parentFrame!) == null);
       if (isHookCallback) {
         // Only the hook callback itself should count as a debug-hook frame for
         // visibility purposes. Helper functions that the hook calls must remain
@@ -359,7 +319,7 @@ final class LuaBytecodeVm {
       suspended = true;
       rethrow;
     } on CoroutineCloseSignal catch (signal) {
-      var closeYieldable = _closeSignalYieldableStates[signal];
+      var closeYieldable = closeSignalYieldableStates[signal];
       runtime.callStack.pop();
       poppedCallFrame = true;
       var closeResult = signal.result;
@@ -373,7 +333,7 @@ final class LuaBytecodeVm {
         } on CoroutineCloseSignal catch (nestedSignal) {
           closeResult = nestedSignal.result;
           closeYieldable =
-              _closeSignalYieldableStates[nestedSignal] ?? closeYieldable;
+              closeSignalYieldableStates[nestedSignal] ?? closeYieldable;
         } on YieldException {
           closeResult = <Object?>[
             runtime.constantPrimitiveValue(false),
@@ -407,7 +367,7 @@ final class LuaBytecodeVm {
       }
       final propagatedSignal = CoroutineCloseSignal(closeResult);
       if (closeYieldable != null) {
-        _rememberCloseSignalYieldable(propagatedSignal, closeYieldable);
+        rememberCloseSignalYieldable(propagatedSignal, closeYieldable);
       }
       throw propagatedSignal;
     } catch (error, stackTrace) {
@@ -2013,7 +1973,7 @@ final class LuaBytecodeVm {
     if (callFrame == null) {
       return;
     }
-    if (_bytecodeFrameForCallFrame(callFrame) case final bytecodeFrame?) {
+    if (bytecodeFrameForCallFrame(callFrame) case final bytecodeFrame?) {
       // A caller paused in a nested call has already advanced its PC to the
       // instruction after the call. Debug locals should still reflect the
       // call-site window, so resync against `pc - 1` to keep generic-for
@@ -2041,7 +2001,7 @@ final class LuaBytecodeVm {
     if (callerCallFrame == null) {
       return;
     }
-    _bindBytecodeCallFrame(callerCallFrame, callerFrame);
+    bindBytecodeCallFrame(callerCallFrame, callerFrame);
   }
 
   List<MapEntry<String, Value>> _activeBytecodeDebugLocals(
@@ -3126,7 +3086,7 @@ final class LuaBytecodeVm {
         // nested bytecode call, reattach the live bytecode frame so traceback
         // and hook stack walks see current registers/PC rather than state
         // snapshotted at the last yield point.
-        _bindBytecodeCallFrame(callerCallFrame, parentBytecodeFrame);
+        bindBytecodeCallFrame(callerCallFrame, parentBytecodeFrame);
         _syncDebugLocals(parentBytecodeFrame, callFrame: callerCallFrame);
       }
     }
@@ -3221,8 +3181,8 @@ final class LuaBytecodeVm {
       returnTransferValues = normalized;
       return normalized;
     } on CoroutineCloseSignal catch (signal) {
-      _closeSignalYieldableStates[signal] =
-          (_closeSignalYieldableStates[signal] ?? true) && yieldableAtCallEntry;
+      closeSignalYieldableStates[signal] =
+          (closeSignalYieldableStates[signal] ?? true) && yieldableAtCallEntry;
       rethrow;
     } finally {
       final returnDebugInterpreter = _debugInterpreter;
@@ -3874,8 +3834,8 @@ final class LuaBytecodeVm {
       returnTransferValues = result;
       return result;
     } on CoroutineCloseSignal catch (signal) {
-      _closeSignalYieldableStates[signal] =
-          (_closeSignalYieldableStates[signal] ?? true) && yieldableAtCallEntry;
+      closeSignalYieldableStates[signal] =
+          (closeSignalYieldableStates[signal] ?? true) && yieldableAtCallEntry;
       rethrow;
     } finally {
       final returnDebugInterpreter = _debugInterpreter;
@@ -5479,7 +5439,7 @@ CallFrame _bytecodeSuspendedDebugFrame(LuaBytecodeFrame frame) {
     isDebugHook: frame.callName == 'hook' || frame.callNameWhat == 'hook',
     isTailCall: frame.isTailCall,
   );
-  _bindBytecodeCallFrame(callFrame, frame);
+  bindBytecodeCallFrame(callFrame, frame);
   final activeLocals =
       <LuaBytecodeLocalVariableDebugInfo>[
         for (final local in closure.prototype.localVariables)
@@ -5564,7 +5524,7 @@ List<CallFrame> bytecodeSuspendedCoroutineFrames(
 }
 
 List<Object?>? _frameDebugVarargs(CallFrame frame) {
-  if (_bytecodeFrameForCallFrame(frame) case final bytecodeFrame?) {
+  if (bytecodeFrameForCallFrame(frame) case final bytecodeFrame?) {
     if (!bytecodeFrame.closure.prototype.isVararg) {
       return null;
     }
@@ -5618,7 +5578,7 @@ void _syncFrameDebugVarargs(CallFrame? frame, List<Object?> values) {
   if (frame == null) {
     return;
   }
-  if (_bytecodeFrameForCallFrame(frame) case final bytecodeFrame?) {
+  if (bytecodeFrameForCallFrame(frame) case final bytecodeFrame?) {
     final normalized = values
         .map(
           (value) => value is Value
@@ -7340,7 +7300,7 @@ final class LuaBytecodeFrameSuspension implements CoroutineContinuation {
             }
           } finally {
             if (suspendedCallerFrame != null) {
-              _clearBytecodeCallFrame(suspendedCallerFrame);
+              clearBytecodeCallFrame(suspendedCallerFrame);
               if (identical(vm.runtime.callStack.top, suspendedCallerFrame)) {
                 vm.runtime.callStack.pop();
               } else {
