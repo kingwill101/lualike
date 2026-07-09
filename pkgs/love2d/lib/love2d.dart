@@ -30,7 +30,9 @@ export 'src/runtime/flame/love_flame_harness_renderer.dart'
         LoveFlameFrameTimingSample,
         LoveFlameFrameTimingStats,
         LoveFlameHarnessGame,
-        LoveFlameRenderStats;
+        LoveFlameRenderStats,
+        renderSurfaceSnapshot;
+export 'src/runtime/renderer/renderer.dart';
 export 'src/runtime/input/love_joystick_input_adapter.dart'
     show LoveJoystickInputAdapter;
 export 'src/runtime/filesystem/love_asset_bundle_filesystem.dart'

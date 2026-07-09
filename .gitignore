@@ -37,3 +37,8 @@ build/
 pkgs/lualike/luac.out
 luac.out
 third_party/
+
+# FVM-per-project Flutter SDK symlinks (not real projects)
+.fvm/
+pkgs/love2d/.fvm/
+pkgs/love2d/example/.fvm/
