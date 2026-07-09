@@ -1,6 +1,4 @@
 import 'dart:async' show FutureOr;
-import 'dart:collection';
-
 import 'package:lualike/src/builtin_function.dart';
 import 'package:lualike/src/call_stack.dart';
 import 'package:lualike/src/coroutine.dart';
@@ -17,6 +15,8 @@ import 'package:lualike/src/lua_bytecode/opcode_analysis.dart';
 import 'package:lualike/src/lua_bytecode/instruction_analysis.dart';
 import 'package:lualike/src/lua_bytecode/debug_local_caches.dart';
 import 'package:lualike/src/lua_bytecode/vm_value_helpers.dart';
+import 'package:lualike/src/lua_bytecode/vm_frame_helpers.dart';
+import 'package:lualike/src/lua_bytecode/vm_profile.dart';
 import 'package:lualike/src/lua_error.dart';
 import 'package:lualike/src/lua_string.dart';
 import 'package:lualike/src/number.dart';
@@ -47,60 +47,6 @@ final RegExp _bytecodeFormattedLuaErrorPattern = RegExp(
 final Expando<LuaBytecodeFrame> _callFrameBytecodeFrames =
     Expando<LuaBytecodeFrame>();
 final Expando<bool> _closeSignalYieldableStates = Expando<bool>();
-final class LuaBytecodeProfileEntry {
-  int count = 0;
-  int micros = 0;
-}
-
-final class LuaBytecodeProfile {
-  LuaBytecodeProfile({required this.label});
-
-  final String label;
-  final Stopwatch wall = Stopwatch()..start();
-  int totalInstructions = 0;
-  final Map<String, LuaBytecodeProfileEntry> entries =
-      <String, LuaBytecodeProfileEntry>{};
-  final Map<String, int> callTargets = <String, int>{};
-
-  void record(String opcodeName, int micros) {
-    totalInstructions++;
-    final entry = entries.putIfAbsent(opcodeName, LuaBytecodeProfileEntry.new);
-    entry.count++;
-    entry.micros += micros;
-  }
-
-  void recordCallTarget(String label) {
-    callTargets.update(label, (count) => count + 1, ifAbsent: () => 1);
-  }
-
-  void printSummary() {
-    wall.stop();
-    final sorted = entries.entries.toList()
-      ..sort((a, b) => b.value.micros.compareTo(a.value.micros));
-    final top = sorted.take(12);
-    final totalMicros = entries.values.fold<int>(
-      0,
-      (sum, entry) => sum + entry.micros,
-    );
-    print(
-      '[bc-profile] label=$label wall_ms=${wall.elapsedMilliseconds} '
-      'instructions=$totalInstructions',
-    );
-    for (final item in top) {
-      final entry = item.value;
-      final pct = totalMicros == 0 ? 0.0 : entry.micros * 100 / totalMicros;
-      print(
-        '[bc-profile] ${item.key} count=${entry.count} '
-        'micros=${entry.micros} pct=${pct.toStringAsFixed(1)}',
-      );
-    }
-    final topCalls = callTargets.entries.toList()
-      ..sort((a, b) => b.value.compareTo(a.value));
-    for (final item in topCalls.take(12)) {
-      print('[bc-profile] call_target ${item.key} count=${item.value}');
-    }
-  }
-}
 
 LuaBytecodeFrame? _bytecodeFrameForCallFrame(CallFrame? callFrame) {
   if (callFrame == null) {
@@ -3700,7 +3646,7 @@ final class LuaBytecodeVm {
             if (entry.key == '(vararg table)') {
               return <Value>[runtime.constantPrimitiveValue(null)];
             }
-            _overwriteValue(entry.value, args[2]);
+            overwriteValue(entry.value, args[2]);
             return <Value>[runtime.constantDartStringValue(entry.key)];
           }
           return <Value>[runtime.constantPrimitiveValue(null)];
@@ -5708,15 +5654,9 @@ void _syncFrameDebugVarargs(CallFrame? frame, List<Object?> values) {
   }
 }
 
-Value _bytecodeFrameNilValue(CallFrame frame) {
-  return frame.env?.interpreter?.constantPrimitiveValue(null) ??
-      frame.callable?.interpreter?.constantPrimitiveValue(null) ??
-      Value.primitive(null);
-}
-
 List<MapEntry<String, Value>> _bytecodeFrameLocals(CallFrame frame) {
   final locals = <MapEntry<String, Value>>[];
-  final nilValue = _bytecodeFrameNilValue(frame);
+  final nilValue = bytecodeFrameNilValue(frame);
   final closure = rawLuaSlot(frame.callable);
   final isMainChunkFrame =
       closure is LuaBytecodeClosure && closure.debugInfo.what == 'main';
@@ -5730,7 +5670,7 @@ List<MapEntry<String, Value>> _bytecodeFrameLocals(CallFrame frame) {
     );
     if (!hasTemporaryPlaceholder &&
         closure.prototype.localVariables.any(
-          (local) => _localHasPendingClosureTemporaryOnCurrentLine(
+          (local) => localHasPendingClosureTemporaryOnCurrentLine(
             closure.prototype,
             local,
             frame.currentLine,
@@ -5750,7 +5690,7 @@ List<MapEntry<String, Value>> _bytecodeFrameLocals(CallFrame frame) {
                 when name.isNotEmpty &&
                     !name.startsWith('(') &&
                     !seenNames.contains(name) &&
-                    _localStartsOnCurrentLine(
+                    localStartsOnCurrentLine(
                       closure.prototype,
                       local,
                       frame.currentLine,
@@ -5776,7 +5716,7 @@ List<MapEntry<String, Value>> _bytecodeFrameLocals(CallFrame frame) {
   return locals;
 }
 
-bool _localStartsOnCurrentLine(
+bool localStartsOnCurrentLine(
   LuaBytecodePrototype prototype,
   LuaBytecodeLocalVariableDebugInfo local,
   int currentLine,
@@ -5800,7 +5740,7 @@ bool _localStartsOnCurrentLine(
   return false;
 }
 
-bool _localHasPendingClosureTemporaryOnCurrentLine(
+bool localHasPendingClosureTemporaryOnCurrentLine(
   LuaBytecodePrototype prototype,
   LuaBytecodeLocalVariableDebugInfo local,
   int currentLine,
@@ -5820,7 +5760,7 @@ bool _localHasPendingClosureTemporaryOnCurrentLine(
   return word.opcode == Opcode.closure && word.a == register;
 }
 
-void _overwriteValue(Value target, Value source) {
+void overwriteValue(Value target, Value source) {
   target.raw = rawLuaSlot(source);
   target.metatable = source.metatable;
   target.metatableRef = source.metatableRef;
@@ -6208,10 +6148,10 @@ final class LuaBytecodeFrame implements LuaBytecodeGCRootProvider {
     // Always clone shared runtime constants before storing them in a
     // register even when they wrap a scalar primitive.  The resulting
     // Value must be mutable because later operations such as
-    // debug.setlocal rely on _overwriteValue to mutate the register
+    // debug.setlocal rely on overwriteValue to mutate the register
     // value in-place (target.raw = …).  Skipping the clone for scalar
     // primitives would leave a shared-primitive Value in the register,
-    // and _overwriteValue would throw when it tries to set `raw` on a
+    // and overwriteValue would throw when it tries to set `raw` on a
     // shared primitive.
     final storedValue =
         !value.skipAllocationDebt && isSharedRuntimeConstant(runtime, value)
@@ -7359,43 +7299,6 @@ final class LuaBytecodeCloseSuspension implements CoroutineContinuation {
   }
 }
 
-final class LuaBytecodeFrameArgsView extends ListBase<Object?> {
-  LuaBytecodeFrameArgsView(
-    this._frame, {
-    required this.start,
-    required this.count,
-  });
-
-  final LuaBytecodeFrame _frame;
-  final int start;
-  final int count;
-
-  Iterable<Value> get gcRoots sync* {
-    for (var index = 0; index < count; index++) {
-      yield _frame.slotValue(start + index);
-    }
-  }
-
-  @override
-  int get length => count;
-
-  @override
-  set length(int value) {
-    throw UnsupportedError('Bytecode call args are read-only');
-  }
-
-  @override
-  Object? operator [](int index) {
-    RangeError.checkValidIndex(index, this, 'index', count);
-    return _frame.slotValue(start + index);
-  }
-
-  @override
-  void operator []=(int index, Object? value) {
-    throw UnsupportedError('Bytecode call args are read-only');
-  }
-}
-
 final class LuaBytecodeFrameSuspension implements CoroutineContinuation {
   const LuaBytecodeFrameSuspension({
     required this.vm,
@@ -7985,51 +7888,6 @@ String orderComparisonError(Value left, Value right) {
       ? 'attempt to compare two $leftType values'
       : 'attempt to compare $leftType with $rightType';
 }
-
-int tableBoundaryLength(Map<dynamic, dynamic> mapValue) {
-  final occupiedPositiveIndices = <int>{};
-  for (final MapEntry(:key, :value) in mapValue.entries) {
-    final index = positiveIntegerKey(key);
-    if (index == null || isLuaNilSlot(value)) {
-      continue;
-    }
-    occupiedPositiveIndices.add(index);
-  }
-
-  var length = 0;
-  while (occupiedPositiveIndices.contains(length + 1)) {
-    length += 1;
-  }
-  return length;
-}
-
-int? positiveIntegerKey(Object? key) {
-  final rawKey = switch (key) {
-    final Value value => rawLuaSlot(value),
-    _ => key,
-  };
-  return switch (rawKey) {
-    final int value when value > 0 => value,
-    final num value
-        when value.isFinite &&
-            value > 0 &&
-            value.toInt().toDouble() == value.toDouble() =>
-      value.toInt(),
-    _ => null,
-  };
-}
-
-String? stringLike(Object? value) => switch (value) {
-  final LuaString stringValue => stringValue.toString(),
-  final String stringValue => stringValue,
-  _ => null,
-};
-
-int signedB(LuaBytecodeInstructionWord word) =>
-    word.b - LuaBytecodeInstructionLayout.offsetSB;
-
-int signedC(LuaBytecodeInstructionWord word) =>
-    word.c - LuaBytecodeInstructionLayout.offsetSC;
 
 Future<void>? _runGcLoopSafePoint(LuaRuntime runtime, LuaBytecodeFrame frame) {
   frame.loopGcCounter += 1;
