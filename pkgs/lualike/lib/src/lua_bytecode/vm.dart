@@ -375,7 +375,7 @@ final class LuaBytecodeVm {
         if (needsCoroutineWideBoundary ||
             _needsSuspendingOpcodeBoundaryForInstruction(
               frame,
-              word.opcode,
+              opcode,
               word,
             )) {
           await _preserveSuspendingBytecodeBoundary(
