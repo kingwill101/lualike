@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:collection';
+import 'dart:typed_data';
 
 import 'package:lualike/src/ast.dart';
 import 'package:lualike/src/builtin_function.dart';
@@ -236,8 +237,38 @@ class Interpreter extends AstVisitor<Object?>
   Value? _cachedTrueValue;
   Value? _cachedFalseValue;
   final Map<int, Value> _cachedIntValues = <int, Value>{};
-  final Map<BigInt, Value> _cachedDoubleValues = <BigInt, Value>{};
+
+  /// Cache of shared [Value] wrappers for [double] constants, keyed by the
+  /// raw IEEE-754 bit pattern split into two 32-bit halves.
+  ///
+  /// We **cannot** use [double] itself as the map key because IEEE 754
+  /// equality conflates values that have different bit patterns but
+  /// distinct Lua semantics:
+  ///
+  ///   | value      | -0.0 == 0.0 | NaN == NaN |
+  ///   |------------|-------------|-------------|
+  ///   | IEEE 754   | true        | false       |
+  ///   | Lua need   | distinct    | distinct    |
+  ///
+  /// Using a `(int, int)` record from the raw 64-bit bit pattern avoids the
+  /// [BigInt] allocation that a full [NumberUtils.doubleToRawBits] round-trip
+  /// would incur (the profiler showed `BigInt.from` on the hot path).
+  final Map<(int, int), Value> _cachedDoubleValues = <(int, int), Value>{};
   final Map<BigInt, Value> _cachedBigIntValues = <BigInt, Value>{};
+
+  /// Scratch buffer shared across all [_doubleToKey] calls.
+  static final ByteData _doubleKeyScratch = ByteData(8);
+
+  /// Converts a [double] to a `(int, int)` record for the double-value cache.
+  ///
+  /// Uses the raw IEEE-754 bit pattern split into two 32-bit halves via the
+  /// shared scratch buffer.  This avoids both the [BigInt] allocation that
+  /// [NumberUtils.doubleToRawBits] would incur and the IEEE-754 equality
+  /// pitfalls of using [double] directly as a map key.
+  static (int, int) _doubleToKey(double value) {
+    final data = _doubleKeyScratch..setFloat64(0, value, Endian.big);
+    return (data.getUint32(0, Endian.big), data.getUint32(4, Endian.big));
+  }
 
   @override
   Value constantPrimitiveValue(Object? raw) {
@@ -253,7 +284,7 @@ class Interpreter extends AstVisitor<Object?>
         () => create(value),
       ),
       final double value => _cachedDoubleValues.putIfAbsent(
-        NumberUtils.doubleToRawBits(value),
+        _doubleToKey(value),
         () => create(value),
       ),
       final BigInt value => _cachedBigIntValues.putIfAbsent(
