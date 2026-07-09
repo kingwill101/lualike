@@ -406,24 +406,14 @@ Value runtimeValue(LuaRuntime runtime, Object? value) {
 }
 
 Value transientPrimitiveValue(LuaRuntime runtime, Object? value) {
-  return Value.primitive(
-    value,
-    interpreter: runtime,
-    skipAllocationDebt: true,
-    skipGcRegistration: true,
-  );
+  return Value.transientPrimitive(value, interpreter: runtime);
 }
 
 Value framePrimitiveValue(LuaRuntime runtime, Object? value) {
   if (isLuaScalarPrimitiveSlot(value)) {
     return runtime.constantPrimitiveValue(value);
   }
-  return Value.primitive(
-    value,
-    interpreter: runtime,
-    skipAllocationDebt: true,
-    skipGcRegistration: isLuaScalarPrimitiveSlot(value),
-  );
+  return Value.transientPrimitive(value, interpreter: runtime);
 }
 
 bool isSharedRuntimeConstant(LuaRuntime runtime, Value value) {
