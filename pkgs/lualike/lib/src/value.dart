@@ -126,6 +126,7 @@ class LuaValueMetadata {
   int tableVersion = 0;
   Map<String, dynamic>? metatable;
   String? cachedWeakMode;
+  int defaultMetatableGeneration = 0;
   Value? metatableRef;
   Environment? globalProxyEnvironment;
   LuaRuntime? interpreter;
@@ -305,6 +306,13 @@ class Value with GCObject implements Map<String, dynamic> {
   set _cachedWeakMode(String? value) {
     if (value == null && _metadataPayload == null) return;
     _metadataPayloadForWrite().cachedWeakMode = value;
+  }
+
+  int get defaultMetatableGeneration =>
+      _metadataPayload?.defaultMetatableGeneration ?? 0;
+  set defaultMetatableGeneration(int value) {
+    if (value == 0 && _metadataPayload == null) return;
+    _metadataPayloadForWrite().defaultMetatableGeneration = value;
   }
 
   /// Reference to the original metatable Value when set via `setmetatable`.
@@ -574,6 +582,10 @@ class Value with GCObject implements Map<String, dynamic> {
     // (e.g., those seen during GC traversal) still observe weak modes.
     Map<String, dynamic>? mt = metatable;
     if (mt == null) {
+      final cached = _cachedWeakMode;
+      if (cached != null) {
+        return cached;
+      }
       mt = _getRegisteredTableMetatable();
       if (mt == null) {
         // If no active metatable is found, use the cached mode if present.
