@@ -14,6 +14,7 @@ import 'package:flutter/services.dart';
 import 'package:vector_math/vector_math_64.dart' as vm;
 
 import '../love_runtime.dart';
+import '../renderer/renderer.dart';
 import '../video/love_media_kit_video_frame_provider.dart';
 import 'love_flame_host.dart';
 import 'love_registered_fragment_shader_cache.dart';
@@ -443,9 +444,11 @@ class LoveFlameHarnessGame extends FlameGame with KeyboardEvents {
     this.audioBackendFactory,
     LoveVideoFrameProviderFactory? videoFrameProviderFactory,
     AssetBundle? assetBundle,
+    LoveRenderBackend? renderBackend,
   }) : _assetBundle = assetBundle,
        _videoFrameProviderFactory =
            videoFrameProviderFactory ?? _defaultVideoFrameProviderFactory(),
+       _renderBackend = renderBackend ?? LoveCanvasRenderBackend(),
        super(
          camera: CameraComponent.withFixedResolution(
            width: const LoveWindowMetrics().width.toDouble(),
@@ -474,6 +477,11 @@ class LoveFlameHarnessGame extends FlameGame with KeyboardEvents {
     _presentedFrame,
   );
   bool _presentationNotifierDisposed = false;
+
+  final LoveRenderBackend _renderBackend;
+
+  /// The active render backend used to replay draw commands.
+  LoveRenderBackend get renderBackend => _renderBackend;
 
   void Function(double dt)? onTick;
   KeyEventResult Function(KeyEvent event, Set<LogicalKeyboardKey> keysPressed)?
@@ -620,14 +628,14 @@ class LoveFlameHarnessGame extends FlameGame with KeyboardEvents {
         destinationRect.width / logicalViewportSize.width,
         destinationRect.height / logicalViewportSize.height,
       );
-      final renderStats = _LoveFlameRenderStatsAccumulator();
-      _renderSurfaceSnapshot(
+      final renderStats = LoveRenderStatsAccumulator();
+      _renderBackend.renderSurface(
         canvas,
         frame,
         logicalViewportSize,
         stats: renderStats,
       );
-      _lastRenderStats = renderStats.snapshot();
+      _lastRenderStats = _convertRenderStats(renderStats.snapshot());
       canvas.restore();
       recordedFrame = true;
     } finally {
@@ -643,6 +651,25 @@ class LoveFlameHarnessGame extends FlameGame with KeyboardEvents {
         );
       }
     }
+  }
+
+  static LoveFlameRenderStats _convertRenderStats(LoveRenderStats stats) {
+    return LoveFlameRenderStats(
+      renderedCommands: stats.renderedCommands,
+      softwareSurfaceFallbacks: stats.softwareSurfaceFallbacks,
+      atlasBatchCommands: stats.atlasBatchCommands,
+      atlasBatchItems: stats.atlasBatchItems,
+      textPainterCacheHits: stats.textPainterCacheHits,
+      textPainterCacheMisses: stats.textPainterCacheMisses,
+      textLayoutDuration: stats.textLayoutDuration,
+      surfaceClearLayers: stats.surfaceClearLayers,
+      commandBlendLayers: stats.commandBlendLayers,
+      commandShaderLayers: stats.commandShaderLayers,
+      commandRadialMaskLayers: stats.commandRadialMaskLayers,
+      imageRadialOverlayLayers: stats.imageRadialOverlayLayers,
+      meshCompositeLayers: stats.meshCompositeLayers,
+      meshAlphaMaskLayers: stats.meshAlphaMaskLayers,
+    );
   }
 }
 
@@ -3074,4 +3101,43 @@ ui.VertexMode _vertexModeForLove(LoveMeshDrawMode mode) {
     LoveMeshDrawMode.triangles => ui.VertexMode.triangles,
     LoveMeshDrawMode.points => ui.VertexMode.triangles,
   };
+}
+
+/// Public entry point for rendering a surface snapshot onto a canvas.
+///
+/// This delegates to the internal render pipeline and is used by
+/// [LoveCanvasRenderBackend]. External callers that need per-frame
+/// statistics should use [LoveFlameHarnessGame.lastRenderStats] instead.
+void renderSurfaceSnapshot(
+  ui.Canvas canvas,
+  LoveGraphicsSurfaceSnapshot surface,
+  ui.Size viewportSize, {
+  LoveRenderStatsAccumulator? stats,
+}) {
+  final internalStats = stats != null
+      ? _LoveFlameRenderStatsAccumulator()
+      : null;
+  _renderSurfaceSnapshot(
+    canvas,
+    surface,
+    viewportSize,
+    stats: internalStats,
+  );
+  if (stats != null && internalStats != null) {
+    stats.renderedCommands = internalStats.renderedCommands;
+    stats.softwareSurfaceFallbacks = internalStats.softwareSurfaceFallbacks;
+    stats.atlasBatchCommands = internalStats.atlasBatchCommands;
+    stats.atlasBatchItems = internalStats.atlasBatchItems;
+    stats.textPainterCacheHits = internalStats.textPainterCacheHits;
+    stats.textPainterCacheMisses = internalStats.textPainterCacheMisses;
+    stats.textLayoutDuration =
+        Duration(microseconds: internalStats.textLayoutMicros);
+    stats.surfaceClearLayers = internalStats.surfaceClearLayers;
+    stats.commandBlendLayers = internalStats.commandBlendLayers;
+    stats.commandShaderLayers = internalStats.commandShaderLayers;
+    stats.commandRadialMaskLayers = internalStats.commandRadialMaskLayers;
+    stats.imageRadialOverlayLayers = internalStats.imageRadialOverlayLayers;
+    stats.meshCompositeLayers = internalStats.meshCompositeLayers;
+    stats.meshAlphaMaskLayers = internalStats.meshAlphaMaskLayers;
+  }
 }
