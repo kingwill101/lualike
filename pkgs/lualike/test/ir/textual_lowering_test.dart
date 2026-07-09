@@ -3,8 +3,8 @@ library;
 
 import 'package:lualike/src/ir/bytecode_lowering.dart';
 import 'package:lualike/src/ir/runtime.dart';
-import 'package:lualike/src/lua_bytecode/vm.dart';
 import 'package:lualike/lualike.dart';
+import 'package:lualike/src/lua_bytecode/vm_value_helpers.dart';
 import 'package:test/test.dart';
 
 void main() {

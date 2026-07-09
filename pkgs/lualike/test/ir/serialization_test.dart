@@ -9,7 +9,7 @@ import 'package:lualike/src/ir/prototype.dart';
 import 'package:lualike/src/ir/runtime.dart';
 import 'package:lualike/src/ir/serialization.dart';
 import 'package:lualike/src/lua_bytecode/runtime.dart';
-import 'package:lualike/src/lua_bytecode/vm.dart';
+import 'package:lualike/src/lua_bytecode/vm_value_helpers.dart';
 import 'package:test/test.dart';
 
 Object? _unwrap(Object? candidate) {
