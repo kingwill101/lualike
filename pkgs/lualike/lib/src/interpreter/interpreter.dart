@@ -262,7 +262,10 @@ class Interpreter extends AstVisitor<Object?>
       ),
       _ => throw ArgumentError.value(raw, 'raw', 'Not a cached primitive'),
     };
-    _syncCachedTypeMetatable(cached, type: _cachedPrimitiveType(raw));
+    final metatableGeneration = MetaTable().defaultMetatableGeneration;
+    if (cached.defaultMetatableGeneration != metatableGeneration) {
+      _syncCachedTypeMetatable(cached, type: _cachedPrimitiveType(raw));
+    }
     return cached;
   }
 
