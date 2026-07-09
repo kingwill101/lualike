@@ -288,6 +288,8 @@ final class LuaBytecodeFrame implements LuaBytecodeGCRootProvider {
   late final List<Set<int>> _environmentRegistersByPc =
       environmentRegistersByPcFor(closure.prototype);
   final List<LuaBytecodeUpvalue> _openUpvalues = <LuaBytecodeUpvalue>[];
+  final Set<int> _openUpvalueRegisters = <int>{};
+  int? _maxOpenUpvalueRegister;
   final Set<int> _toBeClosedRegisters = <int>{};
   var _varargStart = 0;
   var _varargCount = 0;
@@ -603,9 +605,7 @@ final class LuaBytecodeFrame implements LuaBytecodeGCRootProvider {
       if (_toBeClosedRegisters.contains(registerIndex)) {
         continue;
       }
-      if (_openUpvalues.any(
-        (upvalue) => upvalue.isOpen && upvalue.registerIndex == registerIndex,
-      )) {
+      if (_openUpvalueRegisters.contains(registerIndex)) {
         continue;
       }
       if (_lastRegisterWritePc[registerIndex] >= endPc) {
@@ -627,6 +627,11 @@ final class LuaBytecodeFrame implements LuaBytecodeGCRootProvider {
     }
     final upvalue = LuaBytecodeUpvalue.open(this, registerIndex);
     _openUpvalues.add(upvalue);
+    _openUpvalueRegisters.add(registerIndex);
+    if (_maxOpenUpvalueRegister == null ||
+        registerIndex > _maxOpenUpvalueRegister!) {
+      _maxOpenUpvalueRegister = registerIndex;
+    }
     return upvalue;
   }
 
@@ -736,10 +741,21 @@ final class LuaBytecodeFrame implements LuaBytecodeGCRootProvider {
       for (final upvalue in _openUpvalues)
         if (upvalue.isOpen && upvalue.registerIndex >= fromRegister) upvalue,
     ];
+    var needsRecomputeMax = false;
     for (final upvalue in toClose) {
+      _openUpvalueRegisters.remove(upvalue.registerIndex);
+      if (_maxOpenUpvalueRegister == upvalue.registerIndex) {
+        needsRecomputeMax = true;
+      }
       upvalue.close();
     }
     _openUpvalues.removeWhere((upvalue) => !upvalue.isOpen);
+    if (needsRecomputeMax) {
+      _maxOpenUpvalueRegister =
+          _openUpvalueRegisters.isEmpty
+              ? null
+              : _openUpvalueRegisters.reduce((left, right) => left > right ? left : right);
+    }
   }
 
   bool hasCloseWorkFrom(int fromRegister) {
@@ -748,9 +764,8 @@ final class LuaBytecodeFrame implements LuaBytecodeGCRootProvider {
     )) {
       return true;
     }
-    return _openUpvalues.any(
-      (upvalue) => upvalue.isOpen && upvalue.registerIndex >= fromRegister,
-    );
+    final maxOpen = _maxOpenUpvalueRegister;
+    return maxOpen != null && maxOpen >= fromRegister;
   }
 
   List<int> get toBeClosedRegisters =>
@@ -790,6 +805,7 @@ final class LuaBytecodeFrame implements LuaBytecodeGCRootProvider {
         for (var index = 0; index < openTop; index++) index,
       for (final upvalue in _openUpvalues)
         if (upvalue.isOpen) upvalue.registerIndex,
+      ..._openUpvalueRegisters,
       ..._toBeClosedRegisters,
       for (final local in closure.prototype.localVariables)
         if (local.startPc <= currentPc && currentPc < local.endPc)
