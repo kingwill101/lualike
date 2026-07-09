@@ -405,6 +405,15 @@ Value runtimeValue(LuaRuntime runtime, Object? value) {
   return wrapped;
 }
 
+Value transientPrimitiveValue(LuaRuntime runtime, Object? value) {
+  return Value.primitive(
+    value,
+    interpreter: runtime,
+    skipAllocationDebt: true,
+    skipGcRegistration: true,
+  );
+}
+
 Value framePrimitiveValue(LuaRuntime runtime, Object? value) {
   if (isLuaScalarPrimitiveSlot(value)) {
     return runtime.constantPrimitiveValue(value);

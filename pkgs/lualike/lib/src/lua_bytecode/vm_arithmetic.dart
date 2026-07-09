@@ -206,9 +206,32 @@ extension LuaBytecodeVmArithmetic on LuaBytecodeVm {
     final rightRaw = rawLuaSlot(right);
     if (leftRaw is int && rightRaw is int) {
       return switch (operation) {
-        LuaBinaryOperation.add => runtimeValue(runtime, leftRaw + rightRaw),
-        LuaBinaryOperation.sub => runtimeValue(runtime, leftRaw - rightRaw),
-        LuaBinaryOperation.mul => runtimeValue(runtime, leftRaw * rightRaw),
+        LuaBinaryOperation.add =>
+          transientPrimitiveValue(runtime, leftRaw + rightRaw),
+        LuaBinaryOperation.sub =>
+          transientPrimitiveValue(runtime, leftRaw - rightRaw),
+        LuaBinaryOperation.mul =>
+          transientPrimitiveValue(runtime, leftRaw * rightRaw),
+        _ => runtimeValue(
+            runtime,
+            NumberUtils.performArithmetic(
+              operation.operatorSymbol,
+              leftRaw,
+              rightRaw,
+            ),
+          ),
+      };
+    }
+    if (leftRaw is num && rightRaw is num) {
+      return switch (operation) {
+        LuaBinaryOperation.add =>
+          transientPrimitiveValue(runtime, leftRaw + rightRaw),
+        LuaBinaryOperation.sub =>
+          transientPrimitiveValue(runtime, leftRaw - rightRaw),
+        LuaBinaryOperation.mul =>
+          transientPrimitiveValue(runtime, leftRaw * rightRaw),
+        LuaBinaryOperation.div =>
+          transientPrimitiveValue(runtime, leftRaw / rightRaw),
         _ => runtimeValue(
             runtime,
             NumberUtils.performArithmetic(
