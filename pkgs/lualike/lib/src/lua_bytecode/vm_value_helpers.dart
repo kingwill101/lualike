@@ -827,6 +827,12 @@ bool supportsEqualityMetamethod(Value left, Value right) {
   return getLuaType(left) == 'table' && getLuaType(right) == 'table';
 }
 
+Value rkValue(dynamic frame, int operand, bool isConstant) {
+  return isConstant
+      ? constantValue(frame.runtime, frame.closure.prototype, operand)
+      : frame.register(operand);
+}
+
 String orderComparisonError(Value left, Value right) {
   final leftType = getLuaType(left);
   final rightType = getLuaType(right);
