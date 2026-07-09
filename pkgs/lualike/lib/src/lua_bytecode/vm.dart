@@ -118,37 +118,34 @@ final class LuaBytecodeVm {
     if (parentFrame != null) {
       parentFrame.env = parentFrameEnv;
     }
-    final activeCallFrame = runtime.callStack.top;
-    if (activeCallFrame != null) {
-      bindBytecodeCallFrame(activeCallFrame, frame);
-      final isHookCallback =
-          frame.callName == 'hook' ||
-          frame.callNameWhat == 'hook' ||
-          // The interpreter wraps debug hooks with an outer call-stack frame
-          // before dispatching into bytecode. The first bytecode frame inside
-          // that wrapper is still the hook callback, but helper calls made from
-          // inside the hook should not inherit hook visibility.
-          (parentFrame?.isDebugHook == true &&
-              bytecodeFrameForCallFrame(parentFrame!) == null);
-      if (isHookCallback) {
-        // Only the hook callback itself should count as a debug-hook frame for
-        // visibility purposes. Helper functions that the hook calls must remain
-        // visible in `debug.getlocal`/`debug.getinfo` stack walks so their
-        // levels line up with the reference interpreter.
-        activeCallFrame.isDebugHook = true;
-      }
-      if (frame.callName == null &&
-          closure.debugInfo.what != 'main' &&
-          activeCallFrame.callable?.functionBody != null) {
-        activeCallFrame.functionName = 'unknown';
-      }
-      activeCallFrame.isTailCall = frame.isTailCall;
-      activeCallFrame.extraArgs = frame.extraArgs;
+    final activeCallFrame = runtime.callStack.top!;
+    bindBytecodeCallFrame(activeCallFrame, frame);
+    final isHookCallback =
+        frame.callName == 'hook' ||
+        frame.callNameWhat == 'hook' ||
+        // The interpreter wraps debug hooks with an outer call-stack frame
+        // before dispatching into bytecode. The first bytecode frame inside
+        // that wrapper is still the hook callback, but helper calls made from
+        // inside the hook should not inherit hook visibility.
+        (parentFrame?.isDebugHook == true &&
+            bytecodeFrameForCallFrame(parentFrame!) == null);
+    if (isHookCallback) {
+      // Only the hook callback itself should count as a debug-hook frame for
+      // visibility purposes. Helper functions that the hook calls must remain
+      // visible in `debug.getlocal`/`debug.getinfo` stack walks so their
+      // levels line up with the reference interpreter.
+      activeCallFrame.isDebugHook = true;
     }
-    _syncDebugLocals(frame);
+    if (frame.callName == null &&
+        closure.debugInfo.what != 'main' &&
+        activeCallFrame.callable?.functionBody != null) {
+      activeCallFrame.functionName = 'unknown';
+    }
+    activeCallFrame.isTailCall = frame.isTailCall;
+    activeCallFrame.extraArgs = frame.extraArgs;
+    _syncDebugLocals(frame, callFrame: activeCallFrame);
     final entryDebugInterpreter = _debugInterpreter;
     if (frame.pc == 0 &&
-        activeCallFrame != null &&
         !activeCallFrame.isDebugHook &&
         entryDebugInterpreter != null &&
         entryDebugInterpreter.debugHookMask.contains('l') &&
@@ -174,7 +171,7 @@ final class LuaBytecodeVm {
     var poppedCallFrame = false;
     List<Value> returnTransferValues = const <Value>[];
     try {
-      final result = await _executeFrame(frame);
+      final result = await _executeFrame(frame, callFrame: activeCallFrame);
       returnTransferValues = result;
       return result;
     } on YieldException catch (error) {
@@ -278,7 +275,7 @@ final class LuaBytecodeVm {
       }
       final exitDebugInterpreter = _debugInterpreter;
       if (!suspended && !poppedCallFrame && exitDebugInterpreter != null) {
-        final topFrame = runtime.callStack.top;
+        final topFrame = activeCallFrame;
         _syncCallFrameDebugLocals(topFrame);
         _setTransferInfo(topFrame, returnTransferValues);
         final interpreter = exitDebugInterpreter;
@@ -341,7 +338,10 @@ final class LuaBytecodeVm {
     }
   }
 
-  Future<List<Value>> _executeFrame(LuaBytecodeFrame frame) async {
+  Future<List<Value>> _executeFrame(
+    LuaBytecodeFrame frame, {
+    required CallFrame callFrame,
+  }) async {
     final prototype = frame.closure.prototype;
     final opcodesByPc = prototype.opcodesByPc;
     final mainThread = runtime.getMainThread();
@@ -365,20 +365,14 @@ final class LuaBytecodeVm {
       final lineNumber = linesByPc?[instructionPc];
       final debugInterpreter = _debugInterpreter;
       final hasDebugHook = debugInterpreter?.debugHookFunction != null;
-      final previousVisibleLine = hasDebugHook
-          ? runtime.callStack.top?.currentLine ?? -1
-          : -1;
+      final previousVisibleLine = hasDebugHook ? callFrame.currentLine : -1;
       final needsCoroutineWideBoundary =
           currentCoroutine != null && !identical(currentCoroutine, mainThread);
       final profile = _activeProfile;
       final opTimer = profile == null ? null : (Stopwatch()..start());
       try {
         if (needsCoroutineWideBoundary ||
-            _needsSuspendingOpcodeBoundaryForInstruction(
-              frame,
-              opcode,
-              word,
-            )) {
+            _needsSuspendingOpcodeBoundaryForInstruction(frame, opcode, word)) {
           await _preserveSuspendingBytecodeBoundary(
             currentCoroutine: currentCoroutine,
             mainThread: mainThread,
@@ -390,16 +384,16 @@ final class LuaBytecodeVm {
             ? _deferCountHookForOpcode(opcode)
             : false;
         if (hasDebugHook && !deferCountHook) {
-          _syncDebugLocals(frame);
+          _syncDebugLocals(frame, callFrame: callFrame);
           await debugInterpreter!.maybeFireCountDebugHook();
         }
         if (lineNumber != null) {
-          runtime.callStack.top?.currentLine = lineNumber;
+          callFrame.currentLine = lineNumber;
           final suppressOwnLineHook = opcode == Opcode.jmp && word.sJ < 0;
           if (hasDebugHook &&
               opcode != Opcode.varArgPrep &&
               !suppressOwnLineHook) {
-            _syncDebugLocals(frame);
+            _syncDebugLocals(frame, callFrame: callFrame);
             await debugInterpreter!.maybeFireLineDebugHook(
               lineNumber,
               force: forceLineHook,
@@ -1215,6 +1209,7 @@ final class LuaBytecodeVm {
                   runtime,
                   _debugInterpreter,
                   frame,
+                  callFrame: callFrame,
                   loopLine: lineNumber ?? previousVisibleLine,
                 );
                 if (_runGcLoopSafePoint(runtime, frame) case final gcWork?) {
@@ -1671,6 +1666,7 @@ final class LuaBytecodeVm {
                   runtime,
                   _debugInterpreter,
                   frame,
+                  callFrame: callFrame,
                   loopLine: lineNumber ?? previousVisibleLine,
                 );
                 if (_runGcLoopSafePoint(runtime, frame) case final gcWork?) {
@@ -1818,7 +1814,7 @@ final class LuaBytecodeVm {
         }
 
         if (hasDebugHook && deferCountHook) {
-          _syncDebugLocals(frame);
+          _syncDebugLocals(frame, callFrame: callFrame);
           await debugInterpreter!.maybeFireCountDebugHook();
         }
         frame.openTop = nextOpenTop;
@@ -2099,25 +2095,29 @@ void _resetBackedgeLineHookState(
   LuaRuntime runtime,
   Interpreter? debugInterpreter,
   LuaBytecodeFrame frame, {
+  CallFrame? callFrame,
   required int loopLine,
 }) {
   final targetLine = frame.closure.prototype.lineForPc(frame.pc);
   if (targetLine == null || targetLine != loopLine) {
     return;
   }
-  runtime.callStack.top?.lastDebugHookLine = -1;
+  final targetCallFrame = callFrame ?? runtime.callStack.top;
+  targetCallFrame?.lastDebugHookLine = -1;
   debugInterpreter?.rememberDebugHookLine(
     -1,
-    source: runtime.callStack.top?.scriptPath ?? runtime.currentScriptPath,
+    source: targetCallFrame?.scriptPath ?? runtime.currentScriptPath,
   );
 }
 
 void _resetResumeLineHookState(
   LuaRuntime runtime,
   Interpreter? debugInterpreter,
-  LuaBytecodeFrame frame,
-) {
-  runtime.callStack.top?.lastDebugHookLine = -1;
+  LuaBytecodeFrame frame, {
+  CallFrame? callFrame,
+}) {
+  final targetCallFrame = callFrame ?? runtime.callStack.top;
+  targetCallFrame?.lastDebugHookLine = -1;
   debugInterpreter?.rememberDebugHookLine(
     -1,
     source: frame.closure.debugInfo.source,

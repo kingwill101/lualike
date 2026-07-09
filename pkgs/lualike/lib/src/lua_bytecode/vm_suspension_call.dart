@@ -57,7 +57,13 @@ final class LuaBytecodeCallSuspension implements CoroutineContinuation {
         results,
       );
       try {
-        _resetResumeLineHookState(vm.runtime, vm._debugInterpreter, frame);
+        final topFrame = vm.runtime.callStack.top;
+        _resetResumeLineHookState(
+          vm.runtime,
+          vm._debugInterpreter,
+          frame,
+          callFrame: topFrame,
+        );
         final resumedResults = await vm._runFrameWithTailCalls(frame);
         return packCallResults(vm.runtime, resumedResults);
       } on YieldException catch (error) {
