@@ -2398,7 +2398,7 @@ class LualikeIrVm {
       final preparedArgs = args.isEmpty
           ? const <Object?>[]
           : args.map(_prepareCallArgument).toList(growable: false);
-      final raw = callable.unwrap();
+      final raw = rawLuaSlot(callable);
       if (raw is Function) {
         final result = raw(preparedArgs);
         final awaited = result is Future ? await result : result;
