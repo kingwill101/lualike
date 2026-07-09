@@ -3,6 +3,7 @@ import 'package:lualike/src/ast.dart';
 import 'package:lualike/src/environment.dart';
 import 'package:lualike/src/io/lua_file.dart';
 import 'package:lualike/src/lua_bytecode/chunk.dart';
+import 'package:lualike/src/lua_bytecode/instruction.dart';
 import 'package:lualike/src/lua_error.dart';
 import 'package:lualike/src/lua_string.dart';
 import 'package:lualike/src/number.dart';
@@ -821,6 +822,24 @@ String? stringLike(Object? value) => switch (value) {
   final String stringValue => stringValue,
   _ => null,
 };
+
+bool supportsEqualityMetamethod(Value left, Value right) {
+  return getLuaType(left) == 'table' && getLuaType(right) == 'table';
+}
+
+String orderComparisonError(Value left, Value right) {
+  final leftType = getLuaType(left);
+  final rightType = getLuaType(right);
+  return leftType == rightType
+      ? 'attempt to compare two $leftType values'
+      : 'attempt to compare $leftType with $rightType';
+}
+
+int signedB(LuaBytecodeInstructionWord word) =>
+    word.b - LuaBytecodeInstructionLayout.offsetSB;
+
+int signedC(LuaBytecodeInstructionWord word) =>
+    word.c - LuaBytecodeInstructionLayout.offsetSC;
 
 ({bool skip, int limit}) forIntegerLimit(
   int initial,
