@@ -343,6 +343,7 @@ final class LuaBytecodeVm {
 
   Future<List<Value>> _executeFrame(LuaBytecodeFrame frame) async {
     final prototype = frame.closure.prototype;
+    final opcodesByPc = prototype.opcodesByPc;
     final mainThread = runtime.getMainThread();
     final linesByPc = prototype.hasDebugInfo ? prototype.linesByPc : null;
     var currentCoroutine = runtime.getCurrentCoroutine();
@@ -360,7 +361,7 @@ final class LuaBytecodeVm {
       int? nextOpenTop;
       final instructionPc = frame.pc++;
       final word = prototype.code[instructionPc];
-      final opcode = word.opcode;
+      final opcode = opcodesByPc[instructionPc];
       final lineNumber = linesByPc?[instructionPc];
       final debugInterpreter = _debugInterpreter;
       final hasDebugHook = debugInterpreter?.debugHookFunction != null;
