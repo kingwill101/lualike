@@ -8,6 +8,7 @@ import 'package:lualike/src/lua_bytecode/debug_local_caches.dart';
 import 'package:lualike/src/lua_bytecode/vm_support.dart';
 import 'package:lualike/src/lua_bytecode/vm_value_helpers.dart';
 import 'package:lualike/src/lua_error.dart';
+import 'package:lualike/src/lua_string.dart';
 import 'package:lualike/src/runtime/lua_runtime.dart';
 import 'package:lualike/src/runtime/lua_results.dart';
 import 'package:lualike/src/runtime/lua_slot.dart';
@@ -404,16 +405,14 @@ final class LuaBytecodeFrame implements LuaBytecodeGCRootProvider {
         ),
       );
     }
-    // Always clone shared runtime constants before storing them in a
-    // register even when they wrap a scalar primitive.  The resulting
-    // Value must be mutable because later operations such as
-    // debug.setlocal rely on overwriteValue to mutate the register
-    // value in-place (target.raw = …).  Skipping the clone for scalar
-    // primitives would leave a shared-primitive Value in the register,
-    // and overwriteValue would throw when it tries to set `raw` on a
-    // shared primitive.
-    final storedValue =
-        !value.skipAllocationDebt && isSharedRuntimeConstant(runtime, value)
+    // Clone shared cached wrappers before storing them in a register so later
+    // debug writes can mutate the slot in place. Numeric primitive caches are
+    // flagged directly, which avoids a runtime identity lookup on the hot path.
+    final raw = rawLuaSlot(value);
+    final storedValue = !value.skipAllocationDebt &&
+            (value.isSharedPrimitive ||
+                (raw is String || raw is LuaString) &&
+                    isSharedRuntimeConstant(runtime, value))
         ? cloneBytecodeValue(value)
         : value;
     storedValue.interpreter ??= runtime;
