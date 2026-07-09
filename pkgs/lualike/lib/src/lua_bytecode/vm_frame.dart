@@ -373,10 +373,16 @@ final class LuaBytecodeFrame implements LuaBytecodeGCRootProvider {
     growable: true,
   );
 
+  @pragma('vm:prefer-inline')
   Value register(int index) => slotValue(index);
 
-  Value slotValue(int index) =>
-      index < registers.length ? registers[index] : runtimeValue(runtime, null);
+  @pragma('vm:prefer-inline')
+  Value slotValue(int index) {
+    if (index < registers.length) {
+      return registers[index];
+    }
+    return runtime.constantPrimitiveValue(null);
+  }
 
   void setRegister(int index, Value value) {
     if (index >= registers.length) {
@@ -585,6 +591,7 @@ final class LuaBytecodeFrame implements LuaBytecodeGCRootProvider {
         : registerIndex >= start && registerIndex <= end;
   }
 
+  @pragma('vm:prefer-inline')
   void expireDeadLocals() {
     final currentPc = pc;
     if (currentPc < 0 ||
