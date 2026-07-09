@@ -17,6 +17,7 @@ import 'package:lualike/src/lua_bytecode/debug_local_caches.dart';
 import 'package:lualike/src/lua_bytecode/vm_value_helpers.dart';
 import 'package:lualike/src/lua_bytecode/vm_frame_helpers.dart';
 import 'package:lualike/src/lua_bytecode/vm_call_frame_state.dart';
+import 'package:lualike/src/lua_bytecode/vm_support.dart';
 import 'package:lualike/src/lua_bytecode/vm_profile.dart';
 import 'package:lualike/src/lua_error.dart';
 import 'package:lualike/src/lua_string.dart';
@@ -44,19 +45,6 @@ final bool _profileBytecode =
 final RegExp _bytecodeFormattedLuaErrorPattern = RegExp(
   r'^(?:\[[^\n]+\]|[^:\n]+):(?:\d+|\?): ',
 );
-
-void _debugFileLog(String message) {
-  if (_debugFileOps) {
-    print('[file-debug] $message');
-  }
-}
-
-abstract interface class LuaBytecodeGCRootProvider {
-  Iterable<GCObject> gcReferences();
-}
-
-final Object inlineBuiltinUnhandled = Object();
-
 
 final class LuaBytecodeVm {
   LuaBytecodeVm(this.runtime);
@@ -1634,7 +1622,7 @@ final class LuaBytecodeVm {
                           ' trackedValue=${identityHashCode(IOLib.trackedOpenFileWrapper(file))}',
                     _ => '',
                   };
-                  _debugFileLog(
+                  debugFileLog(
                     'CALL pc=${frame.pc - 1} a=${word.a} b=${word.b} c=${word.c} '
                     'callee=${rawCallee.runtimeType} name=${nameInfo.name}'
                     '$receiverDetail',
@@ -1891,7 +1879,7 @@ final class LuaBytecodeVm {
                 break;
               }
               if (_debugFileOps) {
-                _debugFileLog(
+                debugFileLog(
                   'CLOSE pc=${frame.pc - 1} fromRegister=${word.a} '
                   'toBeClosed=${frame._toBeClosedRegisters.toList()..sort()}',
                 );
@@ -4170,7 +4158,7 @@ final class LuaBytecodeVm {
         : rightLabel ?? _valueSourceLabel(frame, offending);
     if (_debugFileOps) {
       final offendingRaw = rawLuaSlot(offending);
-      _debugFileLog(
+      debugFileLog(
         'binary-error left=${leftRaw.runtimeType} right=${rightRaw.runtimeType} '
         'offending=${offendingRaw.runtimeType} label=$label',
       );
@@ -4752,14 +4740,14 @@ Object? raw) {
       final value = results[index];
       final rawValue = rawLuaSlot(value);
       if (_debugFileOps) {
-        _debugFileLog(
+        debugFileLog(
           'discard-result index=$index tbc=${value.isToBeClose} '
           'raw=${rawValue.runtimeType} live=${frame._toBeClosedRegisters.toList()..sort()}',
         );
       }
       if (frame.isLiveToBeClosedAlias(value)) {
         if (_debugFileOps) {
-          _debugFileLog('discard-result skip-live-alias index=$index');
+          debugFileLog('discard-result skip-live-alias index=$index');
         }
         continue;
       }
@@ -6346,7 +6334,7 @@ final class LuaBytecodeFrame implements LuaBytecodeGCRootProvider {
     );
     if (_debugFileOps) {
       final raw = rawLuaSlot(rawValue);
-      _debugFileLog(
+      debugFileLog(
         'markToBeClosed register=$registerIndex '
         'tbc=${rawValue.isToBeClose} raw=${raw.runtimeType}',
       );
