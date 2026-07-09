@@ -5,11 +5,8 @@ import 'package:path/path.dart' as path_lib;
 
 import 'package:lualike/lualike.dart';
 
-import 'io_device.dart';
-import 'lua_file.dart';
 import 'package:lualike/src/utils/platform_utils.dart' as platform;
 import 'package:lualike/src/utils/command_parser.dart';
-import 'package:lualike/src/utils/file_system_utils.dart';
 
 final bool _debugFileOps =
     Platform.environment['LUALIKE_DEBUG_FILE_OPS'] == '1';

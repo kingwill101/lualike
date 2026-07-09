@@ -1,15 +1,17 @@
-name: Flutter (love2d)
+name: Flutter packages
 
 on:
   push:
     branches: ["master"]
     paths:
       - "pkgs/love2d/**"
+      - "pkgs/flutter_lualike/**"
       - "pkgs/lualike/**"
       - ".github/workflows/love2d.yml"
   pull_request:
     paths:
       - "pkgs/love2d/**"
+      - "pkgs/flutter_lualike/**"
       - "pkgs/lualike/**"
       - ".github/workflows/love2d.yml"
 
@@ -38,5 +40,9 @@ jobs:
 
       - run: flutter analyze
 
-      - name: Run tests
+      - name: Run tests (love2d)
         run: flutter test
+
+      - name: Run tests (flutter_lualike)
+        run: flutter test
+        working-directory: pkgs/flutter_lualike

@@ -2,7 +2,7 @@ name: lualike
 description: >
     A Lua-like scripting language for Dart, designed to be easy to embed and extend.
     It provides a simple REPL, supports Lua-like syntax, and allows for seamless integration with Dart code.
-version: 0.2.4
+version: 0.3.0
 resolution: workspace
 repository: https://github.com/kingwill101/lualike
 topics:
@@ -13,7 +13,7 @@ topics:
   - repl
 
 environment:
-  sdk: ">=3.9.0 <4.0.0"
+  sdk: ">=3.10.0 <4.0.0"
 
 # Add regular dependencies here.
 dependencies:

@@ -25,7 +25,7 @@ It includes a high-level bridge for running scripts from Dart, AST parsing APIs,
 
 ```yaml
 dependencies:
-  lualike: ^0.0.1-alpha.2
+  lualike: ^0.3.0
 ```
 
 Then run:
@@ -438,6 +438,7 @@ Examples and source:
 
 - [file_lualike](https://pub.dev/packages/file_lualike) — bridges `package:file` filesystems (SFTP, in-memory, local) into lualike so `io.open()`, `os.remove()`, `dofile()`, and module loading all delegate to a remote/backend filesystem.
 - [process_lualike](https://pub.dev/packages/process_lualike) — bridges remote process execution into lualike so `os.execute()` runs over SSH, Docker, or any custom backend without changing Lua code.
+- [flutter_lualike](https://pub.dev/packages/flutter_lualike) — `AssetBundle` filesystem backend for Flutter apps with transparent read-only file access and local filesystem fallback for desktop platforms.
 
 ## Notes on public API stability
 

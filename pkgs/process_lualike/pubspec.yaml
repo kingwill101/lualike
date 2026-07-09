@@ -14,10 +14,10 @@ topics:
   - process
 
 environment:
-  sdk: ">=3.9.0 <4.0.0"
+  sdk: ">=3.10.0 <4.0.0"
 
 dependencies:
-  lualike: ^0.2.4
+  lualike: ^0.3.0
   dartssh2: ^2.18.0
 
 dev_dependencies:

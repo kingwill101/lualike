@@ -2,7 +2,6 @@ import 'package:lualike/lualike.dart';
 
 import 'package:lualike/src/runtime/lua_results.dart';
 import 'package:lualike/src/runtime/lua_slot.dart';
-import 'package:lualike/src/utils/file_system_utils.dart';
 import 'package:lualike/src/utils/platform_utils.dart' as platform;
 import 'package:path/path.dart' as path_lib;
 import 'library.dart';

@@ -875,7 +875,7 @@ Map<String, Object?> _aliasManifestEntry(AliasDoc doc) {
     if (doc.variants.isNotEmpty)
       'variants': doc.variants
           .map(
-            (v) => <String, Object?>{
+            (AliasVariant v) => <String, Object?>{
               'value': v.value,
               if (v.description != null) 'description': v.description,
             },
@@ -916,7 +916,7 @@ Map<String, Object?> _tableDocManifestEntry(String name, TableDoc doc) {
     if (doc.operators.isNotEmpty)
       'operators': doc.operators
           .map(
-            (o) => <String, Object?>{
+            (OperatorDoc o) => <String, Object?>{
               'operation': o.operation,
               if (o.paramType != null) 'paramType': o.paramType,
               'returnType': o.returnType,
@@ -1077,7 +1077,7 @@ void _emitLuaLsAliasDoc(StringBuffer buf, AliasDoc doc) {
         buf.writeln('---$line');
       }
     }
-    for (final variant in doc.variants) {
+    for (final AliasVariant variant in doc.variants) {
       final desc = variant.description != null
           ? ' # ${variant.description}'
           : '';
@@ -1200,7 +1200,7 @@ void _emitLuaLsFunction(
   }
 
   // Generics
-  for (final generic in doc.generics) {
+  for (final GenericParam generic in doc.generics) {
     if (generic.parentType != null) {
       buf.writeln('---@generic ${generic.name} : ${generic.parentType}');
     } else {
@@ -1269,7 +1269,7 @@ void _emitLuaLsTableDoc(StringBuffer buf, String qualifiedName, TableDoc doc) {
   }
 
   // Operators
-  for (final op in doc.operators) {
+  for (final OperatorDoc op in doc.operators) {
     if (op.paramType != null) {
       buf.writeln(
         '---@operator ${op.operation}(${op.paramType}): ${op.returnType}',

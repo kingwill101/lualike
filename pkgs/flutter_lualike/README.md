@@ -5,6 +5,20 @@ filesystem backend for [lualike](https://github.com/kingwill101/lualike). Provid
 transparent read-only file access for `dofile()` and module loading from Flutter
 assets.
 
+## Install
+
+```yaml
+dependencies:
+  flutter_lualike: ^0.1.0
+  lualike: ^0.3.0
+```
+
+Then run:
+
+```bash
+flutter pub get
+```
+
 ## Usage
 
 ```dart

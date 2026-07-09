@@ -1,3 +1,8 @@
+## 0.1.2
+
+- Re-export `CompositeFileSystemBackend` from `package:lualike` for
+  convenience when building layered filesystem backends.
+
 ## 0.1.1
 
 - `useFileSystem()` now wires the configured `FileSystemProvider` into lualike's

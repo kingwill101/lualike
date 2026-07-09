@@ -9,9 +9,6 @@ import 'dart:async';
 
 import 'package:lualike/lualike.dart';
 
-import 'io_device_shared.dart';
-import 'lua_file.dart';
-
 /// Stub file device for web (no real filesystem).
 class FileIODevice extends BaseIODevice {
   FileIODevice._(super.mode);

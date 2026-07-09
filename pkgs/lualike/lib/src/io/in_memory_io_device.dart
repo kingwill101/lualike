@@ -2,7 +2,6 @@
 library;
 
 import 'package:lualike/lualike.dart';
-import 'io_device.dart';
 
 /// Simple in-memory IODevice that can be used directly
 /// Usage: IOLib.fileSystemProvider.ioDevice = InMemoryIODevice()

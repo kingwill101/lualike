@@ -12,8 +12,8 @@ Use any `package:file`-compatible filesystem — local disk, in-memory (`MemoryF
 
 ```yaml
 dependencies:
-  lualike: ^0.2.4
-  file_lualike: ^0.1.1
+  lualike: ^0.3.0
+  file_lualike: ^0.1.2
 ```
 
 Then run:

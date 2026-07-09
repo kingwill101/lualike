@@ -2,7 +2,6 @@
 library;
 
 import 'package:lualike/lualike.dart';
-import 'io_device.dart';
 
 // Global storage for in-memory files
 final Map<String, String> _globalMemoryFiles = {};
