@@ -17,6 +17,17 @@ class NumberUtils {
 
   static const int _frexpMantissaExponent = NumberLimits.doubleExponentBias - 1;
   static const int _subnormalFrexpScale = 54;
+  /// Reusable scratch buffer for [doubleToRawBits].
+  ///
+  /// Allocating a fresh [ByteData] on every call was visible in the
+  /// profiler, so this buffer is shared across all call sites.  It is
+  /// safe because [doubleToRawBits] is effectively single-threaded in
+  /// the Lua execution model.
+  static final ByteData _doubleBitsScratch = ByteData(8);
+
+  /// Reusable scratch buffer for [rawBitsToDouble].
+  /// Same rationale as [_doubleBitsScratch].
+  static final ByteData _doubleFromBitsScratch = ByteData(8);
   static bool _isBitwiseOperator(String op) => switch (op) {
     '&' || '|' || 'bxor' || '<<' || '>>' || '~' => true,
     _ => false,
@@ -116,20 +127,29 @@ class NumberUtils {
     return (number as num).toDouble();
   }
 
-  /// Returns the raw IEEE-754 bit pattern for a double.
+  /// Returns the raw IEEE-754 bit pattern for a [double] as a [BigInt].
   ///
-  /// Use 32-bit halves instead of `getUint64` so this works under dart2js,
-  /// which does not implement the 64-bit typed-data accessors.
+  /// Uses 32-bit halves instead of [ByteData.getUint64] so this works under
+  /// dart2js, which does not implement the 64-bit typed-data accessors.
+  ///
+  /// The scratch buffer [_doubleBitsScratch] is reused across calls to avoid
+  /// per-call [ByteData] allocation.  Callers that only need the bit pattern
+  /// as a map key (not as a [BigInt]) should use
+  /// [Interpreter._doubleToKey] instead, which returns a `(int, int)` record
+  /// and avoids [BigInt.from] overhead entirely.
   static BigInt doubleToRawBits(double value) {
-    final data = ByteData(8)..setFloat64(0, value, Endian.big);
+    final data = _doubleBitsScratch..setFloat64(0, value, Endian.big);
     final high = data.getUint32(0, Endian.big);
     final low = data.getUint32(4, Endian.big);
     return (BigInt.from(high) << 32) | BigInt.from(low);
   }
 
-  /// Reconstructs a double from its raw IEEE-754 bit pattern.
+  /// Reconstructs a [double] from its raw IEEE-754 bit pattern.
+  ///
+  /// Reuses the scratch buffer [_doubleFromBitsScratch] across calls
+  /// to avoid per-call [ByteData] allocation.
   static double rawBitsToDouble(BigInt bits) {
-    final data = ByteData(8)
+    final data = _doubleFromBitsScratch
       ..setUint32(0, (bits >> 32).toInt(), Endian.big)
       ..setUint32(4, (bits & BigInt.from(0xffffffff)).toInt(), Endian.big);
     return data.getFloat64(0, Endian.big);
