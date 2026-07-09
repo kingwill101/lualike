@@ -1712,8 +1712,8 @@ class NextFunction extends BuiltinFunction {
       // However, during the finalization phase, Lua semantics allow weak-keys
       // to be observed by __gc finalizers before keys are removed. Therefore,
       // we do NOT skip dead keys if GC is currently finalizing.
-      if (table.tableWeakMode != null &&
-          (table.hasWeakKeys || table.isAllWeak)) {
+      final weakMode = table.tableWeakMode;
+      if (weakMode != null && (weakMode.contains('k'))) {
         final vm = interpreter!;
         // During finalization, keep observation of weak-keys intact.
         if (!vm.gc.isFinalizing) {
@@ -1735,14 +1735,12 @@ class NextFunction extends BuiltinFunction {
       // and GC logging is enabled, emit the produced key/value to aid
       // diagnosing gc.lua failures around pairs(a) assertions.
       try {
-        if (Logger.enabled &&
-            table.tableWeakMode != null &&
-            (table.hasWeakKeys || table.hasWeakValues || table.isAllWeak)) {
+        if (Logger.enabled && weakMode != null && weakMode.isNotEmpty) {
           final rawNextKey = rawLuaSlot(nextKey);
           final rawNextValue = rawLuaSlot(nextValue);
           Logger.debugLazy(
             () =>
-                'next(pair): weak table (${table.tableWeakMode}) -> k=$rawNextKey (${rawNextKey.runtimeType}) v=$rawNextValue (${rawNextValue.runtimeType})',
+                'next(pair): weak table ($weakMode) -> k=$rawNextKey (${rawNextKey.runtimeType}) v=$rawNextValue (${rawNextValue.runtimeType})',
             category: 'GC',
           );
         }
@@ -1892,8 +1890,8 @@ class NextFunction extends BuiltinFunction {
       valueFromLuaSlot(interpreter!, value);
 
   bool _shouldSkipWeakKey(Value table, Value nextKey) {
-    if (table.tableWeakMode == null ||
-        (!table.hasWeakKeys && !table.isAllWeak)) {
+    final weakMode = table.tableWeakMode;
+    if (weakMode == null || !weakMode.contains('k')) {
       return false;
     }
 
