@@ -1429,27 +1429,27 @@ class GenerationalGCManager {
       }
 
       if (obj.marked) {
-        if (obj is Value &&
-            obj.isTable &&
-            (obj.tableWeakMode != null &&
-                (_inMajorCollection || obj.tableWeakMode == 'kv'))) {
-          _handleTableTraversal(obj);
+        if (obj is Value && obj.isTable) {
+          final weakMode = obj.tableWeakMode;
+          if (weakMode != null && (_inMajorCollection || weakMode == 'kv')) {
+            _handleTableTraversal(obj);
+          }
         }
         return;
       }
 
       obj.marked = true;
 
-      if (obj is Value &&
-          obj.isTable &&
-          (obj.tableWeakMode != null &&
-              (_inMajorCollection || obj.tableWeakMode == 'kv'))) {
-        Logger.debugLazy(
-          () => 'Mark table ${obj.hashCode} weakMode=${obj.tableWeakMode}',
-          category: 'GC',
-        );
-        _handleTableTraversal(obj);
-        return;
+      if (obj is Value && obj.isTable) {
+        final weakMode = obj.tableWeakMode;
+        if (weakMode != null && (_inMajorCollection || weakMode == 'kv')) {
+          Logger.debugLazy(
+            () => 'Mark table ${obj.hashCode} weakMode=$weakMode',
+            category: 'GC',
+          );
+          _handleTableTraversal(obj);
+          return;
+        }
       }
 
       for (final ref in obj.getReferences()) {
