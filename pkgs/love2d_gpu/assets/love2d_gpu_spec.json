@@ -1,0 +1,35 @@
+{
+  "love_base_vertex": {
+    "type": "vertex",
+    "file": "/run/media/kingwill101/disk2/code/code/dart_packages/lualike/pkgs/love2d_gpu/lib/src/shader/love_base.vert"
+  },
+  "love_unlit_fragment": {
+    "type": "fragment",
+    "file": "/run/media/kingwill101/disk2/code/code/dart_packages/lualike/pkgs/love2d_gpu/lib/src/shader/love_unlit.frag"
+  },
+  "love_textured_fragment": {
+    "type": "fragment",
+    "file": "/run/media/kingwill101/disk2/code/code/dart_packages/lualike/pkgs/love2d_gpu/lib/src/shader/love_textured.frag"
+  },
+  "love_sprite_batch_vertex": {
+    "type": "vertex",
+    "file": "/run/media/kingwill101/disk2/code/code/dart_packages/lualike/pkgs/love2d_gpu/lib/src/shader/love_sprite_batch.vert"
+  },
+  "pipelines": [
+    {
+      "name": "UnlitPipeline",
+      "vertex": "love_base_vertex",
+      "fragment": "love_unlit_fragment"
+    },
+    {
+      "name": "TexturedPipeline",
+      "vertex": "love_base_vertex",
+      "fragment": "love_textured_fragment"
+    },
+    {
+      "name": "SpriteBatchPipeline",
+      "vertex": "love_sprite_batch_vertex",
+      "fragment": "love_textured_fragment"
+    }
+  ]
+}
