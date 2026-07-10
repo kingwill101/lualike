@@ -68,7 +68,7 @@ final class LuaBytecodeFrame implements LuaBytecodeGCRootProvider {
   Environment? _debugEnvironment;
   PackedVarargTable? namedVarargTable;
   Value? namedVarargTableValue;
-  List<bool> get _localExpiryFlags =>
+  late final List<bool> _localExpiryFlags =
       _localExpiryFlagsFor(closure.prototype);
   late final List<List<({int register, int endPc})>>
   _expiredRegisterCandidatesByPc = expiredRegisterCandidatesByPcFor(
@@ -129,9 +129,15 @@ final class LuaBytecodeFrame implements LuaBytecodeGCRootProvider {
     final regs = registers;
     final nilConst = _nilConst;
     final parameterCount = closure.prototype.parameterCount;
-    final normalizedArgs = arguments
-        .map((argument) => runtimeValue(runtime, argument))
-        .toList(growable: false);
+    final argCount = arguments.length;
+    final normalizedArgs = List<Value>.filled(
+      argCount,
+      _nilConst,
+      growable: false,
+    );
+    for (var index = 0; index < argCount; index++) {
+      normalizedArgs[index] = runtimeValue(runtime, arguments[index]);
+    }
     callArgs = normalizedArgs;
 
     pc = 0;
@@ -373,25 +379,15 @@ final class LuaBytecodeFrame implements LuaBytecodeGCRootProvider {
     if (count <= 0) {
       return const <Value>[];
     }
-    final end = start + count;
+    final values = List<Value>.filled(count, _nilConst, growable: false);
     if (start >= registers.length) {
-      return List<Value>.generate(
-        count,
-        (_) => runtimeValue(runtime, null),
-        growable: false,
-      );
+      return values;
     }
-    if (end <= registers.length) {
-      return registers.sublist(start, end);
+    final available = registers.length - start;
+    final copyCount = available < count ? available : count;
+    for (var index = 0; index < copyCount; index++) {
+      values[index] = registers[start + index];
     }
-    final values = registers.sublist(start);
-    values.addAll(
-      List<Value>.generate(
-        end - registers.length,
-        (_) => runtimeValue(runtime, null),
-        growable: false,
-      ),
-    );
     return values;
   }
 
