@@ -1,0 +1,15 @@
+dartdoc:
+  categories:
+    "Compiler":
+      name: "Compiler Pipeline"
+      description: "Multi-pass compilation pipeline, passes, and bytecode backends for the lualike optimizing compiler."
+    "Folding":
+      name: "Constant Folding"
+      description: "Compile-time expression evaluation and AST simplification passes."
+    "Bundler":
+      name: "Module Bundler"
+      description: "Compile-time resolution of require() calls and dependency inlining."
+    "Bytecode":
+      name: "Bytecode Backend"
+      description: "Lua 5.5 bytecode emission, serialization, and VM execution."
+  categoryOrder: ["Compiler", "Folding", "Bundler", "Bytecode"]
