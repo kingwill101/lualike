@@ -21,7 +21,13 @@ class LualikeIrCompiler {
   /// precomputed at compile time.
   final ConstantFoldingResult? foldingResult;
 
-  LualikeIrCompiler({this.foldingResult});
+  /// Whether to unroll constant-bounded for-loops.
+  ///
+  /// Unrolling increases IR instruction count (slow in the IR interpreter)
+  /// but produces tighter bytecode for the bytecode VM.
+  final bool enableLoopUnrolling;
+
+  LualikeIrCompiler({this.foldingResult, this.enableLoopUnrolling = false});
 
   LualikeIrChunk compile(Program program) {
     final chunkBuilder = LualikeIrChunkBuilder();
@@ -30,6 +36,7 @@ class LualikeIrCompiler {
       prototypeBuilder,
       isVararg: true,
       foldingResult: foldingResult,
+      enableLoopUnrolling: enableLoopUnrolling,
     );
 
     context._emitBlock(program.statements, useNewScope: false);
@@ -128,6 +135,7 @@ class _PrototypeContext {
     List<String> parameterNames = const <String>[],
     this.isVararg = false,
     this.foldingResult,
+    this.enableLoopUnrolling = false,
   }) : emitter = LualikeIrEmitter(builder),
        _localScopes = <Map<String, int>>[<String, int>{}],
        _globalBindingScopes = <Set<String>>[<String>{}],
@@ -155,6 +163,9 @@ class _PrototypeContext {
 
   /// Optional constant folding result.
   final ConstantFoldingResult? foldingResult;
+
+  /// Whether to unroll constant-bounded for-loops.
+  final bool enableLoopUnrolling;
 
   bool hasExplicitReturn = false;
 
@@ -2351,6 +2362,7 @@ class _PrototypeContext {
       parameterNames: positionalParams,
       isVararg: body.isVararg,
       foldingResult: foldingResult,
+      enableLoopUnrolling: enableLoopUnrolling,
     );
     for (final name in declaredGlobals) {
       childContext._declareGlobalBinding(name);

@@ -26,6 +26,13 @@ final class CompilePipelineConfig {
   /// Whether to run the [ConstantFoldingPass] before IR emission.
   final bool enableConstantFolding;
 
+  /// Whether to unroll constant-bounded for-loops in the IR compiler.
+  ///
+  /// Unrolling increases instruction count (bad for interpreters) but produces
+  /// tighter bytecode that runs faster in the bytecode VM.  Enable when
+  /// producing a compiled binary; disable for IR interpreter runs.
+  final bool enableLoopUnrolling;
+
   /// Target backend for bytecode emission.
   final CompileBackend target;
 
@@ -33,6 +40,10 @@ final class CompilePipelineConfig {
     this.stripDebug = false,
     this.dumpIr = false,
     this.enableConstantFolding = true,
+    // Loop unrolling is off by default.  For most loops the generated code
+    // bloat outweighs the saved forPrep/forLoop overhead, even on the
+    // bytecode VM.  Set explicitly when a specific loop benefits.
+    this.enableLoopUnrolling = false,
     this.target = CompileBackend.luaBytecode,
   });
 }
@@ -157,8 +168,12 @@ final class CompilePipeline {
     }
 
     // Phase 2: Compile to IR (consumes folding results)
+    // Only enable loop unrolling when targeting bytecode binary output.
     final irCompiler = LualikeIrCompiler(
       foldingResult: config.enableConstantFolding ? _foldingResult : null,
+      enableLoopUnrolling: config.target == CompileBackend.luaBytecode
+          ? config.enableLoopUnrolling
+          : false,
     );
     final irChunk = irCompiler.compile(program);
     final irBytes = serializeLualikeIrChunk(irChunk);

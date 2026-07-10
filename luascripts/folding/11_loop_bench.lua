@@ -1,11 +1,16 @@
--- Minimal loop unrolling benchmark (no function call overhead)
-local REPEAT <const> = 50000
+-- Loop unrolling benchmark: Lua bytecode VM
+-- RUNS: const-bounded loop gets unrolled when fold=ON
+--       fold=OFF keeps the loop
 
--- This loop is unrolled (fold ON) or looped (fold OFF)
+local N <const> = 50000
+local COUNT <const> = 4
+
 local s = 0
-local start = os.clock()
-for j = 1, REPEAT do
-    s = s + 1 + 2 + 3 + 4 + 5
+local t = os.clock()
+for i = 1, N do
+    local sum = 0
+    for j = 1, COUNT do sum = sum + j end
+    s = s + sum
 end
-local elapsed = os.clock() - start
-print(string.format("time=%.2fms result=%d", elapsed * 1000, s))
+t = os.clock() - t
+print(string.format("time=%.2fms sum=%d", t * 1000, s))

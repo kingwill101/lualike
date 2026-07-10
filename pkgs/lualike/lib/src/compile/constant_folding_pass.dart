@@ -268,6 +268,11 @@ class ConstantFoldingPass {
         for (final e in exprs) {
           _foldNode(e);
         }
+        // Mark the return statement as const if its single expression is
+        // folded, so inlining can extract the returned value.
+        if (exprs.length == 1 && result.isConstant(exprs.first)) {
+          result._setValue(node, result.getValue(exprs.first));
+        }
       case ExpressionStatement(expr: final expr):
         _foldNode(expr);
       case DoBlock(body: final body):
@@ -792,18 +797,16 @@ class ConstantFoldingPass {
         }
       }
 
-      // Walk the function body.
+      // Walk the function body with constant arguments.
       for (final stmt in known.body.body) {
         _foldNode(stmt);
       }
 
-      // Check if the last statement is a constant return value.
-      final lastStmt =
-          known.body.body.isNotEmpty ? known.body.body.last : null;
-      if (lastStmt is ReturnStatement &&
-          lastStmt.expr.length == 1 &&
-          result.isConstant(lastStmt.expr.first)) {
-        result._setValue(node, result.getValue(lastStmt.expr.first));
+      // Find the last ReturnStatement that was resolved to a constant by
+      // dead-branch elimination in the folding pass.
+      final returnValue = _findInlinedReturnValue(known.body.body);
+      if (returnValue != null) {
+        result._setValue(node, returnValue);
         _exitScope();
         return true;
       }
@@ -881,6 +884,49 @@ class ConstantFoldingPass {
       values.add(result.getValue(arg));
     }
     return values;
+  }
+
+  /// Walk the inlined function body statements to find the last constant
+  /// return value.  Dead-branch elimination ensures that only the reachable
+  /// branch's return statement is marked as constant.
+  Object? _findInlinedReturnValue(List<AstNode> body) {
+    Object? lastValue;
+    void walk(List<AstNode> stmts) {
+      for (final stmt in stmts) {
+        if (stmt is ReturnStatement &&
+            stmt.expr.length == 1 &&
+            result.isConstant(stmt)) {
+          lastValue = result.getValue(stmt);
+        } else if (stmt is IfStatement) {
+          // Dead branches are not entered by the folding pass,
+          // so only the live branch's return statements are found.
+          if (result.isConstant(stmt.cond)) {
+            final cv = result.getValue(stmt.cond);
+            if (_isTruthy(cv)) {
+              walk(stmt.thenBlock);
+            } else {
+              // Condition is falsy — check else-ifs.
+              var found = false;
+              for (final clause in stmt.elseIfs) {
+                if (result.isConstant(clause.cond) &&
+                    _isTruthy(result.getValue(clause.cond))) {
+                  walk(clause.thenBlock);
+                  found = true;
+                  break;
+                }
+              }
+              if (!found) {
+                walk(stmt.elseBlock);
+              }
+            }
+          }
+        } else if (stmt is DoBlock) {
+          walk(stmt.body);
+        }
+      }
+    }
+    walk(body);
+    return lastValue;
   }
 
   void _foldFunctionBody(String? functionName, FunctionBody funcBody) {
