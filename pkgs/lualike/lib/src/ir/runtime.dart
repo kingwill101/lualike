@@ -134,6 +134,22 @@ class LualikeIrRuntime implements LuaRuntime {
   }
 
   @override
+  Future<Value> loadBytecode(List<int> bytes, {required String moduleName}) async {
+    final result = await loadChunk(LuaChunkLoadRequest(
+      source: Value.primitive(bytes),
+      chunkName: moduleName,
+      mode: 'b',
+    ));
+    if (!result.isSuccess) {
+      throw Exception(
+        'Failed to load bytecode module \'$moduleName\': '
+        '${result.errorMessage}',
+      );
+    }
+    return result.chunk!;
+  }
+
+  @override
   Future<LuaChunkLoadResult> loadChunk(LuaChunkLoadRequest request) async {
     if (request.environment != null) {
       _ensureValueInterpreter(request.environment!);

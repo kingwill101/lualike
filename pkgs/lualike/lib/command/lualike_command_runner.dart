@@ -3,6 +3,7 @@ import 'dart:io';
 import 'package:artisanal/args.dart';
 import 'package:lualike/docs.dart';
 import 'package:lualike/command/version_command.dart';
+import 'package:lualike/src/compile/pipeline.dart';
 import 'package:lualike/src/config.dart';
 import 'package:lualike/src/interop.dart';
 import 'package:lualike/src/lua_bytecode/runtime.dart';
@@ -59,6 +60,24 @@ class LuaLikeCommandRunner extends CommandRunner {
         help: 'Print IR instructions and exit without executing (IR mode)',
         negatable: false,
         defaultsTo: false,
+      )
+      ..addFlag(
+        'fold',
+        help: 'Enable constant folding pass for bytecode engines',
+        negatable: true,
+        defaultsTo: true,
+      )
+      ..addFlag(
+        'compile',
+        help: 'Compile script to bytecode and write to --output (do not execute)',
+        negatable: false,
+        defaultsTo: false,
+      )
+      ..addOption(
+        'output',
+        abbr: 'o',
+        help: 'Output path for --compile bytecode file',
+        valueHelp: 'file',
       )
       ..addMultiOption(
         'execute',
@@ -144,6 +163,20 @@ class LuaLikeCommandRunner extends CommandRunner {
       config.defaultEngineMode = EngineMode.ast;
     }
     config.dumpIr = argResults['dump-ir'] as bool;
+    config.foldEnabled = argResults['fold'] as bool;
+
+    // Handle --compile (compile-only, no execution)
+    if (argResults['compile'] as bool) {
+      if (restArgs.isEmpty) {
+        stderr.writeln('Error: --compile requires a script file argument.');
+        exit(1);
+      }
+      final scriptPath = restArgs.first;
+      final outputPath = argResults['output'] as String? ??
+          '$scriptPath.lub';
+      _compileToBytecode(scriptPath, outputPath);
+      return;
+    }
     BaseCommand.resetBridge();
 
     final emitDocsFormat = argResults['emit-docs'] as String?;
@@ -261,6 +294,26 @@ class LuaLikeCommandRunner extends CommandRunner {
 
     await File(output).writeAsString(rendered);
   }
+}
+
+/// Compiles [scriptPath] to bytecode and writes to [outputPath], then exits.
+void _compileToBytecode(String scriptPath, String outputPath) {
+  final source = File(scriptPath).readAsStringSync();
+  final pipeline = CompilePipeline(
+    config: CompilePipelineConfig(
+      enableConstantFolding: LuaLikeConfig().foldEnabled,
+      target: CompileBackend.luaBytecode,
+    ),
+  );
+  final artifact = pipeline.compileSource(source, chunkName: scriptPath);
+  final bytes = artifact.serializedBytes;
+  File(outputPath).writeAsBytesSync(bytes);
+  final folded = artifact.foldingResult.foldedCount;
+  stderr.writeln(
+    'Compiled $scriptPath → $outputPath '
+    '(${bytes.length} bytes, $folded expressions folded)',
+  );
+  exit(0);
 }
 
 bool _looksLikeTrackedLuaBytecodeScript(String scriptPath) {
