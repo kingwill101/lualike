@@ -1,0 +1,36 @@
+name: love2d_gpu_demo
+description: "Visual smoke test for the love2d_gpu render backend."
+publish_to: 'none'
+version: 1.0.0+1
+
+environment:
+  sdk: ^3.10.0
+
+dependencies:
+  flutter:
+    sdk: flutter
+  flutter_driver:
+    sdk: flutter
+  flame: ^1.37.0
+  love2d:
+    path: ../../love2d
+  love2d_gpu:
+    path: ../
+
+dependency_overrides:
+  love2d:
+    path: ../../love2d
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  integration_test:
+    sdk: flutter
+  flutter_lints: ^6.0.0
+
+flutter:
+  uses-material-design: true
+  assets:
+    - assets/conf.lua
+    - assets/main.lua
+    - assets/issue_probe.lua
