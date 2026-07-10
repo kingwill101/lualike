@@ -8,6 +8,7 @@ import 'dart:convert' show utf8;
 
 import 'package:lualike/src/ast.dart';
 import 'package:lualike/src/compile/constant_folding_pass.dart';
+import 'package:lualike/src/compile/fold_result.dart';
 import 'package:lualike/src/compile/pipeline.dart';
 import 'package:lualike/src/ir/chunk_builder.dart';
 import 'package:lualike/src/ir/prototype.dart';

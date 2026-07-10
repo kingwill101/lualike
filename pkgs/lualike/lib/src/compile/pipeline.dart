@@ -1,5 +1,6 @@
 import 'package:lualike/src/ast.dart';
 import 'package:lualike/src/compile/constant_folding_pass.dart';
+import 'package:lualike/src/compile/simplify_pass.dart';
 import 'package:lualike/src/ir/compiler.dart';
 import 'package:lualike/src/ir/prototype.dart';
 import 'package:lualike/src/ir/serialization.dart';
@@ -191,7 +192,8 @@ final class CompilePipeline {
   Program _foldAndSimplify(Program program) {
     final foldingPass = ConstantFoldingPass();
     foldingPass.fold(program);
-    return foldingPass.simplify(program);
+    final simplifier = ASTSimplifier(foldingPass.result);
+    return simplifier.simplify(program);
   }
 
   /// Convenience: parse source, run the pipeline, return the artifact.
