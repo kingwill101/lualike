@@ -89,8 +89,16 @@ final class LuaBytecodeClosure extends BuiltinFunction
   final Environment environment;
   final List<LuaBytecodeUpvalue> _upvalues;
   // Cache the wrapper used for bytecode entry so repeated calls avoid
-  // rebuilding a fresh Value around the same closure.
-  late final Value callableValue = wrapClosure(this);
+  // rebuilding a fresh Value around the same closure. We hydrate it with the
+  // debug function body once so call-stack/debug lookups don't need a per-call
+  // wrapper refresh.
+  late final Value callableValue = Value(
+    this,
+    functionBody: debugFunctionBody,
+    closureEnvironment: environment,
+    strippedDebugInfo: !prototype.hasDebugInfo,
+    functionName: chunkName,
+  )..interpreter = runtime;
   FunctionBody? _debugFunctionBody;
 
   int get upvalueCount => _upvalues.length;
