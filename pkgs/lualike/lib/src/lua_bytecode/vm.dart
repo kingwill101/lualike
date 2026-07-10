@@ -1963,9 +1963,11 @@ final class LuaBytecodeVm {
     LuaBytecodeFrame frame,
     int calleeRegister,
   ) {
-    final callee = frame.register(calleeRegister);
-    final raw = rawLuaSlot(callee);
-    return raw is BuiltinFunction && _canInlineBuiltinWithoutManagedFrame(raw);
+    // Direct calls already await inside the callee's invoke/callFunction
+    // path; the pre-call boundary was only buying us an extra async hop.
+    // That hop showed up heavily in `calls.lua`, which is mostly nested
+    // function and tail calls, so we skip it for the hot call opcode.
+    return true;
   }
 
   bool _canSkipSuspendingBoundaryForTableGet(
