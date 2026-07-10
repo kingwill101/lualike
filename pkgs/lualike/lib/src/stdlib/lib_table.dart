@@ -4,6 +4,8 @@ import 'package:lualike/lualike.dart';
 
 
 import 'package:lualike/src/runtime/lua_results.dart';
+import 'package:lualike/src/lua_bytecode/runtime.dart';
+import 'package:lualike/src/lua_bytecode/vm_value_helpers.dart';
 import 'package:lualike/src/runtime/lua_slot.dart';
 import 'package:lualike/src/runtime/runtime_hints.dart';
 import 'package:lualike/src/table_storage.dart';
@@ -1077,6 +1079,11 @@ class _TableSort extends BuiltinFunction {
     LuaRuntime? runtime,
   ) async {
     final rawSlot = rawLuaSlot(comp);
+    if (rawSlot is LuaBytecodeClosure &&
+        rawSlot.runtime is LuaBytecodeRuntime) {
+      return (rawSlot.runtime as LuaBytecodeRuntime)
+          .callBytecodeClosureDirect(rawSlot, a, b);
+    }
     if (runtime != null) {
       if (rawSlot is Function) {
         return rawSlot(<Object?>[a, b]);

@@ -1,5 +1,8 @@
 part of 'vm.dart';
 
+final Expando<List<LuaBytecodeFrame>> _bytecodeFramePoolByClosure =
+    Expando<List<LuaBytecodeFrame>>('luaBytecodeFramePool');
+
 extension LuaBytecodeVmCallEntry on LuaBytecodeVm {
   Future<List<Value>> invoke(
     LuaBytecodeClosure closure,
@@ -29,9 +32,8 @@ extension LuaBytecodeVmCallEntry on LuaBytecodeVm {
       while (true) {
         _guardCallDepth();
 
-        final frame = LuaBytecodeFrame(
-          runtime: runtime,
-          closure: currentClosure,
+        final frame = _acquireBytecodeFrame(
+          currentClosure,
           functionValue: currentFunctionValue,
           arguments: currentArgs,
           callName: currentCallName,
@@ -42,8 +44,11 @@ extension LuaBytecodeVmCallEntry on LuaBytecodeVm {
         );
 
         try {
-          return await _runFrame(frame);
+          final result = await _runFrame(frame);
+          _releaseBytecodeFrameIfReusable(frame);
+          return result;
         } on TailCallException catch (tail) {
+          _releaseBytecodeFrameIfReusable(frame);
           final prepared = _flattenTailCallable(
             valueFromLuaSlot(runtime, tail.functionValue),
             tail.args
@@ -74,6 +79,11 @@ extension LuaBytecodeVmCallEntry on LuaBytecodeVm {
                 : currentCallNameWhat,
             isTailCall: true,
           );
+        } on YieldException {
+          rethrow;
+        } catch (error) {
+          _releaseBytecodeFrameIfReusable(frame);
+          rethrow;
         }
       }
     } finally {
@@ -82,6 +92,52 @@ extension LuaBytecodeVmCallEntry on LuaBytecodeVm {
         _activeProfile = null;
       }
     }
+  }
+
+  LuaBytecodeFrame _acquireBytecodeFrame(
+    LuaBytecodeClosure closure, {
+    Value? functionValue,
+    required List<Object?> arguments,
+    String? callName,
+    String? callNameWhat,
+    required bool isEntryFrame,
+    bool isTailCall = false,
+    int extraArgs = 0,
+  }) {
+    final pool = _bytecodeFramePoolByClosure[closure];
+    if (pool != null && pool.isNotEmpty) {
+      final frame = pool.removeLast();
+      frame.reset(
+        functionValue: functionValue,
+        callName: callName,
+        callNameWhat: callNameWhat,
+        isEntryFrame: isEntryFrame,
+        isTailCall: isTailCall,
+        extraArgs: extraArgs,
+        arguments: arguments,
+      );
+      return frame;
+    }
+    return LuaBytecodeFrame(
+      runtime: runtime,
+      closure: closure,
+      functionValue: functionValue,
+      arguments: arguments,
+      callName: callName,
+      callNameWhat: callNameWhat,
+      isEntryFrame: isEntryFrame,
+      isTailCall: isTailCall,
+      extraArgs: extraArgs,
+    );
+  }
+
+  void _releaseBytecodeFrameIfReusable(LuaBytecodeFrame frame) {
+    if (!frame.closed) {
+      return;
+    }
+    frame.clearForPool();
+    (_bytecodeFramePoolByClosure[frame.closure] ??= <LuaBytecodeFrame>[])
+        .add(frame);
   }
 
   ({Value callee, List<Value> args, int extraArgs}) _flattenTailCallable(

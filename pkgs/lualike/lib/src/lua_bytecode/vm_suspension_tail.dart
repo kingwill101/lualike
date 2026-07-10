@@ -491,6 +491,7 @@ final class LuaBytecodeTailCallSuspension implements CoroutineContinuation {
           'closed=${frame.closed} pc=${frame.pc}',
         );
         await _closeFrameForCoroutine(frame, error: null);
+        vm._releaseBytecodeFrameIfReusable(frame);
         return packCallResults(vm.runtime, results);
       } on YieldException catch (error) {
         final coroutine = error.coroutine ?? vm.runtime.getCurrentCoroutine();

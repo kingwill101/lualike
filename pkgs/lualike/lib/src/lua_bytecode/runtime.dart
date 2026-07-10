@@ -371,11 +371,7 @@ class LuaBytecodeRuntime implements LuaRuntime {
     final results = await _bytecodeVm.invoke(
       closure,
       <Object?>[arg0, arg1],
-      functionValue: Value(
-        closure,
-        closureEnvironment: closure.environment,
-        interpreter: this,
-      ),
+      functionValue: closure.callableValue,
       callName: debugName ?? closure.chunkName,
       callNameWhat: '',
       isEntryFrame: true,

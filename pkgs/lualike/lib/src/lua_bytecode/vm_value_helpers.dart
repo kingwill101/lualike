@@ -88,6 +88,7 @@ final class LuaBytecodeClosure extends BuiltinFunction
   final String chunkName;
   final Environment environment;
   final List<LuaBytecodeUpvalue> _upvalues;
+  late final Value callableValue = wrapClosure(this);
   FunctionBody? _debugFunctionBody;
 
   int get upvalueCount => _upvalues.length;
@@ -170,7 +171,7 @@ final class LuaBytecodeClosure extends BuiltinFunction
   @override
   Future<Object?> call(List<Object?> args) async {
     final results = await runtime.callFunction(
-      Value(this, closureEnvironment: environment, interpreter: runtime),
+      callableValue,
       args,
       debugName: chunkName,
     );

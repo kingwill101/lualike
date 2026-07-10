@@ -312,7 +312,9 @@ final class LuaBytecodeVm {
   Future<List<Value>> _runFrameWithTailCalls(LuaBytecodeFrame frame) async {
     while (true) {
       try {
-        return await _runFrame(frame);
+        final result = await _runFrame(frame);
+        _releaseBytecodeFrameIfReusable(frame);
+        return result;
       } on TailCallException catch (tail) {
         final prepared = _flattenTailCallable(
           valueFromLuaSlot(runtime, tail.functionValue),
@@ -323,26 +325,36 @@ final class LuaBytecodeVm {
         final callee = prepared.callee;
         if (rawLuaSlot(callee) case final LuaBytecodeClosure nextClosure) {
           try {
-            return await invoke(
+            final result = await invoke(
               nextClosure,
               prepared.args,
               functionValue: callee,
               callName: tail.callName,
               extraArgs: prepared.extraArgs,
             );
+            _releaseBytecodeFrameIfReusable(frame);
+            return result;
           } on YieldException catch (error) {
             _suspendTailCall(frame, error);
+          } catch (error) {
+            _releaseBytecodeFrameIfReusable(frame);
+            rethrow;
           }
         }
         try {
-          return await _invokeValueWithName(
+          final result = await _invokeValueWithName(
             callee,
             prepared.args,
             callName: tail.callName,
             extraArgs: prepared.extraArgs,
           );
+          _releaseBytecodeFrameIfReusable(frame);
+          return result;
         } on YieldException catch (error) {
           _suspendTailCall(frame, error);
+        } catch (error) {
+          _releaseBytecodeFrameIfReusable(frame);
+          rethrow;
         }
       }
     }
