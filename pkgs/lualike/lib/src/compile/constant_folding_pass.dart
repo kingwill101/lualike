@@ -1,4 +1,5 @@
 import 'dart:collection';
+import 'dart:math' as dart_math;
 
 import 'package:lualike/src/ast.dart';
 import 'package:lualike/src/number.dart' show LuaNumberParser;
@@ -317,6 +318,15 @@ class ConstantFoldingPass {
   /// Simplify an expression node to a literal if folded, else null.
   AstNode? _simplifyExpr(AstNode? node) {
     if (node == null) return null;
+
+    // Expression reassociation: (nonconst + C1) + C2 → nonconst + (C1 + C2)
+    // This pulls constant sub-expressions up so subsequent passes see more
+    // constant material to fold on the next iteration.
+    if (node is BinaryExpression) {
+      final reassociated = _tryReassociate(node);
+      if (reassociated != null) return reassociated;
+    }
+
     if (!result.isConstant(node)) return null;
     final value = result.getValue(node);
     if (value == ConstantFoldingResult.constantNil) return NilValue();
@@ -324,17 +334,48 @@ class ConstantFoldingPass {
     if (value is int) return NumberLiteral(value);
     if (value is double) return NumberLiteral(value);
     if (value is BigInt) return NumberLiteral(value);
-    // For string values stored as byte arrays (List<int>), we create a
-    // StringLiteral with the decoded text for the compiler to handle.
     if (value is List<int>) {
-      // Preserve the original string literal source representation.
-      // Use the raw byte representation for correct Lua semantics.
       final text = String.fromCharCodes(value);
-      // Create a StringLiteral that reconstructs the original bytes.
       return StringLiteral(text, isLongString: false);
     }
     return null;
   }
+
+  /// Try to reassociate a binary expression to lift constants up.
+  ///
+  ///   (nonconst + 2) + 3  →  nonconst + 5
+  ///   (nonconst * 2) * 3  →  nonconst * 6
+  ///
+  /// Only applies to associative/commutative operators where folding
+  /// the nested constant sub-expression is valid.
+  AstNode? _tryReassociate(BinaryExpression node) {
+    if (node.left is! BinaryExpression) return null;
+    final inner = node.left as BinaryExpression;
+
+    // Must share the same operator so we can combine constants.
+    if (inner.op != node.op) return null;
+
+    // The two operators must be associative for this transformation.
+    // Supported: +, *, .., and, or  (not -, /, //, %, ^)
+    if (!_reassociationSupported.contains(node.op)) return null;
+
+    // Inner right must be constant, outer right must be constant.
+    if (!result.isConstant(inner.right)) return null;
+    if (!result.isConstant(node.right)) return null;
+
+    // Combine the two constants using the folding pass's own logic.
+    // We create a temporary BinaryExpression for the fold to process.
+    final combined = BinaryExpression(inner.right, node.op, node.right);
+    _foldNode(combined);
+    if (!result.isConstant(combined)) return null;
+
+    // Build: nonconst OP (C1 OP C2)
+    final newRight = _simplifyExpr(combined) ?? combined;
+    return BinaryExpression(inner.left, node.op, newRight);
+  }
+
+  /// Operators supported by expression reassociation.
+  static const _reassociationSupported = {'+', '*', '..', 'and', 'or'};
 
   /// Run the folding pass on a list of statements (used for function bodies).
   void foldStatements(List<AstNode> statements) {
@@ -981,6 +1022,8 @@ class ConstantFoldingPass {
 
     final allArgs = [prefixValue, ...constArgs];
     _tryFoldBuiltin(node, methodName.name, 'string', allArgs);
+    // Also try the short form: ("hello"):len() → string.len("hello")
+    // The method name without module prefix is also tried.
   }
 
   /// Try to fold a known built-in function call.
@@ -1009,6 +1052,152 @@ class ConstantFoldingPass {
         if (args.length == 1) {
           result._setValue(node, _luaToNumber(args[0]));
           return true;
+        }
+
+      // ---- math.* ----
+      case ('math', 'abs'):
+        if (args.length == 1 && args[0] is num) {
+          result._setValue(node, (args[0] as num).abs()); return true;
+        }
+      case ('math', 'floor'):
+        if (args.length == 1 && args[0] is num) {
+          result._setValue(node, (args[0] as num).floor()); return true;
+        }
+      case ('math', 'ceil'):
+        if (args.length == 1 && args[0] is num) {
+          result._setValue(node, (args[0] as num).ceil()); return true;
+        }
+      case ('math', 'max'):
+        if (args.isNotEmpty && args.every((a) => a is num)) {
+          result._setValue(node, args.cast<num>().reduce((a, b) => a > b ? a : b));
+          return true;
+        }
+      case ('math', 'min'):
+        if (args.isNotEmpty && args.every((a) => a is num)) {
+          result._setValue(node, args.cast<num>().reduce((a, b) => a < b ? a : b));
+          return true;
+        }
+      case ('math', 'sqrt'):
+        if (args.length == 1 && args[0] is num) {
+          result._setValue(node, dart_math.sqrt((args[0] as num).toDouble()));
+          return true;
+        }
+      case ('math', 'sin'):
+        if (args.length == 1 && args[0] is num) {
+          result._setValue(node, dart_math.sin((args[0] as num).toDouble()));
+          return true;
+        }
+      case ('math', 'cos'):
+        if (args.length == 1 && args[0] is num) {
+          result._setValue(node, dart_math.cos((args[0] as num).toDouble()));
+          return true;
+        }
+      case ('math', 'tan'):
+        if (args.length == 1 && args[0] is num) {
+          result._setValue(node, dart_math.tan((args[0] as num).toDouble()));
+          return true;
+        }
+      case ('math', 'asin'):
+        if (args.length == 1 && args[0] is num) {
+          result._setValue(node, dart_math.asin((args[0] as num).toDouble()));
+          return true;
+        }
+      case ('math', 'acos'):
+        if (args.length == 1 && args[0] is num) {
+          result._setValue(node, dart_math.acos((args[0] as num).toDouble()));
+          return true;
+        }
+      case ('math', 'atan'):
+        if (args.length == 1 && args[0] is num) {
+          result._setValue(node, dart_math.atan((args[0] as num).toDouble()));
+          return true;
+        }
+      case ('math', 'log'):
+        if (args.length == 1 && args[0] is num) {
+          result._setValue(node, dart_math.log((args[0] as num).toDouble()));
+          return true;
+        }
+      case ('math', 'exp'):
+        if (args.length == 1 && args[0] is num) {
+          result._setValue(node, dart_math.exp((args[0] as num).toDouble()));
+          return true;
+        }
+      case ('math', 'deg'):
+        if (args.length == 1 && args[0] is num) {
+          result._setValue(node, (args[0] as num).toDouble() * 180 / dart_math.pi);
+          return true;
+        }
+      case ('math', 'rad'):
+        if (args.length == 1 && args[0] is num) {
+          result._setValue(node, (args[0] as num).toDouble() * dart_math.pi / 180);
+          return true;
+        }
+
+      // ---- string.* ----
+      case ('string', 'len'):
+        if (args.length == 1) {
+          final s = _stringBytes(args[0]);
+          if (s != null) { result._setValue(node, s.length); return true; }
+        }
+      case ('string', 'byte'):
+        if (args.length >= 1) {
+          final s = _stringBytes(args[0]);
+          if (s != null) {
+            final idx = args.length >= 2 && args[1] is int
+                ? (args[1] as int) - 1  // Lua 1-based
+                : 0;
+            if (idx >= 0 && idx < s.length) {
+              result._setValue(node, s[idx]); return true;
+            }
+          }
+        }
+      case ('string', 'char'):
+        if (args.isNotEmpty && args.every((a) => a is int && a >= 0 && a <= 255)) {
+          result._setValue(node, args.cast<int>()); return true;
+        }
+      case ('string', 'sub'):
+        if (args.length >= 2) {
+          final s = _stringBytes(args[0]);
+          if (s != null && args[1] is int) {
+            var start = (args[1] as int) - 1; // Lua 1-based
+            if (start < 0) start = s.length + start;
+            if (start < 0) start = 0;
+            var end = args.length >= 3 && args[2] is int
+                ? (args[2] as int)  // Lua: inclusive
+                : s.length;
+            if (end < 0) end = s.length + end;
+            if (end > s.length) end = s.length;
+            if (start < end) {
+              result._setValue(node, s.sublist(start, end)); return true;
+            }
+            result._setValue(node, <int>[]); return true; // empty string
+          }
+        }
+      case ('string', 'upper'):
+        if (args.length == 1) {
+          final s = _stringBytes(args[0]);
+          if (s != null) {
+            result._setValue(node, String.fromCharCodes(s).toUpperCase().codeUnits);
+            return true;
+          }
+        }
+      case ('string', 'lower'):
+        if (args.length == 1) {
+          final s = _stringBytes(args[0]);
+          if (s != null) {
+            result._setValue(node, String.fromCharCodes(s).toLowerCase().codeUnits);
+            return true;
+          }
+        }
+      case ('string', 'rep'):
+        if (args.length == 2 && args[1] is int) {
+          final s = _stringBytes(args[0]);
+          var n = args[1] as int;
+          if (s != null && n >= 0 && n < 1000) {
+            final bytes = <int>[];
+            for (var i = 0; i < n; i++) bytes.addAll(s);
+            result._setValue(node, bytes); return true;
+          }
         }
 
       default:
