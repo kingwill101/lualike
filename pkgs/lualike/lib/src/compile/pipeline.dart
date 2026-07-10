@@ -1,6 +1,8 @@
 import 'package:lualike/src/ast.dart';
+import 'package:lualike/src/compile/bundler.dart';
 import 'package:lualike/src/compile/compiler_pass.dart';
 import 'package:lualike/src/compile/constant_folding_pass.dart';
+import 'package:lualike/src/compile/dead_code_pass.dart';
 import 'package:lualike/src/compile/simplify_pass.dart';
 import 'package:lualike/src/ir/compiler.dart';
 import 'package:lualike/src/ir/prototype.dart';
@@ -29,11 +31,16 @@ final class CompilePipelineConfig {
   final bool enableConstantFolding;
 
   /// Whether to unroll constant-bounded for-loops in the IR compiler.
-  ///
-  /// Unrolling increases instruction count (bad for interpreters) but produces
-  /// tighter bytecode that runs faster in the bytecode VM.  Enable when
-  /// producing a compiled binary; disable for IR interpreter runs.
   final bool enableLoopUnrolling;
+
+  /// Whether to run the bundler pass (require() resolution).
+  final bool enableBundling;
+
+  /// Search paths for the bundler when resolving `require("path")`.
+  final List<String> bundleSearchPaths;
+
+  /// Whether to tree-shake unused module exports after bundling.
+  final bool enableDeadCodeElimination;
 
   /// Target backend for bytecode emission.
   final CompileBackend target;
@@ -42,10 +49,10 @@ final class CompilePipelineConfig {
     this.stripDebug = false,
     this.dumpIr = false,
     this.enableConstantFolding = true,
-    // Loop unrolling is off by default.  For most loops the generated code
-    // bloat outweighs the saved forPrep/forLoop overhead, even on the
-    // bytecode VM.  Set explicitly when a specific loop benefits.
     this.enableLoopUnrolling = false,
+    this.enableBundling = false,
+    this.bundleSearchPaths = const ['.'],
+    this.enableDeadCodeElimination = false,
     this.target = CompileBackend.luaBytecode,
   });
 }
@@ -146,8 +153,13 @@ final class CompilePipeline {
   /// Builds the list of compiler passes based on configuration.
   List<CompilerPass> _buildPassList() {
     return [
+      // Bundle phase: resolve require() calls
+      if (config.enableBundling) Bundler(searchPaths: config.bundleSearchPaths),
+      // Folding phase: analyze and simplify constant expressions
       if (config.enableConstantFolding) ConstantFoldingPass(),
       if (config.enableConstantFolding) ASTSimplifier(),
+      // Dead code elimination: tree-shake unused module exports
+      if (config.enableDeadCodeElimination) DeadCodeEliminationPass(),
     ];
   }
 
