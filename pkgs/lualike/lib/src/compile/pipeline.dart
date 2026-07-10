@@ -236,7 +236,10 @@ final class CompilePipeline {
     // Phase 3: Optionally lower to Lua 5.4 bytecode
     if (config.target == CompileBackend.luaBytecode) {
       final luaChunk = _lowerToLuaBytecode(foldedProgram);
-      final luaBytes = serializeLuaBytecodeChunk(luaChunk);
+      final luaBytes = serializeLuaBytecodeChunk(
+        luaChunk,
+        stripDebug: config.stripDebug,
+      );
 
       return LuaBytecodeArtifact(
         chunk: luaChunk,
