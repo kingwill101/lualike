@@ -14,6 +14,13 @@ All 30/30 tests pass on AST, IR, and lua-bytecode engines.
 2. **FORLOOP closure safety**: Verified that in-place mutation of loop variable
    registers breaks closures that capture the loop variable. The allocation
    path (`transientPrimitiveValue`) is necessary for correctness.
+3. **Bytecode-to-bytecode fast path**: Early detection of `LuaBytecodeClosure`
+   in `_invokeValueWithName` skips tail-call flattening, builtin checks,
+   debug-local handling, and `args.cast<Value>()` for direct calls.
+4. **Skip state restoration**: Skip env/scriptPath/callStack restoration in
+   `_runFrame` finally block on the happy path when no debug hook is active.
+5. **Cache env var checks**: Cache `LUALIKE_DEBUG_BYTECODE_HOOKS` as top-level
+   final instead of calling `getEnvironmentVariable()` per frame.
 
 ## Key profiling results
 
