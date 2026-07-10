@@ -84,6 +84,12 @@ class LuaLikeCommandRunner extends CommandRunner {
         help: 'Dart embed output file (precompiled_module.dart style)',
         valueHelp: 'file',
       )
+      ..addFlag(
+        'preserve-debug',
+        help: 'Preserve debug line info in compiled bytecode',
+        negatable: false,
+        defaultsTo: false,
+      )
       ..addMultiOption(
         'execute',
         abbr: 'e',
@@ -183,6 +189,7 @@ class LuaLikeCommandRunner extends CommandRunner {
         scriptPath,
         outputPath,
         dartOutputPath: argResults['dart-output'] as String?,
+        preserveDebug: argResults['preserve-debug'] as bool,
       );
       return;
     }
@@ -306,9 +313,14 @@ class LuaLikeCommandRunner extends CommandRunner {
 }
 
 /// Compiles [scriptPath] to bytecode and writes to [outputPath], then exits.
-void _compileToBytecode(String scriptPath, String outputPath, {String? dartOutputPath}) {
+void _compileToBytecode(
+  String scriptPath, String outputPath, {
+  String? dartOutputPath,
+  bool preserveDebug = false,
+}) {
   final source = File(scriptPath).readAsStringSync();
   // --compile enables all optimizations for maximum bytecode quality.
+  // stripDebug is the OPPOSITE of preserveDebug (strip = remove debug).
   final pipeline = CompilePipeline(
     config: CompilePipelineConfig(
       enableAnalyzer: true,
@@ -317,7 +329,8 @@ void _compileToBytecode(String scriptPath, String outputPath, {String? dartOutpu
       enableTypeNarrowing: true,
       enablePeephole: true,
       enableDeadCodeElimination: true,
-      enableLoopUnrolling: false,  // interpreted VM, not beneficial
+      enableLoopUnrolling: false,
+      stripDebug: !preserveDebug,
       target: CompileBackend.luaBytecode,
     ),
   );

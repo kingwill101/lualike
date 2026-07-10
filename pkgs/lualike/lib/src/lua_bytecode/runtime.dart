@@ -432,6 +432,9 @@ class LuaBytecodeRuntime implements LuaRuntime {
   }
 
   @override
+  final Map<String, Value> moduleBytecodeCache = <String, Value>{};
+
+  @override
   Future<Value> loadBytecode(
     List<int> bytes, {
     required String moduleName,

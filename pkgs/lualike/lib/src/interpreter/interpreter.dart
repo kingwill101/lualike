@@ -125,6 +125,9 @@ class Interpreter extends AstVisitor<Object?>
   /// Included in the GC root set so the lualike collector never finalizes
   /// a handle that is still open, regardless of environment reachability.
   @override
+  final Map<String, Value> moduleBytecodeCache = <String, Value>{};
+
+  @override
   final Set<Value> openFiles = HashSet<Value>(
     equals: identical,
     hashCode: identityHashCode,
@@ -1766,6 +1769,21 @@ class Interpreter extends AstVisitor<Object?>
 
   /// Explicitly call a function with the given arguments
   @override
+  @override
+  Future<Value> loadBytecode(List<int> bytes, {required String moduleName}) async {
+    final result = await loadChunk(LuaChunkLoadRequest(
+      source: Value.primitive(bytes),
+      chunkName: moduleName,
+      mode: 'b',
+    ));
+    if (!result.isSuccess) {
+      throw Exception('Failed to load bytecode module \'$moduleName\': '
+          '${result.errorMessage}');
+    }
+    moduleBytecodeCache[moduleName] = result.chunk!;
+    return result.chunk!;
+  }
+
   Future<Object?> callFunction(
     Value function,
     List<Object?> args, {

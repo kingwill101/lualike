@@ -134,6 +134,9 @@ class LualikeIrRuntime implements LuaRuntime {
   }
 
   @override
+  final Map<String, Value> moduleBytecodeCache = <String, Value>{};
+
+  @override
   Future<Value> loadBytecode(List<int> bytes, {required String moduleName}) async {
     final result = await loadChunk(LuaChunkLoadRequest(
       source: Value.primitive(bytes),
