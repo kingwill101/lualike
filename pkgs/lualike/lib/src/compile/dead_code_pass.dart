@@ -98,28 +98,38 @@ class DeadCodeEliminationPass extends CompilerPass {
   void _collectReads(
     List<AstNode> stmts, Map<String, Set<String>> used, Set<String> vars,
   ) {
+    // alias → module var name
+    final aliases = <String, String>{};
     for (final stmt in stmts) {
-      _readNode(stmt, used, vars, {});
+      _readNode(stmt, used, vars, aliases);
     }
   }
 
   void _readNode(
-    AstNode node, Map<String, Set<String>> used, Set<String> vars, Set<String> aliases,
+    AstNode node, Map<String, Set<String>> used, Set<String> vars,
+    Map<String, String> aliases,
   ) {
-    // Track local aliases: `local x = __bundle_foo` → x is alias
+    // Track local aliases: `local x = __bundle_foo` → x → __bundle_foo
     if (node is LocalDeclaration) {
       for (var i = 0; i < node.names.length && i < node.exprs.length; i++) {
         final src = _varName(node.exprs[i]);
-        if (src != null && (vars.contains(src) || aliases.contains(src))) {
-          aliases.add(node.names[i].name);
+        if (src != null) {
+          final resolved = vars.contains(src)
+              ? src
+              : aliases.containsKey(src)
+                  ? aliases[src]
+                  : null;
+          if (resolved != null) {
+            aliases[node.names[i].name] = resolved;
+          }
         }
       }
     }
     // Detect field reads: `moduleVar.field` or `alias.field`
     if (node is TableFieldAccess) {
       final tbl = _varName(node.table);
-      if (tbl != null && (vars.contains(tbl) || aliases.contains(tbl))) {
-        final actualVar = vars.contains(tbl) ? tbl : _resolveAlias(tbl, aliases, vars);
+      if (tbl != null) {
+        final actualVar = _resolveAliasOrVar(tbl, vars, aliases);
         if (actualVar != null) {
           used.putIfAbsent(actualVar, () => <String>{});
           used[actualVar]!.add(node.fieldName.name);
@@ -129,10 +139,10 @@ class DeadCodeEliminationPass extends CompilerPass {
     // Detect index reads: `moduleVar["key"]` or `moduleVar[1]`
     if (node is TableIndexAccess) {
       final tbl = _varName(node.table);
-      if (tbl != null && (vars.contains(tbl) || aliases.contains(tbl))) {
+      if (tbl != null) {
         final key = _constKey(node.index);
         if (key != null) {
-          final actualVar = vars.contains(tbl) ? tbl : _resolveAlias(tbl, aliases, vars);
+          final actualVar = _resolveAliasOrVar(tbl, vars, aliases);
           if (actualVar != null) {
             used.putIfAbsent(actualVar, () => <String>{});
             used[actualVar]!.add(key);
@@ -140,11 +150,19 @@ class DeadCodeEliminationPass extends CompilerPass {
         }
       }
     }
-    // Recurse
-    if (node is DoBlock) _collectReads(node.body, used, vars);
-    if (node is FunctionDef) _collectReads(node.body.body, used, vars);
-    if (node is FunctionBody) _collectReads(node.body, used, vars);
-    if (node is LocalFunctionDef) _collectReads(node.funcBody.body, used, vars);
+    // Recurse — pass aliases through so nested scopes inherit them
+    if (node is DoBlock) {
+      for (final s in node.body) _readNode(s, used, vars, aliases);
+    }
+    if (node is FunctionDef) {
+      for (final s in node.body.body) _readNode(s, used, vars, aliases);
+    }
+    if (node is FunctionBody) {
+      for (final s in node.body) _readNode(s, used, vars, aliases);
+    }
+    if (node is LocalFunctionDef) {
+      for (final s in node.funcBody.body) _readNode(s, used, vars, aliases);
+    }
     if (node is ReturnStatement) {
       for (final e in node.expr) _readNode(e, used, vars, aliases);
     }
@@ -224,9 +242,10 @@ class DeadCodeEliminationPass extends CompilerPass {
   String? _varName(AstNode node) =>
       node is Identifier ? node.name : null;
 
-  String? _resolveAlias(String alias, Set<String> aliases, Set<String> vars) {
-    // Simple: just check if alias maps to a var. We'd need proper dataflow.
-    return null;
+  /// Resolve [name] to its module variable, or null if not tracked.
+  String? _resolveAliasOrVar(String name, Set<String> vars, Map<String, String> aliases) {
+    if (vars.contains(name)) return name;
+    return aliases[name];
   }
 
   String? _constKey(AstNode node) {
