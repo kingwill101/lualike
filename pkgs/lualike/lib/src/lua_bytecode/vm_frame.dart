@@ -386,20 +386,24 @@ final class LuaBytecodeFrame implements LuaBytecodeGCRootProvider {
   }
 
   void setRegister(int index, Value value) {
+    final registers = this.registers;
+    final lastRegisterWritePc = _lastRegisterWritePc;
+    final trackedRegisterWriteFlags = _trackedRegisterWriteFlags;
     if (index >= registers.length) {
+      final fillCount = index - registers.length + 1;
       registers.addAll(
         List<Value>.generate(
-          index - registers.length + 1,
+          fillCount,
           (_) => runtime.constantPrimitiveValue(null),
           growable: false,
         ),
       );
-      _lastRegisterWritePc.addAll(
-        List<int>.filled(index - _lastRegisterWritePc.length + 1, -1),
+      lastRegisterWritePc.addAll(
+        List<int>.filled(index - lastRegisterWritePc.length + 1, -1),
       );
-      _trackedRegisterWriteFlags.addAll(
+      trackedRegisterWriteFlags.addAll(
         List<bool>.filled(
-          index - _trackedRegisterWriteFlags.length + 1,
+          index - trackedRegisterWriteFlags.length + 1,
           false,
           growable: false,
         ),
@@ -422,9 +426,9 @@ final class LuaBytecodeFrame implements LuaBytecodeGCRootProvider {
     if (gc.isCycleActive) {
       gc.noteRootWrite(storedValue);
     }
-    if (index < _trackedRegisterWriteFlags.length &&
-        _trackedRegisterWriteFlags[index]) {
-      _lastRegisterWritePc[index] = pc;
+    if (index < trackedRegisterWriteFlags.length &&
+        trackedRegisterWriteFlags[index]) {
+      lastRegisterWritePc[index] = pc;
     }
     if (index + 1 > top) {
       top = index + 1;
