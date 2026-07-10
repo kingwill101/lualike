@@ -1,7 +1,7 @@
 import 'dart:math' as math;
 
 import 'package:lualike/src/ast.dart';
-import 'package:lualike/src/compile/constant_folding_pass.dart';
+import 'package:lualike/src/compile/fold_result.dart';
 import 'package:lualike/src/lua_bytecode/instruction.dart';
 
 import 'chunk_builder.dart';

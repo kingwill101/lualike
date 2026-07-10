@@ -3,7 +3,7 @@ import 'dart:math' as math;
 import 'package:source_span/source_span.dart';
 
 import '../ast.dart';
-import '../compile/constant_folding_pass.dart';
+import '../compile/fold_result.dart';
 import '../parse.dart';
 import 'builder.dart';
 import 'chunk.dart';

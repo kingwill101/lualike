@@ -1,7 +1,7 @@
-import 'dart:collection';
 
 import 'package:lualike/src/ast.dart';
 import 'package:lualike/src/builtin_function.dart' show BuiltinFunction;
+import 'package:lualike/src/compile/fold_result.dart';
 import 'package:lualike/src/interpreter/interpreter.dart';
 import 'package:lualike/src/number.dart' show LuaNumberParser;
 import 'package:lualike/src/runtime/lua_runtime.dart';
@@ -22,58 +22,7 @@ final class _KnownFunction {
   });
 }
 
-/// Maps each AST node to its compile-time computed value if one was
-/// determined, or `null` if the node is not constant (which is distinct from
-/// the Lua `nil` literal, represented by the sentinel [constantNil]).
-///
-/// The folding pass stores results here so that downstream compiler passes
-/// (the IR compiler or Lua bytecode emitter) can emit `LOADK` / `LOADI`
-/// directly instead of lowering the full expression tree.
-final class ConstantFoldingResult {
-  /// Sentinel object used to distinguish "this node is the Lua nil literal"
-  /// from "this node is not constant".
-  static const Object constantNil = Object();
 
-  final HashMap<AstNode, Object?> _values = HashMap<AstNode, Object?>();
-  final HashMap<AstNode, Object?> _originalValues =
-      HashMap<AstNode, Object?>();
-
-  /// Whether the node was determined to be a compile-time constant.
-  bool isConstant(AstNode node) => _values.containsKey(node);
-
-  /// The compile-time value for [node].
-  ///
-  /// For the Lua `nil` literal, returns [constantNil].
-  /// For non-constant nodes, returns `null`.
-  Object? getValue(AstNode node) => _values[node];
-
-  /// The original AST value for a [StringLiteral] before folding.
-  ///
-  /// Used by the compiler when the raw string bytes are needed (e.g. for line
-  /// info or for passing through to the runtime).
-  Object? getOriginalValue(AstNode node) => _originalValues[node];
-
-  /// Records a folded value for [node].
-  void setValue(AstNode node, Object? value, {Object? originalValue}) {
-    _values[node] = value;
-    if (originalValue != null) {
-      _originalValues[node] = originalValue;
-    }
-  }
-
-  void _setValue(AstNode node, Object? value, {Object? originalValue}) {
-    setValue(node, value, originalValue: originalValue);
-  }
-
-  /// Merges all values from [other] into this result.
-  void merge(ConstantFoldingResult other) {
-    _values.addAll(other._values);
-    _originalValues.addAll(other._originalValues);
-  }
-
-  /// The number of AST nodes that have been folded to constants.
-  int get foldedCount => _values.length;
-}
 
 /// Walks the AST before bytecode emission and annotates nodes whose values
 /// can be precomputed at compile time.
@@ -201,191 +150,6 @@ class ConstantFoldingPass {
     _foldNode(program);
   }
 
-  /// Apply folding results to produce a simplified AST.
-  ///
-  /// Walk the tree and create new nodes where folding determined a compile-
-  /// time constant: folded expressions → literals, dead branches removed,
-  /// inlined function calls → their return value.
-  ///
-  /// Downstream compilers can emit the simplified AST directly without
-  /// checking a side-channel.
-  Program simplify(Program program) {
-    final stmts = _simplifyBlock(program.statements);
-    return identical(stmts, program.statements) ? program : Program(stmts);
-  }
-
-  List<AstNode> _simplifyBlock(List<AstNode> stmts) {
-    List<AstNode>? result;
-    for (var i = 0; i < stmts.length; i++) {
-      final simplified = _simplifyStmt(stmts[i]);
-      if (simplified != null) {
-        (result ??= List<AstNode>.of(stmts))[i] = simplified;
-      }
-    }
-    return result ?? stmts;
-  }
-
-  /// Simplify a statement node.  Returns the replacement or null if unchanged.
-  AstNode? _simplifyStmt(AstNode node) {
-    switch (node) {
-      case IfStatement(:final cond, :final thenBlock, :final elseIfs, :final elseBlock):
-        if (result.isConstant(cond)) {
-          final cv = result.getValue(cond);
-          if (_isTruthy(cv)) {
-            // Condition is truthy → only then-branch survives.
-            final liveBlock = _simplifyBlock(thenBlock);
-            if (liveBlock.length == 1) return liveBlock[0];
-            if (liveBlock.isEmpty) return null; // No-op.
-            // Wrap multiple statements in a do-block.
-            return DoBlock(liveBlock);
-          }
-          // Condition is falsy → check else-if chain.
-          for (final clause in elseIfs) {
-            if (result.isConstant(clause.cond) &&
-                _isTruthy(result.getValue(clause.cond))) {
-              final liveBlock = _simplifyBlock(clause.thenBlock);
-              if (liveBlock.length == 1) return liveBlock[0];
-              if (liveBlock.isEmpty) return null;
-              return DoBlock(liveBlock);
-            }
-          }
-          // All falsy → else-block.
-          if (elseBlock.isNotEmpty) {
-            final liveBlock = _simplifyBlock(elseBlock);
-            if (liveBlock.length == 1) return liveBlock[0];
-            if (liveBlock.isEmpty) return null;
-            return DoBlock(liveBlock);
-          }
-          return null; // No else → whole if is dead.
-        }
-        // Non-const condition: recurse into branches.
-        final simplified = _simplifyBlock(thenBlock);
-        final simplifiedElse = _simplifyBlock(elseBlock);
-        final simplifiedElseIfs = elseIfs
-            .map((c) => ElseIfClause(c.cond, _simplifyBlock(c.thenBlock)))
-            .toList();
-        if (identical(simplified, thenBlock) &&
-            identical(simplifiedElse, elseBlock) &&
-            identical(simplifiedElseIfs, elseIfs)) {
-          return null;
-        }
-        return IfStatement(cond, simplifiedElseIfs, simplified, simplifiedElse);
-
-      case WhileStatement(:final cond, :final body):
-        if (result.isConstant(cond) &&
-            !_isTruthy(result.getValue(cond))) {
-          return null; // Entire while-loop is dead code.
-        }
-        final simplified = _simplifyBlock(body);
-        return identical(simplified, body)
-            ? null
-            : WhileStatement(cond, simplified);
-
-      case DoBlock(:final body):
-        final simplified = _simplifyBlock(body);
-        if (identical(simplified, body)) return null;
-        if (simplified.length == 1) return simplified[0];
-        if (simplified.isEmpty) return null;
-        return DoBlock(simplified);
-
-      case ReturnStatement(:final expr):
-        final simplified = _simplifyExpr(expr.isNotEmpty ? expr.first : null);
-        if (simplified != null) {
-          return ReturnStatement([simplified]);
-        }
-        return null;
-
-      case ExpressionStatement(:final expr):
-        final simplified = _simplifyExpr(expr);
-        return simplified != null ? ExpressionStatement(simplified) : null;
-
-      case Assignment(:final targets, :final exprs):
-        var changed = false;
-        final newExprs = exprs.map((e) {
-          final s = _simplifyExpr(e);
-          if (s != null) { changed = true; return s; }
-          return e;
-        }).toList();
-        return changed ? Assignment(targets, newExprs) : null;
-
-      case LocalDeclaration(:final names, :final attributes, :final exprs):
-        var changed = false;
-        final newExprs = exprs.map((e) {
-          final s = _simplifyExpr(e);
-          if (s != null) { changed = true; return s; }
-          return e;
-        }).toList();
-        return changed
-            ? LocalDeclaration(names, attributes, newExprs)
-            : null;
-
-      default:
-        return null;
-    }
-  }
-
-  /// Simplify an expression node to a literal if folded, else null.
-  AstNode? _simplifyExpr(AstNode? node) {
-    if (node == null) return null;
-
-    // Expression reassociation: (nonconst + C1) + C2 → nonconst + (C1 + C2)
-    // This pulls constant sub-expressions up so subsequent passes see more
-    // constant material to fold on the next iteration.
-    if (node is BinaryExpression) {
-      final reassociated = _tryReassociate(node);
-      if (reassociated != null) return reassociated;
-    }
-
-    if (!result.isConstant(node)) return null;
-    final value = result.getValue(node);
-    if (value == ConstantFoldingResult.constantNil) return NilValue();
-    if (value is bool) return BooleanLiteral(value);
-    if (value is int) return NumberLiteral(value);
-    if (value is double) return NumberLiteral(value);
-    if (value is BigInt) return NumberLiteral(value);
-    if (value is List<int>) {
-      final text = String.fromCharCodes(value);
-      return StringLiteral(text, isLongString: false);
-    }
-    return null;
-  }
-
-  /// Try to reassociate a binary expression to lift constants up.
-  ///
-  ///   (nonconst + 2) + 3  →  nonconst + 5
-  ///   (nonconst * 2) * 3  →  nonconst * 6
-  ///
-  /// Only applies to associative/commutative operators where folding
-  /// the nested constant sub-expression is valid.
-  AstNode? _tryReassociate(BinaryExpression node) {
-    if (node.left is! BinaryExpression) return null;
-    final inner = node.left as BinaryExpression;
-
-    // Must share the same operator so we can combine constants.
-    if (inner.op != node.op) return null;
-
-    // The two operators must be associative for this transformation.
-    // Supported: +, *, .., and, or  (not -, /, //, %, ^)
-    if (!_reassociationSupported.contains(node.op)) return null;
-
-    // Inner right must be constant, outer right must be constant.
-    if (!result.isConstant(inner.right)) return null;
-    if (!result.isConstant(node.right)) return null;
-
-    // Combine the two constants using the folding pass's own logic.
-    // We create a temporary BinaryExpression for the fold to process.
-    final combined = BinaryExpression(inner.right, node.op, node.right);
-    _foldNode(combined);
-    if (!result.isConstant(combined)) return null;
-
-    // Build: nonconst OP (C1 OP C2)
-    final newRight = _simplifyExpr(combined) ?? combined;
-    return BinaryExpression(inner.left, node.op, newRight);
-  }
-
-  /// Operators supported by expression reassociation.
-  static const _reassociationSupported = {'+', '*', '..', 'and', 'or'};
-
   /// Run the folding pass on a list of statements (used for function bodies).
   void foldStatements(List<AstNode> statements) {
     _enterScope();
@@ -398,13 +162,13 @@ class ConstantFoldingPass {
   void _foldNode(AstNode node) {
     switch (node) {
       case NilValue():
-        result._setValue(node, ConstantFoldingResult.constantNil);
+        result.setValue(node, ConstantFoldingResult.constantNil);
       case BooleanLiteral(value: final value):
-        result._setValue(node, value);
+        result.setValue(node, value);
       case NumberLiteral(value: final value):
-        result._setValue(node, value);
+        result.setValue(node, value);
       case StringLiteral(value: final value, bytes: final bytes):
-        result._setValue(node, bytes, originalValue: value);
+        result.setValue(node, bytes, originalValue: value);
       case UnaryExpression(op: final op, expr: final expr):
         _foldUnary(node, op, expr);
       case BinaryExpression(left: final left, op: final op, right: final right):
@@ -412,12 +176,12 @@ class ConstantFoldingPass {
       case GroupedExpression(expr: final inner):
         _foldNode(inner);
         if (result.isConstant(inner)) {
-          result._setValue(node, result.getValue(inner));
+          result.setValue(node, result.getValue(inner));
         }
       case Identifier(name: final name):
         final resolved = _lookupConstLocal(name);
         if (resolved != null) {
-          result._setValue(node, resolved);
+          result.setValue(node, resolved);
         }
       case LocalDeclaration(
         names: final names,
@@ -466,7 +230,7 @@ class ConstantFoldingPass {
         // Mark the return statement as const if its single expression is
         // folded, so inlining can extract the returned value.
         if (exprs.length == 1 && result.isConstant(exprs.first)) {
-          result._setValue(node, result.getValue(exprs.first));
+          result.setValue(node, result.getValue(exprs.first));
         }
       case ExpressionStatement(expr: final expr):
         _foldNode(expr);
@@ -536,22 +300,22 @@ class ConstantFoldingPass {
     switch (op) {
       case '-':
         if (value is num) {
-          result._setValue(node, -value);
+          result.setValue(node, -value);
         } else if (value is BigInt) {
-          result._setValue(node, -value);
+          result.setValue(node, -value);
         }
       case 'not':
-        result._setValue(node, !_isTruthy(value));
+        result.setValue(node, !_isTruthy(value));
       case '~':
         if (value is int) {
-          result._setValue(node, ~value);
+          result.setValue(node, ~value);
         } else if (value is BigInt) {
-          result._setValue(node, ~value);
+          result.setValue(node, ~value);
         }
       case '#':
         // Length operator: we can only fold #string at compile time.
         if (value is List<int>) {
-          result._setValue(node, value.length);
+          result.setValue(node, value.length);
         }
       default:
         break;
@@ -568,12 +332,12 @@ class ConstantFoldingPass {
         final lv = result.getValue(left);
         if (!_isTruthy(lv)) {
           // false and X → false
-          result._setValue(node, lv);
+          result.setValue(node, lv);
           return;
         }
         // true and X → X (but we can only fold if X is const)
         if (result.isConstant(right)) {
-          result._setValue(node, result.getValue(right));
+          result.setValue(node, result.getValue(right));
           return;
         }
       }
@@ -581,12 +345,12 @@ class ConstantFoldingPass {
         final lv = result.getValue(left);
         if (_isTruthy(lv)) {
           // true or X → true
-          result._setValue(node, lv);
+          result.setValue(node, lv);
           return;
         }
         // false or X → X (but we can only fold if X is const)
         if (result.isConstant(right)) {
-          result._setValue(node, result.getValue(right));
+          result.setValue(node, result.getValue(right));
           return;
         }
       }
@@ -602,32 +366,32 @@ class ConstantFoldingPass {
       final rBytes = _stringBytes(rv);
       if (lBytes != null && rBytes != null) {
         final combined = [...lBytes, ...rBytes];
-        result._setValue(node, combined);
+        result.setValue(node, combined);
         return;
       }
       // If one side is a string and the other is a number, Lua coerces.
       if (lv is List<int> && rv is num) {
         final rStr = _numToString(rv);
         final combined = [...lv, ...rStr];
-        result._setValue(node, combined);
+        result.setValue(node, combined);
         return;
       }
       if (lv is num && rv is List<int>) {
         final lStr = _numToString(lv);
         final combined = [...lStr, ...rv];
-        result._setValue(node, combined);
+        result.setValue(node, combined);
         return;
       }
       if (lv is List<int> && rv is BigInt) {
         final rStr = _bigIntToString(rv);
         final combined = [...lv, ...rStr];
-        result._setValue(node, combined);
+        result.setValue(node, combined);
         return;
       }
       if (lv is BigInt && rv is List<int>) {
         final lStr = _bigIntToString(lv);
         final combined = [...lStr, ...rv];
-        result._setValue(node, combined);
+        result.setValue(node, combined);
         return;
       }
       return;
@@ -635,11 +399,11 @@ class ConstantFoldingPass {
 
     // Handle logical operators (and/or) early since they work on any type.
     if (op == 'and') {
-      result._setValue(node, _isTruthy(lv) ? rv : lv);
+      result.setValue(node, _isTruthy(lv) ? rv : lv);
       return;
     }
     if (op == 'or') {
-      result._setValue(node, _isTruthy(lv) ? lv : rv);
+      result.setValue(node, _isTruthy(lv) ? lv : rv);
       return;
     }
 
@@ -659,44 +423,44 @@ class ConstantFoldingPass {
 
     switch (op) {
       case '+':
-        result._setValue(node, l + r);
+        result.setValue(node, l + r);
       case '-':
-        result._setValue(node, l - r);
+        result.setValue(node, l - r);
       case '*':
-        result._setValue(node, l * r);
+        result.setValue(node, l * r);
       case '/':
         if (r == 0) return; // Can't fold division by zero.
-        result._setValue(node, l / r);
+        result.setValue(node, l / r);
       case '//':
         if (r == 0) return;
-        result._setValue(node, l ~/ r);
+        result.setValue(node, l ~/ r);
       case '%':
         if (r == 0) return;
-        result._setValue(node, l % r);
+        result.setValue(node, l % r);
       case '^':
-        result._setValue(node, _intPow(l, r));
+        result.setValue(node, _intPow(l, r));
       case '==':
-        result._setValue(node, l == r);
+        result.setValue(node, l == r);
       case '~=':
-        result._setValue(node, l != r);
+        result.setValue(node, l != r);
       case '<':
-        result._setValue(node, l < r);
+        result.setValue(node, l < r);
       case '>':
-        result._setValue(node, l > r);
+        result.setValue(node, l > r);
       case '<=':
-        result._setValue(node, l <= r);
+        result.setValue(node, l <= r);
       case '>=':
-        result._setValue(node, l >= r);
+        result.setValue(node, l >= r);
       case '&':
-        result._setValue(node, _intBitAnd(l, r));
+        result.setValue(node, _intBitAnd(l, r));
       case '|':
-        result._setValue(node, _intBitOr(l, r));
+        result.setValue(node, _intBitOr(l, r));
       case '~':
-        result._setValue(node, _intBitXor(l, r));
+        result.setValue(node, _intBitXor(l, r));
       case '<<':
-        result._setValue(node, _intShiftLeft(l, r));
+        result.setValue(node, _intShiftLeft(l, r));
       case '>>':
-        result._setValue(node, _intShiftRight(l, r));
+        result.setValue(node, _intShiftRight(l, r));
       default:
         break;
     }
@@ -709,45 +473,45 @@ class ConstantFoldingPass {
 
     switch (op) {
       case '+':
-        result._setValue(node, l + r);
+        result.setValue(node, l + r);
       case '-':
-        result._setValue(node, l - r);
+        result.setValue(node, l - r);
       case '*':
-        result._setValue(node, l * r);
+        result.setValue(node, l * r);
       case '/':
         if (r == BigInt.zero) return;
-        result._setValue(node, l / r);
+        result.setValue(node, l / r);
       case '//':
         if (r == BigInt.zero) return;
-        result._setValue(node, l ~/ r);
+        result.setValue(node, l ~/ r);
       case '%':
         if (r == BigInt.zero) return;
-        result._setValue(node, l % r);
+        result.setValue(node, l % r);
       case '^':
         if (r > BigInt.from(1000000)) return; // Avoid huge exponent.
-        result._setValue(node, l.pow(r.toInt()));
+        result.setValue(node, l.pow(r.toInt()));
       case '==':
-        result._setValue(node, l == r);
+        result.setValue(node, l == r);
       case '~=':
-        result._setValue(node, l != r);
+        result.setValue(node, l != r);
       case '<':
-        result._setValue(node, l < r);
+        result.setValue(node, l < r);
       case '>':
-        result._setValue(node, l > r);
+        result.setValue(node, l > r);
       case '<=':
-        result._setValue(node, l <= r);
+        result.setValue(node, l <= r);
       case '>=':
-        result._setValue(node, l >= r);
+        result.setValue(node, l >= r);
       case '&':
-        result._setValue(node, l & r);
+        result.setValue(node, l & r);
       case '|':
-        result._setValue(node, l | r);
+        result.setValue(node, l | r);
       case '~':
-        result._setValue(node, l ^ r);
+        result.setValue(node, l ^ r);
       case '<<':
-        result._setValue(node, l << r.toInt());
+        result.setValue(node, l << r.toInt());
       case '>>':
-        result._setValue(node, l >> r.toInt());
+        result.setValue(node, l >> r.toInt());
       default:
         break;
     }
@@ -911,7 +675,7 @@ class ConstantFoldingPass {
     }
 
     if (allConst) {
-      result._setValue(node, foldedMap);
+      result.setValue(node, foldedMap);
     }
   }
 
@@ -923,7 +687,7 @@ class ConstantFoldingPass {
 
     // fieldName is already a Dart String from the Identifier node.
     if (tableValue.containsKey(fieldName)) {
-      result._setValue(node, tableValue[fieldName]);
+      result.setValue(node, tableValue[fieldName]);
     }
   }
 
@@ -939,7 +703,7 @@ class ConstantFoldingPass {
       indexValue = String.fromCharCodes(indexValue);
     }
     if (tableValue.containsKey(indexValue)) {
-      result._setValue(node, tableValue[indexValue]);
+      result.setValue(node, tableValue[indexValue]);
     }
   }
 
@@ -1001,7 +765,7 @@ class ConstantFoldingPass {
       // dead-branch elimination in the folding pass.
       final returnValue = _findInlinedReturnValue(known.body.body);
       if (returnValue != null) {
-        result._setValue(node, returnValue);
+        result.setValue(node, returnValue);
         _exitScope();
         return true;
       }
@@ -1043,14 +807,14 @@ class ConstantFoldingPass {
       // ---- type() ----
       case (null, 'type'):
         if (args.length == 1) {
-          result._setValue(node, _luaTypeName(args[0]));
+          result.setValue(node, _luaTypeName(args[0]));
           return true;
         }
 
       // ---- tostring() ----
       case (null, 'tostring'):
         if (args.length == 1) {
-          result._setValue(node, _luaToString(args[0]));
+          result.setValue(node, _luaToString(args[0]));
           return true;
         }
 
@@ -1059,7 +823,7 @@ class ConstantFoldingPass {
         // Only fold single-arg tonumber.  Two-arg tonumber with a base is
         // handled by the Lua runtime (LuaNumberParser doesn't expose base).
         if (args.length == 1) {
-          result._setValue(node, _luaToNumber(args[0]));
+          result.setValue(node, _luaToNumber(args[0]));
           return true;
         }
 
@@ -1100,7 +864,7 @@ class ConstantFoldingPass {
       // Call the stdlib function directly (synchronous for math/string).
       final rawResult = builtin.call(args);
       if (rawResult is Future) return false; // Can't sync-fold async.
-      result._setValue(node, rawLuaSlot(rawResult));
+      result.setValue(node, rawLuaSlot(rawResult));
       return true;
     } catch (_) {
       return false;
