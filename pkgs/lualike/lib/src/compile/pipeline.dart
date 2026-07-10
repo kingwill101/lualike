@@ -59,12 +59,10 @@ enum CompileBackend {
 
 /// Result of running the compilation pipeline.
 ///
-/// Different backends produce different artifact types, but all carry the
-/// [foldingResult] so callers can inspect which expressions were folded.
+/// The AST has already been simplified by the constant folding pass before
+/// reaching the compiler backends, so callers can trust the bytecode
+/// incorporates all folding optimizations.
 sealed class CompileArtifact {
-  /// The constant folding result (empty if folding was disabled).
-  ConstantFoldingResult get foldingResult;
-
   /// The serialized bytecode bytes ready for distribution or loading.
   List<int> get serializedBytes;
 }
@@ -77,16 +75,12 @@ final class LualikeIrArtifact extends CompileArtifact {
   @override
   final List<int> serializedBytes;
 
-  @override
-  final ConstantFoldingResult foldingResult;
-
   /// Human-readable disassembly, if [CompilePipelineConfig.dumpIr] was set.
   final String? disassembly;
 
   LualikeIrArtifact({
     required this.chunk,
     required this.serializedBytes,
-    required this.foldingResult,
     this.disassembly,
   });
 }
@@ -102,14 +96,10 @@ final class LuaBytecodeArtifact extends CompileArtifact {
   /// Emitter-level facts such as register usage.
   final LuaBytecodeEmitterFacts facts;
 
-  @override
-  final ConstantFoldingResult foldingResult;
-
   LuaBytecodeArtifact({
     required this.chunk,
     required this.serializedBytes,
     required this.facts,
-    required this.foldingResult,
   });
 }
 
@@ -147,35 +137,26 @@ final class LuaBytecodeArtifact extends CompileArtifact {
 final class CompilePipeline {
   /// Configuration for this pipeline instance.
   final CompilePipelineConfig config;
-  late final ConstantFoldingResult _foldingResult;
 
   CompilePipeline({CompilePipelineConfig? config})
     : config = config ?? const CompilePipelineConfig();
-
-  /// The constant folding result from the last [compile] call.
-  ConstantFoldingResult get foldingResult => _foldingResult;
 
   /// Compile a [Program] AST node through the full pipeline.
   ///
   /// Returns the compilation artifact for the target backend.
   CompileArtifact compile(Program program) {
-    // Phase 1: Constant folding (if enabled)
-    _foldingResult = ConstantFoldingResult();
-    if (config.enableConstantFolding) {
-      final foldingPass = ConstantFoldingPass();
-      foldingPass.fold(program);
-      _foldingResult.merge(foldingPass.result);
-    }
+    // Phase 1: Constant folding pass + AST simplification
+    final foldedProgram = config.enableConstantFolding
+        ? _foldAndSimplify(program)
+        : program;
 
-    // Phase 2: Compile to IR (consumes folding results)
-    // Only enable loop unrolling when targeting bytecode binary output.
+    // Phase 2: Compile simplified AST to IR
     final irCompiler = LualikeIrCompiler(
-      foldingResult: config.enableConstantFolding ? _foldingResult : null,
       enableLoopUnrolling: config.target == CompileBackend.luaBytecode
           ? config.enableLoopUnrolling
           : false,
     );
-    final irChunk = irCompiler.compile(program);
+    final irChunk = irCompiler.compile(foldedProgram);
     final irBytes = serializeLualikeIrChunk(irChunk);
 
     String? disassembly;
@@ -185,7 +166,7 @@ final class CompilePipeline {
 
     // Phase 3: Optionally lower to Lua 5.4 bytecode
     if (config.target == CompileBackend.luaBytecode) {
-      final luaChunk = _lowerToLuaBytecode(program);
+      final luaChunk = _lowerToLuaBytecode(foldedProgram);
       final luaBytes = serializeLuaBytecodeChunk(luaChunk);
 
       return LuaBytecodeArtifact(
@@ -196,16 +177,21 @@ final class CompilePipeline {
           nextRegister: luaChunk.mainPrototype.maxStackSize,
           hasExplicitReturn: true,
         ),
-        foldingResult: _foldingResult,
       );
     }
 
     return LualikeIrArtifact(
       chunk: irChunk,
       serializedBytes: irBytes,
-      foldingResult: _foldingResult,
       disassembly: disassembly,
     );
+  }
+
+  /// Run the constant folding pass and simplify the AST.
+  Program _foldAndSimplify(Program program) {
+    final foldingPass = ConstantFoldingPass();
+    foldingPass.fold(program);
+    return foldingPass.simplify(program);
   }
 
   /// Convenience: parse source, run the pipeline, return the artifact.
@@ -219,20 +205,8 @@ final class CompilePipeline {
 
   /// Lower to Lua 5.4 bytecode using the existing Lua bytecode emitter.
   LuaBytecodeBinaryChunk _lowerToLuaBytecode(Program program) {
-    final emitter = LuaBytecodeEmitter(
-      foldingResult: config.enableConstantFolding ? _foldingResult : null,
-    );
-
+    const emitter = LuaBytecodeEmitter();
     final artifact = emitter.compileProgram(program);
     return artifact.chunk;
   }
-}
-
-/// Extension to make [ConstantFoldingResult] values accessible.
-extension ConstantFoldingUtils on ConstantFoldingResult {
-  /// Returns `true` if this node was folded to a compile-time constant.
-  bool isFolded(AstNode node) => isConstant(node);
-
-  /// Returns the folded value for [node], or `null` if not constant.
-  Object? foldedValue(AstNode node) => getValue(node);
 }

@@ -191,6 +191,151 @@ class ConstantFoldingPass {
     _foldNode(program);
   }
 
+  /// Apply folding results to produce a simplified AST.
+  ///
+  /// Walk the tree and create new nodes where folding determined a compile-
+  /// time constant: folded expressions → literals, dead branches removed,
+  /// inlined function calls → their return value.
+  ///
+  /// Downstream compilers can emit the simplified AST directly without
+  /// checking a side-channel.
+  Program simplify(Program program) {
+    final stmts = _simplifyBlock(program.statements);
+    return identical(stmts, program.statements) ? program : Program(stmts);
+  }
+
+  List<AstNode> _simplifyBlock(List<AstNode> stmts) {
+    List<AstNode>? result;
+    for (var i = 0; i < stmts.length; i++) {
+      final simplified = _simplifyStmt(stmts[i]);
+      if (simplified != null) {
+        (result ??= List<AstNode>.of(stmts))[i] = simplified;
+      }
+    }
+    return result ?? stmts;
+  }
+
+  /// Simplify a statement node.  Returns the replacement or null if unchanged.
+  AstNode? _simplifyStmt(AstNode node) {
+    switch (node) {
+      case IfStatement(:final cond, :final thenBlock, :final elseIfs, :final elseBlock):
+        if (result.isConstant(cond)) {
+          final cv = result.getValue(cond);
+          if (_isTruthy(cv)) {
+            // Condition is truthy → only then-branch survives.
+            final liveBlock = _simplifyBlock(thenBlock);
+            if (liveBlock.length == 1) return liveBlock[0];
+            if (liveBlock.isEmpty) return null; // No-op.
+            // Wrap multiple statements in a do-block.
+            return DoBlock(liveBlock);
+          }
+          // Condition is falsy → check else-if chain.
+          for (final clause in elseIfs) {
+            if (result.isConstant(clause.cond) &&
+                _isTruthy(result.getValue(clause.cond))) {
+              final liveBlock = _simplifyBlock(clause.thenBlock);
+              if (liveBlock.length == 1) return liveBlock[0];
+              if (liveBlock.isEmpty) return null;
+              return DoBlock(liveBlock);
+            }
+          }
+          // All falsy → else-block.
+          if (elseBlock.isNotEmpty) {
+            final liveBlock = _simplifyBlock(elseBlock);
+            if (liveBlock.length == 1) return liveBlock[0];
+            if (liveBlock.isEmpty) return null;
+            return DoBlock(liveBlock);
+          }
+          return null; // No else → whole if is dead.
+        }
+        // Non-const condition: recurse into branches.
+        final simplified = _simplifyBlock(thenBlock);
+        final simplifiedElse = _simplifyBlock(elseBlock);
+        final simplifiedElseIfs = elseIfs
+            .map((c) => ElseIfClause(c.cond, _simplifyBlock(c.thenBlock)))
+            .toList();
+        if (identical(simplified, thenBlock) &&
+            identical(simplifiedElse, elseBlock) &&
+            identical(simplifiedElseIfs, elseIfs)) {
+          return null;
+        }
+        return IfStatement(cond, simplifiedElseIfs, simplified, simplifiedElse);
+
+      case WhileStatement(:final cond, :final body):
+        if (result.isConstant(cond) &&
+            !_isTruthy(result.getValue(cond))) {
+          return null; // Entire while-loop is dead code.
+        }
+        final simplified = _simplifyBlock(body);
+        return identical(simplified, body)
+            ? null
+            : WhileStatement(cond, simplified);
+
+      case DoBlock(:final body):
+        final simplified = _simplifyBlock(body);
+        if (identical(simplified, body)) return null;
+        if (simplified.length == 1) return simplified[0];
+        if (simplified.isEmpty) return null;
+        return DoBlock(simplified);
+
+      case ReturnStatement(:final expr):
+        final simplified = _simplifyExpr(expr.isNotEmpty ? expr.first : null);
+        if (simplified != null) {
+          return ReturnStatement([simplified]);
+        }
+        return null;
+
+      case ExpressionStatement(:final expr):
+        final simplified = _simplifyExpr(expr);
+        return simplified != null ? ExpressionStatement(simplified) : null;
+
+      case Assignment(:final targets, :final exprs):
+        var changed = false;
+        final newExprs = exprs.map((e) {
+          final s = _simplifyExpr(e);
+          if (s != null) { changed = true; return s; }
+          return e;
+        }).toList();
+        return changed ? Assignment(targets, newExprs) : null;
+
+      case LocalDeclaration(:final names, :final attributes, :final exprs):
+        var changed = false;
+        final newExprs = exprs.map((e) {
+          final s = _simplifyExpr(e);
+          if (s != null) { changed = true; return s; }
+          return e;
+        }).toList();
+        return changed
+            ? LocalDeclaration(names, attributes, newExprs)
+            : null;
+
+      default:
+        return null;
+    }
+  }
+
+  /// Simplify an expression node to a literal if folded, else null.
+  AstNode? _simplifyExpr(AstNode? node) {
+    if (node == null) return null;
+    if (!result.isConstant(node)) return null;
+    final value = result.getValue(node);
+    if (value == ConstantFoldingResult.constantNil) return NilValue();
+    if (value is bool) return BooleanLiteral(value);
+    if (value is int) return NumberLiteral(value);
+    if (value is double) return NumberLiteral(value);
+    if (value is BigInt) return NumberLiteral(value);
+    // For string values stored as byte arrays (List<int>), we create a
+    // StringLiteral with the decoded text for the compiler to handle.
+    if (value is List<int>) {
+      // Preserve the original string literal source representation.
+      // Use the raw byte representation for correct Lua semantics.
+      final text = String.fromCharCodes(value);
+      // Create a StringLiteral that reconstructs the original bytes.
+      return StringLiteral(text, isLongString: false);
+    }
+    return null;
+  }
+
   /// Run the folding pass on a list of statements (used for function bodies).
   void foldStatements(List<AstNode> statements) {
     _enterScope();
@@ -859,7 +1004,9 @@ class ConstantFoldingPass {
 
       // ---- tonumber() ----
       case (null, 'tonumber'):
-        if (args.length >= 1) {
+        // Only fold single-arg tonumber.  Two-arg tonumber with a base is
+        // handled by the Lua runtime (LuaNumberParser doesn't expose base).
+        if (args.length == 1) {
           result._setValue(node, _luaToNumber(args[0]));
           return true;
         }
