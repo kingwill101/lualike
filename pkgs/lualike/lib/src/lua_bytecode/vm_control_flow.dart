@@ -395,14 +395,12 @@ extension LuaBytecodeVmControlFlow on LuaBytecodeVm {
           rawCount > 0 &&
           rawStep is int &&
           rawIndex is int) {
-        frame.setRegister(
-          base,
-          transientPrimitiveValue(runtime, rawCount - 1),
-        );
-        frame.setRegister(
-          base + 2,
-          transientPrimitiveValue(runtime, rawIndex + rawStep),
-        );
+        // Always allocate fresh Values for loop variables. Even if no upvalues
+        // are open *now*, a closure inside the loop body may capture the loop
+        // variable register and later read it after it has been mutated in place.
+        // The allocation cost (~50ns) is negligible vs correctness.
+        frame.setRegister(base, transientPrimitiveValue(runtime, rawCount - 1));
+        frame.setRegister(base + 2, transientPrimitiveValue(runtime, rawIndex + rawStep));
         return true;
       }
       final count = unsignedForLoopCounter(countValue);
