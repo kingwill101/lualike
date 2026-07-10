@@ -1915,8 +1915,37 @@ class _PrototypeContext {
     _endLoop(loop);
   }
 
+  /// Maximum number of iterations to unroll for a constant-bounded for loop.
+  static const int _maxUnrollCount = 64;
+
   void _emitForLoop(ForLoop node) {
     _trackSource(node);
+
+    // Loop unrolling: if start, end, and step are all compile-time constants
+    // and the iteration count is small, unroll the loop body directly.
+    if (foldingResult != null &&
+        foldingResult!.isConstant(node.start) &&
+        foldingResult!.isConstant(node.endExpr) &&
+        foldingResult!.isConstant(node.stepExpr)) {
+      final startVal =
+          _numericFoldedValue(foldingResult!.getValue(node.start));
+      final endVal =
+          _numericFoldedValue(foldingResult!.getValue(node.endExpr));
+      final stepVal =
+          _numericFoldedValue(foldingResult!.getValue(node.stepExpr));
+
+      if (startVal != null && endVal != null && stepVal != null &&
+          stepVal != 0) {
+        // Compute iteration count in Lua semantics.
+        final iterCount = ((endVal - startVal) / stepVal).floor() + 1;
+        if (iterCount > 0 && iterCount <= _maxUnrollCount) {
+          _emitUnrolledForLoop(node, startVal, stepVal, iterCount);
+          return;
+        }
+      }
+    }
+
+    // Normal for-loop emission.
     final loop = _beginLoop();
     final base = _allocateRegister();
     final limitReg = _allocateRegister();
@@ -1968,6 +1997,48 @@ class _PrototypeContext {
 
     _endLoop(loop);
     _releaseDownTo(base);
+  }
+
+  /// Unroll a for-loop with constant bounds into N sequential copies of
+  /// the loop body, each with the loop variable bound to its iteration value.
+  void _emitUnrolledForLoop(
+      ForLoop node, num startVal, num stepVal, int iterCount) {
+    for (var i = 0; i < iterCount; i++) {
+      final iterValue = startVal + i * stepVal;
+      final reg = _allocateRegister();
+
+      _pushLocalScope();
+      _declareLocal(node.varName.name, reg);
+      _emitLoadConstantTo(reg, iterValue);
+      _emitBlock(node.body, useNewScope: false);
+      _popLocalScope();
+    }
+  }
+
+  /// Emit a LOADK for a numeric constant value into a specific register.
+  void _emitLoadConstantTo(int reg, num value) {
+    if (value == value.toInt()) {
+      final constant = IntegerConstant(value.toInt());
+      final index = builder.addConstant(constant);
+      emitter.emitABx(opcode: LualikeIrOpcode.loadK, a: reg, bx: index);
+    } else {
+      final constant = NumberConstant(value.toDouble());
+      final index = builder.addConstant(constant);
+      emitter.emitABx(opcode: LualikeIrOpcode.loadK, a: reg, bx: index);
+    }
+  }
+
+  /// Extract a numeric value from a folded value, or null if not numeric.
+  num? _numericFoldedValue(Object? value) {
+    if (value is num) return value;
+    if (value is BigInt) {
+      try {
+        return value.toInt();
+      } on UnsupportedError {
+        return null;
+      }
+    }
+    return null;
   }
 
   void _emitForInLoop(ForInLoop node) {
