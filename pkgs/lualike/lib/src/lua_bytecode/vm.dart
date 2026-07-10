@@ -359,13 +359,12 @@ final class LuaBytecodeVm {
     final mainThread = runtime.getMainThread();
     final linesByPc = prototype.hasDebugInfo ? prototype.linesByPc : null;
     var currentCoroutine = runtime.getCurrentCoroutine();
+    // Cache profiling state — profile is immutable during frame execution.
+    final profile = _activeProfile;
+    final hasProfile = profile != null;
     while (frame.pc < prototype.code.length) {
       frame.expireDeadLocals();
       currentCoroutine = _syncCurrentCoroutine(mainThread, currentCoroutine);
-      // AST execution only checks auto-GC at statement boundaries. Bytecode
-      // runs many more VM instructions per statement, and tighter polling here
-      // makes collector debt dominate random-heavy loops. Loop backedges still
-      // have their own GC safe point, so keep this coarse.
       if (++frame.safePointCounter >= 512) {
         frame.safePointCounter = 0;
         runtime.runAutoGcAtSafePoint();
@@ -380,8 +379,7 @@ final class LuaBytecodeVm {
       final previousVisibleLine = hasDebugHook ? callFrame.currentLine : -1;
       final needsCoroutineWideBoundary =
           currentCoroutine != null && !identical(currentCoroutine, mainThread);
-      final profile = _activeProfile;
-      final opTimer = profile == null ? null : (Stopwatch()..start());
+      final opTimer = hasProfile ? (Stopwatch()..start()) : null;
       try {
         if (needsCoroutineWideBoundary) {
           await _preserveSuspendingBytecodeBoundary(
