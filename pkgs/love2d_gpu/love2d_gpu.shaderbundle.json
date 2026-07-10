@@ -1,0 +1,18 @@
+{
+  "LoveBaseVertex": {
+    "type": "vertex",
+    "file": "lib/src/shader/love_base.vert"
+  },
+  "LoveUnlitFragment": {
+    "type": "fragment",
+    "file": "lib/src/shader/love_unlit.frag"
+  },
+  "LoveTexturedFragment": {
+    "type": "fragment",
+    "file": "lib/src/shader/love_textured.frag"
+  },
+  "LoveSpriteBatchVertex": {
+    "type": "vertex",
+    "file": "lib/src/shader/love_sprite_batch.vert"
+  }
+}
