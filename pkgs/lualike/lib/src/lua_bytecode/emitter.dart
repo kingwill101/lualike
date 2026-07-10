@@ -3,6 +3,7 @@ import 'dart:math' as math;
 import 'package:source_span/source_span.dart';
 
 import '../ast.dart';
+import '../compile/constant_folding_pass.dart';
 import '../parse.dart';
 import 'builder.dart';
 import 'chunk.dart';
@@ -51,7 +52,11 @@ final class LuaBytecodeEmitterArtifact {
 }
 
 final class LuaBytecodeEmitter {
-  const LuaBytecodeEmitter();
+  /// Optional constant folding result that marks nodes whose values can be
+  /// precomputed at compile time.
+  final ConstantFoldingResult? foldingResult;
+
+  const LuaBytecodeEmitter({this.foldingResult});
 
   LuaBytecodeEmitterArtifact compileSource(
     String source, {
@@ -77,6 +82,7 @@ final class LuaBytecodeEmitter {
     );
     final compiler = LuaBytecodeStructuredCompiler.topLevel(
       builder.mainPrototype,
+      foldingResult: foldingResult,
     );
     compiler.compileProgram(program);
     final mainPrototype = builder.mainPrototype;
@@ -136,7 +142,7 @@ const Set<String> _leftLinearBinaryOps = <String>{
 };
 
 final class LuaBytecodeStructuredCompiler {
-  LuaBytecodeStructuredCompiler.topLevel(this._prototype)
+  LuaBytecodeStructuredCompiler.topLevel(this._prototype, {this.foldingResult})
     : _parent = null,
       _virtualVarargName = null,
       _declaredGlobals = <String>{},
@@ -152,6 +158,7 @@ final class LuaBytecodeStructuredCompiler {
     required List<Identifier> parameters,
     Set<String> declaredGlobals = const <String>{},
     String? virtualVarargName,
+    this.foldingResult,
   }) : _nextRegister = _prototype.parameterCount,
        _nextTemp = _prototype.parameterCount,
        _virtualVarargName = virtualVarargName,
@@ -169,6 +176,9 @@ final class LuaBytecodeStructuredCompiler {
   final LuaBytecodePrototypeBuilder _prototype;
   final LuaBytecodeStructuredCompiler? _parent;
   final String? _virtualVarargName;
+
+  /// Optional constant folding result.
+  final ConstantFoldingResult? foldingResult;
   final Set<String> _declaredGlobals;
   final Set<String> _inheritedDeclaredGlobals;
   final Map<String, List<LuaBytecodeStructuredLocal>> _localsByName =
@@ -1177,6 +1187,13 @@ final class LuaBytecodeStructuredCompiler {
     _withSourceLine(
       _stickySourceLineOverride ?? lineOverride ?? _startLine(node),
       () {
+        // If the constant folding pass determined this node's value at
+        // compile time, emit a LOADK / LOADI directly.
+        if (foldingResult != null && foldingResult!.isConstant(node)) {
+          _emitFoldedConstant(node, foldingResult!.getValue(node), targetRegister);
+          return;
+        }
+
         final savedTemp = _nextTemp;
         final tempFloor = math.max(_nextTemp, targetRegister + 1);
         _nextTemp = tempFloor;
@@ -1283,6 +1300,56 @@ final class LuaBytecodeStructuredCompiler {
         }
       },
     );
+  }
+
+  /// Emit a load instruction for a compile-time folded constant.
+  void _emitFoldedConstant(AstNode node, Object? value, int targetRegister) {
+    if (value == ConstantFoldingResult.constantNil) {
+      _prototype.emitLoadNil(target: targetRegister);
+      return;
+    }
+
+    if (value is bool) {
+      _prototype.emitLoadLiteral(target: targetRegister, literal: value);
+      return;
+    }
+
+    if (value is int) {
+      _prototype.emitLoadLiteral(target: targetRegister, literal: value);
+      return;
+    }
+
+    if (value is double) {
+      _prototype.emitLoadLiteral(target: targetRegister, literal: value);
+      return;
+    }
+
+    if (value is num) {
+      // BigInt or other numeric.
+      _prototype.emitLoadLiteral(
+        target: targetRegister,
+        literal: value.toInt(),
+      );
+      return;
+    }
+
+    if (value is List<int>) {
+      // Folded string constant.
+      _prototype.emitLoadLiteral(
+        target: targetRegister,
+        literal: String.fromCharCodes(value),
+      );
+      return;
+    }
+
+    if (value is String) {
+      _prototype.emitLoadLiteral(target: targetRegister, literal: value);
+      return;
+    }
+
+    // Unrecognized folded value type — should not happen in practice.
+    // Emit nil as a safe default to avoid infinite recursion.
+    _prototype.emitLoadNil(target: targetRegister);
   }
 
   void _emitIdentifierToRegister(String name, int targetRegister) {
@@ -2175,6 +2242,7 @@ final class LuaBytecodeStructuredCompiler {
       parameters: parameterList,
       declaredGlobals: declaredGlobals,
       virtualVarargName: !needsVarargTable ? body.varargName?.name : null,
+      foldingResult: foldingResult,
     );
     if (needsVarargTable) {
       final varargName = body.varargName;

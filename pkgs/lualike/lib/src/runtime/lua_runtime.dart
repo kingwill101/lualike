@@ -154,4 +154,14 @@ abstract interface class LuaRuntime {
     Object? error,
     AstNode? node,
   });
+
+  /// Convenience to load a precompiled bytecode module.
+  ///
+  /// This is the lualike equivalent of Hetu's `hetu.loadBytecode(bytes: ...,
+  /// moduleName: ...)`. The bytecode can be either Lua 5.4 binary chunks
+  /// (starting with `\x1b`) or lualike IR serialized chunks.
+  ///
+  /// Returns a [Value] that can be called to execute the module, or throws if
+  /// the bytes are not valid bytecode for any active engine.
+  Future<Value> loadBytecode(List<int> bytes, {required String moduleName});
 }

@@ -1,6 +1,7 @@
 import 'dart:math' as math;
 
 import 'package:lualike/src/ast.dart';
+import 'package:lualike/src/compile/constant_folding_pass.dart';
 import 'package:lualike/src/lua_bytecode/instruction.dart';
 
 import 'chunk_builder.dart';
@@ -16,10 +17,20 @@ import 'prototype.dart';
 /// the lualike IR infrastructure. Coverage will expand incrementally as we port
 /// additional interpreter features.
 class LualikeIrCompiler {
+  /// Optional constant folding result that marks nodes whose values can be
+  /// precomputed at compile time.
+  final ConstantFoldingResult? foldingResult;
+
+  LualikeIrCompiler({this.foldingResult});
+
   LualikeIrChunk compile(Program program) {
     final chunkBuilder = LualikeIrChunkBuilder();
     final prototypeBuilder = chunkBuilder.mainPrototypeBuilder;
-    final context = _PrototypeContext(prototypeBuilder, isVararg: true);
+    final context = _PrototypeContext(
+      prototypeBuilder,
+      isVararg: true,
+      foldingResult: foldingResult,
+    );
 
     context._emitBlock(program.statements, useNewScope: false);
 
@@ -116,6 +127,7 @@ class _PrototypeContext {
     this.parent,
     List<String> parameterNames = const <String>[],
     this.isVararg = false,
+    this.foldingResult,
   }) : emitter = LualikeIrEmitter(builder),
        _localScopes = <Map<String, int>>[<String, int>{}],
        _globalBindingScopes = <Set<String>>[<String>{}],
@@ -140,6 +152,9 @@ class _PrototypeContext {
   final LualikeIrEmitter emitter;
   final _PrototypeContext? parent;
   final bool isVararg;
+
+  /// Optional constant folding result.
+  final ConstantFoldingResult? foldingResult;
 
   bool hasExplicitReturn = false;
 
@@ -672,6 +687,14 @@ class _PrototypeContext {
 
   int _emitExpression(AstNode node, {int? target}) {
     _trackSource(node);
+
+    // If the constant folding pass determined this node's value at compile
+    // time, emit a loadK / loadI directly instead of lowering the full
+    // expression tree.
+    if (foldingResult != null && foldingResult!.isConstant(node)) {
+      return _emitFoldedConstant(node, foldingResult!.getValue(node), target: target);
+    }
+
     if (node is BinaryExpression && node.op == '..') {
       return _emitConcatenation(node, target: target);
     }
@@ -1201,6 +1224,79 @@ class _PrototypeContext {
   bool _emitDoBlock(DoBlock node) {
     _trackSource(node);
     return _emitBlock(node.body);
+  }
+
+  /// Emit a load instruction for a compile-time folded constant.
+  ///
+  /// This is the mechanism by which the constant folding pass feeds its
+  /// results into the IR: instead of emitting the full expression tree,
+  /// we emit a single [loadK] / [loadI] / [loadNil] / [loadTrue] / [loadFalse]
+  /// instruction with the precomputed value.
+  int _emitFoldedConstant(AstNode node, Object? value, {int? target}) {
+    final reg = _materializeRegister(target);
+
+    if (value == ConstantFoldingResult.constantNil) {
+      emitter.emitABC(opcode: LualikeIrOpcode.loadNil, a: reg, b: 0, c: 0);
+      return reg;
+    }
+
+    if (value is bool) {
+      emitter.emitABC(
+        opcode: value ? LualikeIrOpcode.loadTrue : LualikeIrOpcode.loadFalse,
+        a: reg,
+        b: 0,
+        c: 0,
+      );
+      return reg;
+    }
+
+    if (value is int) {
+      // Use loadK for general integers.
+      final constant = IntegerConstant(value);
+      final index = builder.addConstant(constant);
+      emitter.emitABx(opcode: LualikeIrOpcode.loadK, a: reg, bx: index);
+      return reg;
+    }
+
+    if (value is double) {
+      final constant = NumberConstant(value);
+      final index = builder.addConstant(constant);
+      emitter.emitABx(opcode: LualikeIrOpcode.loadK, a: reg, bx: index);
+      return reg;
+    }
+
+    if (value is num) {
+      // BigInt or other numeric.
+      final constant = IntegerConstant(value.toInt());
+      final index = builder.addConstant(constant);
+      emitter.emitABx(opcode: LualikeIrOpcode.loadK, a: reg, bx: index);
+      return reg;
+    }
+
+    if (value is List<int>) {
+      // Folded string constant.
+      final text = String.fromCharCodes(value);
+      final constant = text.length <= 40
+          ? ShortStringConstant(text)
+          : LongStringConstant(text);
+      final index = builder.addConstant(constant);
+      emitter.emitABx(opcode: LualikeIrOpcode.loadK, a: reg, bx: index);
+      return reg;
+    }
+
+    if (value is String) {
+      final constant = value.length <= 40
+          ? ShortStringConstant(value)
+          : LongStringConstant(value);
+      final index = builder.addConstant(constant);
+      emitter.emitABx(opcode: LualikeIrOpcode.loadK, a: reg, bx: index);
+      return reg;
+    }
+
+    // Unrecognized folded value type — should not happen in practice.
+    // Emit nil as a safe default to avoid infinite recursion.
+    emitter.emitABC(opcode: LualikeIrOpcode.loadNil, a: reg, b: 0, c: 0);
+    return reg;
   }
 
   void _emitAssignmentIndexAccessExpr(AssignmentIndexAccessExpr node) {
@@ -2085,6 +2181,7 @@ class _PrototypeContext {
       parent: this,
       parameterNames: positionalParams,
       isVararg: body.isVararg,
+      foldingResult: foldingResult,
     );
     for (final name in declaredGlobals) {
       childContext._declareGlobalBinding(name);

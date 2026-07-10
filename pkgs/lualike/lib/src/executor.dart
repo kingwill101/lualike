@@ -1,3 +1,5 @@
+import 'dart:io' show stderr;
+
 import 'exceptions.dart';
 import 'file_manager.dart';
 import 'interpreter/interpreter.dart';
@@ -5,6 +7,7 @@ import 'parse.dart';
 import 'semantic_checker.dart';
 import 'runtime/lua_runtime.dart';
 import 'config.dart';
+import 'compile/pipeline.dart';
 import 'ir/runtime.dart';
 import 'lua_error.dart';
 import 'lua_bytecode/runtime.dart';
@@ -21,6 +24,8 @@ typedef RuntimeSetupCallback = void Function(LuaRuntime);
 /// [environment] - Optional environment for variable scope
 /// [fileManager] - Optional file manager for I/O operations
 /// [url] - Optional chunk source name or file path used for parser context
+/// [foldEnabled] - Whether to enable constant folding (bytecode modes only).
+///   Defaults to [LuaLikeConfig.foldEnabled].
 ///
 /// Returns the result of executing the code.
 Future<Object?> executeCode(
@@ -30,6 +35,7 @@ Future<Object?> executeCode(
   LuaRuntime? vm,
   EngineMode? mode,
   Object? url,
+  bool? foldEnabled,
 }) async {
   final selectedMode = mode ?? LuaLikeConfig().defaultEngineMode;
   final runtime =
@@ -51,6 +57,36 @@ Future<Object?> executeCode(
     final semanticError = validateProgramSemantics(program);
     if (semanticError != null) {
       throw Exception(semanticError);
+    }
+
+    // When constant folding is enabled for bytecode engines, compile through
+    // the multi-pass pipeline instead of the runtime's built-in runAst.
+    final folding = foldEnabled ?? LuaLikeConfig().foldEnabled;
+    if (folding && selectedMode != EngineMode.ast) {
+      final pipeline = CompilePipeline(
+        config: CompilePipelineConfig(
+          enableConstantFolding: true,
+          dumpIr: LuaLikeConfig().dumpIr,
+          target: switch (selectedMode) {
+            EngineMode.luaBytecode => CompileBackend.luaBytecode,
+            EngineMode.ir => CompileBackend.lualikeIR,
+            _ => CompileBackend.luaBytecode,
+          },
+        ),
+      );
+      final artifact = pipeline.compile(program);
+
+      // Print IR disassembly if requested.
+      if (artifact is LualikeIrArtifact && artifact.disassembly != null) {
+        stderr.writeln(artifact.disassembly);
+      }
+
+      final chunk = await runtime.loadBytecode(
+        artifact.serializedBytes,
+        moduleName: url?.toString() ?? '=(pipeline)',
+      );
+      await runtime.callFunction(chunk, const <Object?>[]);
+      return null;
     }
 
     return _publicExecutionResult(await runtime.runAst(program.statements));
