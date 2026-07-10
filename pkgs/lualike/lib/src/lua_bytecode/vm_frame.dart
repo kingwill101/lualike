@@ -7,6 +7,7 @@ import 'package:lualike/src/lua_bytecode/chunk.dart';
 import 'package:lualike/src/lua_bytecode/debug_local_caches.dart';
 import 'package:lualike/src/lua_bytecode/vm_support.dart';
 import 'package:lualike/src/lua_bytecode/vm_value_helpers.dart';
+
 import 'package:lualike/src/lua_error.dart';
 import 'package:lualike/src/lua_string.dart';
 import 'package:lualike/src/runtime/lua_runtime.dart';
@@ -15,6 +16,10 @@ import 'package:lualike/src/runtime/lua_slot.dart';
 import 'package:lualike/src/runtime/vararg_table.dart';
 import 'package:lualike/src/utils/platform_utils.dart' as platform;
 import 'package:lualike/src/value.dart';
+
+/// Prototype-level caches shared by all frames of the same closure.
+final Expando<List<bool>> _prototypeLocalExpiryFlags =
+    Expando<List<bool>>('luaBytecodeLocalExpiryFlags');
 
 final bool _debugFileOps =
     platform.getEnvironmentVariable('LUALIKE_DEBUG_FILE_OPS') == '1';
@@ -92,23 +97,8 @@ final class LuaBytecodeFrame implements LuaBytecodeGCRootProvider {
   Environment? _debugEnvironment;
   PackedVarargTable? namedVarargTable;
   Value? namedVarargTableValue;
-  late final List<bool> _localExpiryFlags = () {
-    final flags = List<bool>.filled(
-      closure.prototype.code.length,
-      false,
-      growable: false,
-    );
-    for (final local in closure.prototype.localVariables) {
-      if (local.register == null || local.endPc <= local.startPc) {
-        continue;
-      }
-      final endPc = local.endPc;
-      if (endPc >= 0 && endPc < flags.length) {
-        flags[endPc] = true;
-      }
-    }
-    return flags;
-  }();
+  List<bool> get _localExpiryFlags =>
+      _localExpiryFlagsFor(closure.prototype);
   late final List<List<({int register, int endPc})>>
   _expiredRegisterCandidatesByPc = () {
     final codeLength = closure.prototype.code.length;
@@ -880,4 +870,25 @@ Value _detachSharedRuntimeConstantInFrameRegister(
     gc.noteRootWrite(detached);
   }
   return detached;
+}
+
+List<bool> _localExpiryFlagsFor(LuaBytecodePrototype prototype) {
+  final cached = _prototypeLocalExpiryFlags[prototype];
+  if (cached != null) return cached;
+  final flags = List<bool>.filled(
+    prototype.code.length,
+    false,
+    growable: false,
+  );
+  for (final local in prototype.localVariables) {
+    if (local.register == null || local.endPc <= local.startPc) {
+      continue;
+    }
+    final endPc = local.endPc;
+    if (endPc >= 0 && endPc < flags.length) {
+      flags[endPc] = true;
+    }
+  }
+  _prototypeLocalExpiryFlags[prototype] = flags;
+  return flags;
 }
