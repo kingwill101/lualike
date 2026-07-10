@@ -308,7 +308,7 @@ void _compileToBytecode(String scriptPath, String outputPath) {
   final artifact = pipeline.compileSource(source, chunkName: scriptPath);
   final bytes = artifact.serializedBytes;
   File(outputPath).writeAsBytesSync(bytes);
-  final folded = artifact.foldingResult.foldedCount;
+  final folded = 0; // TODO: expose fold count from simplifed AST
   stderr.writeln(
     'Compiled $scriptPath → $outputPath '
     '(${bytes.length} bytes, $folded expressions folded)',
