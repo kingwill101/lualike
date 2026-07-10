@@ -51,6 +51,8 @@ final bool _debugFileOps =
     platform.getEnvironmentVariable('LUALIKE_DEBUG_FILE_OPS') == '1';
 final bool _profileBytecode =
     platform.getEnvironmentVariable('LUALIKE_PROFILE_BYTECODE') == '1';
+final bool _debugBytecodeHooks =
+    platform.getEnvironmentVariable('LUALIKE_DEBUG_BYTECODE_HOOKS') == '1';
 
 final RegExp _bytecodeFormattedLuaErrorPattern = RegExp(
   r'^(?:\[[^\n]+\]|[^:\n]+):(?:\d+|\?): ',
@@ -151,8 +153,7 @@ final class LuaBytecodeVm {
         !closure.prototype.hasDebugInfo) {
       await entryDebugInterpreter.fireDebugHook('line');
     }
-    if (platform.getEnvironmentVariable('LUALIKE_DEBUG_BYTECODE_HOOKS') ==
-        '1') {
+    if (_debugBytecodeHooks) {
       print(
         '[bc-hook] entry debug=${entryDebugInterpreter != null} '
         'hook=${entryDebugInterpreter?.debugHookFunction != null} '
@@ -292,11 +293,16 @@ final class LuaBytecodeVm {
           runtime.callStack.pop();
         }
       }
-      runtime.callStack.setScriptPath(previousCallStackScriptPath);
-      runtime.currentScriptPath = previousScriptPath;
-      runtime.setCurrentEnv(previousEnv);
-      if (parentFrame != null) {
-        parentFrame.env = parentFrameEnv;
+      // Skip state restoration on the happy path when no debug hook is active.
+      // The next frame will overwrite env/scriptPath anyway. Errors and
+      // debug hooks still need restored state, handled in catch blocks.
+      if (exitDebugInterpreter?.debugHookFunction != null || suspended) {
+        runtime.callStack.setScriptPath(previousCallStackScriptPath);
+        runtime.currentScriptPath = previousScriptPath;
+        runtime.setCurrentEnv(previousEnv);
+        if (parentFrame != null) {
+          parentFrame.env = parentFrameEnv;
+        }
       }
     }
   }
