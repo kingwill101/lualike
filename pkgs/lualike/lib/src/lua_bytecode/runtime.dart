@@ -260,9 +260,11 @@ class LuaBytecodeRuntime implements LuaRuntime {
     initializeStandardLibrary(vm: this);
     _ensureEnvironmentBinding(runtimeEnv);
     _interpreter.fileManager.setInterpreter(this);
+    _bytecodeVm = LuaBytecodeVm(this);
   }
 
   final Interpreter _interpreter;
+  late final LuaBytecodeVm _bytecodeVm;
   late final Environment _globalEnvironment;
   late final LibraryRegistry _libraryRegistry;
   final List<LuaBytecodeGCRootProvider> _activeFrameRoots =
@@ -357,6 +359,32 @@ class LuaBytecodeRuntime implements LuaRuntime {
     return runAst([returnStatement]);
   }
 
+  /// Fast path for calling a bytecode closure with exactly two Value
+  /// arguments, avoiding `List<Object?>` allocation and `Value` wrapper
+  /// creation. Used by `table.sort` comparator calls.
+  Future<Object?> callBytecodeClosureDirect(
+    LuaBytecodeClosure closure,
+    Value arg0,
+    Value arg1, {
+    String? debugName,
+  }) async {
+    final results = await _bytecodeVm.invoke(
+      closure,
+      <Object?>[arg0, arg1],
+      functionValue: Value(
+        closure,
+        closureEnvironment: closure.environment,
+        interpreter: this,
+      ),
+      callName: debugName ?? closure.chunkName,
+      callNameWhat: '',
+      isEntryFrame: true,
+    );
+    if (results.isEmpty) return null;
+    if (results.length == 1) return results.single;
+    return LuaResults(results);
+  }
+
   @override
   Future<Object?> callFunction(
     Value function,
@@ -370,8 +398,7 @@ class LuaBytecodeRuntime implements LuaRuntime {
     _ensureValueInterpreter(callee);
     _attachInterpreterToArgs(args);
     if (rawLuaSlot(callee) case final LuaBytecodeClosure closure) {
-      final vm = LuaBytecodeVm(this);
-      final results = await vm.invoke(
+      final results = await _bytecodeVm.invoke(
         closure,
         args,
         functionValue: callee,

@@ -17,6 +17,7 @@ import 'package:lualike/src/lua_bytecode/runtime.dart';
 import 'package:lualike/src/lua_bytecode/chunk.dart';
 import 'package:lualike/src/lua_bytecode/serializer.dart';
 import 'package:lualike/src/lua_bytecode/vm.dart';
+import 'package:lualike/src/lua_bytecode/vm_value_helpers.dart';
 import 'package:lualike/src/lua_string.dart';
 import 'package:lualike/src/runtime/compiled_artifact_support.dart';
 import 'package:lualike/src/runtime/chunk_loading_support.dart';
@@ -43,9 +44,11 @@ class LualikeIrRuntime implements LuaRuntime {
     initializeStandardLibrary(vm: this);
     _ensureEnvironmentBinding(runtimeEnv);
     _interpreter.fileManager.setInterpreter(this);
+    _bytecodeVm = LuaBytecodeVm(this);
   }
 
   final Interpreter _interpreter;
+  late final LuaBytecodeVm _bytecodeVm;
   late final Environment _globalEnvironment;
   late final LibraryRegistry _libraryRegistry;
 
@@ -111,8 +114,7 @@ class LualikeIrRuntime implements LuaRuntime {
     _attachInterpreterToArgs(args);
     final raw = rawLuaSlot(callee);
     if (raw is LuaBytecodeClosure) {
-      final vm = LuaBytecodeVm(this);
-      final results = await vm.invoke(
+      final results = await _bytecodeVm.invoke(
         raw,
         args,
         functionValue: callee,

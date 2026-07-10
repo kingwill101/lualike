@@ -92,8 +92,11 @@ final class LuaBytecodeFrame implements LuaBytecodeGCRootProvider {
   Environment? _debugEnvironment;
   PackedVarargTable? namedVarargTable;
   Value? namedVarargTableValue;
-  late final List<bool> _localExpiryFlags = () {
-    final flags = List<bool>.filled(
+  List<bool>? _localExpiryFlagsCached;
+  List<bool> get _localExpiryFlags {
+    var flags = _localExpiryFlagsCached;
+    if (flags != null) return flags;
+    flags = List<bool>.filled(
       closure.prototype.code.length,
       false,
       growable: false,
@@ -107,17 +110,22 @@ final class LuaBytecodeFrame implements LuaBytecodeGCRootProvider {
         flags[endPc] = true;
       }
     }
+    _localExpiryFlagsCached = flags;
     return flags;
-  }();
-  late final List<List<({int register, int endPc})>>
-  _expiredRegisterCandidatesByPc = () {
+  }
+  List<List<({int register, int endPc})>>?
+  _expiredRegisterCandidatesByPcCached;
+
+  List<List<({int register, int endPc})>> get _expiredRegisterCandidatesByPc {
+    var cached = _expiredRegisterCandidatesByPcCached;
+    if (cached != null) return cached;
     final codeLength = closure.prototype.code.length;
     final startRegistersByPc = List<List<int>>.generate(
       codeLength,
       (_) => <int>[],
       growable: false,
     );
-    final endRegistersByPc = List<List<({int register, int endPc})>>.generate(
+    final result = List<List<({int register, int endPc})>>.generate(
       codeLength,
       (_) => <({int register, int endPc})>[],
       growable: false,
@@ -133,7 +141,7 @@ final class LuaBytecodeFrame implements LuaBytecodeGCRootProvider {
       }
       final endPc = local.endPc;
       if (endPc >= 0 && endPc < codeLength) {
-        endRegistersByPc[endPc].add((register: register, endPc: endPc));
+        result[endPc].add((register: register, endPc: endPc));
       }
     }
 
@@ -146,7 +154,7 @@ final class LuaBytecodeFrame implements LuaBytecodeGCRootProvider {
     );
 
     for (var pc = 0; pc < codeLength; pc++) {
-      for (final (:register, :endPc) in endRegistersByPc[pc]) {
+      for (final (:register, :endPc) in result[pc]) {
         final nextCount = (activeCounts[register] ?? 0) - 1;
         if (nextCount > 0) {
           activeCounts[register] = nextCount;
@@ -170,8 +178,9 @@ final class LuaBytecodeFrame implements LuaBytecodeGCRootProvider {
             (register: entry.key, endPc: entry.value),
       ];
     }
+    _expiredRegisterCandidatesByPcCached = candidatesByPc;
     return candidatesByPc;
-  }();
+  }
   late final List<bool> _trackedRegisterWriteFlags = () {
     final flags = List<bool>.filled(
       closure.prototype.maxStackSize,
@@ -413,12 +422,25 @@ final class LuaBytecodeFrame implements LuaBytecodeGCRootProvider {
     // debug writes can mutate the slot in place. Numeric primitive caches are
     // flagged directly, which avoids a runtime identity lookup on the hot path.
     final raw = rawLuaSlot(value);
-    final storedValue = !value.skipAllocationDebt &&
-            (value.isSharedPrimitive ||
-                (raw is String || raw is LuaString) &&
-                    isSharedRuntimeConstant(runtime, value))
-        ? cloneBytecodeValue(value)
-        : value;
+    final Value storedValue;
+    if (value.skipAllocationDebt) {
+      storedValue = value;
+    } else if (value.isSharedPrimitive) {
+      // Fast path for shared null / bool / number / BigInt primitives:
+      // create a fresh primitive directly instead of cloning the source
+      // (which reads 15+ properties we know are all defaults).
+      storedValue = Value.primitive(
+        raw,
+        skipAllocationDebt: isLuaPrimitiveSlot(raw),
+        skipGcRegistration: isLuaScalarPrimitiveSlot(raw),
+        interpreter: runtime,
+      );
+    } else if ((raw is String || raw is LuaString) &&
+        isSharedRuntimeConstant(runtime, value)) {
+      storedValue = cloneBytecodeValue(value);
+    } else {
+      storedValue = value;
+    }
     storedValue.interpreter ??= runtime;
     registers[index] = storedValue;
     debugStateVersion++;
