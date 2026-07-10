@@ -1,6 +1,7 @@
 import 'dart:io';
 
 import 'package:lualike/src/ast.dart';
+import 'package:lualike/src/compile/compiler_pass.dart';
 import 'package:lualike/src/parse.dart';
 
 /// Resolves static `require("literal_path")` calls and bundles all
@@ -32,7 +33,11 @@ import 'package:lualike/src/parse.dart';
 /// - Only handles `require("string_literal")` — dynamic requires with
 ///   variables as paths are left as-is for runtime resolution.
 /// - Circular dependencies are detected and reported.
-class Bundler {
+/// Resolves `require("literal_path")` calls and inlines dependencies.
+class Bundler extends CompilerPass {
+  @override
+  String get name => 'bundler';
+
   final List<String> searchPaths;
   final Set<String> _resolved = <String>{};
   final List<AstNode> _bundledNodes = [];
@@ -40,6 +45,11 @@ class Bundler {
 
   Bundler({List<String>? searchPaths})
     : searchPaths = searchPaths ?? _defaultSearchPaths();
+
+  @override
+  Program run(Program program, CompilerContext context) {
+    return bundle(program);
+  }
 
   static List<String> _defaultSearchPaths() => ['.'];
 

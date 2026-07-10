@@ -18,6 +18,7 @@
 library;
 
 import 'package:lualike/src/ast.dart';
+import 'package:lualike/src/compile/compiler_pass.dart';
 import 'package:lualike/src/builtin_function.dart' show BuiltinFunction;
 import 'package:lualike/src/compile/fold_result.dart';
 import 'package:lualike/src/interpreter/interpreter.dart';
@@ -75,8 +76,19 @@ final class _KnownFunction {
 /// - Vararg expressions (`...`)
 /// - Upvalue / global variable references
 /// - Table constructors with non-const entries
-class ConstantFoldingPass {
+class ConstantFoldingPass extends CompilerPass {
+  @override
+  String get name => 'constant_folding';
+
+  /// The folding result populated by [fold] or [run].
   final ConstantFoldingResult result = ConstantFoldingResult();
+
+  @override
+  Program run(Program program, CompilerContext context) {
+    fold(program);
+    context.foldingResult = result;
+    return program;
+  }
 
   /// Stack of scopes mapping `<const>`-declared local names to their folded
   /// values (or [ConstantFoldingResult.constantNil] for const-nil locals).
