@@ -1,6 +1,8 @@
 import 'dart:collection';
 
 import 'package:lualike/src/ast.dart';
+import 'package:lualike/src/number.dart' show LuaNumberParser;
+import 'package:lualike/src/utils/type.dart' show getLuaBaseType;
 
 /// Maps each AST node to its compile-time computed value if one was
 /// determined, or `null` if the node is not constant (which is distinct from
@@ -865,30 +867,40 @@ class ConstantFoldingPass {
   int _intShiftRight(num l, num r) => (l.toInt() >> r.toInt());
 
   // ---- Helper methods for built-in function folding ----
+  //
+  // These delegate to the same utility functions the lualike stdlib uses,
+  // avoiding separate reimplementations.
 
-  /// Lua `type()`: returns the Lua type name of a folded value.
-  List<int>? _luaTypeName(Object? value) {
-    if (value == null || value == ConstantFoldingResult.constantNil) {
-      return 'nil'.codeUnits;
+  /// Lua `type()` via [getLuaBaseType] (same function stdlib uses).
+  ///
+  /// Folded strings are stored as `List<int>` (byte arrays).  We convert them
+  /// to `String` so [getLuaBaseType] sees them as Lua strings, not tables.
+  List<int> _luaTypeName(Object? value) {
+    Object? normalized = value;
+    if (value == ConstantFoldingResult.constantNil) {
+      normalized = null;
+    } else if (value is List<int>) {
+      // Folded Lua string bytes → Dart String for getLuaBaseType.
+      normalized = String.fromCharCodes(value);
     }
-    if (value is bool) return 'boolean'.codeUnits;
-    if (value is num || value is BigInt) return 'number'.codeUnits;
-    if (value is List<int> || value is String) return 'string'.codeUnits;
-    if (value is Map) return 'table'.codeUnits;
-    // Function, thread, userdata cannot appear in folded values.
-    return 'userdata'.codeUnits; // Fallback.
+    return getLuaBaseType(normalized).codeUnits;
   }
 
-  /// Lua `tostring()`: stringify a folded value.
-  List<int>? _luaToString(Object? value) {
+  /// Lua `tostring()` for primitive folded values (no metamethod support).
+  ///
+  /// This mirrors what [ToStringFunction] does for primitives, but
+  /// synchronously and without the heavy `__tostring` metamethod machinery.
+  List<int> _luaToString(Object? value) {
     if (value == null || value == ConstantFoldingResult.constantNil) {
       return 'nil'.codeUnits;
     }
     if (value is bool) return value ? 'true'.codeUnits : 'false'.codeUnits;
     if (value is int) return value.toString().codeUnits;
     if (value is double) {
-      // Lua formats doubles like "%g" with a decimal point when needed.
-      final s = value.toString();
+      // Lua formats using %g-like rules — Dart's toString is close enough.
+      final s = value == value.toInt().toDouble()
+          ? '${value.toInt()}.0'
+          : value.toString();
       return s.codeUnits;
     }
     if (value is BigInt) return value.toString().codeUnits;
@@ -897,23 +909,20 @@ class ConstantFoldingPass {
     return value.toString().codeUnits;
   }
 
-  /// Lua `tonumber()`: convert a folded value to number, or nil.
+  /// Lua `tonumber()` via [LuaNumberParser.parse] (same parser stdlib uses).
   Object? _luaToNumber(Object? value) {
     if (value == null || value == ConstantFoldingResult.constantNil) {
       return ConstantFoldingResult.constantNil;
     }
     if (value is num || value is BigInt) return value;
-    // Try parsing string as number.
     final s = value is List<int>
         ? String.fromCharCodes(value)
         : (value is String ? value : null);
     if (s == null) return ConstantFoldingResult.constantNil;
-    final trimmed = s.trim();
-    final intVal = int.tryParse(trimmed);
-    if (intVal != null) return intVal;
-    final doubleVal = double.tryParse(trimmed);
-    if (doubleVal != null) return doubleVal;
-    return ConstantFoldingResult.constantNil;
+    try {
+      return LuaNumberParser.parse(s.trim());
+    } on FormatException {
+      return ConstantFoldingResult.constantNil;
+    }
   }
-
 }
