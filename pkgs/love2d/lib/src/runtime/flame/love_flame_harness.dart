@@ -14,6 +14,7 @@ import '../filesystem/love_filesystem_runtime.dart';
 import '../input/love_joystick_input_adapter.dart';
 import '../love_runtime.dart';
 import '../love_script_runtime.dart';
+import '../renderer/renderer.dart' show LoveRenderBackend;
 import 'love_flame_harness_renderer.dart';
 import 'love_flame_input.dart';
 import 'love_flame_live_video_overlay.dart';
@@ -89,6 +90,7 @@ class LoveFlameHarness extends StatefulWidget {
     this.imageWarmupAssetKeys,
     this.debugImageWarmupOverride,
     this.debugOnGameCreated,
+    this.renderBackend,
   });
 
   /// The mounted LOVE entry asset, typically `main.lua`.
@@ -145,6 +147,9 @@ class LoveFlameHarness extends StatefulWidget {
   /// Testing and benchmark hook that exposes the created Flame game instance.
   final void Function(LoveFlameHarnessGame game)? debugOnGameCreated;
 
+  /// Optional render backend override used by tests and GPU demo builds.
+  final LoveRenderBackend? renderBackend;
+
   @override
   State<LoveFlameHarness> createState() => _LoveFlameHarnessState();
 }
@@ -157,6 +162,7 @@ class _LoveFlameHarnessState extends State<LoveFlameHarness>
     assetBundle: _bundle,
     audioBackendFactory: widget.audioBackendFactory,
     videoFrameProviderFactory: widget.videoFrameProviderFactory,
+    renderBackend: widget.renderBackend,
   );
   late final _LoveFlameHarnessController _controller =
       _LoveFlameHarnessController(
