@@ -1,6 +1,7 @@
 import 'package:lualike/src/ast.dart';
 import 'package:lualike/src/compile/bundler.dart';
 import 'package:lualike/src/compile/compiler_pass.dart';
+import 'package:lualike/src/compile/const_propagation_pass.dart';
 import 'package:lualike/src/compile/constant_folding_pass.dart';
 import 'package:lualike/src/compile/dead_code_pass.dart';
 import 'package:lualike/src/compile/simplify_pass.dart';
@@ -30,6 +31,9 @@ final class CompilePipelineConfig {
   /// Whether to run the [ConstantFoldingPass] before IR emission.
   final bool enableConstantFolding;
 
+  /// Whether to run constant propagation (single-assignment locals).
+  final bool enableConstPropagation;
+
   /// Whether to unroll constant-bounded for-loops in the IR compiler.
   final bool enableLoopUnrolling;
 
@@ -49,6 +53,7 @@ final class CompilePipelineConfig {
     this.stripDebug = false,
     this.dumpIr = false,
     this.enableConstantFolding = true,
+    this.enableConstPropagation = true,
     this.enableLoopUnrolling = false,
     this.enableBundling = false,
     this.bundleSearchPaths = const ['.'],
@@ -155,6 +160,8 @@ final class CompilePipeline {
     return [
       // Bundle phase: resolve require() calls
       if (config.enableBundling) Bundler(searchPaths: config.bundleSearchPaths),
+      // Propagation phase: forward constants and copies
+      if (config.enableConstPropagation) ConstPropagationPass(),
       // Folding phase: analyze and simplify constant expressions
       if (config.enableConstantFolding) ConstantFoldingPass(),
       if (config.enableConstantFolding) ASTSimplifier(),
