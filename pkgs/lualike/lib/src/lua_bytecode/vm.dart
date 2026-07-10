@@ -94,20 +94,12 @@ final class LuaBytecodeVm {
     runtime.currentScriptPath = activeScriptPath;
     runtime.callStack.setScriptPath(activeScriptPath);
     final callableValue = switch (frame.functionValue) {
-      final Value functionValue
-          when rawLuaSlot(functionValue) is LuaBytecodeClosure =>
-        hydrateClosureCallableValue(
-          functionValue,
-          closure,
-          fallbackName: frame.callName ?? closure.debugInfo.shortSource,
-        ),
+      final Value functionValue when functionValue.functionBody != null =>
+        functionValue,
+      final Value functionValue when rawLuaSlot(functionValue) is LuaBytecodeClosure =>
+        closure.callableValue,
       final Value functionValue => functionValue,
-      _ => (Value(
-        closure,
-        functionBody: closure.debugFunctionBody,
-        closureEnvironment: closure.environment,
-        functionName: frame.callName ?? closure.debugInfo.shortSource,
-      )..interpreter = runtime),
+      _ => closure.callableValue,
     };
     runtime.callStack.push(
       frame.callName ?? closure.debugInfo.shortSource,
@@ -317,10 +309,8 @@ final class LuaBytecodeVm {
         return result;
       } on TailCallException catch (tail) {
         final prepared = _flattenTailCallable(
-          valueFromLuaSlot(runtime, tail.functionValue),
-          tail.args
-              .map((arg) => valueFromLuaSlot(runtime, arg))
-              .toList(growable: false),
+          tail.functionValue,
+          tail.args,
         );
         final callee = prepared.callee;
         if (rawLuaSlot(callee) case final LuaBytecodeClosure nextClosure) {
@@ -2054,7 +2044,7 @@ final class LuaBytecodeVm {
         '(${location.join(', ')})$suffix';
   }
 
-  ({Value callee, List<Value> args}) _resolveCall(
+  ({Value callee, List<Object?> args}) _resolveCall(
     LuaBytecodeFrame frame,
     LuaBytecodeInstructionWord word,
   ) {
@@ -2063,7 +2053,7 @@ final class LuaBytecodeVm {
     return (callee: callee, args: args);
   }
 
-  List<Value> _callArgsFromFrame(
+  List<Object?> _callArgsFromFrame(
     LuaBytecodeFrame frame,
     LuaBytecodeInstructionWord word,
   ) {

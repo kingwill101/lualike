@@ -52,10 +52,8 @@ extension LuaBytecodeVmCallEntry on LuaBytecodeVm {
         } on TailCallException catch (tail) {
           _releaseBytecodeFrameIfReusable(frame);
           final prepared = _flattenTailCallable(
-            valueFromLuaSlot(runtime, tail.functionValue),
-            tail.args
-                .map((arg) => valueFromLuaSlot(runtime, arg))
-                .toList(growable: false),
+            tail.functionValue,
+            tail.args,
           );
           final callee = prepared.callee;
           final tailNameInfo = _decodeTailCallNameInfo(tail.callName);
@@ -144,14 +142,16 @@ extension LuaBytecodeVmCallEntry on LuaBytecodeVm {
         .add(frame);
   }
 
-  ({Value callee, List<Value> args, int extraArgs}) _flattenTailCallable(
-    Value callee,
-    List<Value> args,
+  ({Value callee, List<Object?> args, int extraArgs}) _flattenTailCallable(
+    Object? callee,
+    List<Object?> args,
   ) {
+    var currentCallee =
+        callee is Value ? callee : valueFromLuaSlot(runtime, callee);
     var extraArgs = 0;
     while (true) {
-      callee.interpreter ??= runtime;
-      final rawCallee = rawLuaSlot(callee);
+      currentCallee.interpreter ??= runtime;
+      final rawCallee = rawLuaSlot(currentCallee);
       switch (rawCallee) {
         case LuaBytecodeClosure():
         case Function():
@@ -160,28 +160,28 @@ extension LuaBytecodeVmCallEntry on LuaBytecodeVm {
         case FunctionLiteral():
         case FunctionBody():
         case LuaCallableArtifact():
-          return (callee: callee, args: args, extraArgs: extraArgs);
+          return (callee: currentCallee, args: args, extraArgs: extraArgs);
         case final String name:
           final rebound = runtime.globals.get(name);
           if (rebound != null) {
-            callee = rebound;
+            currentCallee = rebound;
             continue;
           }
-          return (callee: callee, args: args, extraArgs: extraArgs);
+          return (callee: currentCallee, args: args, extraArgs: extraArgs);
         default:
-          if (!callee.hasMetamethod('__call')) {
-            return (callee: callee, args: args, extraArgs: extraArgs);
+          if (!currentCallee.hasMetamethod('__call')) {
+            return (callee: currentCallee, args: args, extraArgs: extraArgs);
           }
-          final callMeta = callee.getMetamethod('__call');
+          final callMeta = currentCallee.getMetamethod('__call');
           if (callMeta == null) {
-            return (callee: callee, args: args, extraArgs: extraArgs);
+            return (callee: currentCallee, args: args, extraArgs: extraArgs);
           }
           if (extraArgs >= 15) {
             throw LuaError("'__call' chain too long");
           }
-          final originalCallee = callee;
-          callee = valueFromLuaSlot(runtime, callMeta);
-          args = <Value>[originalCallee, ...args];
+          final originalCallee = currentCallee;
+          currentCallee = valueFromLuaSlot(runtime, callMeta);
+          args = <Object?>[originalCallee, ...args];
           extraArgs += 1;
       }
     }
@@ -262,7 +262,7 @@ extension LuaBytecodeVmCallEntry on LuaBytecodeVm {
   }
 
   Future<List<Value>> _invokePreparedCall(
-    ({Value callee, List<Value> args}) call, {
+    ({Value callee, List<Object?> args}) call, {
     LuaBytecodeFrame? frame,
     String opcodeName = 'CALL',
     String? callName,
@@ -333,7 +333,7 @@ extension LuaBytecodeVmCallEntry on LuaBytecodeVm {
 
   Future<List<Value>> _invokeValueWithName(
     Value callee,
-    List<Value> args, {
+    List<Object?> args, {
     String? callName,
     String? callNameWhat,
     int extraArgs = 0,
@@ -343,13 +343,14 @@ extension LuaBytecodeVmCallEntry on LuaBytecodeVm {
     final prepared = _flattenTailCallable(callee, args);
     callee = prepared.callee;
     args = prepared.args;
+    final valueArgs = args.cast<Value>();
     extraArgs += prepared.extraArgs;
     if (_debugInterpreter?.debugHookFunction == null) {
       final rawCallee = rawLuaSlot(callee);
       if (rawCallee is BuiltinFunction &&
           _canInlineBuiltinWithoutManagedFrame(rawCallee) &&
           !(runtime.isInProtectedCall && rawCallee.isBytecodeAssertBuiltin)) {
-        return _invokeInlineBuiltin(callee, args, builtin: rawCallee);
+        return _invokeInlineBuiltin(callee, valueArgs, builtin: rawCallee);
       }
     }
     if (callerFrame case final parentBytecodeFrame?) {
@@ -369,7 +370,7 @@ extension LuaBytecodeVmCallEntry on LuaBytecodeVm {
     // frame against the exact paused PC before delegating to the builtin.
     final debugLocalHandled = _tryHandleDebugLocalBuiltin(
       callee,
-      args,
+      valueArgs,
       callName: callName,
       callNameWhat: callNameWhat,
       extraArgs: extraArgs,
@@ -383,7 +384,7 @@ extension LuaBytecodeVmCallEntry on LuaBytecodeVm {
     }
     final protectedCallHandled = _tryHandleProtectedCallBuiltin(
       callee,
-      args,
+      valueArgs,
       callName: callName,
       callNameWhat: callNameWhat,
       extraArgs: extraArgs,
@@ -398,7 +399,7 @@ extension LuaBytecodeVmCallEntry on LuaBytecodeVm {
     if (rawLuaSlot(callee) case final LuaBytecodeClosure closure) {
       return invoke(
         closure,
-        args,
+        valueArgs,
         functionValue: callee,
         callName: callName ?? _callableName(callee),
         callNameWhat: callNameWhat,
@@ -414,9 +415,9 @@ extension LuaBytecodeVmCallEntry on LuaBytecodeVm {
         runtime.callStack.top?.currentLine = callerLine;
       }
     }
-    args = _rewriteCoroutineFactoryArgs(
+    final rewrittenArgs = _rewriteCoroutineFactoryArgs(
       callee,
-      args,
+      valueArgs,
       callName: callName,
       callNameWhat: callNameWhat,
     );
@@ -433,14 +434,14 @@ extension LuaBytecodeVmCallEntry on LuaBytecodeVm {
     runtime.callStack.top?.extraArgs = extraArgs;
     final callDebugInterpreter = _debugInterpreter;
     if (callDebugInterpreter != null) {
-      _setTransferInfo(runtime.callStack.top, args);
+      _setTransferInfo(runtime.callStack.top, rewrittenArgs);
       final interpreter = callDebugInterpreter;
       await interpreter.fireDebugHook('call');
       _clearTransferInfo(runtime.callStack.top);
     }
     Iterable<Value> tempRootProvider() sync* {
       yield callee;
-      for (final arg in args) {
+      for (final arg in rewrittenArgs) {
         yield arg;
       }
     }
@@ -449,7 +450,7 @@ extension LuaBytecodeVmCallEntry on LuaBytecodeVm {
     final yieldableAtCallEntry = runtime.isYieldable;
     List<Value> returnTransferValues = const <Value>[];
     try {
-      final result = await runtime.callFunction(callee, args);
+      final result = await runtime.callFunction(callee, rewrittenArgs);
       final normalized = _normalizeResults(result);
       returnTransferValues = normalized;
       return normalized;
@@ -908,7 +909,9 @@ extension LuaBytecodeVmCallEntry on LuaBytecodeVm {
           throw LuaError('pcall requires a function');
         }
         final func = args.first;
-        final callArgs = args.length == 1 ? const <Value>[] : args.sublist(1);
+        final callArgs = args.length == 1
+            ? const <Object?>[]
+            : args.sublist(1).cast<Object?>();
         return _invokeBytecodePCall(func, callArgs);
       },
     );
@@ -916,7 +919,7 @@ extension LuaBytecodeVmCallEntry on LuaBytecodeVm {
 
   Future<List<Value>> _invokeBytecodePCall(
     Value func,
-    List<Value> callArgs,
+    List<Object?> callArgs,
   ) async {
     runtime.enterProtectedCall();
     try {
@@ -928,10 +931,7 @@ extension LuaBytecodeVmCallEntry on LuaBytecodeVm {
       return <Value>[runtimeValue(runtime, true), ...callResults];
     } on TailCallException catch (tail) {
       final callee = valueFromLuaSlot(runtime, tail.functionValue);
-      final normalizedArgs = tail.args
-          .map((arg) => valueFromLuaSlot(runtime, arg))
-          .toList(growable: false);
-      final awaitedResult = await runtime.callFunction(callee, normalizedArgs);
+      final awaitedResult = await runtime.callFunction(callee, tail.args);
       return _packBytecodeProtectedCallSuccess(awaitedResult);
     } on CoroutineCloseSignal {
       rethrow;
