@@ -1,7 +1,11 @@
 import 'dart:ui' as ui;
 
+import 'package:flutter/foundation.dart';
 import 'package:flutter_gpu/gpu.dart' as gpu;
 import 'package:love2d/love2d.dart';
+
+import 'renderer/renderer.dart';
+import 'shader/love_shader_bundle.dart';
 
 /// Renders LOVE2D draw commands through [package:flutter_gpu]'s low-level
 /// GPU API instead of the standard Flutter Canvas 2D pipeline.
@@ -26,21 +30,38 @@ import 'package:love2d/love2d.dart';
 /// This is a work-in-progress skeleton. The concrete backend will be filled
 /// in incrementally as each command type gains GPU support.
 class LoveGpuRenderBackend implements LoveRenderBackend {
-  LoveGpuRenderBackend._();
+  LoveGpuRenderBackend._(this._renderer);
 
   static LoveGpuRenderBackend? _instance;
+
+  final GpuCommandRenderer _renderer;
 
   /// Creates or returns the singleton GPU render backend.
   ///
   /// Returns `null` if [package:flutter_gpu] is not available (e.g. the
-  /// Flutter SDK does not bundle it, or Impeller is not enabled).
-  static LoveGpuRenderBackend? create() {
+  /// Flutter SDK does not bundle it, or Impeller is not enabled) or if the
+  /// compiled shader bundle cannot be loaded.
+  static Future<LoveGpuRenderBackend?> create() async {
     if (_instance != null) return _instance;
     try {
-      final _ = gpu.gpuContext;
-      _instance = LoveGpuRenderBackend._();
+      final gpuContext = gpu.gpuContext;
+      await LoveShaderBundles.load();
+      _instance = LoveGpuRenderBackend._(
+        GpuCommandRenderer(
+          gpuContext: gpuContext,
+          surfaceManager: GpuSurfaceManager(gpuContext),
+          pipelineCache: GpuPipelineCache(gpuContext),
+          textureCache: GpuTextureCache(gpuContext),
+          hostBufferPool: GpuHostBufferPool(gpuContext),
+          fallbackHandler: GpuFallbackHandler(
+            canvasBackend: LoveCanvasRenderBackend(),
+          ),
+        ),
+      );
       return _instance;
-    } catch (_) {
+    } catch (e, st) {
+      debugPrint('love2d_gpu: GPU backend unavailable: $e');
+      debugPrint('$st');
       return null;
     }
   }
@@ -58,14 +79,6 @@ class LoveGpuRenderBackend implements LoveRenderBackend {
     ui.Size viewportSize, {
     LoveRenderStatsAccumulator? stats,
   }) {
-    // TODO: implement GPU rendering path.
-    // The current implementation is a no-op skeleton. Once the GPU pipeline
-    // is implemented, this will:
-    //
-    // 1. Create a GpuImageSurface for the given viewport size.
-    // 2. Acquire the next frame from the surface.
-    // 3. Build a CommandBuffer with RenderPasses for each command type.
-    // 4. Submit the command buffer.
-    // 5. Present the frame and draw the resulting ui.Image to the canvas.
+    _renderer.renderFrame(canvas, surface, viewportSize, stats: stats);
   }
 }
