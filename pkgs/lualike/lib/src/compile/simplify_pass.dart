@@ -10,41 +10,43 @@
 library;
 
 import 'package:lualike/src/ast.dart';
+import 'package:lualike/src/compile/compiler_pass.dart';
 import 'package:lualike/src/compile/fold_result.dart';
 
 /// Rewrites a [Program] AST, replacing folded expressions with literals.
 ///
-/// Usage:
-/// ```dart
-/// final foldPass = ConstantFoldingPass();
-/// foldPass.fold(program);
-/// final simplified = ASTSimplifier(foldPass.result).simplify(program);
-/// ```
-class ASTSimplifier {
-  /// The folding result to use for determining which nodes are constant.
-  final ConstantFoldingResult result;
+/// Run after the [ConstantFoldingPass].  Reads the folding result from
+/// [CompilerContext.foldingResult].  Folded expressions become [NumberLiteral],
+/// [StringLiteral], [BooleanLiteral], or [NilValue] nodes.  Dead if/while
+/// branches are removed entirely.
+class ASTSimplifier extends CompilerPass {
+  @override
+  String get name => 'simplify';
 
-  ASTSimplifier(this.result);
+  ConstantFoldingResult? _result;
+
+  @override
+  Program run(Program program, CompilerContext context) {
+    _result = context.foldingResult;
+    if (_result == null) return program;
+    return _simplify(program);
+  }
 
   /// Returns a new [Program] with all folding simplifications applied.
-  ///
-  /// Folded expressions become [NumberLiteral], [StringLiteral],
-  /// [BooleanLiteral], or [NilValue] nodes.  Dead if/while branches
-  /// are removed entirely.  The original [program] is not modified.
-  Program simplify(Program program) {
+  Program _simplify(Program program) {
     final stmts = _simplifyBlock(program.statements);
     return identical(stmts, program.statements) ? program : Program(stmts);
   }
 
   List<AstNode> _simplifyBlock(List<AstNode> stmts) {
-    List<AstNode>? result;
+    List<AstNode>? newList;
     for (var i = 0; i < stmts.length; i++) {
       final simplified = _simplifyStmt(stmts[i]);
       if (simplified != null) {
-        (result ??= List<AstNode>.of(stmts))[i] = simplified;
+        (newList ??= List<AstNode>.of(stmts))[i] = simplified;
       }
     }
-    return result ?? stmts;
+    return newList ?? stmts;
   }
 
   /// Returns a replacement for [node], or `null` if unchanged.
@@ -56,8 +58,8 @@ class ASTSimplifier {
         :final elseIfs,
         :final elseBlock,
       ):
-        if (result.isConstant(cond)) {
-          final cv = result.getValue(cond);
+        if (_result!.isConstant(cond)) {
+          final cv = _result!.getValue(cond);
           if (_isTruthy(cv)) {
             // Condition is truthy — emit only the then-branch.
             final live = _simplifyBlock(thenBlock);
@@ -66,8 +68,8 @@ class ASTSimplifier {
           }
           // Condition is falsy — walk else-if chain.
           for (final clause in elseIfs) {
-            if (result.isConstant(clause.cond) &&
-                _isTruthy(result.getValue(clause.cond))) {
+            if (_result!.isConstant(clause.cond) &&
+                _isTruthy(_result!.getValue(clause.cond))) {
               final live = _simplifyBlock(clause.thenBlock);
               if (live.length == 1) return live[0];
               return live.isEmpty ? null : DoBlock(live);
@@ -95,8 +97,8 @@ class ASTSimplifier {
         return IfStatement(cond, eifs, then, els);
 
       case WhileStatement(:final cond, :final body):
-        if (result.isConstant(cond) &&
-            !_isTruthy(result.getValue(cond))) {
+        if (_result!.isConstant(cond) &&
+            !_isTruthy(_result!.getValue(cond))) {
           return null; // Entire loop is dead code.
         }
         final simplified = _simplifyBlock(body);
@@ -164,8 +166,8 @@ class ASTSimplifier {
       if (r != null) return r;
     }
 
-    if (!result.isConstant(node)) return null;
-    final value = result.getValue(node);
+    if (!_result!.isConstant(node)) return null;
+    final value = _result!.getValue(node);
     if (value == ConstantFoldingResult.constantNil) return NilValue();
     if (value is bool) return BooleanLiteral(value);
     if (value is int) return NumberLiteral(value);
@@ -186,11 +188,11 @@ class ASTSimplifier {
     final inner = node.left as BinaryExpression;
     if (inner.op != node.op) return null;
     if (!_reassociationSupported.contains(node.op)) return null;
-    if (!result.isConstant(inner.right)) return null;
-    if (!result.isConstant(node.right)) return null;
+    if (!_result!.isConstant(inner.right)) return null;
+    if (!_result!.isConstant(node.right)) return null;
 
-    final lv = result.getValue(inner.right);
-    final rv = result.getValue(node.right);
+    final lv = _result!.getValue(inner.right);
+    final rv = _result!.getValue(node.right);
     Object? combined;
     if (lv is num && rv is num) {
       switch (node.op) {

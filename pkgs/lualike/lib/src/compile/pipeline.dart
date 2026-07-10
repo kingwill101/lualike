@@ -1,4 +1,5 @@
 import 'package:lualike/src/ast.dart';
+import 'package:lualike/src/compile/compiler_pass.dart';
 import 'package:lualike/src/compile/constant_folding_pass.dart';
 import 'package:lualike/src/compile/simplify_pass.dart';
 import 'package:lualike/src/ir/compiler.dart';
@@ -142,14 +143,24 @@ final class CompilePipeline {
   CompilePipeline({CompilePipelineConfig? config})
     : config = config ?? const CompilePipelineConfig();
 
+  /// Builds the list of compiler passes based on configuration.
+  List<CompilerPass> _buildPassList() {
+    return [
+      if (config.enableConstantFolding) ConstantFoldingPass(),
+      if (config.enableConstantFolding) ASTSimplifier(),
+    ];
+  }
+
   /// Compile a [Program] AST node through the full pipeline.
   ///
   /// Returns the compilation artifact for the target backend.
   CompileArtifact compile(Program program) {
-    // Phase 1: Constant folding pass + AST simplification
-    final foldedProgram = config.enableConstantFolding
-        ? _foldAndSimplify(program)
-        : program;
+    // Phase 1: Run all AST passes in sequence
+    final context = CompilerContext(program);
+    for (final pass in _buildPassList()) {
+      context.program = pass.run(context.program, context);
+    }
+    final foldedProgram = context.program;
 
     // Phase 2: Compile simplified AST to IR
     final irCompiler = LualikeIrCompiler(
@@ -188,13 +199,7 @@ final class CompilePipeline {
     );
   }
 
-  /// Run the constant folding pass and simplify the AST.
-  Program _foldAndSimplify(Program program) {
-    final foldingPass = ConstantFoldingPass();
-    foldingPass.fold(program);
-    final simplifier = ASTSimplifier(foldingPass.result);
-    return simplifier.simplify(program);
-  }
+
 
   /// Convenience: parse source, run the pipeline, return the artifact.
   CompileArtifact compileSource(
