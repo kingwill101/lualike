@@ -1,22 +1,36 @@
-/// Simplifies a folded AST by replacing constant expressions with literals
-/// and removing dead branches.
+/// Rewrites a folded AST to replace constant expressions with literals.
 ///
-/// Run after [ConstantFoldingPass.fold()] to produce a clean AST that
-/// downstream compilers can emit without checking a side-channel.
+/// After the [ConstantFoldingPass] has determined which nodes are
+/// compile-time constants, this pass physically rewrites the AST:
+/// folded expressions become literal nodes, dead branches are removed,
+/// and inlined function calls are replaced by their return values.
+///
+/// Downstream compilers can then emit the simplified AST directly
+/// without consulting a side-channel.
 library;
 
 import 'package:lualike/src/ast.dart';
 import 'package:lualike/src/compile/fold_result.dart';
 
+/// Rewrites a [Program] AST, replacing folded expressions with literals.
+///
+/// Usage:
+/// ```dart
+/// final foldPass = ConstantFoldingPass();
+/// foldPass.fold(program);
+/// final simplified = ASTSimplifier(foldPass.result).simplify(program);
+/// ```
 class ASTSimplifier {
+  /// The folding result to use for determining which nodes are constant.
   final ConstantFoldingResult result;
 
   ASTSimplifier(this.result);
 
-  /// Apply folding results to produce a simplified [Program].
+  /// Returns a new [Program] with all folding simplifications applied.
   ///
-  /// Folded expressions → literals, dead branches removed, inlined calls
-  /// replaced by their return values.
+  /// Folded expressions become [NumberLiteral], [StringLiteral],
+  /// [BooleanLiteral], or [NilValue] nodes.  Dead if/while branches
+  /// are removed entirely.  The original [program] is not modified.
   Program simplify(Program program) {
     final stmts = _simplifyBlock(program.statements);
     return identical(stmts, program.statements) ? program : Program(stmts);
@@ -33,6 +47,7 @@ class ASTSimplifier {
     return result ?? stmts;
   }
 
+  /// Returns a replacement for [node], or `null` if unchanged.
   AstNode? _simplifyStmt(AstNode node) {
     switch (node) {
       case IfStatement(
@@ -44,51 +59,45 @@ class ASTSimplifier {
         if (result.isConstant(cond)) {
           final cv = result.getValue(cond);
           if (_isTruthy(cv)) {
-            final liveBlock = _simplifyBlock(thenBlock);
-            if (liveBlock.length == 1) return liveBlock[0];
-            if (liveBlock.isEmpty) return null;
-            return DoBlock(liveBlock);
+            // Condition is truthy — emit only the then-branch.
+            final live = _simplifyBlock(thenBlock);
+            if (live.length == 1) return live[0];
+            return live.isEmpty ? null : DoBlock(live);
           }
+          // Condition is falsy — walk else-if chain.
           for (final clause in elseIfs) {
             if (result.isConstant(clause.cond) &&
                 _isTruthy(result.getValue(clause.cond))) {
-              final liveBlock = _simplifyBlock(clause.thenBlock);
-              if (liveBlock.length == 1) return liveBlock[0];
-              if (liveBlock.isEmpty) return null;
-              return DoBlock(liveBlock);
+              final live = _simplifyBlock(clause.thenBlock);
+              if (live.length == 1) return live[0];
+              return live.isEmpty ? null : DoBlock(live);
             }
           }
+          // All falsy — emit else-block or nothing.
           if (elseBlock.isNotEmpty) {
-            final liveBlock = _simplifyBlock(elseBlock);
-            if (liveBlock.length == 1) return liveBlock[0];
-            if (liveBlock.isEmpty) return null;
-            return DoBlock(liveBlock);
+            final live = _simplifyBlock(elseBlock);
+            if (live.length == 1) return live[0];
+            return live.isEmpty ? null : DoBlock(live);
           }
-          return null;
+          return null; // Entire if is dead.
         }
-        final simplified = _simplifyBlock(thenBlock);
-        final simplifiedElse = _simplifyBlock(elseBlock);
-        final simplifiedElseIfs = elseIfs
-            .map(
-              (c) => ElseIfClause(c.cond, _simplifyBlock(c.thenBlock)),
-            )
+        // Non-const condition: recurse into all branches.
+        final then = _simplifyBlock(thenBlock);
+        final els = _simplifyBlock(elseBlock);
+        final eifs = elseIfs
+            .map((c) => ElseIfClause(c.cond, _simplifyBlock(c.thenBlock)))
             .toList();
-        if (identical(simplified, thenBlock) &&
-            identical(simplifiedElse, elseBlock) &&
-            identical(simplifiedElseIfs, elseIfs)) {
+        if (identical(then, thenBlock) &&
+            identical(els, elseBlock) &&
+            identical(eifs, elseIfs)) {
           return null;
         }
-        return IfStatement(
-          cond,
-          simplifiedElseIfs,
-          simplified,
-          simplifiedElse,
-        );
+        return IfStatement(cond, eifs, then, els);
 
       case WhileStatement(:final cond, :final body):
         if (result.isConstant(cond) &&
             !_isTruthy(result.getValue(cond))) {
-          return null;
+          return null; // Entire loop is dead code.
         }
         final simplified = _simplifyBlock(body);
         return identical(simplified, body)
@@ -103,16 +112,12 @@ class ASTSimplifier {
         return DoBlock(simplified);
 
       case ReturnStatement(:final expr):
-        final simplified =
-            _simplifyExpr(expr.isNotEmpty ? expr.first : null);
-        if (simplified != null) return ReturnStatement([simplified]);
-        return null;
+        final s = _simplifyExpr(expr.isNotEmpty ? expr.first : null);
+        return s != null ? ReturnStatement([s]) : null;
 
       case ExpressionStatement(:final expr):
-        final simplified = _simplifyExpr(expr);
-        return simplified != null
-            ? ExpressionStatement(simplified)
-            : null;
+        final s = _simplifyExpr(expr);
+        return s != null ? ExpressionStatement(s) : null;
 
       case Assignment(:final targets, :final exprs):
         var changed = false;
@@ -126,7 +131,11 @@ class ASTSimplifier {
         }).toList();
         return changed ? Assignment(targets, newExprs) : null;
 
-      case LocalDeclaration(:final names, :final attributes, :final exprs):
+      case LocalDeclaration(
+        :final names,
+        :final attributes,
+        :final exprs,
+      ):
         var changed = false;
         final newExprs = exprs.map((e) {
           final s = _simplifyExpr(e);
@@ -145,14 +154,14 @@ class ASTSimplifier {
     }
   }
 
-  /// Simplify an expression to a literal if folded, else null.
+  /// Returns a literal replacement for a folded expression, or `null`.
   AstNode? _simplifyExpr(AstNode? node) {
     if (node == null) return null;
 
-    // Expression reassociation: (nonconst + C1) + C2 → nonconst + (C1 + C2)
+    // Expression reassociation: pull constants up for further folding.
     if (node is BinaryExpression) {
-      final reassociated = _tryReassociate(node);
-      if (reassociated != null) return reassociated;
+      final r = _tryReassociate(node);
+      if (r != null) return r;
     }
 
     if (!result.isConstant(node)) return null;
@@ -168,7 +177,10 @@ class ASTSimplifier {
     return null;
   }
 
-  /// (nonconst + 2) + 3  →  nonconst + 5
+  /// Reassociates `(nonconst + C1) + C2` into `nonconst + (C1 + C2)`.
+  ///
+  /// Only applies to associative operators (`+`, `*`).  This allows
+  /// subsequent passes to fold the combined constant.
   AstNode? _tryReassociate(BinaryExpression node) {
     if (node.left is! BinaryExpression) return null;
     final inner = node.left as BinaryExpression;
@@ -177,29 +189,23 @@ class ASTSimplifier {
     if (!result.isConstant(inner.right)) return null;
     if (!result.isConstant(node.right)) return null;
 
-    final combined = BinaryExpression(inner.right, node.op, node.right);
-    // Fold the combined constants using the analysis pass.
-    // Since we're post-fold, we check if the inner.right and node.right
-    // are already individually folded; we need to compute their combined
-    // value.  We use result.getValue directly for the two constants.
     final lv = result.getValue(inner.right);
     final rv = result.getValue(node.right);
-    Object? combinedValue;
+    Object? combined;
     if (lv is num && rv is num) {
       switch (node.op) {
-        case '+': combinedValue = lv + rv;
-        case '*': combinedValue = lv * rv;
+        case '+': combined = lv + rv;
+        case '*': combined = lv * rv;
       }
     }
-    if (combinedValue == null) return null;
-
-    // Build: nonconst OP combinedValue
-    final newRight = _literalFor(combinedValue);
-    return BinaryExpression(inner.left, node.op, newRight ?? combined);
+    if (combined == null) return null;
+    final newRight = _literalFor(combined);
+    return BinaryExpression(inner.left, node.op, newRight ?? inner.right);
   }
 
   static const _reassociationSupported = {'+', '*'};
 
+  /// Returns a literal node for [value], or `null`.
   AstNode? _literalFor(Object? value) {
     if (value == ConstantFoldingResult.constantNil) return NilValue();
     if (value is bool) return BooleanLiteral(value);
@@ -208,6 +214,7 @@ class ASTSimplifier {
     return null;
   }
 
+  /// Whether [value] is truthy following Lua semantics.
   bool _isTruthy(Object? value) {
     if (value == null || value == ConstantFoldingResult.constantNil) {
       return false;

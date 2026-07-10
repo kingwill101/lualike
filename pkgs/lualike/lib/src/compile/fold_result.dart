@@ -1,34 +1,46 @@
-/// Tracks which AST nodes were determined to be compile-time constants
-/// by the [ConstantFoldingPass].
+/// Compile-time constant values determined by the [ConstantFoldingPass].
 ///
-/// Each constant node maps to its precomputed value.  The sentinel
-/// [constantNil] distinguishes the Lua `nil` literal from "not constant".
+/// Maps each AST node that the folding pass determined is a compile-time
+/// constant to its precomputed value.  The sentinel [constantNil]
+/// distinguishes the Lua `nil` literal from "node is not constant".
+///
+/// Downstream passes (the [ASTSimplifier], or compilers that check folding
+/// results directly) use this to emit `LOADK` or `LOADI` instructions
+/// instead of emitting the full expression tree.
 library;
 
 import 'dart:collection';
 
 import 'package:lualike/src/ast.dart';
 
+/// A mapping from AST nodes to their precomputed compile-time values.
 final class ConstantFoldingResult {
-  /// Sentinel for the Lua `nil` literal (distinct from "not constant").
+  /// Sentinel value representing the Lua `nil` literal.
+  ///
+  /// Stored as the folded value for `nil` literal nodes, distinct from
+  /// "node is not constant" (which uses a `null` entry in the map).
   static const Object constantNil = Object();
 
   final HashMap<AstNode, Object?> _values = HashMap<AstNode, Object?>();
   final HashMap<AstNode, Object?> _originalValues =
       HashMap<AstNode, Object?>();
 
-  /// Whether [node] was determined to be a compile-time constant.
+  /// Whether the folding pass determined [node] is a compile-time constant.
   bool isConstant(AstNode node) => _values.containsKey(node);
 
-  /// The folded value for [node], or `null` if not constant.
+  /// Returns the precomputed value for [node].
   ///
-  /// For Lua `nil`, returns [constantNil].
+  /// Returns [constantNil] for the Lua `nil` literal.  Returns `null` when
+  /// [node] is not constant (check with [isConstant] first).
   Object? getValue(AstNode node) => _values[node];
 
-  /// The original AST value before folding (e.g. raw string bytes).
+  /// Returns the original AST value before folding.
+  ///
+  /// For a [StringLiteral], this provides access to the raw string bytes
+  /// that the compiler needs for emission, even after folding.
   Object? getOriginalValue(AstNode node) => _originalValues[node];
 
-  /// Record a folded value for [node].
+  /// Records a folded value for [node].
   void setValue(AstNode node, Object? value, {Object? originalValue}) {
     _values[node] = value;
     if (originalValue != null) {
@@ -36,12 +48,12 @@ final class ConstantFoldingResult {
     }
   }
 
-  /// Merge all values from [other] into this result.
+  /// Merges all entries from [other] into this result.
   void merge(ConstantFoldingResult other) {
     _values.addAll(other._values);
     _originalValues.addAll(other._originalValues);
   }
 
-  /// Number of folded nodes.
+  /// Returns the number of AST nodes that have been folded.
   int get foldedCount => _values.length;
 }
