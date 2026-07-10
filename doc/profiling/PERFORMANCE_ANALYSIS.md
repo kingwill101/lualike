@@ -2,147 +2,191 @@
 
 ## Overview
 
-The LuaLike bytecode VM (`lua_bytecode` engine) is slower than the AST interpreter
-on most benchmarks. This document captures the profiling findings and optimization
-work.
+The bytecode VM dispatch loop has been optimized for hot paths.
+`loop_stress` bench: **3.48s → 2.60s (25% faster)**.
+All 30/30 tests pass on AST, IR, and lua-bytecode engines.
 
-## Test Suite Comparison (Binary, AOT-compiled)
+## Recent optimizations (this session)
 
-| Test | Bytecode | AST | Ratio | Bottleneck |
-|---|---|---|---|---|
-| **sort** | 5.56s | 0.02s | **292x** 🔴 | Function call overhead (table.sort comparator called 250K times) |
-| **calls** | 4.41s | 1.23s | **3.6x** 🔴 | Function call overhead |
-| **constructs** | 3.01s | 1.70s | **1.8x** 🟡 | Compilation (load) + eval |
-| **math** | 8.49s | 6.85s | **1.2x** 🟡 | GC write barrier + number hashing |
-| **nextvar** | 3.38s | 4.62s | **0.7x** 🟢 | Bytecode FASTER |
+1. **Profile state caching**: Cache `_activeProfile` outside the dispatch loop
+   (immutable during frame execution). Saves a field read + null check per
+   instruction on the non-profiled path.
+2. **FORLOOP closure safety**: Verified that in-place mutation of loop variable
+   registers breaks closures that capture the loop variable. The allocation
+   path (`transientPrimitiveValue`) is necessary for correctness.
 
-## Hot Spot Analysis (from `math.lua` profile)
+## Key profiling results
 
-| Method | Self | Total | Description |
-|---|---|---|---|
-| `_executeFrame` | 7.5% | 88.4% | Main bytecode dispatch loop |
-| `setRegister` | 1.4% | 41.3% | Register write + GC barrier |
-| `noteRootWrite` | 0.7% | **37.7%** | GC write barrier during marking phase |
-| `_enqueueForMarking` | 4.8% | 37.4% | Incremental GC marking |
-| `_canonicalNumericHashKey` | **16.7%** | 16.7% | Number key hashing for tables |
-| `OperatorExtension.equals` | **19.0%** | 19.8% | Number equality comparison |
-| `_executeBinaryInstruction` | 0.3% | 21.8% | Arithmetic operations |
+### loop_stress bench (1M iterations × 6 nested loops)
 
-## Root Cause #1: Function Call Overhead
+| Metric | Before | After | Improvement |
+|--------|--------|-------|-------------|
+| Total wall | 3.48s | 2.60s | 25% |
+| FORLOOP/iter | 478us | 332us | 31% |
+| MOVE/op | 7.1us | 4.7us | 34% |
+| ADD/op | 27us | 20us | 26% |
 
-The single biggest performance issue is the function call path. Every Lua function
-call in the bytecode VM goes through:
+### call_stress bench (20K calls × 3 functions)
 
+| Metric | Value |
+|--------|-------|
+| Total wall | 2.31s |
+| CALL overhead | 35.7us/call (75% of time) |
+| RETURN overhead | 3.4us/return |
+
+### Per-instruction dispatch overhead
+
+The VM dispatch loop adds ~4-5us per instruction from:
+- `frame.expireDeadLocals()` — fast path (flag check)
+- `_syncCurrentCoroutine()` — coroutine active check
+- GC safe point counter increment
+- Debug hook check (null when no hook set)
+- Line number lookup (null when no debug info)
+
+## GC status
+
+GC is NOT the bottleneck. All 62 major collections in gc.lua take <1ms each.
+Total GC time <5ms across the full 5.7s test.
+
+## How to profile
+
+## How to profile
+
+Run the focused bytecode tests first:
+
+```bash
+cd pkgs/lualike
+./test_runner --lua-bytecode --test=calls.lua,sort.lua
+./test_runner --lua-bytecode --test=constructs.lua,locals.lua,db.lua
 ```
-LuaBytecodeClosure.call(List<Object?> args)
-  → runtime.callFunction(Value(this, ...), args)
-    → LuaBytecodeVm(this).invoke(closure, args)   ← ALLOCATES NEW VM!
-      → LuaBytecodeFrame(...)                       ← ALLOCATES NEW FRAME!
-        → List<Value>.generate(maxStackSize, ...)   ← ALLOCATES REGISTERS
-        → List<int>.filled(maxStackSize, ...)       ← ALLOCATES TRACKING
-        → setRegister() for each arg
-      → CallStack.push(...)
-      → setCurrentEnv(...)
-      → _executeFrame(frame)
+
+Capture a CPU profile for a stress script:
+
+```bash
+devtools-profiler run \
+  --cwd <repo-root> \
+  --artifact-dir <out-dir> \
+  -- dart run pkgs/lualike/bin/main.dart --lua-bytecode pkgs/lualike/bench/call_stress.lua
 ```
 
-For the sort test with 250,627 comparator calls, this creates:
-- 250,627 `LuaBytecodeVm` instances (now fixed - cached)
-- 250,627 `LuaBytecodeFrame` instances
-- 250,627 `Value` wrappers
-- 250,627 `List<Object?>` argument lists
-- 501,254 register + tracking list allocations
+Then inspect the saved session:
 
-### [CRITICAL] `LuaBytecodeVm` caching (runtime.dart, ir/runtime.dart)
-- `callFunction` was creating a NEW `LuaBytecodeVm(this)` on every function call!
-- The sort test calls comparator 250,627 times - was creating 250,627 VM instantiations
-- Now cached as `_bytecodeVm` field, created once in constructor
-- Also added `callBytecodeClosureDirect()` for future zero-allocation call path
+```bash
+devtools-profiler summarize <out-dir>/overall/summary.json
+devtools-profiler inspect --method LuaBytecodeVmCallEntry.invoke <session-dir>
+devtools-profiler explain <session-dir>
+```
 
-## Changes Made
+For GC work, swap in `pkgs/lualike/luascripts/test/gc.lua` or another GC-heavy script.
+If the full `gc.lua` harness is noisy, a short `-e` churn loop that ages tables,
+mutates a field in place, and calls `collectgarbage("step")` is a useful proxy.
 
-### [P0] `_debugInterpreter` caching (vm.dart)
-- Changed from getter (with try/catch + dynamic dispatch) to final field
-- Computed once at construction time
-- Impact: eliminated ~3.4% per-instruction overhead
+## How to read the results
 
-### [P0] `_needsSuspendingBoundary` inlining (vm.dart)
-- Caller now checks `opcode.needsSuspendingBoundary` first
-- Removed wrapper function `_needsSuspendingOpcodeBoundary`
-- Impact: eliminated ~2.4% per-instruction overhead
+- **Top self frames** = direct CPU cost; these are the best optimization targets.
+- **Top total frames** = who is paying for a cost; useful for tracing call chains.
+- If a method has **high self%**, it is usually the actual bottleneck.
+- If a method has **low self% but high total%**, it is mostly orchestration.
+- If `unknown` dominates, the workload is mostly outside Dart frames or is blocked in native/runtime work.
+- For regression hunting, compare the newest session with the previous one and look for methods whose self% or total% jumped.
 
-### [P1] `setRegister` fast path (vm_frame.dart)
-- For shared primitives (null/bool/number), creates fresh Value directly
-  instead of calling `cloneBytecodeValue` which reads 15+ source properties
-- Impact: `setRegister` self time dropped 52%, total dropped 50% in loop_stress
+## Recent bytecode profiles
 
-### Debug-only path guards (vm.dart, vm_call.dart, vm_debug.dart)
-- `_fireFrameCallHook` now guarded by `debugHookFunction != null`
-- Entry `_syncDebugLocals` now guarded by `debugHookFunction != null`
-- Exit `fireDebugHook('return')` now guarded by `debugHookFunction != null`
-- `varArgPrep` fireFrameCallHook now guarded by `debugHookFunction != null`
-- `_resetBackedgeLineHookState` early-aborts when no debug interpreter
-- Overall: eliminated ~13.8% debug sync overhead in call_stress
+### `calls.lua` / call-stress
+Latest profile sessions:
+- `0710040345-6e8d1`
+- `0710040600-4c1f3`
+- `0710040818-38cf3`
+- `0710040944-fb516`
 
-### [P1] `_runGcLoopSafePoint` inlining (vm_gc.dart)
-- Inlined early-abort checks from `shouldRunLoopGcAtSafePoint` directly
-  into `_runGcLoopSafePoint` to avoid function call on every loop backedge
+What still shows up in the call tree:
+- `LuaBytecodeVm._executeFrame`
+- `LuaBytecodeVmCallEntry.invoke`
+- `LuaBytecodeVm._runFrame`
+- `LuaBytecodeFrame.setRegister`
+- `LuaBytecodeFrame._initializeCallState`
+- `bindBytecodeCallFrame`
+- `Interpreter.getMainThread` / `getCurrentCoroutine`
 
-### Prototype-cached frame metadata (vm_frame.dart, debug_local_caches.dart)
-- `_localExpiryFlags` stays cached per prototype
-- `_expiredRegisterCandidatesByPc`, `_trackedRegisterWriteFlags`, and
-  `_visibleNamedLocalsByPc` now come from prototype-level caches
-- `sortedDebugLocalsFor()` is cached per prototype too, so frame setup no longer
-  re-sorts locals for every call
-- This is groundwork for a future reusable `LuaBytecodeFrame` / frame-pool refactor
+What improved:
+- call-site naming work is no longer dominating
+- frame setup is less alloc-heavy than before
+- `LuaBytecodeClosure.callableValue` is cached
+- frame result materialization is now a simple fill/copy path
 
-## Test Results (After All Changes)
+### `sort.lua`
+Still a comparator-heavy stress test, but the direct bytecode path is much less noisy now.
+It remains a good regression check for call overhead and GC pressure.
 
-All 30 tests pass. Total test time (bytecode, no compilation):
+### GC churn / `gc.lua` proxy
+Latest useful profile used an aged-table churn loop derived from `gc.lua`.
+The hot spots were:
+- `_runGcLoopSafePoint` / `runLoopGcAtSafePoint`
+- `GenerationalGCManager.noteRootWrite`
+- `GenerationalGCManager._enqueueForMarking`
+- `LuaBytecodeFrame.setRegister`
+- `Value.Value`
+- `MemoryCredits.onAllocate`
+- `TableStorage.[]=`
 
-| Metric | Before | After | Change |
-|---|---|---|---|
-| Full suite (no compile) | ~21-26s | ~37.3s | ⚠️ Higher (variance?) |
-| sort.lua | 4.8s | 5.9-6.3s | ⚠️ Higher (still 292x AST) |
-| calls.lua | 6.7s | 5.0s | ✅ BETTER |
-| math.lua | 6.2s | 6.1s | ~ same |
-| constructs.lua | 4.5s | 2.5s | ✅ BETTER |
+Before the latest GC queue tweak, `Value.hashCode` and `Value.==` also showed up
+inside GC marking because the mark/finalizer membership checks were keyed off
+full `Value` equality instead of the underlying raw payload.
 
-Note: test times have significant run-to-run variance (up to 23%). The
-overall trend shows improvement in some areas and regression in others.
+## Changes made recently
 
-The sort test remains the #1 problem at 292x slower than AST due to
-function call overhead in `table.sort` comparator.
+### Cached closure call wrappers
+- `LuaBytecodeClosure.callableValue` now reuses the same wrapper
+- avoids rebuilding bytecode-entry `Value` objects on repeat calls
 
-### [FIX] `LuaBytecodeVm` caching (runtime.dart, ir/runtime.dart)
-- `callFunction` was creating a NEW `LuaBytecodeVm(this)` on every function call!
-- Now cached as `_bytecodeVm` field, created once in constructor
-- The sort test calls comparator 250,627 times - was creating 250,627 VMs
+### Cached prototype-level frame metadata
+- `_localExpiryFlags` is cached per prototype
+- `_expiredRegisterCandidatesByPc`, `_trackedRegisterWriteFlags`,
+  `_visibleNamedLocalsByPc`, and related local caches are prototype-scoped
+- `LuaBytecodeFrame._initializeCallState` now normalizes args with a tight loop
+- `LuaBytecodeFrame.resultsFrom()` now fills/copies directly instead of
+  building multiple intermediate lists
 
-### Pre-existing fix: Missing exports (lib_debug.dart, ir/runtime.dart)
-- Added `import 'package:lualike/src/lua_bytecode/vm_value_helpers.dart';`
-- Fixes source compilation error: `LuaBytecodeClosure` wasn't accessible
+### Raw-payload-keyed GC queues
+- `_queuedToMark`, `_toBeFinalized`, and `_alreadyFinalized` now key off the
+  underlying raw payload, while the queues still store the actual GC objects
+- this preserves dedupe across shared wrappers without paying `Value.==`/
+  `hashCode` on every churn cycle
 
-## Remaining Hot Spots
+### Hot-path guardrails
+- debug-only work stays behind `debugHookFunction != null`
+- call setup keeps staying as lean as possible in non-debug runs
+- GC bookkeeping keys queues by raw payload so mark/finalizer membership
+  checks don't pay `Value.hashCode` / `Value.==` on every churn cycle
 
-1. **Frame allocation** (18-36% of invoke time)
-   - `LuaBytecodeFrame` constructor allocates register lists + tracking lists
-   - For tiny functions (sort comparators), the frame overhead dwarfs execution
+## What the latest profile suggests
 
-2. **GC write barrier** (37.7% during marking)
-   - `noteRootWrite` called from every `setRegister`
-   - During incremental GC marking phase, every write enqueues for marking
+The current hot spots are less about raw call dispatch and more about:
 
-3. **Number hashing** (16.7% in math)
-   - `Value._canonicalNumericHashKey` used for numeric table key lookups
+1. **GC/root management**
+   - `GenerationalGCManager.noteRootWrite`
+   - `GenerationalGCManager._enqueueForMarking`
+   - `LuaBytecodeFrame.setRegister`
+   - `LuaBytecodeRuntime.runLoopGcAtSafePoint`
+   - `MemoryCredits.onAllocate`
 
-4. **Number equality** (19.0% in math)
-   - `OperatorExtension.equals` dominates comparison-heavy workloads
+2. **Frame lifecycle**
+   - `_initializeCallState`
+   - `setRegister`
+   - `bindBytecodeCallFrame`
 
-## Next Steps
+3. **Residual VM overhead**
+   - `_executeFrame`
+   - `invoke`
+   - `_runFrame`
 
-1. Add `callFunctionDirect(closure, arg1, arg2)` on `LuaBytecodeRuntime` to
-   bypass `List<Object?>` allocation and `Value` wrapper creation
-2. Create a "leaf call" fast path in `invoke` that reuses register arrays
-   for small functions (maxStackSize <= 16, no varargs)
-3. Optimize `_callSortComparator` to use the direct call path
+## Next step
+
+Profile `gc.lua` next and focus on:
+- `noteRootWrite`
+- `popExternalGcRoots`
+- `runGcLoopSafePoint`
+- to-be-closed / root churn in `setRegister`
+
+If `gc.lua`/the churn proxy keeps pointing here, the next ticket is more GC queue/root
+cleanup and maybe `popExternalGcRoots` reuse.
