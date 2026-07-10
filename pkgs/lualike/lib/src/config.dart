@@ -31,10 +31,11 @@ class LuaLikeConfig {
   /// When true, the IR runtime will print compiled instructions.
   bool dumpIr = false;
 
-  /// Whether to enable the constant folding pass before bytecode emission.
+  /// Whether to enable optimization passes before bytecode emission.
   ///
   /// Only applies when the engine mode is [EngineMode.ir] or
-  /// [EngineMode.luaBytecode]. Set to `false` via the `--no-fold` CLI flag to
-  /// disable compile-time evaluation of constant sub-expressions.
-  bool foldEnabled = true;
+  /// [EngineMode.luaBytecode].  Defaults to `false`; optimizations are
+  /// automatically enabled during `--compile`.  Set to `true` with `--fold`
+  /// for ad-hoc optimization during development.
+  bool foldEnabled = false;
 }

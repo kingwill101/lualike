@@ -299,9 +299,15 @@ class LuaLikeCommandRunner extends CommandRunner {
 /// Compiles [scriptPath] to bytecode and writes to [outputPath], then exits.
 void _compileToBytecode(String scriptPath, String outputPath) {
   final source = File(scriptPath).readAsStringSync();
+  // --compile enables all optimizations for maximum bytecode quality.
   final pipeline = CompilePipeline(
     config: CompilePipelineConfig(
-      enableConstantFolding: LuaLikeConfig().foldEnabled,
+      enableConstantFolding: true,
+      enableConstPropagation: true,
+      enableTypeNarrowing: true,
+      enablePeephole: true,
+      enableDeadCodeElimination: true,
+      enableLoopUnrolling: false,  // interpreted VM, not beneficial
       target: CompileBackend.luaBytecode,
     ),
   );

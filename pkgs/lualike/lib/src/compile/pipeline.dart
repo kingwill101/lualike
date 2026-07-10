@@ -65,11 +65,15 @@ final class CompilePipelineConfig {
   const CompilePipelineConfig({
     this.stripDebug = false,
     this.dumpIr = false,
-    this.enableConstantFolding = true,
-    this.enableConstPropagation = true,
-    this.enableTypeNarrowing = true,
+    // All optimizations are OFF by default.  Only enabled during
+    // --compile which produces a bytecode binary for distribution.
+    // For interactive/script mode, startup speed matters more than
+    // the marginal runtime gain from these passes.
+    this.enableConstantFolding = false,
+    this.enableConstPropagation = false,
+    this.enableTypeNarrowing = false,
     this.enableMetatableFolding = false,
-    this.enablePeephole = true,
+    this.enablePeephole = false,
     this.enableLoopUnrolling = false,
     this.enableBundling = false,
     this.bundleSearchPaths = const ['.'],
