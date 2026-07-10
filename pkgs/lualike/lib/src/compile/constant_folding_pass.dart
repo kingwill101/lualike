@@ -1,4 +1,22 @@
 
+/// AST-level constant folding pass for lualike.
+///
+/// Determines which expressions can be precomputed at compile time by
+/// walking the AST and evaluating constant sub-expressions.  Results
+/// are stored in a [ConstantFoldingResult] which downstream passes
+/// (the [ASTSimplifier] or compiler backends) consume.
+///
+/// Supported folding:
+///   - Literals, arithmetic, comparisons, string concatenation
+///   - Boolean logic (`and`/`or`) with short-circuit awareness
+///   - Table field/index access on constant tables
+///   - `type()`, `tostring()`, `tonumber()` via stdlib utilities
+///   - `math.*` and `string.*` via the actual stdlib runtime
+///   - User-defined function inlining (all-const arguments)
+///   - Dead branch elimination (const if/while conditions)
+///   - `<const>` local variable tracking
+library;
+
 import 'package:lualike/src/ast.dart';
 import 'package:lualike/src/builtin_function.dart' show BuiltinFunction;
 import 'package:lualike/src/compile/fold_result.dart';
