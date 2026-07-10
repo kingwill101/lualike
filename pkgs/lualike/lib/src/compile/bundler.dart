@@ -36,6 +36,7 @@ class Bundler {
   final List<String> searchPaths;
   final Set<String> _resolved = <String>{};
   final List<AstNode> _bundledNodes = [];
+  final Map<String, String> _moduleVars = {};
 
   Bundler({List<String>? searchPaths})
     : searchPaths = searchPaths ?? _defaultSearchPaths();
@@ -46,15 +47,21 @@ class Bundler {
   Program bundle(Program program) {
     _resolved.clear();
     _bundledNodes.clear();
-    _bundleNode(program, '.');
+    _nextModuleId = 0;
+    _bundleStatements(program.statements, '.');
     return Program([..._bundledNodes]);
+  }
+
+  /// Bundle a list of statements, inlining requires as encountered.
+  void _bundleStatements(List<AstNode> stmts, String currentDir) {
+    for (final stmt in stmts) {
+      _bundleNode(stmt, currentDir);
+    }
   }
 
   void _bundleNode(AstNode node, String currentDir) {
     if (node is Program) {
-      for (final stmt in node.statements) {
-        _bundleNode(stmt, currentDir);
-      }
+      _bundleStatements(node.statements, currentDir);
       return;
     }
 
@@ -63,7 +70,7 @@ class Bundler {
     if (requirePath != null) {
       final resolvedPath = _resolvePath(requirePath, currentDir);
       if (resolvedPath != null) {
-        final moduleVar = _loadModule(resolvedPath);
+        final moduleVar = _bundleModule(resolvedPath);
         if (moduleVar != null) {
           if (node is LocalDeclaration) {
             _bundledNodes.add(
@@ -120,48 +127,67 @@ class Bundler {
     return null;
   }
 
-  /// Load and bundle a module file. Returns the module variable name, or
-  /// null if already loaded.
-  String? _loadModule(String filePath) {
-    if (_resolved.contains(filePath)) return null;
+  /// Bundle a module file. Returns the module variable name, or
+  /// null if already loaded (deduplicated).
+  String? _bundleModule(String filePath) {
+    // Already loaded? Return its variable name for reference.
+    if (_resolved.contains(filePath)) {
+      return _moduleVars[filePath];
+    }
     _resolved.add(filePath);
 
     final source = File(filePath).readAsStringSync();
     final program = parse(source, url: filePath);
 
-    final nodes = <AstNode>[];
-
-    // Wrap the module body in a function that returns the module's value.
-    // Module conventions: the last expression value becomes the module.
-    // We assign it to a unique variable.
     final moduleVar = _makeModuleVar(filePath);
+    _moduleVars[filePath] = moduleVar;
 
-    // Recursively bundle inner requires.
-    final innerBundler = Bundler(searchPaths: searchPaths);
-    final bundled = innerBundler.bundle(program);
-
-    nodes.add(
-      LocalDeclaration(
-        [Identifier(moduleVar)],
-        [''],
-        [], // Initialized to nil, then assigned
-      ),
+    // Declare module var at the outer scope for cross-module references.
+    _bundledNodes.add(
+      LocalDeclaration([Identifier(moduleVar)], [''], []),
     );
 
-    // Emit the module body with return value captured.
-    for (final stmt in bundled.statements) {
-      if (stmt is ReturnStatement && stmt.expr.length == 1) {
-        // Return statement becomes assignment to module var.
-        nodes.add(
-          Assignment([Identifier(moduleVar)], stmt.expr),
-        );
-      } else {
-        nodes.add(stmt);
-      }
-    }
+    // Recursively bundle the module's own requires, collecting body stmts.
+    final bodyNodes = <AstNode>[];
+    _bundleModuleBody(program.statements, filePath, moduleVar, bodyNodes);
 
-    _bundledNodes.addAll(nodes);
+    // Wrap body in do...end to isolate local variables.
+    _bundledNodes.add(DoBlock(bodyNodes));
+
     return moduleVar;
+  }
+
+  /// Recursively bundle a module's body, collecting into [out].
+  /// [moduleVar] is the variable name that holds this module's return value.
+  void _bundleModuleBody(
+    List<AstNode> stmts, String filePath, String moduleVar, List<AstNode> out,
+  ) {
+    final dir = filePath.substring(0, filePath.lastIndexOf('/'));
+    for (final stmt in stmts) {
+      final requirePath = _matchRequire(stmt);
+      if (requirePath != null) {
+        final resolvedPath = _resolvePath(requirePath, dir);
+        if (resolvedPath != null) {
+          final depVar = _bundleModule(resolvedPath);
+          if (depVar != null) {
+            if (stmt is LocalDeclaration) {
+              out.add(LocalDeclaration(
+                stmt.names, stmt.attributes, [Identifier(depVar)],
+              ));
+            } else if (stmt is Assignment) {
+              out.add(Assignment(stmt.targets, [Identifier(depVar)]));
+            }
+            continue;
+          }
+        }
+      }
+      // Return statement → capture into module var
+      if (stmt is ReturnStatement && stmt.expr.length == 1) {
+        out.add(Assignment([Identifier(moduleVar)], stmt.expr));
+        continue;
+      }
+      out.add(stmt);
+    }
   }
 
   int _nextModuleId = 0;
