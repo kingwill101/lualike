@@ -1742,6 +1742,13 @@ class _PrototypeContext {
 
   bool _emitIfStatement(IfStatement node) {
     _trackSource(node);
+
+    // Dead branch elimination: if the condition is a compile-time constant,
+    // emit only the live branch and skip dead code entirely.
+    if (foldingResult != null && foldingResult!.isConstant(node.cond)) {
+      return _emitIfStatementFolded(node);
+    }
+
     final exitJumps = <int>[];
     final falseJump = _emitConditionJump(node.cond, jumpWhenTrue: false);
     final thenReturns = _emitBlock(node.thenBlock);
@@ -1776,8 +1783,99 @@ class _PrototypeContext {
     return allBranchesReturn;
   }
 
+  /// Dead branch elimination for if-statements with a compile-time constant
+  /// condition.  Only the live branch is emitted.
+  bool _emitIfStatementFolded(IfStatement node) {
+    final condValue = foldingResult!.getValue(node.cond);
+    final truthy = _isFoldedTruthy(condValue);
+
+    if (truthy) {
+      // Condition is truthy — only the then-branch is reachable.
+      return _emitBlock(node.thenBlock);
+    }
+
+    // Condition is falsy — walk the else-if chain.
+    for (final clause in node.elseIfs) {
+      if (foldingResult!.isConstant(clause.cond)) {
+        if (_isFoldedTruthy(foldingResult!.getValue(clause.cond))) {
+          return _emitBlock(clause.thenBlock);
+        }
+        // else-if condition is also falsy — continue checking.
+      } else {
+        // Non-const else-if: can't eliminate, emit normally.
+        return _emitIfStatementWithSkip(node, clause);
+      }
+    }
+
+    // All conditions falsy — only else-block is reachable.
+    if (node.elseBlock.isNotEmpty) {
+      return _emitBlock(node.elseBlock);
+    }
+
+    return false;
+  }
+
+  /// Helper for when we have a falsy condition but non-const else-ifs.
+  /// Emits the first non-const else-if clause's then-block followed by the
+  /// remaining branches.
+  bool _emitIfStatementWithSkip(IfStatement node, ElseIfClause firstNonConst) {
+    final exitJumps = <int>[];
+    var foundFirst = false;
+
+    for (final clause in node.elseIfs) {
+      if (!foundFirst) {
+        if (identical(clause, firstNonConst)) {
+          foundFirst = true;
+          final clauseFalseJump = _emitConditionJump(
+            clause.cond,
+            jumpWhenTrue: false,
+          );
+          _emitBlock(clause.thenBlock);
+          exitJumps.add(_emitJumpPlaceholder());
+          _patchJump(clauseFalseJump, _currentInstructionIndex);
+        }
+        // Earlier falsy-const else-ifs are skipped entirely.
+      } else {
+        final clauseFalseJump = _emitConditionJump(
+          clause.cond,
+          jumpWhenTrue: false,
+        );
+        _emitBlock(clause.thenBlock);
+        exitJumps.add(_emitJumpPlaceholder());
+        _patchJump(clauseFalseJump, _currentInstructionIndex);
+      }
+    }
+
+    if (node.elseBlock.isNotEmpty) {
+      _emitBlock(node.elseBlock);
+    }
+
+    final endIndex = _currentInstructionIndex;
+    for (final jump in exitJumps) {
+      _patchJump(jump, endIndex);
+    }
+    return false;
+  }
+
+  /// Whether a folded value is truthy (following Lua semantics).
+  bool _isFoldedTruthy(Object? value) {
+    if (value == null || value == ConstantFoldingResult.constantNil) {
+      return false;
+    }
+    if (value is bool) return value;
+    return true;
+  }
+
   void _emitWhileStatement(WhileStatement node) {
     _trackSource(node);
+
+    // If the condition is a compile-time false, the loop body is dead code.
+    if (foldingResult != null &&
+        foldingResult!.isConstant(node.cond) &&
+        !_isFoldedTruthy(foldingResult!.getValue(node.cond))) {
+      return; // Entire loop is dead code.
+    }
+
     final loop = _beginLoop();
     final loopStart = _currentInstructionIndex;
     final exitJump = _emitConditionJump(node.cond, jumpWhenTrue: false);
