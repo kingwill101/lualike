@@ -4,7 +4,9 @@ import 'package:lualike/src/compile/compiler_pass.dart';
 import 'package:lualike/src/compile/const_propagation_pass.dart';
 import 'package:lualike/src/compile/constant_folding_pass.dart';
 import 'package:lualike/src/compile/dead_code_pass.dart';
+import 'package:lualike/src/compile/inlining_heuristics_pass.dart';
 import 'package:lualike/src/compile/simplify_pass.dart';
+import 'package:lualike/src/compile/type_narrowing_pass.dart';
 import 'package:lualike/src/ir/compiler.dart';
 import 'package:lualike/src/ir/prototype.dart';
 import 'package:lualike/src/ir/serialization.dart';
@@ -34,6 +36,9 @@ final class CompilePipelineConfig {
   /// Whether to run constant propagation (single-assignment locals).
   final bool enableConstPropagation;
 
+  /// Whether to narrow types through `type()` equality checks.
+  final bool enableTypeNarrowing;
+
   /// Whether to unroll constant-bounded for-loops in the IR compiler.
   final bool enableLoopUnrolling;
 
@@ -54,6 +59,7 @@ final class CompilePipelineConfig {
     this.dumpIr = false,
     this.enableConstantFolding = true,
     this.enableConstPropagation = true,
+    this.enableTypeNarrowing = true,
     this.enableLoopUnrolling = false,
     this.enableBundling = false,
     this.bundleSearchPaths = const ['.'],
@@ -162,6 +168,10 @@ final class CompilePipeline {
       if (config.enableBundling) Bundler(searchPaths: config.bundleSearchPaths),
       // Propagation phase: forward constants and copies
       if (config.enableConstPropagation) ConstPropagationPass(),
+      // Type narrowing: track types through type() checks
+      if (config.enableTypeNarrowing) TypeNarrowingPass(),
+      // Inlining heuristics: configure when inlining is profitable
+      if (config.enableConstantFolding) InliningHeuristicsPass(),
       // Folding phase: analyze and simplify constant expressions
       if (config.enableConstantFolding) ConstantFoldingPass(),
       if (config.enableConstantFolding) ASTSimplifier(),
