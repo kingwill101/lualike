@@ -6,12 +6,10 @@ library;
 
 import 'dart:io';
 
-import 'package:lualike/src/compile/bundler.dart';
 import 'package:lualike/src/compile/compiler_pass.dart';
 import 'package:lualike/src/compile/constant_folding_pass.dart';
 import 'package:lualike/src/compile/pipeline.dart';
 import 'package:lualike/src/compile/simplify_pass.dart';
-import 'package:lualike/src/ir/peephole_pass.dart';
 import 'package:lualike/src/lua_bytecode/runtime.dart';
 import 'package:lualike/src/parse.dart';
 
@@ -49,7 +47,7 @@ Future<void> main(List<String> args) async {
   final luaArtifact = artifact as LuaBytecodeArtifact;
 
   print('   -> ${luaArtifact.serializedBytes.length} bytes');
-  print('   -> ${luaArtifact.chunk.mainPrototype.instructions.length} instructions');
+  print('   -> ${luaArtifact.chunk.mainPrototype.code.length} instructions');
 
   // ---- Step 4: Load into runtime ----
   print('4. Loading bytecode into Lua VM...');
