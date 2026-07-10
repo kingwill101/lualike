@@ -32,6 +32,8 @@ extension LuaBytecodeVmCallEntry on LuaBytecodeVm {
       while (true) {
         _guardCallDepth();
 
+        // Reuse a previously closed frame when possible; bytecode calls are
+        // frequent enough that constructor allocation shows up in profiles.
         final frame = _acquireBytecodeFrame(
           currentClosure,
           functionValue: currentFunctionValue,
@@ -135,6 +137,8 @@ extension LuaBytecodeVmCallEntry on LuaBytecodeVm {
     if (!frame.closed) {
       return;
     }
+    // Only pooled frames that have fully unwound can be recycled; suspended
+    // continuations still need their live frame state.
     frame.clearForPool();
     (_bytecodeFramePoolByClosure[frame.closure] ??= <LuaBytecodeFrame>[])
         .add(frame);

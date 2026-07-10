@@ -188,6 +188,8 @@ List<LuaBytecodeDebugLocalWindow> activeDebugLocalsByPcFor(
 List<Map<int, String>> visibleNamedLocalsByPcFor(
   LuaBytecodePrototype prototype,
 ) {
+  // Precompute the visible-local snapshots once per prototype; the frame
+  // constructor and debug hooks query these repeatedly.
   final cached = prototypeVisibleNamedLocalsByPc[prototype];
   if (cached != null) {
     return cached;
@@ -307,6 +309,8 @@ final Expando<List<LuaBytecodeLocalVariableDebugInfo>>
 List<LuaBytecodeLocalVariableDebugInfo> sortedDebugLocalsFor(
   LuaBytecodePrototype prototype,
 ) {
+  // Sorting locals is pure prototype metadata, so cache it instead of paying
+  // the cost on every frame setup.
   final cached = prototypeSortedDebugLocals[prototype];
   if (cached != null) {
     return cached;

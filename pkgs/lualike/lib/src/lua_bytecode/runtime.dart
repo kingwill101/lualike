@@ -360,8 +360,9 @@ class LuaBytecodeRuntime implements LuaRuntime {
   }
 
   /// Fast path for calling a bytecode closure with exactly two Value
-  /// arguments, avoiding `List<Object?>` allocation and `Value` wrapper
-  /// creation. Used by `table.sort` comparator calls.
+  /// arguments. `table.sort` hits this in a tight inner loop, so we avoid the
+  /// generic `List<Object?>`/`Value` rebuild and keep the comparator hot path
+  /// as small as possible.
   Future<Object?> callBytecodeClosureDirect(
     LuaBytecodeClosure closure,
     Value arg0,

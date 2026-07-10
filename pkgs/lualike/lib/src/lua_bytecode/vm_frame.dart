@@ -105,6 +105,8 @@ final class LuaBytecodeFrame implements LuaBytecodeGCRootProvider {
   var didFireEntryCallHook = false;
   var forceNextLineHook = false;
 
+  // Reset a recycled frame to a fresh call state. This is the key step that
+  // lets the VM amortize register/storage allocation across repeated calls.
   void reset({
     Value? functionValue,
     String? callName,
@@ -187,6 +189,8 @@ final class LuaBytecodeFrame implements LuaBytecodeGCRootProvider {
     }
   }
 
+  // Wipe transient references before a frame re-enters the pool so GC doesn't
+  // retain arguments, locals, or coroutine state from the previous call.
   void clearForPool() {
     functionValue = null;
     callName = null;

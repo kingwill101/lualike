@@ -88,6 +88,8 @@ final class LuaBytecodeClosure extends BuiltinFunction
   final String chunkName;
   final Environment environment;
   final List<LuaBytecodeUpvalue> _upvalues;
+  // Cache the wrapper used for bytecode entry so repeated calls avoid
+  // rebuilding a fresh Value around the same closure.
   late final Value callableValue = wrapClosure(this);
   FunctionBody? _debugFunctionBody;
 
