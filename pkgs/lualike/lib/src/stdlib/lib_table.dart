@@ -1081,6 +1081,9 @@ class _TableSort extends BuiltinFunction {
     final rawSlot = rawLuaSlot(comp);
     if (rawSlot is LuaBytecodeClosure &&
         rawSlot.runtime is LuaBytecodeRuntime) {
+      // Sort comparator calls are tiny but very frequent; bypass the generic
+      // Value/function call path so we don't allocate the wrapper list or
+      // re-dispatch through the slower callFunction machinery.
       return (rawSlot.runtime as LuaBytecodeRuntime)
           .callBytecodeClosureDirect(rawSlot, a, b);
     }
