@@ -340,6 +340,89 @@ void main() {
       expect(pass.result.getValue(call), equals(42));
     });
 
+    test('folds inline-known local function with const args', () {
+      final pass = ConstantFoldingPass();
+      final program = parse('''
+        local function add(a, b)
+          return a + b
+        end
+        return add(3, 4)
+      ''');
+      pass.fold(program);
+      final returnStmt = program.statements.last as ReturnStatement;
+      final call = returnStmt.expr.first as FunctionCall;
+      expect(pass.result.isConstant(call), isTrue);
+      expect(pass.result.getValue(call), equals(7));
+    });
+
+    test('folds inline-known chained function calls', () {
+      final pass = ConstantFoldingPass();
+      final program = parse('''
+        local function double(x)
+          return x * 2
+        end
+        local function triple(x)
+          return x * 3
+        end
+        return double(triple(5))
+      ''');
+      pass.fold(program);
+      final returnStmt = program.statements.last as ReturnStatement;
+      final call = returnStmt.expr.first as FunctionCall;
+      expect(pass.result.isConstant(call), isTrue);
+      expect(pass.result.getValue(call), equals(30)); // triple(5)=15, double(15)=30
+    });
+
+    test('folds known global function with const args', () {
+      final pass = ConstantFoldingPass();
+      // Use explicit-global syntax `global function ...`
+      final program = parse('''
+        function add(a, b)
+          return a + b
+        end
+        return add(10, 20)
+      ''');
+      pass.fold(program);
+      final returnStmt = program.statements.last as ReturnStatement;
+      final call = returnStmt.expr.first as FunctionCall;
+      expect(pass.result.isConstant(call), isTrue);
+      expect(pass.result.getValue(call), equals(30));
+    });
+
+    test('does not inline with non-const args', () {
+      final pass = ConstantFoldingPass();
+      final program = parse('''
+        local function add(a, b)
+          return a + b
+        end
+        local x = some_function()
+        return add(x, 4)
+      ''');
+      pass.fold(program);
+      final returnStmt = program.statements.last as ReturnStatement;
+      final call = returnStmt.expr.first as FunctionCall;
+      // x is not const, so the call should not be folded.
+      expect(pass.result.isConstant(call), isFalse);
+    });
+
+    test('folds inline with nested builtin call', () {
+      final pass = ConstantFoldingPass();
+      final program = parse('''
+        local function describe(v)
+          return "value is " .. type(v)
+        end
+        return describe(42)
+      ''');
+      pass.fold(program);
+      final returnStmt = program.statements.last as ReturnStatement;
+      final call = returnStmt.expr.first as FunctionCall;
+      expect(pass.result.isConstant(call), isTrue);
+      expect(
+        String.fromCharCodes(pass.result.getValue(call) as List<int>),
+        equals('value is number'),
+      );
+    });
+
     test('folds local const declaration reference', () {
       final pass = ConstantFoldingPass();
       final program = parse('''
