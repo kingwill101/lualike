@@ -75,14 +75,19 @@ final class ConstantFoldingResult {
 /// | String concat | `..` |
 /// | Grouping | `(expr)` |
 /// | Const locals | `local x <const> = 42; x + 1` => `43` |
+/// | Table access | `local T <const> = {a=1}; T.a` => `1` |
+/// | `type(x)` | When `x` is const: `type(42)` => `"number"` |
+/// | `tostring(x)` | When `x` is const: `tostring(42)` => `"42"` |
+/// | `tonumber(x)` | When `x` is const: `tonumber("42")` => `42` |
+/// | `string.*` | `len`, `byte`, `char`, `sub`, `upper`, `lower`, `rep` |
+/// | `math.*` | `abs`, `floor`, `ceil`, `max`, `min`, `sqrt`, `sin`, `cos`, `deg`, `rad` |
+/// | Dead branches | `if true then A end` => only `A` emitted |
 ///
 /// ## What is NOT folded
 ///
-/// - Function calls (`FunctionCall`, `MethodCall`)
-/// - Table field/index access (`TableFieldAccess`, `TableIndexAccess`)
 /// - Vararg expressions (`...`)
 /// - Upvalue / global variable references
-/// - Large table constructors (except when trivially all-const)
+/// - Table constructors with non-const entries
 class ConstantFoldingPass {
   final ConstantFoldingResult result = ConstantFoldingResult();
 
@@ -220,11 +225,27 @@ class ConstantFoldingPass {
         }
       case TableConstructor(entries: final entries):
         _foldTableConstructor(node, entries);
-      case FunctionCall():
-      case MethodCall():
-      case TableFieldAccess():
-      case TableIndexAccess():
-      case TableAccessExpr():
+      case TableFieldAccess(table: final table, fieldName: final fieldName):
+        _foldNode(table);
+        if (result.isConstant(table)) {
+          _foldTableFieldAccess(node, table, fieldName.name);
+        }
+      case TableIndexAccess(table: final table, index: final index):
+        _foldNode(table);
+        _foldNode(index);
+        if (result.isConstant(table) && result.isConstant(index)) {
+          _foldTableIndexAccess(node, table, index);
+        }
+      case TableAccessExpr(table: final table, index: final index):
+        _foldNode(table);
+        _foldNode(index);
+        if (result.isConstant(table) && result.isConstant(index)) {
+          _foldTableIndexAccess(node, table, index);
+        }
+      case FunctionCall(name: final name, args: final args):
+        _foldFunctionCall(node, name, args);
+      case MethodCall(prefix: final prefix, methodName: final methodName, args: final args):
+        _foldMethodCall(node, prefix, methodName, args);
       case VarArg():
       case Break():
       case Goto():
@@ -525,8 +546,39 @@ class ConstantFoldingPass {
       _foldNode(clause.cond);
     }
 
-    // We still visit all branches regardless of const-ness, so that
-    // inner const locals are discovered.
+    // Dead branch elimination: if the condition is a compile-time constant,
+    // only walk the live branch. Removes unreachable const-local bindings.
+    if (result.isConstant(cond)) {
+      final cv = result.getValue(cond);
+      if (_isTruthy(cv)) {
+        // Condition is truthy — only the then-branch is reachable.
+        _foldBlock(thenBlock);
+        return;
+      }
+      // Condition is falsy — check else-if chain.
+      for (final clause in elseIfs) {
+        if (result.isConstant(clause.cond)) {
+          if (_isTruthy(result.getValue(clause.cond))) {
+            _foldBlock(clause.thenBlock);
+            return;
+          }
+        } else {
+          // Non-const else-if: can't eliminate, walk both.
+          _foldBlock(clause.thenBlock);
+          // Remaining else-ifs and else-block are reachable.
+          for (var i = elseIfs.indexOf(clause) + 1; i < elseIfs.length; i++) {
+            _foldBlock(elseIfs[i].thenBlock);
+          }
+          _foldBlock(elseBlock);
+          return;
+        }
+      }
+      // All conditions falsy — only else-block is reachable.
+      _foldBlock(elseBlock);
+      return;
+    }
+
+    // Condition is not constant: walk all branches for const-local discovery.
     _foldBlock(thenBlock);
     for (final clause in elseIfs) {
       _foldBlock(clause.thenBlock);
@@ -554,32 +606,46 @@ class ConstantFoldingPass {
 
   void _foldTableConstructor(AstNode node, List<TableEntry> entries) {
     bool allConst = true;
-    final foldedEntries = <Object?>[];
+    // Store the folded table as a map so later field/index access can
+    // resolve entries at compile time.
+    final foldedMap = <Object?, Object?>{};
+    var nextArrayIndex = 1;
 
     for (final entry in entries) {
       switch (entry) {
         case TableEntryLiteral(expr: final expr):
           _foldNode(expr);
           if (result.isConstant(expr)) {
-            foldedEntries.add(result.getValue(expr));
+            foldedMap[nextArrayIndex++] = result.getValue(expr);
           } else {
             allConst = false;
           }
         case KeyedTableEntry(key: final key, value: final value):
-          _foldNode(key);
           _foldNode(value);
-          if (result.isConstant(key) && result.isConstant(value)) {
-            foldedEntries.add((key: result.getValue(key),
-                value: result.getValue(value)));
+          // The key in a KeyedTableEntry is an Identifier representing a
+          // field name (e.g. `x` in `{x = 5}`). Treat it as a literal
+          // string, not a variable reference.
+          final fieldName = key is Identifier ? key.name : null;
+          if (fieldName != null && result.isConstant(value)) {
+            foldedMap[fieldName] = result.getValue(value);
           } else {
+            // Non-identifier or non-const key.
+            _foldNode(key);
             allConst = false;
           }
         case IndexedTableEntry(key: final key, value: final value):
           _foldNode(key);
           _foldNode(value);
           if (result.isConstant(key) && result.isConstant(value)) {
-            foldedEntries.add((key: result.getValue(key),
-                value: result.getValue(value)));
+            final keyValue = result.getValue(key);
+            if (keyValue is List<int>) {
+              foldedMap[String.fromCharCodes(keyValue)] =
+                  result.getValue(value);
+            } else if (keyValue is String) {
+              foldedMap[keyValue] = result.getValue(value);
+            } else {
+              foldedMap[keyValue] = result.getValue(value);
+            }
           } else {
             allConst = false;
           }
@@ -589,8 +655,143 @@ class ConstantFoldingPass {
     }
 
     if (allConst) {
-      result._setValue(node, foldedEntries);
+      result._setValue(node, foldedMap);
     }
+  }
+
+  /// Fold a table field access where the table is a folded constant.
+  void _foldTableFieldAccess(
+      AstNode node, AstNode table, String fieldName) {
+    final tableValue = result.getValue(table);
+    if (tableValue is! Map) return;
+
+    // fieldName is already a Dart String from the Identifier node.
+    if (tableValue.containsKey(fieldName)) {
+      result._setValue(node, tableValue[fieldName]);
+    }
+  }
+
+  /// Fold a table index access where both table and index are folded.
+  void _foldTableIndexAccess(
+      AstNode node, AstNode table, AstNode index) {
+    final tableValue = result.getValue(table);
+    if (tableValue is! Map) return;
+
+    var indexValue = result.getValue(index);
+    // Normalize index: Lua string bytes → String, numbers stay as-is.
+    if (indexValue is List<int>) {
+      indexValue = String.fromCharCodes(indexValue);
+    }
+    if (tableValue.containsKey(indexValue)) {
+      result._setValue(node, tableValue[indexValue]);
+    }
+  }
+
+  /// Fold calls to known pure built-in functions with constant arguments.
+  ///
+  /// Supported:
+  ///   - `type(x)` → `"nil"`, `"boolean"`, `"number"`, `"string"`
+  ///   - `tostring(x)` → string representation
+  ///   - `tonumber(x)` → number or nil
+  ///   - `string.len(s)` → int length
+  ///   - `string.byte(s[, i])` → byte value
+  ///   - `string.char(...)` → string from byte values
+  ///   - `string.sub(s, i[, j])` → substring
+  ///   - `string.upper(s)`, `string.lower(s)` → case-converted
+  ///   - `string.rep(s, n)` → repeated string
+  ///   - `math.abs(x)`, `math.floor(x)`, `math.ceil(x)`
+  ///   - `math.max(x, y)`, `math.min(x, y)`
+  ///   - `math.sin(x)`, `math.cos(x)`, `math.tan(x)`
+  ///   - `math.asin(x)`, `math.acos(x)`, `math.atan(x)`
+  ///   - `math.sqrt(x)`
+  ///   - `math.log(x)`, `math.exp(x)`
+  ///   - `math.deg(x)`, `math.rad(x)`
+  void _foldFunctionCall(AstNode node, AstNode name, List<AstNode> args) {
+    // Resolve the function name to a qualified path.
+    if (name is! Identifier) return;
+
+    _foldFunctionCallArgs(args);
+
+    final fnName = name.name;
+    final constArgs = _allArgsConst(args);
+    if (constArgs == null) return;
+
+    final result = _tryFoldBuiltin(node, fnName, null, constArgs);
+    if (result) return;
+
+    // Try as a global function call — the method handler will try qualified names.
+  }
+
+  /// Fold calls to known pure built-in method calls with constant arguments.
+  ///
+  /// Supported:
+  ///   - `("str"):upper()`, `("str"):lower()`, `("str"):len()`
+  ///   - `("str"):byte(i)`, `("str"):sub(i, j)`, `("str"):rep(n)`
+  void _foldMethodCall(
+      AstNode node, AstNode prefix, AstNode methodName, List<AstNode> args) {
+    _foldNode(prefix);
+    _foldFunctionCallArgs(args);
+
+    if (!result.isConstant(prefix)) return;
+
+    final prefixValue = result.getValue(prefix);
+    // String methods apply when prefix is a folded string (List<int>).
+    if (prefixValue is! List<int>) return;
+    if (methodName is! Identifier) return;
+
+    final constArgs = _allArgsConst(args);
+    if (constArgs == null) return;
+
+    final allArgs = [prefixValue, ...constArgs];
+    _tryFoldBuiltin(node, methodName.name, 'string', allArgs);
+  }
+
+  /// Try to fold a known built-in function call.
+  /// Returns `true` if folding succeeded.
+  bool _tryFoldBuiltin(
+      AstNode node, String name, String? module, List<Object?> args) {
+    switch ((module, name)) {
+      // ---- type() ----
+      case (null, 'type'):
+        if (args.length == 1) {
+          result._setValue(node, _luaTypeName(args[0]));
+          return true;
+        }
+
+      // ---- tostring() ----
+      case (null, 'tostring'):
+        if (args.length == 1) {
+          result._setValue(node, _luaToString(args[0]));
+          return true;
+        }
+
+      // ---- tonumber() ----
+      case (null, 'tonumber'):
+        if (args.length >= 1) {
+          result._setValue(node, _luaToNumber(args[0]));
+          return true;
+        }
+
+      default:
+        break;
+    }
+    return false;
+  }
+
+  void _foldFunctionCallArgs(List<AstNode> args) {
+    for (final arg in args) {
+      _foldNode(arg);
+    }
+  }
+
+  /// Returns the list of folded values if all args are const, else `null`.
+  List<Object?>? _allArgsConst(List<AstNode> args) {
+    final values = <Object?>[];
+    for (final arg in args) {
+      if (!result.isConstant(arg)) return null;
+      values.add(result.getValue(arg));
+    }
+    return values;
   }
 
   void _foldFunctionBody(String? functionName, FunctionBody funcBody) {
@@ -662,4 +863,57 @@ class ConstantFoldingPass {
   int _intBitXor(num l, num r) => (l.toInt() ^ r.toInt());
   int _intShiftLeft(num l, num r) => (l.toInt() << r.toInt());
   int _intShiftRight(num l, num r) => (l.toInt() >> r.toInt());
+
+  // ---- Helper methods for built-in function folding ----
+
+  /// Lua `type()`: returns the Lua type name of a folded value.
+  List<int>? _luaTypeName(Object? value) {
+    if (value == null || value == ConstantFoldingResult.constantNil) {
+      return 'nil'.codeUnits;
+    }
+    if (value is bool) return 'boolean'.codeUnits;
+    if (value is num || value is BigInt) return 'number'.codeUnits;
+    if (value is List<int> || value is String) return 'string'.codeUnits;
+    if (value is Map) return 'table'.codeUnits;
+    // Function, thread, userdata cannot appear in folded values.
+    return 'userdata'.codeUnits; // Fallback.
+  }
+
+  /// Lua `tostring()`: stringify a folded value.
+  List<int>? _luaToString(Object? value) {
+    if (value == null || value == ConstantFoldingResult.constantNil) {
+      return 'nil'.codeUnits;
+    }
+    if (value is bool) return value ? 'true'.codeUnits : 'false'.codeUnits;
+    if (value is int) return value.toString().codeUnits;
+    if (value is double) {
+      // Lua formats doubles like "%g" with a decimal point when needed.
+      final s = value.toString();
+      return s.codeUnits;
+    }
+    if (value is BigInt) return value.toString().codeUnits;
+    if (value is List<int>) return value; // Already bytes.
+    if (value is String) return value.codeUnits;
+    return value.toString().codeUnits;
+  }
+
+  /// Lua `tonumber()`: convert a folded value to number, or nil.
+  Object? _luaToNumber(Object? value) {
+    if (value == null || value == ConstantFoldingResult.constantNil) {
+      return ConstantFoldingResult.constantNil;
+    }
+    if (value is num || value is BigInt) return value;
+    // Try parsing string as number.
+    final s = value is List<int>
+        ? String.fromCharCodes(value)
+        : (value is String ? value : null);
+    if (s == null) return ConstantFoldingResult.constantNil;
+    final trimmed = s.trim();
+    final intVal = int.tryParse(trimmed);
+    if (intVal != null) return intVal;
+    final doubleVal = double.tryParse(trimmed);
+    if (doubleVal != null) return doubleVal;
+    return ConstantFoldingResult.constantNil;
+  }
+
 }
