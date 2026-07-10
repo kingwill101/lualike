@@ -5,9 +5,11 @@ import 'package:lualike/src/compile/const_propagation_pass.dart';
 import 'package:lualike/src/compile/constant_folding_pass.dart';
 import 'package:lualike/src/compile/dead_code_pass.dart';
 import 'package:lualike/src/compile/inlining_heuristics_pass.dart';
+import 'package:lualike/src/compile/metatable_folding_pass.dart';
 import 'package:lualike/src/compile/simplify_pass.dart';
 import 'package:lualike/src/compile/type_narrowing_pass.dart';
 import 'package:lualike/src/ir/compiler.dart';
+import 'package:lualike/src/ir/peephole_pass.dart';
 import 'package:lualike/src/ir/prototype.dart';
 import 'package:lualike/src/ir/serialization.dart';
 import 'package:lualike/src/ir/textual_formatter.dart';
@@ -39,6 +41,12 @@ final class CompilePipelineConfig {
   /// Whether to narrow types through `type()` equality checks.
   final bool enableTypeNarrowing;
 
+  /// Whether to fold table operations with known metatables.
+  final bool enableMetatableFolding;
+
+  /// Whether to run peephole optimization on IR bytecode.
+  final bool enablePeephole;
+
   /// Whether to unroll constant-bounded for-loops in the IR compiler.
   final bool enableLoopUnrolling;
 
@@ -60,6 +68,8 @@ final class CompilePipelineConfig {
     this.enableConstantFolding = true,
     this.enableConstPropagation = true,
     this.enableTypeNarrowing = true,
+    this.enableMetatableFolding = false,
+    this.enablePeephole = true,
     this.enableLoopUnrolling = false,
     this.enableBundling = false,
     this.bundleSearchPaths = const ['.'],
@@ -170,6 +180,8 @@ final class CompilePipeline {
       if (config.enableConstPropagation) ConstPropagationPass(),
       // Type narrowing: track types through type() checks
       if (config.enableTypeNarrowing) TypeNarrowingPass(),
+      // Metatable-aware folding
+      if (config.enableMetatableFolding) MetatableFoldingPass(),
       // Inlining heuristics: configure when inlining is profitable
       if (config.enableConstantFolding) InliningHeuristicsPass(),
       // Folding phase: analyze and simplify constant expressions
@@ -197,7 +209,13 @@ final class CompilePipeline {
           ? config.enableLoopUnrolling
           : false,
     );
-    final irChunk = irCompiler.compile(foldedProgram);
+    var irChunk = irCompiler.compile(foldedProgram);
+
+    // Peephole optimization on IR (post-emission)
+    if (config.enablePeephole) {
+      irChunk = PeepholePass().optimize(irChunk);
+    }
+
     final irBytes = serializeLualikeIrChunk(irChunk);
 
     String? disassembly;
