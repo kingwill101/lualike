@@ -4,6 +4,19 @@ import 'package:lualike/src/ast.dart';
 import 'package:lualike/src/number.dart' show LuaNumberParser;
 import 'package:lualike/src/utils/type.dart' show getLuaBaseType;
 
+/// Descriptor for a user-defined function known at compile time.
+final class _KnownFunction {
+  final List<String> parameterNames;
+  final String? varargName;
+  final FunctionBody body;
+
+  const _KnownFunction({
+    required this.parameterNames,
+    this.varargName,
+    required this.body,
+  });
+}
+
 /// Maps each AST node to its compile-time computed value if one was
 /// determined, or `null` if the node is not constant (which is distinct from
 /// the Lua `nil` literal, represented by the sentinel [constantNil]).
@@ -102,14 +115,30 @@ class ConstantFoldingPass {
   /// When we enter a function, we start a fresh const-local scope.
   final List<bool> _isFunctionScope = [false];
 
+  /// Known function declarations (name → {params, body}).
+  /// Populated when we visit a [FunctionDef] or [LocalFunctionDef].
+  ///
+  /// Keyed by function name, scoped so inner function bodies can shadow outer
+  /// ones.  Uses the same scope-chain walk as [_lookupConstLocal].
+  final List<Map<String, _KnownFunction>> _knownFunctionsScopes =
+      [<String, _KnownFunction>{}];
+
+  /// Recursion guard: max depth for inlined calls.
+  static const int _maxInlineDepth = 8;
+
+  /// Current inlining call depth.
+  int _inlineDepth = 0;
+
   void _enterScope() {
     _constLocalScopes.add(<String, Object?>{});
     _isFunctionScope.add(false);
+    _knownFunctionsScopes.add(<String, _KnownFunction>{});
   }
 
   void _exitScope() {
     _constLocalScopes.removeLast();
     _isFunctionScope.removeLast();
+    _knownFunctionsScopes.removeLast();
   }
 
   void _enterFunction() {
@@ -132,6 +161,26 @@ class ConstantFoldingPass {
     for (var i = _constLocalScopes.length - 1; i >= 0; i--) {
       if (_constLocalScopes[i].containsKey(name)) {
         return _constLocalScopes[i][name];
+      }
+    }
+    return null;
+  }
+
+  /// Register a known function in the current scope.
+  void _declareKnownFunction(
+      String name, List<Identifier> parameters, FunctionBody body) {
+    _knownFunctionsScopes.last[name] = _KnownFunction(
+      parameterNames: parameters.map((p) => p.name).toList(),
+      varargName: body.varargName?.name,
+      body: body,
+    );
+  }
+
+  /// Look up a known function declaration by name.
+  _KnownFunction? _lookupKnownFunction(String name) {
+    for (var i = _knownFunctionsScopes.length - 1; i >= 0; i--) {
+      if (_knownFunctionsScopes[i].containsKey(name)) {
+        return _knownFunctionsScopes[i][name];
       }
     }
     return null;
@@ -182,8 +231,12 @@ class ConstantFoldingPass {
       ):
         _foldLocalDeclaration(node, names, attributes, exprs);
       case LocalFunctionDef(name: final name, funcBody: final funcBody):
+        _registerKnownFunction(name.name, funcBody);
         _foldFunctionBody(name.name, funcBody);
-      case FunctionDef(name: final _, body: final funcBody):
+      case FunctionDef(name: final name, body: final funcBody):
+        if (name.rest.isEmpty && name.method == null) {
+          _registerKnownFunction(name.first.name, funcBody);
+        }
         _foldFunctionBody(null, funcBody);
       case Assignment(targets: final targets, exprs: final exprs):
         _foldAssignments(targets, exprs);
@@ -247,6 +300,7 @@ class ConstantFoldingPass {
       case FunctionCall(name: final name, args: final args):
         _foldFunctionCall(node, name, args);
       case MethodCall(prefix: final prefix, methodName: final methodName, args: final args):
+        _foldNode(prefix);
         _foldMethodCall(node, prefix, methodName, args);
       case VarArg():
       case Break():
@@ -689,49 +743,82 @@ class ConstantFoldingPass {
     }
   }
 
-  /// Fold calls to known pure built-in functions with constant arguments.
-  ///
-  /// Supported:
-  ///   - `type(x)` → `"nil"`, `"boolean"`, `"number"`, `"string"`
-  ///   - `tostring(x)` → string representation
-  ///   - `tonumber(x)` → number or nil
-  ///   - `string.len(s)` → int length
-  ///   - `string.byte(s[, i])` → byte value
-  ///   - `string.char(...)` → string from byte values
-  ///   - `string.sub(s, i[, j])` → substring
-  ///   - `string.upper(s)`, `string.lower(s)` → case-converted
-  ///   - `string.rep(s, n)` → repeated string
-  ///   - `math.abs(x)`, `math.floor(x)`, `math.ceil(x)`
-  ///   - `math.max(x, y)`, `math.min(x, y)`
-  ///   - `math.sin(x)`, `math.cos(x)`, `math.tan(x)`
-  ///   - `math.asin(x)`, `math.acos(x)`, `math.atan(x)`
-  ///   - `math.sqrt(x)`
-  ///   - `math.log(x)`, `math.exp(x)`
-  ///   - `math.deg(x)`, `math.rad(x)`
+  /// Register a user-defined function so calls to it can be inlined.
+  void _registerKnownFunction(String name, FunctionBody funcBody) {
+    final params = funcBody.parameters ?? <Identifier>[];
+    _declareKnownFunction(name, params, funcBody);
+  }
+
+  /// Fold a call: try known-user-function inlining, then builtin folding.
   void _foldFunctionCall(AstNode node, AstNode name, List<AstNode> args) {
-    // Resolve the function name to a qualified path.
     if (name is! Identifier) return;
 
     _foldFunctionCallArgs(args);
-
     final fnName = name.name;
     final constArgs = _allArgsConst(args);
     if (constArgs == null) return;
 
-    final result = _tryFoldBuiltin(node, fnName, null, constArgs);
-    if (result) return;
+    // 1. Try inlining a known user-defined function.
+    if (_tryInlineFunction(node, fnName, constArgs)) return;
 
-    // Try as a global function call — the method handler will try qualified names.
+    // 2. Try folding a known built-in function.
+    if (_tryFoldBuiltin(node, fnName, null, constArgs)) return;
   }
 
-  /// Fold calls to known pure built-in method calls with constant arguments.
+  /// Attempt to inline a call to a known user-defined function.
   ///
-  /// Supported:
-  ///   - `("str"):upper()`, `("str"):lower()`, `("str"):len()`
-  ///   - `("str"):byte(i)`, `("str"):sub(i, j)`, `("str"):rep(n)`
+  /// When all arguments are constant, we create a fresh scope, bind parameter
+  /// names to the constant argument values, walk the function body through
+  /// the folding pass, and check whether the body returns a constant.
+  bool _tryInlineFunction(
+      AstNode node, String fnName, List<Object?> constArgs) {
+    final known = _lookupKnownFunction(fnName);
+    if (known == null) return false;
+    if (known.body.body.isEmpty) return false;
+    if (_inlineDepth >= _maxInlineDepth) return false;
+
+    _inlineDepth++;
+    try {
+      // Create a scope with parameters bound to arguments.
+      _enterScope();
+
+      // Bind positional parameters.
+      for (var i = 0; i < known.parameterNames.length; i++) {
+        if (i < constArgs.length) {
+          _declareConstLocal(known.parameterNames[i], constArgs[i]);
+        } else {
+          _declareConstLocal(
+              known.parameterNames[i], ConstantFoldingResult.constantNil);
+        }
+      }
+
+      // Walk the function body.
+      for (final stmt in known.body.body) {
+        _foldNode(stmt);
+      }
+
+      // Check if the last statement is a constant return value.
+      final lastStmt =
+          known.body.body.isNotEmpty ? known.body.body.last : null;
+      if (lastStmt is ReturnStatement &&
+          lastStmt.expr.length == 1 &&
+          result.isConstant(lastStmt.expr.first)) {
+        result._setValue(node, result.getValue(lastStmt.expr.first));
+        _exitScope();
+        return true;
+      }
+
+      _exitScope();
+      return false;
+    } finally {
+      _inlineDepth--;
+    }
+  }
+
+  /// Fold a method call by trying to convert to a module.function call
+  /// (e.g. `("hello"):len()` → `string.len("hello")`).
   void _foldMethodCall(
       AstNode node, AstNode prefix, AstNode methodName, List<AstNode> args) {
-    _foldNode(prefix);
     _foldFunctionCallArgs(args);
 
     if (!result.isConstant(prefix)) return;
