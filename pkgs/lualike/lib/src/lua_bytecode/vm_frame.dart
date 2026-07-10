@@ -92,11 +92,8 @@ final class LuaBytecodeFrame implements LuaBytecodeGCRootProvider {
   Environment? _debugEnvironment;
   PackedVarargTable? namedVarargTable;
   Value? namedVarargTableValue;
-  List<bool>? _localExpiryFlagsCached;
-  List<bool> get _localExpiryFlags {
-    var flags = _localExpiryFlagsCached;
-    if (flags != null) return flags;
-    flags = List<bool>.filled(
+  late final List<bool> _localExpiryFlags = () {
+    final flags = List<bool>.filled(
       closure.prototype.code.length,
       false,
       growable: false,
@@ -110,22 +107,17 @@ final class LuaBytecodeFrame implements LuaBytecodeGCRootProvider {
         flags[endPc] = true;
       }
     }
-    _localExpiryFlagsCached = flags;
     return flags;
-  }
-  List<List<({int register, int endPc})>>?
-  _expiredRegisterCandidatesByPcCached;
-
-  List<List<({int register, int endPc})>> get _expiredRegisterCandidatesByPc {
-    var cached = _expiredRegisterCandidatesByPcCached;
-    if (cached != null) return cached;
+  }();
+  late final List<List<({int register, int endPc})>>
+  _expiredRegisterCandidatesByPc = () {
     final codeLength = closure.prototype.code.length;
     final startRegistersByPc = List<List<int>>.generate(
       codeLength,
       (_) => <int>[],
       growable: false,
     );
-    final result = List<List<({int register, int endPc})>>.generate(
+    final endRegistersByPc = List<List<({int register, int endPc})>>.generate(
       codeLength,
       (_) => <({int register, int endPc})>[],
       growable: false,
@@ -141,7 +133,7 @@ final class LuaBytecodeFrame implements LuaBytecodeGCRootProvider {
       }
       final endPc = local.endPc;
       if (endPc >= 0 && endPc < codeLength) {
-        result[endPc].add((register: register, endPc: endPc));
+        endRegistersByPc[endPc].add((register: register, endPc: endPc));
       }
     }
 
@@ -154,7 +146,7 @@ final class LuaBytecodeFrame implements LuaBytecodeGCRootProvider {
     );
 
     for (var pc = 0; pc < codeLength; pc++) {
-      for (final (:register, :endPc) in result[pc]) {
+      for (final (:register, :endPc) in endRegistersByPc[pc]) {
         final nextCount = (activeCounts[register] ?? 0) - 1;
         if (nextCount > 0) {
           activeCounts[register] = nextCount;
@@ -178,9 +170,8 @@ final class LuaBytecodeFrame implements LuaBytecodeGCRootProvider {
             (register: entry.key, endPc: entry.value),
       ];
     }
-    _expiredRegisterCandidatesByPcCached = candidatesByPc;
     return candidatesByPc;
-  }
+  }();
   late final List<bool> _trackedRegisterWriteFlags = () {
     final flags = List<bool>.filled(
       closure.prototype.maxStackSize,

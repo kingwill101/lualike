@@ -4,18 +4,11 @@ Future<void>? _runGcLoopSafePoint(LuaRuntime runtime, LuaBytecodeFrame frame) {
   frame.loopGcCounter += 1;
   final loopCounter = frame.loopGcCounter;
   final gc = runtime.gc;
-  // Fast early-out checks inlined from shouldRunLoopGcAtSafePoint
-  // to avoid function call overhead on the hot backedge path.
+  // Early-out: no GC work needed when stopped or auto-trigger disabled.
   if (gc.isStopped || !gc.autoTriggerEnabled) {
     return null;
   }
-  // Periodically rescue idle GC even when below threshold.
-  if (gc.allocationDebt <= 0 &&
-      loopCounter >= 8192 &&
-      loopCounter % 8192 == 0) {
-    gc.performGenerationalStep(runtime.getRoots());
-  }
-  // Now check whether GC actually needs to run.
+  // Inline the shouldRunLoopGcAtSafePoint check to avoid a function call.
   if (gc.isManualCollectRunning || gc.isFinalizerActive) {
     return null;
   }
@@ -26,6 +19,10 @@ Future<void>? _runGcLoopSafePoint(LuaRuntime runtime, LuaBytecodeFrame frame) {
   final debt = gc.allocationDebt;
   if (debt >= threshold) {
     return _runGcLoopSafePointSlow(runtime, frame);
+  }
+  // Rescue: proactively run a short step so the collector doesn't stall.
+  if (debt <= 0 && loopCounter >= 8192 && loopCounter % 8192 == 0) {
+    gc.performGenerationalStep(runtime.getRoots());
   }
   if (gc.shouldForceAsyncLoopRescue(loopCounter, debt, threshold) ||
       gc.shouldAdvanceIncrementalLoopCycle(loopCounter)) {
