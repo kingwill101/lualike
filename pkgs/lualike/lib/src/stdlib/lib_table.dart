@@ -2,6 +2,7 @@ import 'dart:typed_data';
 
 import 'package:lualike/lualike.dart';
 
+
 import 'package:lualike/src/runtime/lua_results.dart';
 import 'package:lualike/src/runtime/lua_slot.dart';
 import 'package:lualike/src/runtime/runtime_hints.dart';
@@ -1040,7 +1041,6 @@ class _TableSort extends BuiltinFunction {
           }
         }
 
-        final func = compRaw;
         final runtime = interpreter;
         final previousYieldable = runtime?.isYieldable;
         if (runtime != null) {
@@ -1049,7 +1049,8 @@ class _TableSort extends BuiltinFunction {
         }
         late final Object? result;
         try {
-          result = await (func as dynamic)([valA, valB]);
+          // Fast path: pass arguments directly without allocating a List.
+          result = await _callComparatorDirect(comp, valA, valB, runtime);
         } finally {
           if (runtime != null) {
             runtime.isYieldable = previousYieldable ?? true;
@@ -1066,6 +1067,26 @@ class _TableSort extends BuiltinFunction {
         throw LuaError("invalid order function");
       }
     }
+  }
+
+  /// Calls a comparator function with two Values.
+  Future<Object?> _callComparatorDirect(
+    Object? comp,
+    Value a,
+    Value b,
+    LuaRuntime? runtime,
+  ) async {
+    final rawSlot = rawLuaSlot(comp);
+    if (runtime != null) {
+      if (rawSlot is Function) {
+        return rawSlot(<Object?>[a, b]);
+      }
+      return runtime.callFunction(comp as Value, <Object?>[a, b]);
+    }
+    if (rawSlot is Function) {
+      return rawSlot(<Object?>[a, b]);
+    }
+    return null;
   }
 
   void _incrementComparatorCounter(Value comparator) {

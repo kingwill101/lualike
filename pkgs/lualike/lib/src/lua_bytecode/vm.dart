@@ -57,14 +57,17 @@ final RegExp _bytecodeFormattedLuaErrorPattern = RegExp(
 );
 
 final class LuaBytecodeVm {
-  LuaBytecodeVm(this.runtime);
+  LuaBytecodeVm(this.runtime) : _debugInterpreter = _resolveDebugInterpreter(runtime);
 
   final LuaRuntime runtime;
+  final Interpreter? _debugInterpreter;
   LuaBytecodeProfile? _activeProfile;
 
-  Interpreter? get _debugInterpreter {
+  /// Resolves the underlying debug interpreter once at construction time.
+  /// The debug interpreter never changes for a given VM instance.
+  static Interpreter? _resolveDebugInterpreter(LuaRuntime runtime) {
     if (runtime is Interpreter) {
-      return runtime as Interpreter;
+      return runtime;
     }
     try {
       final debugInterpreter = (runtime as dynamic).debugInterpreter;
@@ -143,8 +146,12 @@ final class LuaBytecodeVm {
     }
     activeCallFrame.isTailCall = frame.isTailCall;
     activeCallFrame.extraArgs = frame.extraArgs;
-    _syncDebugLocals(frame, callFrame: activeCallFrame);
     final entryDebugInterpreter = _debugInterpreter;
+    // Only sync debug locals when a debug hook is active. The debug locals
+    // are only consulted by debug.getlocal/getinfo which require a live hook.
+    if (entryDebugInterpreter?.debugHookFunction != null) {
+      _syncDebugLocals(frame, callFrame: activeCallFrame);
+    }
     if (frame.pc == 0 &&
         !activeCallFrame.isDebugHook &&
         entryDebugInterpreter != null &&
@@ -162,6 +169,7 @@ final class LuaBytecodeVm {
       );
     }
     if (entryDebugInterpreter != null &&
+        entryDebugInterpreter.debugHookFunction != null &&
         !frame.didFireEntryCallHook &&
         !(frame.pc == 0 && frame.closure.prototype.isVararg)) {
       await _fireFrameCallHook(frame, entryDebugInterpreter);
@@ -274,12 +282,14 @@ final class LuaBytecodeVm {
         await _closeFrameForCoroutine(frame, error: null);
       }
       final exitDebugInterpreter = _debugInterpreter;
-      if (!suspended && !poppedCallFrame && exitDebugInterpreter != null) {
+      if (!suspended &&
+          !poppedCallFrame &&
+          exitDebugInterpreter != null &&
+          exitDebugInterpreter.debugHookFunction != null) {
         final topFrame = activeCallFrame;
         _syncCallFrameDebugLocals(topFrame);
         _setTransferInfo(topFrame, returnTransferValues);
-        final interpreter = exitDebugInterpreter;
-        await interpreter.fireDebugHook('return');
+        await exitDebugInterpreter.fireDebugHook('return');
         _clearTransferInfo(topFrame);
       }
       if (!poppedCallFrame) {
@@ -371,7 +381,12 @@ final class LuaBytecodeVm {
       final profile = _activeProfile;
       final opTimer = profile == null ? null : (Stopwatch()..start());
       try {
-        if (needsCoroutineWideBoundary ||
+        if (needsCoroutineWideBoundary) {
+          await _preserveSuspendingBytecodeBoundary(
+            currentCoroutine: currentCoroutine,
+            mainThread: mainThread,
+          );
+        } else if (opcode.needsSuspendingBoundary &&
             _needsSuspendingOpcodeBoundaryForInstruction(frame, opcode, word)) {
           await _preserveSuspendingBytecodeBoundary(
             currentCoroutine: currentCoroutine,
@@ -1195,8 +1210,9 @@ final class LuaBytecodeVm {
             }
           case Opcode.varArgPrep:
             {
-              if (debugInterpreter != null && !frame.didFireEntryCallHook) {
-                await _fireFrameCallHook(frame, debugInterpreter);
+              if (debugInterpreter?.debugHookFunction != null &&
+                  !frame.didFireEntryCallHook) {
+                await _fireFrameCallHook(frame, debugInterpreter!);
                 frame.forceNextLineHook = true;
               }
               break;
@@ -1851,14 +1867,14 @@ final class LuaBytecodeVm {
     await Future<void>.value();
   }
 
+  /// Like [OpcodeAnalysis.needsSuspendingBoundary] but with per-operand
+  /// refinement. The caller must have already confirmed
+  /// `opcode.needsSuspendingBoundary` before calling this.
   bool _needsSuspendingOpcodeBoundaryForInstruction(
     LuaBytecodeFrame frame,
     Opcode opcode,
     LuaBytecodeInstructionWord word,
   ) {
-    if (!_needsSuspendingOpcodeBoundary(opcode)) {
-      return false;
-    }
     return switch (opcode) {
       Opcode.call ||
       Opcode.tailCall => !_canSkipSuspendingBoundaryForCall(frame, word.a),
@@ -1930,9 +1946,6 @@ final class LuaBytecodeVm {
     };
   }
 
-  bool _needsSuspendingOpcodeBoundary(Opcode opcode) {
-    return opcode.needsSuspendingBoundary;
-  }
 
   bool _canSkipSuspendingBoundaryForCall(
     LuaBytecodeFrame frame,
@@ -2098,13 +2111,17 @@ void _resetBackedgeLineHookState(
   CallFrame? callFrame,
   required int loopLine,
 }) {
+  // Without a debug interpreter the line-hook state is never consulted.
+  if (debugInterpreter == null) {
+    return;
+  }
   final targetLine = frame.closure.prototype.lineForPc(frame.pc);
   if (targetLine == null || targetLine != loopLine) {
     return;
   }
   final targetCallFrame = callFrame ?? runtime.callStack.top;
   targetCallFrame?.lastDebugHookLine = -1;
-  debugInterpreter?.rememberDebugHookLine(
+  debugInterpreter.rememberDebugHookLine(
     -1,
     source: targetCallFrame?.scriptPath ?? runtime.currentScriptPath,
   );

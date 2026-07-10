@@ -3,6 +3,7 @@ import 'package:lualike/lualike.dart';
 import 'package:lualike/src/coroutine.dart';
 import 'package:lualike/src/gc/memory_credits.dart';
 import 'package:lualike/src/lua_bytecode/vm.dart';
+import 'package:lualike/src/lua_bytecode/vm_value_helpers.dart';
 import 'package:lualike/src/runtime/lua_results.dart';
 import 'package:lualike/src/runtime/lua_slot.dart';
 import 'package:lualike/src/stdlib/lib_io.dart';

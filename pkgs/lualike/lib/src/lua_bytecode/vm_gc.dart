@@ -3,33 +3,40 @@ part of 'vm.dart';
 Future<void>? _runGcLoopSafePoint(LuaRuntime runtime, LuaBytecodeFrame frame) {
   frame.loopGcCounter += 1;
   final loopCounter = frame.loopGcCounter;
-  final shouldRescue =
-      !runtime.gc.isStopped &&
-      runtime.gc.autoTriggerEnabled &&
-      runtime.gc.allocationDebt <= 0 &&
-      loopCounter >= 8192 &&
-      loopCounter % 8192 == 0;
-  if (!runtime.shouldRunLoopGcAtSafePoint(loopCounter)) {
-    if (!shouldRescue) {
-      return null;
-    }
-    runtime.gc.performGenerationalStep(runtime.getRoots());
+  final gc = runtime.gc;
+  // Fast early-out checks inlined from shouldRunLoopGcAtSafePoint
+  // to avoid function call overhead on the hot backedge path.
+  if (gc.isStopped || !gc.autoTriggerEnabled) {
     return null;
   }
-  return _runGcLoopSafePointSlow(runtime, frame, shouldRescue);
+  // Periodically rescue idle GC even when below threshold.
+  if (gc.allocationDebt <= 0 &&
+      loopCounter >= 8192 &&
+      loopCounter % 8192 == 0) {
+    gc.performGenerationalStep(runtime.getRoots());
+  }
+  // Now check whether GC actually needs to run.
+  if (gc.isManualCollectRunning || gc.isFinalizerActive) {
+    return null;
+  }
+  if (gc.needsAsyncFinalizerDrain) {
+    return _runGcLoopSafePointSlow(runtime, frame);
+  }
+  final threshold = gc.autoTriggerDebtThreshold;
+  final debt = gc.allocationDebt;
+  if (debt >= threshold) {
+    return _runGcLoopSafePointSlow(runtime, frame);
+  }
+  if (gc.shouldForceAsyncLoopRescue(loopCounter, debt, threshold) ||
+      gc.shouldAdvanceIncrementalLoopCycle(loopCounter)) {
+    return _runGcLoopSafePointSlow(runtime, frame);
+  }
+  return null;
 }
 
 Future<void> _runGcLoopSafePointSlow(
   LuaRuntime runtime,
   LuaBytecodeFrame frame,
-  bool shouldRescue,
 ) async {
   await runtime.runLoopGcAtSafePoint(frame.loopGcCounter);
-  if (runtime.gc.isStopped ||
-      !runtime.gc.autoTriggerEnabled ||
-      runtime.gc.allocationDebt > 0 ||
-      !shouldRescue) {
-    return;
-  }
-  await runtime.gc.performGenerationalStep(runtime.getRoots());
 }
