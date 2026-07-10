@@ -10,7 +10,7 @@ import 'package:lualike/src/compile/metatable_folding_pass.dart';
 import 'package:lualike/src/compile/simplify_pass.dart';
 import 'package:lualike/src/compile/type_narrowing_pass.dart';
 import 'package:lualike/src/ir/compiler.dart';
-import 'package:lualike/src/ir/peephole_pass.dart';
+import 'package:lualike/src/ir/peephole_pass.dart' as ir;
 import 'package:lualike/src/ir/prototype.dart';
 import 'package:lualike/src/ir/serialization.dart';
 import 'package:lualike/src/ir/textual_formatter.dart';
@@ -223,7 +223,7 @@ final class CompilePipeline {
 
     // Peephole optimization on IR (post-emission)
     if (config.enablePeephole) {
-      irChunk = PeepholePass().optimize(irChunk);
+      irChunk = ir.PeepholePass().optimize(irChunk);
     }
 
     final irBytes = serializeLualikeIrChunk(irChunk);
