@@ -164,6 +164,182 @@ void main() {
       expect(pass.result.isConstant(callExpr), isFalse);
     });
 
+    test('folds table field access on const table', () {
+      final pass = ConstantFoldingPass();
+      final program = parse('''
+        local TBL <const> = {x = 5, y = 10}
+        return TBL.x
+      ''');
+      pass.fold(program);
+      final returnStmt = program.statements.last as ReturnStatement;
+      final fieldAccess = returnStmt.expr.first as TableFieldAccess;
+      expect(pass.result.isConstant(fieldAccess), isTrue);
+      expect(pass.result.getValue(fieldAccess), equals(5));
+    });
+
+    test('folds table index access on const table', () {
+      final pass = ConstantFoldingPass();
+      final program = parse('''
+        local TBL <const> = {10, 20, 30}
+        return TBL[2]
+      ''');
+      pass.fold(program);
+      final returnStmt = program.statements.last as ReturnStatement;
+      final indexAccess = returnStmt.expr.first as TableIndexAccess;
+      expect(pass.result.isConstant(indexAccess), isTrue);
+      expect(pass.result.getValue(indexAccess), equals(20));
+    });
+
+    test('folds type() call with constant arg', () {
+      final pass = ConstantFoldingPass();
+      final program = parse('return type(42)');
+      pass.fold(program);
+      final returnStmt = program.statements.first as ReturnStatement;
+      final call = returnStmt.expr.first as FunctionCall;
+      expect(pass.result.isConstant(call), isTrue);
+      expect(
+        String.fromCharCodes(pass.result.getValue(call) as List<int>),
+        equals('number'),
+      );
+    });
+
+    test('folds type(nil) call', () {
+      final pass = ConstantFoldingPass();
+      final program = parse('return type(nil)');
+      pass.fold(program);
+      final returnStmt = program.statements.first as ReturnStatement;
+      final call = returnStmt.expr.first as FunctionCall;
+      expect(pass.result.isConstant(call), isTrue);
+      expect(
+        String.fromCharCodes(pass.result.getValue(call) as List<int>),
+        equals('nil'),
+      );
+    });
+
+    test('folds type(true) call', () {
+      final pass = ConstantFoldingPass();
+      final program = parse('return type(true)');
+      pass.fold(program);
+      final returnStmt = program.statements.first as ReturnStatement;
+      final call = returnStmt.expr.first as FunctionCall;
+      expect(pass.result.isConstant(call), isTrue);
+      expect(
+        String.fromCharCodes(pass.result.getValue(call) as List<int>),
+        equals('boolean'),
+      );
+    });
+
+    test('folds type("hello") call', () {
+      final pass = ConstantFoldingPass();
+      final program = parse('return type("hello")');
+      pass.fold(program);
+      final returnStmt = program.statements.first as ReturnStatement;
+      final call = returnStmt.expr.first as FunctionCall;
+      expect(pass.result.isConstant(call), isTrue);
+      expect(
+        String.fromCharCodes(pass.result.getValue(call) as List<int>),
+        equals('string'),
+      );
+    });
+
+    test('folds tostring(42)', () {
+      final pass = ConstantFoldingPass();
+      final program = parse('return tostring(42)');
+      pass.fold(program);
+      final returnStmt = program.statements.first as ReturnStatement;
+      final call = returnStmt.expr.first as FunctionCall;
+      expect(pass.result.isConstant(call), isTrue);
+      expect(
+        String.fromCharCodes(pass.result.getValue(call) as List<int>),
+        equals('42'),
+      );
+    });
+
+    test('folds tonumber("42")', () {
+      final pass = ConstantFoldingPass();
+      final program = parse('return tonumber("42")');
+      pass.fold(program);
+      final returnStmt = program.statements.first as ReturnStatement;
+      final call = returnStmt.expr.first as FunctionCall;
+      expect(pass.result.isConstant(call), isTrue);
+      expect(pass.result.getValue(call), equals(42));
+    });
+
+    test('folds type() returns "number" for const numbers', () {
+      final pass = ConstantFoldingPass();
+      final program = parse('return type(42)');
+      pass.fold(program);
+      final returnStmt = program.statements.first as ReturnStatement;
+      final call = returnStmt.expr.first as FunctionCall;
+      expect(pass.result.isConstant(call), isTrue);
+      expect(
+        String.fromCharCodes(pass.result.getValue(call) as List<int>),
+        equals('number'),
+      );
+    });
+
+    test('folds type(nil) returns "nil"', () {
+      final pass = ConstantFoldingPass();
+      final program = parse('return type(nil)');
+      pass.fold(program);
+      final returnStmt = program.statements.first as ReturnStatement;
+      final call = returnStmt.expr.first as FunctionCall;
+      expect(pass.result.isConstant(call), isTrue);
+      expect(
+        String.fromCharCodes(pass.result.getValue(call) as List<int>),
+        equals('nil'),
+      );
+    });
+
+    test('folds type(true) returns "boolean"', () {
+      final pass = ConstantFoldingPass();
+      final program = parse('return type(true)');
+      pass.fold(program);
+      final returnStmt = program.statements.first as ReturnStatement;
+      final call = returnStmt.expr.first as FunctionCall;
+      expect(pass.result.isConstant(call), isTrue);
+      expect(
+        String.fromCharCodes(pass.result.getValue(call) as List<int>),
+        equals('boolean'),
+      );
+    });
+
+    test('folds type("hello") returns "string"', () {
+      final pass = ConstantFoldingPass();
+      final program = parse('return type("hello")');
+      pass.fold(program);
+      final returnStmt = program.statements.first as ReturnStatement;
+      final call = returnStmt.expr.first as FunctionCall;
+      expect(pass.result.isConstant(call), isTrue);
+      expect(
+        String.fromCharCodes(pass.result.getValue(call) as List<int>),
+        equals('string'),
+      );
+    });
+
+    test('folds tostring(42) returns "42"', () {
+      final pass = ConstantFoldingPass();
+      final program = parse('return tostring(42)');
+      pass.fold(program);
+      final returnStmt = program.statements.first as ReturnStatement;
+      final call = returnStmt.expr.first as FunctionCall;
+      expect(pass.result.isConstant(call), isTrue);
+      expect(
+        String.fromCharCodes(pass.result.getValue(call) as List<int>),
+        equals('42'),
+      );
+    });
+
+    test('folds tonumber("42") returns 42', () {
+      final pass = ConstantFoldingPass();
+      final program = parse('return tonumber("42")');
+      pass.fold(program);
+      final returnStmt = program.statements.first as ReturnStatement;
+      final call = returnStmt.expr.first as FunctionCall;
+      expect(pass.result.isConstant(call), isTrue);
+      expect(pass.result.getValue(call), equals(42));
+    });
+
     test('folds local const declaration reference', () {
       final pass = ConstantFoldingPass();
       final program = parse('''
