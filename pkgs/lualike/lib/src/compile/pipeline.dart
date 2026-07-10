@@ -5,6 +5,7 @@ import 'package:lualike/src/compile/const_propagation_pass.dart';
 import 'package:lualike/src/compile/constant_folding_pass.dart';
 import 'package:lualike/src/compile/dead_code_pass.dart';
 import 'package:lualike/src/compile/inlining_heuristics_pass.dart';
+import 'package:lualike/src/compile/analyzer_pass.dart';
 import 'package:lualike/src/compile/metatable_folding_pass.dart';
 import 'package:lualike/src/compile/simplify_pass.dart';
 import 'package:lualike/src/compile/type_narrowing_pass.dart';
@@ -31,6 +32,9 @@ final class CompilePipelineConfig {
 
   /// Whether to print the IR instruction dump to stderr.
   final bool dumpIr;
+
+  /// Whether to run the analyzer pass (type inference for locals).
+  final bool enableAnalyzer;
 
   /// Whether to run the [ConstantFoldingPass] before IR emission.
   final bool enableConstantFolding;
@@ -69,6 +73,7 @@ final class CompilePipelineConfig {
     // --compile which produces a bytecode binary for distribution.
     // For interactive/script mode, startup speed matters more than
     // the marginal runtime gain from these passes.
+    this.enableAnalyzer = false,
     this.enableConstantFolding = false,
     this.enableConstPropagation = false,
     this.enableTypeNarrowing = false,
@@ -183,6 +188,7 @@ final class CompilePipeline {
       // Propagation phase: forward constants and copies
       if (config.enableConstPropagation) ConstPropagationPass(),
       // Type narrowing: track types through type() checks
+      if (config.enableAnalyzer) AnalyzerPass(),
       if (config.enableTypeNarrowing) TypeNarrowingPass(),
       // Metatable-aware folding
       if (config.enableMetatableFolding) MetatableFoldingPass(),
