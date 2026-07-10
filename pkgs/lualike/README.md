@@ -8,9 +8,64 @@
 [![Pub Version](https://img.shields.io/pub/v/file_lualike)](https://pub.dev/packages/file_lualike)
 [![Pub Version](https://img.shields.io/pub/v/process_lualike)](https://pub.dev/packages/process_lualike)
 
-LuaLike is an embeddable Lua-like runtime and tooling package for Dart.
+LuaLike is an embeddable **Lua 5.5-compatible** runtime, bytecode compiler, and tooling package for Dart.
 
-It includes a high-level bridge for running scripts from Dart, AST parsing APIs, low-level parser utilities, and the same standard-library registration surface used by the built-in `string`, `table`, `math`, and `debug` libraries.
+It includes a high-level bridge for running scripts from Dart, a multi-pass optimizing bytecode compiler, AST parsing APIs, low-level parser utilities, and the same standard-library registration surface used by the built-in `string`, `table`, `math`, and `debug` libraries. The bytecode VM can run both `lualike --compile` output and bytecode produced by the official Lua 5.5 `luac55` compiler.
+
+## CLI and Compiler
+
+LuaLike ships as a standalone binary that can execute Lua scripts directly
+or compile them to optimized bytecode.
+
+```sh
+# Run a Lua script
+lualike myscript.lua
+
+# Compile to bytecode (all optimizations enabled)
+lualike --compile myscript.lua -o myscript.lub
+
+# Run compiled bytecode
+lualike --lua-bytecode myscript.lub
+```
+
+### Multi-pass optimizing compiler
+
+When `--compile` is used, lualike runs a 10-pass optimization pipeline:
+
+```
+Source → [Bundler] → [Analyzer] → [ConstPropagation] → [TypeNarrowing]
+  → [MetatableFolding] → [InliningHeuristics] → [ConstantFolding]
+  → [Simplifier] → [DeadCodeElimination] → [Peephole] → Bytecode
+```
+
+Key optimizations include:
+- **Constant folding** — arithmetic, string concatenation, comparisons,
+  boolean logic with short-circuit awareness
+- **Function inlining** — user-defined functions with all-const arguments
+  are evaluated at compile time
+- **Dead branch elimination** — `if true then A else B end` → only A compiled
+- **Type narrowing** — after `type(x) == "number"`, x is known to be a number
+- **Const propagation** — single-assignment locals forwarded without `local x <const>`
+- **Builtin folding** — `math.sin(0)`, `string.len("hi")`, `type(42)` via actual stdlib
+- **Peephole optimization** — redundant MOVE, LOADK, LOADNIL removed from IR
+- **Dead code elimination** — unused module exports tree-shaken
+- **Bundling** — static `require("path")` resolved at compile time
+
+See [doc/cli.md](pkgs/lualike/doc/cli.md) for the full CLI reference.
+
+### Cross-compatibility
+
+The bytecode format is fully compatible with Lua 5.5:
+
+```sh
+# lualike bytecode → official Lua 5.5
+lualike --compile script.lua -o script.lub
+lua55 script.lub
+
+# official luac55 bytecode → lualike VM
+luac55 -o script.lub script.lua
+lualike --lua-bytecode script.lub
+```
 
 ## What this package exposes
 
