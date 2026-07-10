@@ -272,7 +272,9 @@ final class LuaBytecodeVm {
     } finally {
       runtime.popExternalGcRoots(frame.externalGcRootProvider);
       if (!suspended && !frame.closed) {
-        await _closeFrameForCoroutine(frame, error: null);
+        if (!_closeFrameForCoroutineSync(frame)) {
+          await _closeFrameForCoroutine(frame, error: null);
+        }
       }
       final exitDebugInterpreter = _debugInterpreter;
       if (!suspended &&
@@ -1646,7 +1648,9 @@ final class LuaBytecodeVm {
           case Opcode.return_:
             {
               try {
-                await _closeFrameForCoroutine(frame, error: null);
+                if (!_closeFrameForCoroutineSync(frame)) {
+                  await _closeFrameForCoroutine(frame, error: null);
+                }
                 final resultCount = word.b == 0
                     ? frame.effectiveTop - word.a
                     : word.b - 1;
@@ -1658,7 +1662,9 @@ final class LuaBytecodeVm {
           case Opcode.return0:
             {
               try {
-                await _closeFrameForCoroutine(frame, error: null);
+                if (!_closeFrameForCoroutineSync(frame)) {
+                  await _closeFrameForCoroutine(frame, error: null);
+                }
                 return const <Value>[];
               } on YieldException catch (error) {
                 _suspendReturn(frame, 0, 1, error);
@@ -1667,7 +1673,9 @@ final class LuaBytecodeVm {
           case Opcode.return1:
             {
               try {
-                await _closeFrameForCoroutine(frame, error: null);
+                if (!_closeFrameForCoroutineSync(frame)) {
+                  await _closeFrameForCoroutine(frame, error: null);
+                }
                 return <Value>[frame.register(word.a)];
               } on YieldException catch (error) {
                 _suspendReturn(frame, word.a, 2, error);

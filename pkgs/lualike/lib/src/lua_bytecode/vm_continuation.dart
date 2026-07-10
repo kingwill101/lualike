@@ -33,15 +33,28 @@ Object? _preserveCloseErrorObject(LuaRuntime runtime, Object? error) {
   return error;
 }
 
+/// Synchronous fast path for frame close when there's no close work.
+/// Returns true if the close was handled synchronously (no close work).
+@pragma('vm:prefer-inline')
+bool _closeFrameForCoroutineSync(
+  LuaBytecodeFrame frame, {
+  int fromRegister = 0,
+}) {
+  if (!frame.hasCloseWorkFrom(fromRegister)) {
+    if (fromRegister == 0) {
+      frame.closed = true;
+    }
+    return true;
+  }
+  return false;
+}
+
 Future<void> _closeFrameForCoroutine(
   LuaBytecodeFrame frame, {
   int fromRegister = 0,
   required Object? error,
 }) async {
-  if (!frame.hasCloseWorkFrom(fromRegister)) {
-    if (fromRegister == 0) {
-      frame.closed = true;
-    }
+  if (_closeFrameForCoroutineSync(frame, fromRegister: fromRegister)) {
     return;
   }
   try {
