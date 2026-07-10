@@ -340,19 +340,33 @@ extension LuaBytecodeVmCallEntry on LuaBytecodeVm {
     LuaBytecodeFrame? callerFrame,
     bool isTailCall = false,
   }) async {
+    // Fast path: bytecode-to-bytecode direct call with no debug hooks.
+    // Skips tail-call flattening, builtin checks, and debug local handling.
+    if (_debugInterpreter?.debugHookFunction == null) {
+      final rawCallee = rawLuaSlot(callee);
+      if (rawCallee is LuaBytecodeClosure) {
+        return invoke(
+          rawCallee,
+          args,
+          functionValue: callee,
+          callName: callName ?? _callableName(callee),
+          callNameWhat: callNameWhat,
+          isTailCall: isTailCall,
+          extraArgs: extraArgs,
+        );
+      }
+      if (rawCallee is BuiltinFunction &&
+          _canInlineBuiltinWithoutManagedFrame(rawCallee) &&
+          !(runtime.isInProtectedCall && rawCallee.isBytecodeAssertBuiltin)) {
+        final valueArgs = args.cast<Value>();
+        return _invokeInlineBuiltin(callee, valueArgs, builtin: rawCallee);
+      }
+    }
     final prepared = _flattenTailCallable(callee, args);
     callee = prepared.callee;
     args = prepared.args;
     final valueArgs = args.cast<Value>();
     extraArgs += prepared.extraArgs;
-    if (_debugInterpreter?.debugHookFunction == null) {
-      final rawCallee = rawLuaSlot(callee);
-      if (rawCallee is BuiltinFunction &&
-          _canInlineBuiltinWithoutManagedFrame(rawCallee) &&
-          !(runtime.isInProtectedCall && rawCallee.isBytecodeAssertBuiltin)) {
-        return _invokeInlineBuiltin(callee, valueArgs, builtin: rawCallee);
-      }
-    }
     if (callerFrame case final parentBytecodeFrame?) {
       final callerCallFrame = runtime.callStack.top;
       if (callerCallFrame != null) {
