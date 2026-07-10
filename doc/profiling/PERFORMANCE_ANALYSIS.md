@@ -88,9 +88,13 @@ For the sort test with 250,627 comparator calls, this creates:
 - Inlined early-abort checks from `shouldRunLoopGcAtSafePoint` directly
   into `_runGcLoopSafePoint` to avoid function call on every loop backedge
 
-### Lazy frame fields (vm_frame.dart)
-- `_localExpiryFlags` changed from eagerly-computed `late final` to lazy getter
-- `_expiredRegisterCandidatesByPc` changed from eagerly-computed to lazy getter
+### Prototype-cached frame metadata (vm_frame.dart, debug_local_caches.dart)
+- `_localExpiryFlags` stays cached per prototype
+- `_expiredRegisterCandidatesByPc`, `_trackedRegisterWriteFlags`, and
+  `_visibleNamedLocalsByPc` now come from prototype-level caches
+- `sortedDebugLocalsFor()` is cached per prototype too, so frame setup no longer
+  re-sorts locals for every call
+- This is groundwork for a future reusable `LuaBytecodeFrame` / frame-pool refactor
 
 ## Test Results (After All Changes)
 

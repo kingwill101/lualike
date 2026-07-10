@@ -47,17 +47,119 @@ final class LuaBytecodeFrame implements LuaBytecodeGCRootProvider {
          growable: true,
        ),
        _materializedVarargs = null {
+    _initializeCallState(arguments);
+  }
+
+  final LuaRuntime runtime;
+  final LuaBytecodeClosure closure;
+  Value? functionValue;
+  String? callName;
+  String? callNameWhat;
+  bool isEntryFrame;
+  bool isTailCall;
+  int extraArgs;
+  final Value _nilConst;
+  late List<Value> callArgs;
+  late final Iterable<Object?> Function() externalGcRootProvider = gcReferences;
+  final List<Value> registers;
+  final List<int> _lastRegisterWritePc;
+  List<Value>? _materializedVarargs;
+  LuaResults? debugVarargValue;
+  Environment? _debugEnvironment;
+  PackedVarargTable? namedVarargTable;
+  Value? namedVarargTableValue;
+  List<bool> get _localExpiryFlags =>
+      _localExpiryFlagsFor(closure.prototype);
+  late final List<List<({int register, int endPc})>>
+  _expiredRegisterCandidatesByPc = expiredRegisterCandidatesByPcFor(
+    closure.prototype,
+  );
+  late final List<bool> _trackedRegisterWriteFlags =
+      trackedRegisterWriteFlagsFor(closure.prototype);
+  late final List<({int start, int? end})?> _writtenRegisterRangesByPc =
+      writtenRegisterRangesByPcFor(closure.prototype);
+  late final List<LuaBytecodeLocalVariableDebugInfo> sortedDebugLocals =
+      sortedDebugLocalsFor(closure.prototype);
+  late final List<Map<int, String>> _activeNamedLocalsByPc =
+      activeNamedLocalsByPcFor(closure.prototype);
+  late final List<LuaBytecodeDebugLocalWindow> _activeDebugLocalsByPc =
+      activeDebugLocalsByPcFor(closure.prototype);
+  late final List<Map<int, String>> _visibleNamedLocalsByPc =
+      visibleNamedLocalsByPcFor(closure.prototype);
+  late final List<Set<int>> _environmentRegistersByPc =
+      environmentRegistersByPcFor(closure.prototype);
+  final List<LuaBytecodeUpvalue> _openUpvalues = <LuaBytecodeUpvalue>[];
+  final Set<int> _openUpvalueRegisters = <int>{};
+  int? _maxOpenUpvalueRegister;
+  final Set<int> _toBeClosedRegisters = <int>{};
+  var _varargStart = 0;
+  var _varargCount = 0;
+
+  var pc = 0;
+  var top = 0;
+  int? openTop;
+  var safePointCounter = 0;
+  var debugStateVersion = 0;
+  var loopGcCounter = 0;
+  var closed = false;
+  var didFireEntryCallHook = false;
+  var forceNextLineHook = false;
+
+  void reset({
+    Value? functionValue,
+    String? callName,
+    String? callNameWhat,
+    required bool isEntryFrame,
+    bool isTailCall = false,
+    int extraArgs = 0,
+    required List<Object?> arguments,
+  }) {
+    this.functionValue = functionValue;
+    this.callName = callName;
+    this.callNameWhat = callNameWhat;
+    this.isEntryFrame = isEntryFrame;
+    this.isTailCall = isTailCall;
+    this.extraArgs = extraArgs;
+    _initializeCallState(arguments);
+  }
+
+  void _initializeCallState(List<Object?> arguments) {
     final regs = registers;
     final nilConst = _nilConst;
-    top = closure.prototype.parameterCount;
+    final parameterCount = closure.prototype.parameterCount;
     final normalizedArgs = arguments
         .map((argument) => runtimeValue(runtime, argument))
         .toList(growable: false);
     callArgs = normalizedArgs;
-    final parameterCount = closure.prototype.parameterCount;
+
+    pc = 0;
+    top = parameterCount;
+    openTop = null;
+    safePointCounter = 0;
+    debugStateVersion = 0;
+    loopGcCounter = 0;
+    closed = false;
+    didFireEntryCallHook = false;
+    forceNextLineHook = false;
+    _materializedVarargs = null;
+    debugVarargValue = null;
+    _debugEnvironment = null;
+    namedVarargTable = null;
+    namedVarargTableValue = null;
+    _openUpvalues.clear();
+    _openUpvalueRegisters.clear();
+    _maxOpenUpvalueRegister = null;
+    _toBeClosedRegisters.clear();
+    _varargStart = 0;
+    _varargCount = 0;
+
     // Fast init: direct register assignment without setRegister overhead.
     // setRegister does bounds checks, cloning, GC tracking, etc. which are
     // all unnecessary during frame construction (registers are fresh).
+    for (var index = 0; index < regs.length; index++) {
+      regs[index] = nilConst;
+      _lastRegisterWritePc[index] = -1;
+    }
     for (var index = 0; index < parameterCount; index++) {
       final value = index < normalizedArgs.length
           ? normalizedArgs[index]
@@ -85,221 +187,40 @@ final class LuaBytecodeFrame implements LuaBytecodeGCRootProvider {
     }
   }
 
-  final LuaRuntime runtime;
-  final LuaBytecodeClosure closure;
-  final Value? functionValue;
-  final String? callName;
-  final String? callNameWhat;
-  final bool isEntryFrame;
-  final bool isTailCall;
-  final int extraArgs;
-  final Value _nilConst;
-  late final List<Value> callArgs;
-  late final Iterable<Object?> Function() externalGcRootProvider = gcReferences;
-  final List<Value> registers;
-  final List<int> _lastRegisterWritePc;
-  List<Value>? _materializedVarargs;
-  LuaResults? debugVarargValue;
-  Environment? _debugEnvironment;
-  PackedVarargTable? namedVarargTable;
-  Value? namedVarargTableValue;
-  List<bool> get _localExpiryFlags =>
-      _localExpiryFlagsFor(closure.prototype);
-  late final List<List<({int register, int endPc})>>
-  _expiredRegisterCandidatesByPc = () {
-    final codeLength = closure.prototype.code.length;
-    final startRegistersByPc = List<List<int>>.generate(
-      codeLength,
-      (_) => <int>[],
-      growable: false,
-    );
-    final endRegistersByPc = List<List<({int register, int endPc})>>.generate(
-      codeLength,
-      (_) => <({int register, int endPc})>[],
-      growable: false,
-    );
-    for (final local in closure.prototype.localVariables) {
-      final register = local.register;
-      if (register == null) {
-        continue;
-      }
-      final startPc = local.startPc;
-      if (startPc >= 0 && startPc < codeLength) {
-        startRegistersByPc[startPc].add(register);
-      }
-      final endPc = local.endPc;
-      if (endPc >= 0 && endPc < codeLength) {
-        endRegistersByPc[endPc].add((register: register, endPc: endPc));
-      }
+  void clearForPool() {
+    functionValue = null;
+    callName = null;
+    callNameWhat = null;
+    isEntryFrame = false;
+    isTailCall = false;
+    extraArgs = 0;
+    callArgs = const <Value>[];
+    _materializedVarargs = null;
+    debugVarargValue = null;
+    _debugEnvironment = null;
+    namedVarargTable = null;
+    namedVarargTableValue = null;
+    _openUpvalues.clear();
+    _openUpvalueRegisters.clear();
+    _maxOpenUpvalueRegister = null;
+    _toBeClosedRegisters.clear();
+    pc = 0;
+    top = 0;
+    openTop = null;
+    safePointCounter = 0;
+    debugStateVersion = 0;
+    loopGcCounter = 0;
+    closed = true;
+    didFireEntryCallHook = false;
+    forceNextLineHook = false;
+    _varargStart = 0;
+    _varargCount = 0;
+    final nilConst = _nilConst;
+    for (var index = 0; index < registers.length; index++) {
+      registers[index] = nilConst;
+      _lastRegisterWritePc[index] = -1;
     }
-
-    final activeCounts = <int, int>{};
-    final latestExpiredEndPcByRegister = <int, int>{};
-    final candidatesByPc = List<List<({int register, int endPc})>>.generate(
-      codeLength,
-      (_) => <({int register, int endPc})>[],
-      growable: false,
-    );
-
-    for (var pc = 0; pc < codeLength; pc++) {
-      for (final (:register, :endPc) in endRegistersByPc[pc]) {
-        final nextCount = (activeCounts[register] ?? 0) - 1;
-        if (nextCount > 0) {
-          activeCounts[register] = nextCount;
-        } else {
-          activeCounts.remove(register);
-        }
-        final previousEndPc = latestExpiredEndPcByRegister[register];
-        if (previousEndPc == null || endPc > previousEndPc) {
-          latestExpiredEndPcByRegister[register] = endPc;
-        }
-      }
-      for (final register in startRegistersByPc[pc]) {
-        activeCounts[register] = (activeCounts[register] ?? 0) + 1;
-      }
-      if (!_localExpiryFlags[pc]) {
-        continue;
-      }
-      candidatesByPc[pc] = <({int register, int endPc})>[
-        for (final entry in latestExpiredEndPcByRegister.entries)
-          if ((activeCounts[entry.key] ?? 0) == 0)
-            (register: entry.key, endPc: entry.value),
-      ];
-    }
-    return candidatesByPc;
-  }();
-  late final List<bool> _trackedRegisterWriteFlags = () {
-    final flags = List<bool>.filled(
-      closure.prototype.maxStackSize,
-      false,
-      growable: true,
-    );
-    for (final local in closure.prototype.localVariables) {
-      final register = local.register;
-      if (register == null) {
-        continue;
-      }
-      if (register >= flags.length) {
-        flags.addAll(
-          List<bool>.filled(
-            register - flags.length + 1,
-            false,
-            growable: false,
-          ),
-        );
-      }
-      flags[register] = true;
-    }
-    return flags;
-  }();
-  late final List<({int start, int? end})?> _writtenRegisterRangesByPc =
-      writtenRegisterRangesByPcFor(closure.prototype);
-  late final List<LuaBytecodeLocalVariableDebugInfo> sortedDebugLocals =
-      sortedDebugLocalsFor(closure.prototype);
-  late final List<Map<int, String>> _activeNamedLocalsByPc =
-      activeNamedLocalsByPcFor(closure.prototype);
-  late final List<LuaBytecodeDebugLocalWindow> _activeDebugLocalsByPc =
-      activeDebugLocalsByPcFor(closure.prototype);
-  late final List<Map<int, String>> _visibleNamedLocalsByPc = () {
-    final codeLength = closure.prototype.code.length;
-    final startsByPc = List<List<LuaBytecodeLocalVariableDebugInfo>>.generate(
-      codeLength,
-      (_) => <LuaBytecodeLocalVariableDebugInfo>[],
-      growable: false,
-    );
-    final endsByPc = List<List<LuaBytecodeLocalVariableDebugInfo>>.generate(
-      codeLength,
-      (_) => <LuaBytecodeLocalVariableDebugInfo>[],
-      growable: false,
-    );
-    for (final local in closure.prototype.localVariables) {
-      if (local.register == null) {
-        continue;
-      }
-      final startPc = local.startPc;
-      if (startPc >= 0 && startPc < codeLength) {
-        startsByPc[startPc].add(local);
-      }
-      final endPc = local.endPc;
-      if (endPc >= 0 && endPc < codeLength) {
-        endsByPc[endPc].add(local);
-      }
-    }
-
-    final activeLocalsByRegister =
-        <int, List<LuaBytecodeLocalVariableDebugInfo>>{};
-    var currentVisibleLocals = const <int, String>{};
-    final snapshots = List<Map<int, String>>.filled(
-      codeLength,
-      const <int, String>{},
-      growable: false,
-    );
-
-    Map<int, String> snapshotVisibleLocals() {
-      if (activeLocalsByRegister.isEmpty) {
-        return const <int, String>{};
-      }
-      final visibleLocals = <int, String>{};
-      for (final entry in activeLocalsByRegister.entries) {
-        for (final local in entry.value) {
-          final name = local.name;
-          if (name == null || name.isEmpty || name.startsWith('(')) {
-            continue;
-          }
-          visibleLocals[entry.key] = name;
-          break;
-        }
-      }
-      return visibleLocals.isEmpty ? const <int, String>{} : visibleLocals;
-    }
-
-    for (var pc = 0; pc < codeLength; pc++) {
-      var changed = false;
-      for (final local in endsByPc[pc]) {
-        final register = local.register!;
-        final locals = activeLocalsByRegister[register];
-        if (locals == null) {
-          continue;
-        }
-        locals.remove(local);
-        if (locals.isEmpty) {
-          activeLocalsByRegister.remove(register);
-        }
-        changed = true;
-      }
-      for (final local in startsByPc[pc]) {
-        final register = local.register!;
-        activeLocalsByRegister
-            .putIfAbsent(register, () => <LuaBytecodeLocalVariableDebugInfo>[])
-            .add(local);
-        changed = true;
-      }
-      if (changed) {
-        currentVisibleLocals = snapshotVisibleLocals();
-      }
-      snapshots[pc] = currentVisibleLocals;
-    }
-
-    return snapshots;
-  }();
-  late final List<Set<int>> _environmentRegistersByPc =
-      environmentRegistersByPcFor(closure.prototype);
-  final List<LuaBytecodeUpvalue> _openUpvalues = <LuaBytecodeUpvalue>[];
-  final Set<int> _openUpvalueRegisters = <int>{};
-  int? _maxOpenUpvalueRegister;
-  final Set<int> _toBeClosedRegisters = <int>{};
-  var _varargStart = 0;
-  var _varargCount = 0;
-
-  var pc = 0;
-  var top = 0;
-  int? openTop;
-  var safePointCounter = 0;
-  var debugStateVersion = 0;
-  var loopGcCounter = 0;
-  var closed = false;
-  var didFireEntryCallHook = false;
-  var forceNextLineHook = false;
+  }
 
   int get effectiveTop => openTop ?? top;
 
@@ -842,6 +763,121 @@ final class LuaBytecodeFrame implements LuaBytecodeGCRootProvider {
       yield value;
     }
   }
+}
+
+final Expando<List<List<({int register, int endPc})>>>
+    _prototypeExpiredRegisterCandidatesByPc = Expando<
+      List<List<({int register, int endPc})>>
+    >('luaBytecodeExpiredRegisterCandidatesByPc');
+
+List<List<({int register, int endPc})>> expiredRegisterCandidatesByPcFor(
+  LuaBytecodePrototype prototype,
+) {
+  final cached = _prototypeExpiredRegisterCandidatesByPc[prototype];
+  if (cached != null) {
+    return cached;
+  }
+
+  final codeLength = prototype.code.length;
+  final startRegistersByPc = List<List<int>>.generate(
+    codeLength,
+    (_) => <int>[],
+    growable: false,
+  );
+  final endRegistersByPc = List<List<({int register, int endPc})>>.generate(
+    codeLength,
+    (_) => <({int register, int endPc})>[],
+    growable: false,
+  );
+  for (final local in prototype.localVariables) {
+    final register = local.register;
+    if (register == null) {
+      continue;
+    }
+    final startPc = local.startPc;
+    if (startPc >= 0 && startPc < codeLength) {
+      startRegistersByPc[startPc].add(register);
+    }
+    final endPc = local.endPc;
+    if (endPc >= 0 && endPc < codeLength) {
+      endRegistersByPc[endPc].add((register: register, endPc: endPc));
+    }
+  }
+
+  final activeCounts = <int, int>{};
+  final latestExpiredEndPcByRegister = <int, int>{};
+  final candidatesByPc = List<List<({int register, int endPc})>>.generate(
+    codeLength,
+    (_) => <({int register, int endPc})>[],
+    growable: false,
+  );
+
+  final localExpiryFlags = _localExpiryFlagsFor(prototype);
+  for (var pc = 0; pc < codeLength; pc++) {
+    for (final (:register, :endPc) in endRegistersByPc[pc]) {
+      final nextCount = (activeCounts[register] ?? 0) - 1;
+      if (nextCount > 0) {
+        activeCounts[register] = nextCount;
+      } else {
+        activeCounts.remove(register);
+      }
+      final previousEndPc = latestExpiredEndPcByRegister[register];
+      if (previousEndPc == null || endPc > previousEndPc) {
+        latestExpiredEndPcByRegister[register] = endPc;
+      }
+    }
+    for (final register in startRegistersByPc[pc]) {
+      activeCounts[register] = (activeCounts[register] ?? 0) + 1;
+    }
+    if (!localExpiryFlags[pc]) {
+      continue;
+    }
+    candidatesByPc[pc] = <({int register, int endPc})>[
+      for (final entry in latestExpiredEndPcByRegister.entries)
+        if ((activeCounts[entry.key] ?? 0) == 0)
+          (register: entry.key, endPc: entry.value),
+    ];
+  }
+
+  _prototypeExpiredRegisterCandidatesByPc[prototype] = candidatesByPc;
+  return candidatesByPc;
+}
+
+final Expando<List<bool>> _prototypeTrackedRegisterWriteFlags = Expando<
+  List<bool>
+>('luaBytecodeTrackedRegisterWriteFlags');
+
+List<bool> trackedRegisterWriteFlagsFor(LuaBytecodePrototype prototype) {
+  final cached = _prototypeTrackedRegisterWriteFlags[prototype];
+  if (cached != null) {
+    return List<bool>.of(cached, growable: true);
+  }
+
+  final flags = List<bool>.filled(
+    prototype.maxStackSize,
+    false,
+    growable: true,
+  );
+  for (final local in prototype.localVariables) {
+    final register = local.register;
+    if (register == null) {
+      continue;
+    }
+    if (register >= flags.length) {
+      flags.addAll(
+        List<bool>.filled(
+          register - flags.length + 1,
+          false,
+          growable: false,
+        ),
+      );
+    }
+    flags[register] = true;
+  }
+
+  _prototypeTrackedRegisterWriteFlags[prototype] =
+      List<bool>.unmodifiable(flags);
+  return List<bool>.of(flags, growable: true);
 }
 
 Object? _normalizeCloseErrorArgument(Object? error) {

@@ -162,6 +162,11 @@ final Expando<List<LuaBytecodeDebugLocalWindow>>
   'luaBytecodePrototypeActiveDebugLocalsByPc',
 );
 
+final Expando<List<Map<int, String>>>
+    prototypeVisibleNamedLocalsByPc = Expando<List<Map<int, String>>>(
+  'luaBytecodePrototypeVisibleNamedLocalsByPc',
+);
+
 List<LuaBytecodeDebugLocalWindow> activeDebugLocalsByPcFor(
   LuaBytecodePrototype prototype,
 ) {
@@ -178,6 +183,97 @@ List<LuaBytecodeDebugLocalWindow> activeDebugLocalsByPcFor(
   );
   prototypeActiveDebugLocalsByPc[prototype] = windows;
   return windows;
+}
+
+List<Map<int, String>> visibleNamedLocalsByPcFor(
+  LuaBytecodePrototype prototype,
+) {
+  final cached = prototypeVisibleNamedLocalsByPc[prototype];
+  if (cached != null) {
+    return cached;
+  }
+
+  final codeLength = prototype.code.length;
+  final startsByPc = List<List<LuaBytecodeLocalVariableDebugInfo>>.generate(
+    codeLength,
+    (_) => <LuaBytecodeLocalVariableDebugInfo>[],
+    growable: false,
+  );
+  final endsByPc = List<List<LuaBytecodeLocalVariableDebugInfo>>.generate(
+    codeLength,
+    (_) => <LuaBytecodeLocalVariableDebugInfo>[],
+    growable: false,
+  );
+  for (final local in prototype.localVariables) {
+    if (local.register == null) {
+      continue;
+    }
+    final startPc = local.startPc;
+    if (startPc >= 0 && startPc < codeLength) {
+      startsByPc[startPc].add(local);
+    }
+    final endPc = local.endPc;
+    if (endPc >= 0 && endPc < codeLength) {
+      endsByPc[endPc].add(local);
+    }
+  }
+
+  final activeLocalsByRegister =
+      <int, List<LuaBytecodeLocalVariableDebugInfo>>{};
+  var currentVisibleLocals = const <int, String>{};
+  final snapshots = List<Map<int, String>>.filled(
+    codeLength,
+    const <int, String>{},
+    growable: false,
+  );
+
+  Map<int, String> snapshotVisibleLocals() {
+    if (activeLocalsByRegister.isEmpty) {
+      return const <int, String>{};
+    }
+    final visibleLocals = <int, String>{};
+    for (final entry in activeLocalsByRegister.entries) {
+      for (final local in entry.value) {
+        final name = local.name;
+        if (name == null || name.isEmpty || name.startsWith('(')) {
+          continue;
+        }
+        visibleLocals[entry.key] = name;
+        break;
+      }
+    }
+    return visibleLocals.isEmpty ? const <int, String>{} : visibleLocals;
+  }
+
+  for (var pc = 0; pc < codeLength; pc++) {
+    var changed = false;
+    for (final local in endsByPc[pc]) {
+      final register = local.register!;
+      final locals = activeLocalsByRegister[register];
+      if (locals == null) {
+        continue;
+      }
+      locals.remove(local);
+      if (locals.isEmpty) {
+        activeLocalsByRegister.remove(register);
+      }
+      changed = true;
+    }
+    for (final local in startsByPc[pc]) {
+      final register = local.register!;
+      activeLocalsByRegister
+          .putIfAbsent(register, () => <LuaBytecodeLocalVariableDebugInfo>[])
+          .add(local);
+      changed = true;
+    }
+    if (changed) {
+      currentVisibleLocals = snapshotVisibleLocals();
+    }
+    snapshots[pc] = currentVisibleLocals;
+  }
+
+  prototypeVisibleNamedLocalsByPc[prototype] = snapshots;
+  return snapshots;
 }
 
 LuaBytecodeDebugLocalWindow debugLocalWindowForPc(
@@ -203,13 +299,25 @@ LuaBytecodeDebugLocalWindow debugLocalWindowForPc(
   );
 }
 
+final Expando<List<LuaBytecodeLocalVariableDebugInfo>>
+    prototypeSortedDebugLocals = Expando<List<LuaBytecodeLocalVariableDebugInfo>>(
+  'luaBytecodePrototypeSortedDebugLocals',
+);
+
 List<LuaBytecodeLocalVariableDebugInfo> sortedDebugLocalsFor(
   LuaBytecodePrototype prototype,
 ) {
-  return List<LuaBytecodeLocalVariableDebugInfo>.of(
+  final cached = prototypeSortedDebugLocals[prototype];
+  if (cached != null) {
+    return cached;
+  }
+
+  final sorted = List<LuaBytecodeLocalVariableDebugInfo>.of(
     prototype.localVariables,
     growable: false,
   )..sort(compareDebugLocals);
+  prototypeSortedDebugLocals[prototype] = sorted;
+  return sorted;
 }
 
 int compareDebugLocals(
