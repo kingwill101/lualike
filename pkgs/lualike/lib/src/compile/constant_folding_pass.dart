@@ -1,9 +1,13 @@
 import 'dart:collection';
-import 'dart:math' as dart_math;
 
 import 'package:lualike/src/ast.dart';
+import 'package:lualike/src/builtin_function.dart' show BuiltinFunction;
+import 'package:lualike/src/interpreter/interpreter.dart';
 import 'package:lualike/src/number.dart' show LuaNumberParser;
+import 'package:lualike/src/runtime/lua_runtime.dart';
+import 'package:lualike/src/runtime/lua_slot.dart' show rawLuaSlot;
 import 'package:lualike/src/utils/type.dart' show getLuaBaseType;
+import 'package:lualike/src/table_storage.dart' show TableStorage;
 
 /// Descriptor for a user-defined function known at compile time.
 final class _KnownFunction {
@@ -129,6 +133,11 @@ class ConstantFoldingPass {
 
   /// Current inlining call depth.
   int _inlineDepth = 0;
+
+  /// Lazily-initialized runtime for evaluating stdlib functions at compile
+  /// time (math.sin, string.len, etc.).  Created on first use, reused for
+  /// the entire fold pass.
+  LuaRuntime? _runtime;
 
   void _enterScope() {
     _constLocalScopes.add(<String, Object?>{});
@@ -1054,156 +1063,48 @@ class ConstantFoldingPass {
           return true;
         }
 
-      // ---- math.* ----
-      case ('math', 'abs'):
-        if (args.length == 1 && args[0] is num) {
-          result._setValue(node, (args[0] as num).abs()); return true;
-        }
-      case ('math', 'floor'):
-        if (args.length == 1 && args[0] is num) {
-          result._setValue(node, (args[0] as num).floor()); return true;
-        }
-      case ('math', 'ceil'):
-        if (args.length == 1 && args[0] is num) {
-          result._setValue(node, (args[0] as num).ceil()); return true;
-        }
-      case ('math', 'max'):
-        if (args.isNotEmpty && args.every((a) => a is num)) {
-          result._setValue(node, args.cast<num>().reduce((a, b) => a > b ? a : b));
-          return true;
-        }
-      case ('math', 'min'):
-        if (args.isNotEmpty && args.every((a) => a is num)) {
-          result._setValue(node, args.cast<num>().reduce((a, b) => a < b ? a : b));
-          return true;
-        }
-      case ('math', 'sqrt'):
-        if (args.length == 1 && args[0] is num) {
-          result._setValue(node, dart_math.sqrt((args[0] as num).toDouble()));
-          return true;
-        }
-      case ('math', 'sin'):
-        if (args.length == 1 && args[0] is num) {
-          result._setValue(node, dart_math.sin((args[0] as num).toDouble()));
-          return true;
-        }
-      case ('math', 'cos'):
-        if (args.length == 1 && args[0] is num) {
-          result._setValue(node, dart_math.cos((args[0] as num).toDouble()));
-          return true;
-        }
-      case ('math', 'tan'):
-        if (args.length == 1 && args[0] is num) {
-          result._setValue(node, dart_math.tan((args[0] as num).toDouble()));
-          return true;
-        }
-      case ('math', 'asin'):
-        if (args.length == 1 && args[0] is num) {
-          result._setValue(node, dart_math.asin((args[0] as num).toDouble()));
-          return true;
-        }
-      case ('math', 'acos'):
-        if (args.length == 1 && args[0] is num) {
-          result._setValue(node, dart_math.acos((args[0] as num).toDouble()));
-          return true;
-        }
-      case ('math', 'atan'):
-        if (args.length == 1 && args[0] is num) {
-          result._setValue(node, dart_math.atan((args[0] as num).toDouble()));
-          return true;
-        }
-      case ('math', 'log'):
-        if (args.length == 1 && args[0] is num) {
-          result._setValue(node, dart_math.log((args[0] as num).toDouble()));
-          return true;
-        }
-      case ('math', 'exp'):
-        if (args.length == 1 && args[0] is num) {
-          result._setValue(node, dart_math.exp((args[0] as num).toDouble()));
-          return true;
-        }
-      case ('math', 'deg'):
-        if (args.length == 1 && args[0] is num) {
-          result._setValue(node, (args[0] as num).toDouble() * 180 / dart_math.pi);
-          return true;
-        }
-      case ('math', 'rad'):
-        if (args.length == 1 && args[0] is num) {
-          result._setValue(node, (args[0] as num).toDouble() * dart_math.pi / 180);
-          return true;
-        }
+      // ---- math.* / string.* (via runtime stdlib) ----
 
-      // ---- string.* ----
-      case ('string', 'len'):
-        if (args.length == 1) {
-          final s = _stringBytes(args[0]);
-          if (s != null) { result._setValue(node, s.length); return true; }
-        }
-      case ('string', 'byte'):
-        if (args.length >= 1) {
-          final s = _stringBytes(args[0]);
-          if (s != null) {
-            final idx = args.length >= 2 && args[1] is int
-                ? (args[1] as int) - 1  // Lua 1-based
-                : 0;
-            if (idx >= 0 && idx < s.length) {
-              result._setValue(node, s[idx]); return true;
-            }
-          }
-        }
-      case ('string', 'char'):
-        if (args.isNotEmpty && args.every((a) => a is int && a >= 0 && a <= 255)) {
-          result._setValue(node, args.cast<int>()); return true;
-        }
-      case ('string', 'sub'):
-        if (args.length >= 2) {
-          final s = _stringBytes(args[0]);
-          if (s != null && args[1] is int) {
-            var start = (args[1] as int) - 1; // Lua 1-based
-            if (start < 0) start = s.length + start;
-            if (start < 0) start = 0;
-            var end = args.length >= 3 && args[2] is int
-                ? (args[2] as int)  // Lua: inclusive
-                : s.length;
-            if (end < 0) end = s.length + end;
-            if (end > s.length) end = s.length;
-            if (start < end) {
-              result._setValue(node, s.sublist(start, end)); return true;
-            }
-            result._setValue(node, <int>[]); return true; // empty string
-          }
-        }
-      case ('string', 'upper'):
-        if (args.length == 1) {
-          final s = _stringBytes(args[0]);
-          if (s != null) {
-            result._setValue(node, String.fromCharCodes(s).toUpperCase().codeUnits);
-            return true;
-          }
-        }
-      case ('string', 'lower'):
-        if (args.length == 1) {
-          final s = _stringBytes(args[0]);
-          if (s != null) {
-            result._setValue(node, String.fromCharCodes(s).toLowerCase().codeUnits);
-            return true;
-          }
-        }
-      case ('string', 'rep'):
-        if (args.length == 2 && args[1] is int) {
-          final s = _stringBytes(args[0]);
-          var n = args[1] as int;
-          if (s != null && n >= 0 && n < 1000) {
-            final bytes = <int>[];
-            for (var i = 0; i < n; i++) bytes.addAll(s);
-            result._setValue(node, bytes); return true;
-          }
-        }
 
+      case (final String module, final String fn):
+        if (_foldViaRuntime(module, fn, node, args)) return true;
       default:
         break;
     }
     return false;
+  }
+
+  /// Resolve a module.function call through the runtime stdlib.
+  ///
+  /// Looks up [module] (e.g. "math", "string") from the runtimes globals,
+  /// then looks up [name] (e.g. "sin", "len") from that table, and calls it
+  /// with [args].  If the function exists, is callable, and completes
+  /// synchronously, the raw result is stored in the folding result.
+  ///
+  /// This is fully scalable — any function registered in the stdlib is
+  /// automatically available for folding without per-function registration.
+  bool _foldViaRuntime(
+    String module, String name, AstNode node, List<Object?> args,
+  ) {
+    final rt = _runtime ??= Interpreter();
+    try {
+      final moduleTable = rt.globals.get(module);
+      if (moduleTable == null) return false;
+      final tableRaw = rawLuaSlot(moduleTable);
+      if (tableRaw is! TableStorage && tableRaw is! Map) return false;
+      final table = tableRaw is Map ? tableRaw : (tableRaw as TableStorage);
+      final func = table[name];
+      if (func == null) return false;
+      final builtin = rawLuaSlot(func);
+      if (builtin is! BuiltinFunction) return false;
+      // Call the stdlib function directly (synchronous for math/string).
+      final rawResult = builtin.call(args);
+      if (rawResult is Future) return false; // Can't sync-fold async.
+      result._setValue(node, rawLuaSlot(rawResult));
+      return true;
+    } catch (_) {
+      return false;
+    }
   }
 
   void _foldFunctionCallArgs(List<AstNode> args) {
