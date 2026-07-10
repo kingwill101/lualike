@@ -112,8 +112,12 @@ class Interpreter extends AstVisitor<Object?>
   final Set<WeakReference<Coroutine>> _activeCoroutines = {};
   final Expando<WeakReference<Coroutine>> _activeCoroutineRefs =
       Expando<WeakReference<Coroutine>>('activeCoroutineRefs');
+  int _pruneCounter = 0;
 
+  /// Only prune dead refs every 256 calls to avoid removeWhere overhead on
+  /// every getMainThread() invocation (called once per bytecode instruction).
   void _pruneDeadCoroutineRefs() {
+    if (++_pruneCounter & 0xFF != 0) return;
     _activeCoroutines.removeWhere((ref) => ref.target == null);
   }
 
@@ -900,7 +904,13 @@ class Interpreter extends AstVisitor<Object?>
 
   @override
   void popExternalGcRoots(Iterable<Object?> Function() provider) {
-    _externalGcRootProviders.remove(provider);
+    // push/pop are always LIFO (push on frame enter, pop on frame exit).
+    // removeLast avoids O(n) scan that remove() performs.
+    if (_externalGcRootProviders.last == provider) {
+      _externalGcRootProviders.removeLast();
+    } else {
+      _externalGcRootProviders.remove(provider);
+    }
   }
 
   @override
