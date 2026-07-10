@@ -35,28 +35,35 @@ final class LuaBytecodeFrame implements LuaBytecodeGCRootProvider {
     required this.isEntryFrame,
     this.isTailCall = false,
     this.extraArgs = 0,
-  }) : registers = List<Value>.generate(
-         closure.prototype.maxStackSize,
-         (_) => runtime.constantPrimitiveValue(null),
+  }) : _nilConst = runtime.constantPrimitiveValue(null),
+       registers = List<Value>.filled(
+         closure.prototype.maxStackSize < 1 ? 1 : closure.prototype.maxStackSize,
+         runtime.constantPrimitiveValue(null),
          growable: true,
        ),
        _lastRegisterWritePc = List<int>.filled(
-         closure.prototype.maxStackSize,
+         closure.prototype.maxStackSize < 1 ? 1 : closure.prototype.maxStackSize,
          -1,
          growable: true,
        ),
        _materializedVarargs = null {
+    final regs = registers;
+    final nilConst = _nilConst;
     top = closure.prototype.parameterCount;
     final normalizedArgs = arguments
         .map((argument) => runtimeValue(runtime, argument))
         .toList(growable: false);
     callArgs = normalizedArgs;
     final parameterCount = closure.prototype.parameterCount;
+    // Fast init: direct register assignment without setRegister overhead.
+    // setRegister does bounds checks, cloning, GC tracking, etc. which are
+    // all unnecessary during frame construction (registers are fresh).
     for (var index = 0; index < parameterCount; index++) {
       final value = index < normalizedArgs.length
           ? normalizedArgs[index]
-          : runtimeValue(runtime, null);
-      setRegister(index, value);
+          : nilConst;
+      value.interpreter ??= runtime;
+      regs[index] = value;
     }
     if (closure.prototype.isVararg) {
       _varargStart = parameterCount;
@@ -68,14 +75,12 @@ final class LuaBytecodeFrame implements LuaBytecodeGCRootProvider {
           normalizedArgs.skip(parameterCount),
           growable: true,
         );
-      }
-    }
-    if (closure.prototype.needsVarargTable) {
-      final packed = packVarargsTable(varargs, runtime: runtime);
-      setRegister(parameterCount, packed);
-      if (rawLuaSlot(packed) case final PackedVarargTable table) {
-        namedVarargTable = table;
-        namedVarargTableValue = packed;
+        final packed = packVarargsTable(varargs, runtime: runtime);
+        regs[parameterCount] = packed;
+        if (rawLuaSlot(packed) case final PackedVarargTable table) {
+          namedVarargTable = table;
+          namedVarargTableValue = packed;
+        }
       }
     }
   }
@@ -88,6 +93,7 @@ final class LuaBytecodeFrame implements LuaBytecodeGCRootProvider {
   final bool isEntryFrame;
   final bool isTailCall;
   final int extraArgs;
+  final Value _nilConst;
   late final List<Value> callArgs;
   late final Iterable<Object?> Function() externalGcRootProvider = gcReferences;
   final List<Value> registers;
