@@ -1091,4 +1091,5 @@ class _MathUlt extends _MathBuiltin {
 
     return primitiveValue(NumberUtils.unsignedLessThan(m, n));
   }
+
 }
