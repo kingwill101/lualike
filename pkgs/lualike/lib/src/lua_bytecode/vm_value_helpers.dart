@@ -422,7 +422,10 @@ Value transientPrimitiveValue(LuaRuntime runtime, Object? value) {
 
 Value framePrimitiveValue(LuaRuntime runtime, Object? value) {
   if (isLuaScalarPrimitiveSlot(value)) {
-    return runtime.constantPrimitiveValue(value);
+    final v = runtime.constantPrimitiveValue(value);
+    // Mark as raw primitive so GC skips tracing
+    v.isRawPrimitive = true;
+    return v;
   }
   return Value.transientPrimitive(value, interpreter: runtime);
 }

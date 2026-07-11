@@ -122,6 +122,7 @@ class LuaValueMetadata {
   static const int _isFreedFlag = 1 << 7;
   static const int _isOldFlag = 1 << 8;
   static const int _isSharedPrimitiveFlag = 1 << 9;
+  static const int _isRawPrimitiveFlag = 1 << 10;
 
   int tableVersion = 0;
   Map<String, dynamic>? metatable;
@@ -173,6 +174,9 @@ class LuaValueMetadata {
 
   bool get isSharedPrimitive => _hasFlag(_isSharedPrimitiveFlag);
   set isSharedPrimitive(bool value) => _setFlag(_isSharedPrimitiveFlag, value);
+
+  bool get isRawPrimitive => _hasFlag(_isRawPrimitiveFlag);
+  set isRawPrimitive(bool value) => _setFlag(_isRawPrimitiveFlag, value);
 }
 
 /// Represents a value in the LuaLike runtime system.
@@ -294,6 +298,14 @@ class Value with GCObject implements Map<String, dynamic> {
   set isSharedPrimitive(bool value) {
     if (!value && _metadataPayload == null) return;
     _metadataPayloadForWrite().isSharedPrimitive = value;
+  }
+
+  /// Whether this Value wraps a raw primitive (int, double, bool, null).
+  /// The GC skips these during marking — they contain no heap references.
+  bool get isRawPrimitive => _metadataPayload?.isRawPrimitive ?? false;
+  set isRawPrimitive(bool value) {
+    if (!value && _metadataPayload == null) return;
+    _metadataPayloadForWrite().isRawPrimitive = value;
   }
 
   Map<String, dynamic>? get metatable => _metadataPayload?.metatable;
@@ -819,6 +831,7 @@ class Value with GCObject implements Map<String, dynamic> {
     bool skipAllocationDebt = false,
     bool skipGcRegistration = false,
     bool isSharedPrimitive = false,
+    bool isRawPrimitive = false,
     List<Upvalue>? upvalues,
     LuaRuntime? interpreter,
     FunctionBody? functionBody,
@@ -836,6 +849,7 @@ class Value with GCObject implements Map<String, dynamic> {
       skipGcRegistration: skipGcRegistration,
       isSharedPrimitive: isSharedPrimitive,
     );
+    if (isRawPrimitive) this.isRawPrimitive = true;
     this.interpreter = interpreter;
     _setClosurePayload(
       upvalues: upvalues,
@@ -3122,6 +3136,8 @@ class Value with GCObject implements Map<String, dynamic> {
 
   @override
   List<Object?> getReferences() {
+    // Raw primitives (int, double, bool, null) contain no heap references.
+    if (isRawPrimitive) return const <Object?>[];
     return getReferencesForGC(strongKeys: true, strongValues: true);
   }
 
