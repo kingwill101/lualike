@@ -66,6 +66,8 @@ final class LuaBytecodeVm {
   final Interpreter? _debugInterpreter;
   LuaBytecodeProfile? _activeProfile;
 
+
+
   /// Resolves the underlying debug interpreter once at construction time.
   /// The debug interpreter never changes for a given VM instance.
   static Interpreter? _resolveDebugInterpreter(LuaRuntime runtime) {
