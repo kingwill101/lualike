@@ -501,10 +501,7 @@ final class LuaBytecodeVm {
           case Opcode.loadNil:
             {
               for (var index = 0; index <= word.b; index++) {
-                frame.setRegister(
-                  word.a + index,
-                  framePrimitiveValue(runtime, null),
-                );
+                frame.setRawRegister(word.a + index, null);
               }
               break;
             }

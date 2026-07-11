@@ -37,11 +37,11 @@ final class LuaBytecodeFrame implements LuaBytecodeGCRootProvider {
     this.isTailCall = false,
     this.extraArgs = 0,
   }) : _nilConst = runtime.constantPrimitiveValue(null),
-       registers = List<Value>.filled(
+       registers = List<Object?>.filled(
          closure.prototype.maxStackSize < 1
              ? 1
              : closure.prototype.maxStackSize,
-         runtime.constantPrimitiveValue(null),
+         null,
          growable: true,
        ),
        _lastRegisterWritePc = List<int>.filled(
@@ -66,7 +66,7 @@ final class LuaBytecodeFrame implements LuaBytecodeGCRootProvider {
   final Value _nilConst;
   late List<Value> callArgs;
   late final Iterable<Object?> Function() externalGcRootProvider = gcReferences;
-  final List<Value> registers;
+  final List<Object?> registers;
   final List<int> _lastRegisterWritePc;
   List<Value>? _materializedVarargs;
   LuaResults? debugVarargValue;
@@ -169,11 +169,9 @@ final class LuaBytecodeFrame implements LuaBytecodeGCRootProvider {
     _varargStart = 0;
     _varargCount = 0;
 
-    // Fast init: direct register assignment without setRegister overhead.
-    // setRegister does bounds checks, cloning, GC tracking, etc. which are
-    // all unnecessary during frame construction (registers are fresh).
+    // Fast init: direct register assignment with null/nil.
     for (var index = 0; index < regs.length; index++) {
-      regs[index] = nilConst;
+      regs[index] = null;
       _lastRegisterWritePc[index] = -1;
     }
     for (var index = 0; index < parameterCount; index++) {
@@ -233,9 +231,8 @@ final class LuaBytecodeFrame implements LuaBytecodeGCRootProvider {
     forceNextLineHook = false;
     _varargStart = 0;
     _varargCount = 0;
-    final nilConst = _nilConst;
     for (var index = 0; index < registers.length; index++) {
-      registers[index] = nilConst;
+      registers[index] = null;
       _lastRegisterWritePc[index] = -1;
     }
   }
@@ -312,37 +309,61 @@ final class LuaBytecodeFrame implements LuaBytecodeGCRootProvider {
   @pragma('vm:prefer-inline')
   Value register(int index) => slotValue(index);
 
+  /// Read raw value without boxing.
+  @pragma('vm:prefer-inline')
+  Object? rawRegister(int index) {
+    if (index < registers.length) return registers[index];
+    return null;
+  }
+
   @pragma('vm:prefer-inline')
   Value slotValue(int index) {
     if (index < registers.length) {
-      return registers[index];
+      final slot = registers[index];
+      if (slot is Value) return slot;
+      // Box raw primitive on demand
+      if (slot == null) return runtime.constantPrimitiveValue(null);
+      return runtimeValue(runtime, slot);
     }
     return runtime.constantPrimitiveValue(null);
   }
 
+  /// Store a raw primitive directly, bypassing Value boxing.
+  @pragma('vm:prefer-inline')
+  void setRawRegister(int index, Object? value) {
+    final regs = registers;
+    if (index >= regs.length) {
+      _growRegisters(index);
+    }
+    regs[index] = value;
+    debugStateVersion++;
+    if (index + 1 > top) {
+      top = index + 1;
+    }
+  }
+
+  void _growRegisters(int index) {
+    final regs = registers;
+    final fillCount = index - regs.length + 1;
+    regs.addAll(List<Object?>.filled(fillCount, null, growable: false));
+    _lastRegisterWritePc.addAll(
+      List<int>.filled(index - _lastRegisterWritePc.length + 1, -1),
+    );
+    _trackedRegisterWriteFlags.addAll(
+      List<bool>.filled(
+        index - _trackedRegisterWriteFlags.length + 1,
+        false,
+        growable: false,
+      ),
+    );
+  }
+
   void setRegister(int index, Value value) {
-    final registers = this.registers;
+    final regs = registers;
     final lastRegisterWritePc = _lastRegisterWritePc;
     final trackedRegisterWriteFlags = _trackedRegisterWriteFlags;
-    if (index >= registers.length) {
-      final fillCount = index - registers.length + 1;
-      registers.addAll(
-        List<Value>.generate(
-          fillCount,
-          (_) => runtime.constantPrimitiveValue(null),
-          growable: false,
-        ),
-      );
-      lastRegisterWritePc.addAll(
-        List<int>.filled(index - lastRegisterWritePc.length + 1, -1),
-      );
-      trackedRegisterWriteFlags.addAll(
-        List<bool>.filled(
-          index - trackedRegisterWriteFlags.length + 1,
-          false,
-          growable: false,
-        ),
-      );
+    if (index >= regs.length) {
+      _growRegisters(index);
     }
     // Clone shared cached wrappers before storing them in a register so later
     // debug writes can mutate the slot in place. Numeric primitive caches are
@@ -394,7 +415,7 @@ final class LuaBytecodeFrame implements LuaBytecodeGCRootProvider {
     final available = registers.length - start;
     final copyCount = available < count ? available : count;
     for (var index = 0; index < copyCount; index++) {
-      values[index] = registers[start + index];
+      values[index] = register(start + index);
     }
     return values;
   }
@@ -559,11 +580,11 @@ final class LuaBytecodeFrame implements LuaBytecodeGCRootProvider {
       if (_lastRegisterWritePc[registerIndex] >= endPc) {
         continue;
       }
-      final value = registers[registerIndex];
-      if (rawLuaSlot(value) == null && !value.isToBeClose) {
+      final slot = registers[registerIndex];
+      if (slot is! Value || (rawLuaSlot(slot) == null && !slot.isToBeClose)) {
         continue;
       }
-      registers[registerIndex] = runtimeValue(runtime, null);
+      registers[registerIndex] = null;
     }
   }
 
