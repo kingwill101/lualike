@@ -16,6 +16,7 @@ import 'package:lualike/src/ir/serialization.dart';
 import 'package:lualike/src/ir/textual_formatter.dart';
 import 'package:lualike/src/lua_bytecode/chunk.dart';
 import 'package:lualike/src/lua_bytecode/emitter.dart';
+import 'package:lualike/src/lua_bytecode/peephole_pass.dart' as lua_bc;
 import 'package:lualike/src/lua_bytecode/serializer.dart';
 import 'package:lualike/src/parse.dart';
 
@@ -235,7 +236,13 @@ final class CompilePipeline {
 
     // Phase 3: Optionally lower to Lua 5.4 bytecode
     if (config.target == CompileBackend.luaBytecode) {
-      final luaChunk = _lowerToLuaBytecode(foldedProgram);
+      var luaChunk = _lowerToLuaBytecode(foldedProgram);
+
+      // Peephole optimization on Lua bytecode (post-emission)
+      if (config.enablePeephole) {
+        luaChunk = lua_bc.LuaBytecodePeepholePass().optimize(luaChunk);
+      }
+
       final luaBytes = serializeLuaBytecodeChunk(
         luaChunk,
         stripDebug: config.stripDebug,

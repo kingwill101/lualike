@@ -86,9 +86,15 @@ Future<void> _runTable(List<File> files) async {
     final offIr = offArtifact as LualikeIrArtifact;
     final offCount = offIr.chunk.mainPrototype.instructions.length;
 
-    // All optimizations ON (default)
+    // All optimizations ON
     final on = CompilePipeline(
       config: const CompilePipelineConfig(
+        enableConstantFolding: true,
+        enableConstPropagation: true,
+        enableTypeNarrowing: true,
+        enableMetatableFolding: true,
+        enablePeephole: true,
+        enableDeadCodeElimination: true,
         target: CompileBackend.lualikeIR,
       ),
     );
@@ -126,6 +132,12 @@ Future<void> _runSingle(File file) async {
   // On
   final onPipeline = CompilePipeline(
     config: const CompilePipelineConfig(
+      enableConstantFolding: true,
+      enableConstPropagation: true,
+      enableTypeNarrowing: true,
+      enableMetatableFolding: true,
+      enablePeephole: true,
+      enableDeadCodeElimination: true,
       target: CompileBackend.lualikeIR,
     ),
   );
