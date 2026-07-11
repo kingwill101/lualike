@@ -80,7 +80,8 @@ LualikeIrInstruction _renameInstr(
 }
 
 LualikeIrPrototype? _runCoalesceOnce(LualikeIrPrototype prototype) {
-  final instructions = prototype.instructions;
+  // Copy to mutable list — prototype.instructions may be unmodifiable
+  final instructions = List<LualikeIrInstruction>.of(prototype.instructions);
   if (instructions.isEmpty) return null;
   final registerCount = prototype.registerCount;
   var changed = false;
