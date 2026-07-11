@@ -74,6 +74,21 @@ class PeepholePass {
         continue;
       }
 
+      // Merge consecutive LOADNILs: LOADNIL r, b; LOADNIL r+b+1, b' → LOADNIL r, b+b'+1
+      if (inst is ABCInstruction && inst.opcode == LualikeIrOpcode.loadNil &&
+          next is ABCInstruction && next.opcode == LualikeIrOpcode.loadNil &&
+          next.a == inst.a + inst.b + 1) {
+        result[i] = ABCInstruction(
+          opcode: LualikeIrOpcode.loadNil,
+          a: inst.a,
+          b: inst.b + next.b + 1,
+          c: 0,
+        );
+        result.removeAt(i + 1);
+        changed = true;
+        continue;
+      }
+
       // LOADNIL r; LOADK r, v → remove LOADNIL (dead store)
       if (inst is ABCInstruction && inst.opcode == LualikeIrOpcode.loadNil &&
           next != null && _isLoad(next) && _loadReg(next) == inst.a) {
@@ -92,10 +107,87 @@ class PeepholePass {
         continue;
       }
 
+      // Algebraic simplification: identity operations on K/I opcodes
+      if (inst is ABCInstruction && _isIdentityArithmetic(inst)) {
+        result[i] = ABCInstruction(
+          opcode: LualikeIrOpcode.move,
+          a: inst.a,
+          b: inst.b,
+          c: 0,
+        );
+        changed = true;
+        continue;
+      }
+
+      // POW r, x, 0 → LOADI r, 1
+      if (inst is ABCInstruction &&
+          (inst.opcode == LualikeIrOpcode.powK && inst.c == 0)) {
+        result[i] = AsBxInstruction(
+          opcode: LualikeIrOpcode.loadI,
+          a: inst.a,
+          sBx: 1,
+        );
+        changed = true;
+        continue;
+      }
+
+      // MUL r, x, 2 → ADD r, x, x  (strength reduction)
+      if (inst is ABCInstruction &&
+          inst.opcode == LualikeIrOpcode.mulK && inst.c == 2) {
+        result[i] = ABCInstruction(
+          opcode: LualikeIrOpcode.add,
+          a: inst.a,
+          b: inst.b,
+          c: inst.b,
+        );
+        changed = true;
+        continue;
+      }
+
+      // Jump threading: JMP +1 → remove (fall-through is next instruction)
+      if (inst is AsJInstruction && inst.opcode == LualikeIrOpcode.jmp &&
+          inst.sJ == 1) {
+        result.removeAt(i);
+        changed = true;
+        continue;
+      }
+
+      // Jump threading: JMP -> JMP → redirect to final target
+      if (inst is AsJInstruction && inst.opcode == LualikeIrOpcode.jmp) {
+        final targetPc = i + 1 + inst.sJ;
+        if (targetPc >= 0 && targetPc < result.length) {
+          final targetInst = result[targetPc];
+          if (targetInst is AsJInstruction &&
+              targetInst.opcode == LualikeIrOpcode.jmp) {
+            final finalTargetPc = targetPc + 1 + targetInst.sJ;
+            final newSj = finalTargetPc - i - 1;
+            if (newSj != inst.sJ) {
+              result[i] = AsJInstruction(
+                opcode: LualikeIrOpcode.jmp,
+                sJ: newSj,
+              );
+              changed = true;
+              continue;
+            }
+          }
+        }
+      }
+
       i++;
     }
 
     return changed ? result : code;
+  }
+
+  /// ADDx+0, SUBx-0, MULx*1, DIVx/1 → MOVE
+  bool _isIdentityArithmetic(ABCInstruction inst) {
+    return inst.opcode == LualikeIrOpcode.addI && inst.c == 0 ||
+        inst.opcode == LualikeIrOpcode.addK && inst.c == 0 ||
+        inst.opcode == LualikeIrOpcode.subK && inst.c == 0 ||
+        inst.opcode == LualikeIrOpcode.mulK && inst.c == 1 ||
+        inst.opcode == LualikeIrOpcode.divK && inst.c == 1 ||
+        inst.opcode == LualikeIrOpcode.idivK && inst.c == 1 ||
+        inst.opcode == LualikeIrOpcode.powK && inst.c == 1;
   }
 
   bool _isLoad(LualikeIrInstruction inst) {

@@ -71,6 +71,20 @@ class LuaBytecodePeepholePass {
       }
 
       if (next != null) {
+        // Merge consecutive LOADNILs: LOADNIL r, b; LOADNIL r+b+1, b' → LOADNIL r, b+b'+1
+        if (inst.opcode == Opcode.loadNil && next.opcode == Opcode.loadNil &&
+            next.a == inst.a + inst.b + 1) {
+          result[i] = LuaBytecodeInstructionWord.abc(
+            opcode: Opcode.loadNil.code,
+            a: inst.a,
+            b: inst.b + next.b + 1,
+            c: 0,
+          );
+          result.removeAt(i + 1);
+          changed = true;
+          continue;
+        }
+
         // LOADK r, k; MOVE r, r → remove MOVE
         if (_isLoadK(inst) && _isMove(next) && next.a == inst.a && next.b == inst.a) {
           result.removeAt(i + 1);
