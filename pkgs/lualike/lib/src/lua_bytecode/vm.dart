@@ -484,18 +484,18 @@ final class LuaBytecodeVm {
             }
           case Opcode.loadFalse:
             {
-              frame.setRegister(word.a, framePrimitiveValue(runtime, false));
+              frame.setRawRegister(word.a, false);
               break;
             }
           case Opcode.lFalseSkip:
             {
-              frame.setRegister(word.a, framePrimitiveValue(runtime, false));
+              frame.setRawRegister(word.a, false);
               frame.pc += 1;
               break;
             }
           case Opcode.loadTrue:
             {
-              frame.setRegister(word.a, framePrimitiveValue(runtime, true));
+              frame.setRawRegister(word.a, true);
               break;
             }
           case Opcode.loadNil:
