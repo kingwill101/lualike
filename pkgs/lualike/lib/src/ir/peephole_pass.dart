@@ -176,6 +176,37 @@ class PeepholePass {
       i++;
     }
 
+    // Load-store forwarding:
+    // SETFIELD a=table, b=fieldConst, c=value  →  GETFIELD a=dest, b=table, c=fieldConst
+    // → replace GETFIELD with MOVE from value
+    for (var i = 0; i < result.length; i++) {
+      final inst = result[i];
+      if (inst is! ABCInstruction || inst.opcode != LualikeIrOpcode.setField) continue;
+      final tableReg = inst.a;
+      final fieldConst = inst.b;
+
+      for (var j = i + 1; j < result.length; j++) {
+        final later = result[j];
+        // Stop scan if table register is redefined
+        if (later is ABCInstruction && later.a == tableReg &&
+            later.opcode != LualikeIrOpcode.getField) break;
+
+        if (later is ABCInstruction &&
+            later.opcode == LualikeIrOpcode.getField &&
+            later.b == tableReg && later.c == fieldConst) {
+          // Forward the stored value
+          result[j] = ABCInstruction(
+            opcode: LualikeIrOpcode.move,
+            a: later.a,
+            b: inst.c,
+            c: 0,
+          );
+          changed = true;
+          break;
+        }
+      }
+    }
+
     return changed ? result : code;
   }
 
