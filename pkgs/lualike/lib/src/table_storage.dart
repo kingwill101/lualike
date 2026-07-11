@@ -96,6 +96,10 @@ class TableStorage extends MapBase<dynamic, dynamic> {
   int _hashCount = 0;
   int _rawStringKeyChars = 0;
 
+  /// Version counter incremented on every mutation.
+  /// Used by inline caches to detect stale entries.
+  int icVersion = 0;
+
   static const int _maxArraySize = 1 << 20; // ~1M entries
   static const int _maxDeletedIterationKeys = 256;
   static const int _minOccupiedCapacity = 8;
@@ -152,6 +156,7 @@ class TableStorage extends MapBase<dynamic, dynamic> {
 
   @override
   void operator []=(dynamic key, dynamic value) {
+    icVersion++;
     final oneBasedIndex = _arrayIndexFor(key);
     if (value == null) {
       remove(key);
@@ -323,6 +328,7 @@ class TableStorage extends MapBase<dynamic, dynamic> {
 
   @override
   dynamic remove(Object? key) {
+    icVersion++;
     final arrayIdx = _arrayIndexFor(key);
     if (arrayIdx != null) {
       if (arrayIdx >= _array.length) {

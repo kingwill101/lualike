@@ -68,6 +68,8 @@ final class LuaBytecodeVm {
 
 
 
+
+
   /// Resolves the underlying debug interpreter once at construction time.
   /// The debug interpreter never changes for a given VM instance.
   static Interpreter? _resolveDebugInterpreter(LuaRuntime runtime) {
@@ -585,6 +587,7 @@ final class LuaBytecodeVm {
             {
               final receiver = frame.register(word.b);
               final rawKey = stringConstantRaw(prototype, word.c);
+
               final fastValue = _tryFastTableGetStringKey(receiver, rawKey);
               if (fastValue != null) {
                 frame.setRegister(word.a, fastValue);
