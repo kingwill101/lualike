@@ -8,6 +8,7 @@ import 'dart:io';
 
 import 'package:lualike/lualike.dart';
 import 'package:lualike/src/compile/pipeline.dart';
+import 'package:lualike/src/ir/ssa_dead_code_pass.dart';
 
 final _results = <String, _SsaMetrics>{};
 
@@ -108,6 +109,17 @@ Future<void> _analyzeFile(File file, {bool verbose = false}) async {
   final ir = artifact as LualikeIrArtifact;
 
   _analyzePrototype(ir.chunk.mainPrototype, name: name, verbose: verbose);
+
+  // Show dead code elimination impact
+  final cleaned = eliminateDeadCode(ir.chunk.mainPrototype);
+  final beforeCount = ir.chunk.mainPrototype.instructions.length;
+  final afterCount = cleaned.instructions.length;
+  final removed = beforeCount - afterCount;
+  if (removed > 0) {
+    final pct = (removed / beforeCount * 100).toStringAsFixed(1);
+    print('  → SSA DCE: $beforeCount → $afterCount instructions (-$removed, $pct%)');
+  }
+  _analyzePrototype(cleaned, name: '$name (after DCE)', verbose: false);
 }
 
 void _analyzePrototype(
