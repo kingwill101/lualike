@@ -12,7 +12,6 @@ import 'dart:io';
 
 import 'package:lualike/ir.dart';
 import 'package:lualike/src/compile/pipeline.dart';
-import 'package:lualike/src/ir/textual_formatter.dart';
 
 void main(List<String> args) async {
   if (args.isEmpty) {
@@ -119,6 +118,9 @@ Future<void> _runTable(List<File> files) async {
         enableSsaDeadCodeElimination: true,
         enableSsaGlobalValueNumbering: true,
         enableSsaSccp: true,
+        enableSsaLicm: true,
+        enableSsaCoalesce: true,
+        enableSsaEscape: true,
         target: CompileBackend.lualikeIR,
       ),
     );
@@ -131,8 +133,6 @@ Future<void> _runTable(List<File> files) async {
     final ssaDelta = offCount - ssaCount;
     final pct = offCount > 0 ? (delta / offCount * 100).toStringAsFixed(1) : '0.0';
     final ssaPct = offCount > 0 ? (ssaDelta / offCount * 100).toStringAsFixed(1) : '0.0';
-    final deltaStr = delta >= 0 ? '+$delta' : '$delta';
-    final ssaDeltaStr = ssaDelta >= 0 ? '+$ssaDelta' : '$ssaDelta';
     final bDelta = offBytes - onBytes;
     final bSsaDelta = offBytes - ssaBytes;
     final bPct = offBytes > 0 ? (bDelta / offBytes * 100).toStringAsFixed(1) : '0.0';
@@ -180,24 +180,52 @@ Future<void> _runSingle(File file) async {
   final onArtifact = onPipeline.compileSource(source);
   final onIr = onArtifact as LualikeIrArtifact;
 
-  final delta = offIr.chunk.mainPrototype.instructions.length -
-      onIr.chunk.mainPrototype.instructions.length;
-  final pct = offIr.chunk.mainPrototype.instructions.length > 0
-      ? (delta / offIr.chunk.mainPrototype.instructions.length * 100)
-          .toStringAsFixed(1)
+  // On + SSA
+  final ssaPipeline = CompilePipeline(
+    config: const CompilePipelineConfig(
+      enableConstantFolding: true,
+      enableConstPropagation: true,
+      enableTypeNarrowing: true,
+      enableMetatableFolding: true,
+      enablePeephole: true,
+      enableDeadCodeElimination: true,
+      enableSsaDeadCodeElimination: true,
+      enableSsaGlobalValueNumbering: true,
+      enableSsaSccp: true,
+      enableSsaLicm: true,
+      enableSsaCoalesce: true,
+      enableSsaEscape: true,
+      target: CompileBackend.lualikeIR,
+    ),
+  );
+  final ssaArtifact = ssaPipeline.compileSource(source);
+  final ssaIr = ssaArtifact as LualikeIrArtifact;
+
+  final offCount = _totalInstrs(offIr.chunk.mainPrototype);
+  final onCount = _totalInstrs(onIr.chunk.mainPrototype);
+  final ssaCount = _totalInstrs(ssaIr.chunk.mainPrototype);
+  final delta = offCount - onCount;
+  final ssaDelta = offCount - ssaCount;
+  final pct = offCount > 0
+      ? (delta / offCount * 100).toStringAsFixed(1)
+      : '0.0';
+  final ssaPct = offCount > 0
+      ? (ssaDelta / offCount * 100).toStringAsFixed(1)
       : '0.0';
 
-  print('$name: ${offIr.chunk.mainPrototype.instructions.length} → '
-      '${onIr.chunk.mainPrototype.instructions.length} instructions '
-      '(${delta >= 0 ? '+' : ''}$delta, $pct%)');
+  print('$name: off=$offCount on=$onCount ssa=$ssaCount '
+      '(Δ=$delta, $pct% from off; Δssa=$ssaDelta, $ssaPct% from off)');
   print('');
 
-  // Show IR disassembly side by side
+  // Show IR disassembly
   print('═══ IR (all passes OFF) ═══');
   print(formatLualikeIrChunk(offIr.chunk));
   print('');
   print('═══ IR (all passes ON) ═══');
   print(formatLualikeIrChunk(onIr.chunk));
+  print('');
+  print('═══ IR (ON + SSA) ═══');
+  print(formatLualikeIrChunk(ssaIr.chunk));
 }
 
 int _totalInstrs(LualikeIrPrototype proto) {
