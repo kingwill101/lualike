@@ -9,6 +9,7 @@ import 'package:lualike/src/interpreter/interpreter.dart';
 import 'package:lualike/src/lua_bytecode/disassembler.dart';
 import 'package:lualike/src/lua_bytecode/emitter.dart';
 import 'package:lualike/src/lua_bytecode/parser.dart';
+import 'package:lualike/src/lua_bytecode/runtime.dart';
 import 'package:lualike/src/lua_string.dart';
 import 'package:lualike/src/runtime/lua_runtime.dart';
 import 'package:lualike/src/value.dart';
@@ -36,7 +37,7 @@ void main() {
       expect(parsed.mainPrototype.upvalues.single.name, equals('_ENV'));
       expect(parsed.mainPrototype.source, equals('@$chunkName'));
 
-      final runtime = Interpreter();
+      final runtime = LuaBytecodeRuntime();
       final loadResult = await runtime.loadChunk(
         LuaChunkLoadRequest(
           source: Value(
