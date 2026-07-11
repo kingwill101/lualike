@@ -84,28 +84,6 @@ Future<T> _withProtectedCallResume<T>(
   }
 }
 
-/// Compact frame state for stackless coroutine suspension.
-/// Stores only essential data so the full [LuaBytecodeFrame] can be released
-/// to the pool while the coroutine is suspended.
-final class _CompactFrameState {
-  _CompactFrameState.fromFrame(LuaBytecodeFrame frame)
-    : closure = frame.closure,
-      pc = frame.pc,
-      top = frame.top,
-      registers = List<Value>.of(frame.registers),
-      callName = frame.callName,
-      isEntryFrame = frame.isEntryFrame,
-      isTailCall = frame.isTailCall;
-
-  final LuaBytecodeClosure closure;
-  final int pc;
-  final int top;
-  final List<Value> registers;
-  final String? callName;
-  final bool isEntryFrame;
-  final bool isTailCall;
-}
-
 CoroutineContinuation _wrapFrameContinuation(
   LuaBytecodeVm vm,
   LuaBytecodeFrame frame,
@@ -116,20 +94,6 @@ CoroutineContinuation _wrapFrameContinuation(
       when identical(suspension.frame, frame) &&
           suspension.resumeInProtectedCall == resumeInProtectedCall) {
     return suspension;
-  }
-  // Compact for stackless suspension only when there's no child (coroutine
-  // yield). Temporary suspensions (calls, concat, etc.) still need the frame.
-  if (child == null) {
-    final compact = _CompactFrameState.fromFrame(frame);
-    frame.closed = true;
-    vm._releaseBytecodeFrameIfReusable(frame);
-    return LuaBytecodeFrameSuspension(
-      vm: vm,
-      frame: frame,
-      resumeInProtectedCall: resumeInProtectedCall,
-      child: child,
-      compactState: compact,
-    );
   }
   return LuaBytecodeFrameSuspension(
     vm: vm,
