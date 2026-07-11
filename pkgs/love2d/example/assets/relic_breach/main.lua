@@ -843,6 +843,14 @@ local function visible_world_bounds(margin)
 end
 
 local function current_room()
+  if #ROOMS == 0 then
+    return nil
+  end
+
+  if game.currentRoomIndex < 1 or game.currentRoomIndex > #ROOMS then
+    game.currentRoomIndex = ((game.currentRoomIndex - 1) % #ROOMS) + 1
+  end
+
   return ROOMS[game.currentRoomIndex]
 end
 
@@ -867,6 +875,10 @@ local function copy_rect(rect)
 end
 
 local function copy_point(point)
+  if point == nil then
+    return nil
+  end
+
   return {
     x = point.x,
     y = point.y,
@@ -966,15 +978,19 @@ end
 
 local function build_room()
   local room = current_room()
+  if room == nil then
+    error(('Invalid room index %s'):format(tostring(game.currentRoomIndex)))
+  end
+
   game.walls = {}
   game.props = {}
   game.waterPools = {}
-  for _, pool in ipairs(room.waterPools) do
+  for _, pool in ipairs(room.waterPools or {}) do
     table.insert(game.waterPools, copy_rect(pool))
   end
   game.relic = copy_point(room.relic)
 
-  for _, wall in ipairs(room.walls) do
+  for _, wall in ipairs(room.walls or {}) do
     local body = love.physics.newBody(game.world, wall.x, wall.y, "static")
     local shape = love.physics.newRectangleShape(wall.w, wall.h)
     local fixture = love.physics.newFixture(body, shape)
@@ -989,7 +1005,7 @@ local function build_room()
     })
   end
 
-  for _, prop in ipairs(room.props) do
+  for _, prop in ipairs(room.props or {}) do
     local quad = nil
     if prop.kind == "shelf" then
       quad = cycle_quad(game.quads.shelf, prop.variant or 1)
@@ -1009,7 +1025,7 @@ local function build_room()
   end
 
   game.crates = {}
-  for _, position in ipairs(room.crates) do
+  for _, position in ipairs(room.crates or {}) do
     spawn_crate(position.x, position.y)
   end
   game.totalCrates = #game.crates

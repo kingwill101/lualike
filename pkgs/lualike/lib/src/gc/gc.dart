@@ -21,9 +21,16 @@ mixin GCObject {
   /// Used in generational collection to determine which generation the object belongs to.
   bool isOld = false;
 
+  /// Whether this object should be counted as excluded from Lua-visible
+  /// allocation credits.
+  bool gcExcluded = false;
+
   /// Which GC generation space this object is tracked in, or null if untracked.
   /// Stored directly on the object to avoid Expando lookups on hot paths.
   GCGenerationSpace? gcSpace;
+
+  /// Cached memory credits tracked for this object, or null if untracked.
+  int? gcCredits;
 
   /// Estimated memory footprint for this object expressed in GC "credits".
   ///

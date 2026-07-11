@@ -134,6 +134,10 @@ flutter:
     - assets/shader_explorer/conf.lua
     - assets/shader_explorer/main.lua
     - assets/shader_explorer/src/
+    - assets/space_invaders/conf.lua
+    - assets/space_invaders/main.lua
+    - assets/snake/conf.lua
+    - assets/snake/main.lua
   shaders:
     - assets/shader_explorer/shaders/barrel_blur.glsl
     - assets/shader_explorer/shaders/glitch.glsl
