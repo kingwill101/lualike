@@ -51,6 +51,21 @@ extension LuaBytecodeVmCallEntry on LuaBytecodeVm {
           return result;
         } on TailCallException catch (tail) {
           _releaseBytecodeFrameIfReusable(frame);
+          // Fast path: when the tail-call target is already a
+          // LuaBytecodeClosure (the hot path) and no debug hooks are
+          // active, skip _flattenTailCallable and name resolution.
+          final tailRawCallee = rawLuaSlot(tail.functionValue);
+          if (tailRawCallee is LuaBytecodeClosure &&
+              _debugInterpreter?.debugHookFunction == null) {
+            currentClosure = tailRawCallee;
+            currentArgs = tail.args;
+            currentFunctionValue = tail.functionValue;
+            currentCallName = null;
+            currentCallNameWhat = null;
+            currentIsTailCall = true;
+            currentExtraArgs = 0;
+            continue;
+          }
           final prepared = _flattenTailCallable(
             tail.functionValue,
             tail.args,

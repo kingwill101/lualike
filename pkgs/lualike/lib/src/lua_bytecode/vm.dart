@@ -316,6 +316,29 @@ final class LuaBytecodeVm {
         _releaseBytecodeFrameIfReusable(frame);
         return result;
       } on TailCallException catch (tail) {
+        // Fast path: LuaBytecodeClosure with no debug hooks.
+        final tailRawCallee = rawLuaSlot(tail.functionValue);
+        if (tailRawCallee is LuaBytecodeClosure &&
+            _debugInterpreter?.debugHookFunction == null) {
+          final tailFnValue = tail.functionValue is Value
+              ? tail.functionValue as Value
+              : null;
+          try {
+            final result = await invoke(
+              tailRawCallee,
+              tail.args,
+              functionValue: tailFnValue,
+              isTailCall: true,
+            );
+            _releaseBytecodeFrameIfReusable(frame);
+            return result;
+          } on YieldException catch (error) {
+            _suspendTailCall(frame, error);
+          } catch (error) {
+            _releaseBytecodeFrameIfReusable(frame);
+            rethrow;
+          }
+        }
         final prepared = _flattenTailCallable(
           tail.functionValue,
           tail.args,
@@ -1616,6 +1639,24 @@ final class LuaBytecodeVm {
                 frame.top = callTop;
                 frame.openTop = word.b == 0 ? callTop : null;
                 final call = _resolveCall(frame, word);
+                final rawCallee = rawLuaSlot(call.callee);
+
+                // Fast path: LuaBytecodeClosure with no debug hooks.
+                // Skips name resolution, _flattenTailCallable, and async
+                // frame close. Still throws TailCallException to unwind
+                // back to invoke()'s tail-call loop (vm_call.dart).
+                if (rawCallee is LuaBytecodeClosure &&
+                    _debugInterpreter?.debugHookFunction == null) {
+                  if (!_closeFrameForCoroutineSync(frame)) {
+                    await _closeFrameForCoroutine(frame, error: null);
+                  }
+                  throw TailCallException(
+                    call.callee,
+                    call.args,
+                  );
+                }
+
+                // Slow path: metatables, debug hooks, non-closure callees.
                 final tailName = _callSiteTargetLabel(
                   frame,
                   word.a,
@@ -1625,7 +1666,9 @@ final class LuaBytecodeVm {
                 final prepared = _flattenTailCallable(call.callee, call.args);
                 final callee = prepared.callee;
                 if (rawLuaSlot(callee) case LuaBytecodeClosure()) {
-                  await _closeFrameForCoroutine(frame, error: null);
+                  if (!_closeFrameForCoroutineSync(frame)) {
+                    await _closeFrameForCoroutine(frame, error: null);
+                  }
                   throw TailCallException(
                     callee,
                     prepared.args,
@@ -1639,7 +1682,9 @@ final class LuaBytecodeVm {
                   callNameWhat: tailNameInfo.namewhat,
                   isTailCall: true,
                 );
-                await _closeFrameForCoroutine(frame, error: null);
+                if (!_closeFrameForCoroutineSync(frame)) {
+                  await _closeFrameForCoroutine(frame, error: null);
+                }
                 return results;
               } on YieldException catch (error) {
                 _suspendTailCall(frame, error);
