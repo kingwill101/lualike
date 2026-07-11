@@ -154,10 +154,17 @@ extension LuaBytecodeVmTables on LuaBytecodeVm {
     return false;
   }
 
+  void _writeBarrier(Value table, Value value) {
+    if (table.isOld && !value.isOld) {
+      runtime.gc.recordWriteBarrier(table);
+    }
+  }
+
   bool _tryFastTableSet(Value table, Value key, Value value) {
     table.interpreter ??= runtime;
     key.interpreter ??= runtime;
     value.interpreter ??= runtime;
+    _writeBarrier(table, value);
     final rawTable = rawLuaSlot(table);
     final rawValue = rawLuaSlot(value);
     final hasWeakMode = table.tableWeakMode != null;

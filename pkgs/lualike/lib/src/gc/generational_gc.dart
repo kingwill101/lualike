@@ -340,6 +340,10 @@ class GenerationalGCManager {
   /// The old generation containing objects that have survived at least one collection.
   final Generation oldGen = Generation();
 
+  /// Remembered set for write barriers: old-gen objects that may contain
+  /// references to young-gen objects. Scanned during minor collections.
+  final Set<GCObject> _rememberedSet = HashSet<GCObject>.identity();
+
   // New fields for finalization logic
   final Set<GCObject> _toBeFinalized = {};
   final Set<GCObject> _alreadyFinalized = {};
@@ -355,6 +359,13 @@ class GenerationalGCManager {
       HashMap<Value, Set<dynamic>>.identity();
   // Removed: _pendingAllWeakRemovals (unused)
   final List<Future<void>> _pendingAsyncFinalizers = <Future<void>>[];
+
+  /// Record a write barrier: [oldObj] (old generation) now references
+  /// a young-generation object. The [oldObj] is added to the remembered
+  /// set so it will be scanned during the next minor collection.
+  void recordWriteBarrier(GCObject oldObj) {
+    _rememberedSet.add(oldObj);
+  }
 
   /// Multiplicative factor applied to the allocation debt threshold before
   /// automatic collection is requested. This prevents small, frequent
@@ -2412,10 +2423,14 @@ class GenerationalGCManager {
       );
     }
 
-    // In a real generational GC, we'd need a write barrier to track pointers
-    // from the old generation to the young generation. For now, we'll just
-    // consider all old-gen objects as roots for the minor collection mark phase.
-    final minorRoots = [...roots, ...oldGen.objects];
+    // Use the remembered set (write barrier) instead of scanning all old-gen
+    // objects. If the remembered set is empty, fall back to scanning all old
+    // objects to remain safe.
+    final remembered = _rememberedSet.toList(growable: false);
+    _rememberedSet.clear();
+    final minorRoots = remembered.isNotEmpty
+        ? [...roots, ...remembered]
+        : [...roots, ...oldGen.objects];
 
     // Mark from roots
     _markGeneration(youngGen, minorRoots);
