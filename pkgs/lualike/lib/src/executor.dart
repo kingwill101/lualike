@@ -80,6 +80,11 @@ Future<Object?> executeCode(
       if (artifact is LualikeIrArtifact && artifact.disassembly != null) {
         stderr.writeln(artifact.disassembly);
       }
+      if (artifact is LualikeIrArtifact && artifact.ssaDisassembly != null) {
+        stderr.writeln('--- Lualike SSA ---');
+        stderr.writeln(artifact.ssaDisassembly);
+        stderr.writeln('--- End Lualike SSA ---');
+      }
 
       final chunk = await runtime.loadBytecode(
         artifact.serializedBytes,

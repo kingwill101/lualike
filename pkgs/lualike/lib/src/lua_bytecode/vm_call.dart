@@ -66,10 +66,7 @@ extension LuaBytecodeVmCallEntry on LuaBytecodeVm {
             currentExtraArgs = 0;
             continue;
           }
-          final prepared = _flattenTailCallable(
-            tail.functionValue,
-            tail.args,
-          );
+          final prepared = _flattenTailCallable(tail.functionValue, tail.args);
           final callee = prepared.callee;
           final tailNameInfo = _decodeTailCallNameInfo(tail.callName);
           if (rawLuaSlot(callee) case final LuaBytecodeClosure nextClosure) {
@@ -131,6 +128,7 @@ extension LuaBytecodeVmCallEntry on LuaBytecodeVm {
         extraArgs: extraArgs,
         arguments: arguments,
       );
+      frame.isInPool = false;
       return frame;
     }
     return LuaBytecodeFrame(
@@ -147,22 +145,26 @@ extension LuaBytecodeVmCallEntry on LuaBytecodeVm {
   }
 
   void _releaseBytecodeFrameIfReusable(LuaBytecodeFrame frame) {
-    if (!frame.closed) {
+    if (!frame.closed || frame.isInPool) {
       return;
     }
-    // Only pooled frames that have fully unwound can be recycled; suspended
-    // continuations still need their live frame state.
+    // Only fully unwound frames can be recycled; suspended continuations
+    // still need their live frame state. Guard against double-releasing a
+    // frame that is already back in the pool.
     frame.clearForPool();
-    (_bytecodeFramePoolByClosure[frame.closure] ??= <LuaBytecodeFrame>[])
-        .add(frame);
+    frame.isInPool = true;
+    (_bytecodeFramePoolByClosure[frame.closure] ??= <LuaBytecodeFrame>[]).add(
+      frame,
+    );
   }
 
   ({Value callee, List<Object?> args, int extraArgs}) _flattenTailCallable(
     Object? callee,
     List<Object?> args,
   ) {
-    var currentCallee =
-        callee is Value ? callee : valueFromLuaSlot(runtime, callee);
+    var currentCallee = callee is Value
+        ? callee
+        : valueFromLuaSlot(runtime, callee);
     var extraArgs = 0;
     while (true) {
       currentCallee.interpreter ??= runtime;

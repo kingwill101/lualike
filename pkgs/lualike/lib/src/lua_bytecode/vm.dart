@@ -59,7 +59,8 @@ final RegExp _bytecodeFormattedLuaErrorPattern = RegExp(
 );
 
 final class LuaBytecodeVm {
-  LuaBytecodeVm(this.runtime) : _debugInterpreter = _resolveDebugInterpreter(runtime);
+  LuaBytecodeVm(this.runtime)
+    : _debugInterpreter = _resolveDebugInterpreter(runtime);
 
   final LuaRuntime runtime;
   final Interpreter? _debugInterpreter;
@@ -98,7 +99,8 @@ final class LuaBytecodeVm {
     final callableValue = switch (frame.functionValue) {
       final Value functionValue when functionValue.functionBody != null =>
         functionValue,
-      final Value functionValue when rawLuaSlot(functionValue) is LuaBytecodeClosure =>
+      final Value functionValue
+          when rawLuaSlot(functionValue) is LuaBytecodeClosure =>
         closure.callableValue,
       final Value functionValue => functionValue,
       _ => closure.callableValue,
@@ -339,10 +341,7 @@ final class LuaBytecodeVm {
             rethrow;
           }
         }
-        final prepared = _flattenTailCallable(
-          tail.functionValue,
-          tail.args,
-        );
+        final prepared = _flattenTailCallable(tail.functionValue, tail.args);
         final callee = prepared.callee;
         if (rawLuaSlot(callee) case final LuaBytecodeClosure nextClosure) {
           try {
@@ -1640,32 +1639,64 @@ final class LuaBytecodeVm {
                 frame.openTop = word.b == 0 ? callTop : null;
                 final call = _resolveCall(frame, word);
                 final rawCallee = rawLuaSlot(call.callee);
+                final debugHooksEnabled =
+                    _debugInterpreter?.debugHookFunction != null;
 
-                // Fast path: LuaBytecodeClosure with no debug hooks.
-                // Skips name resolution, _flattenTailCallable, and async
-                // frame close. Still throws TailCallException to unwind
-                // back to invoke()'s tail-call loop (vm_call.dart).
-                if (rawCallee is LuaBytecodeClosure &&
-                    _debugInterpreter?.debugHookFunction == null) {
+                // Fast path: tail calls between bytecode closures with no
+                // debug hooks. Close the frame synchronously, recycle it, and
+                // jump straight into invoke() so we avoid TailCallException.
+                if (rawCallee is LuaBytecodeClosure && !debugHooksEnabled) {
                   if (!_closeFrameForCoroutineSync(frame)) {
                     await _closeFrameForCoroutine(frame, error: null);
                   }
-                  throw TailCallException(
-                    call.callee,
-                    call.args,
-                  );
+                  try {
+                    final result = await invoke(
+                      rawCallee,
+                      call.args,
+                      functionValue: call.callee,
+                      isTailCall: true,
+                    );
+                    _releaseBytecodeFrameIfReusable(frame);
+                    return result;
+                  } on YieldException catch (error) {
+                    _suspendTailCall(frame, error);
+                  } catch (error) {
+                    _releaseBytecodeFrameIfReusable(frame);
+                    rethrow;
+                  }
                 }
 
-                // Slow path: metatables, debug hooks, non-closure callees.
-                final tailName = _callSiteTargetLabel(
-                  frame,
-                  word.a,
-                  call.callee,
-                );
-                final tailNameInfo = _decodeTailCallNameInfo(tailName);
+                // Slow path: metatables, debug hooks, or non-closure callees.
+                final tailName = debugHooksEnabled
+                    ? _callSiteTargetLabel(frame, word.a, call.callee)
+                    : null;
+                final tailNameInfo = debugHooksEnabled
+                    ? _decodeTailCallNameInfo(tailName)
+                    : (name: null, namewhat: '');
                 final prepared = _flattenTailCallable(call.callee, call.args);
                 final callee = prepared.callee;
-                if (rawLuaSlot(callee) case LuaBytecodeClosure()) {
+                if (rawLuaSlot(callee) case LuaBytecodeClosure nextClosure) {
+                  if (!debugHooksEnabled) {
+                    if (!_closeFrameForCoroutineSync(frame)) {
+                      await _closeFrameForCoroutine(frame, error: null);
+                    }
+                    try {
+                      final result = await invoke(
+                        nextClosure,
+                        prepared.args,
+                        functionValue: callee,
+                        isTailCall: true,
+                        extraArgs: prepared.extraArgs,
+                      );
+                      _releaseBytecodeFrameIfReusable(frame);
+                      return result;
+                    } on YieldException catch (error) {
+                      _suspendTailCall(frame, error);
+                    } catch (error) {
+                      _releaseBytecodeFrameIfReusable(frame);
+                      rethrow;
+                    }
+                  }
                   if (!_closeFrameForCoroutineSync(frame)) {
                     await _closeFrameForCoroutine(frame, error: null);
                   }
@@ -2004,7 +2035,6 @@ final class LuaBytecodeVm {
       _ => true,
     };
   }
-
 
   bool _canSkipSuspendingBoundaryForCall(
     LuaBytecodeFrame frame,

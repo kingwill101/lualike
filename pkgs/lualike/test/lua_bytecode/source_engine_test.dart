@@ -6,7 +6,6 @@ import 'dart:io';
 
 import 'package:lualike/lualike.dart';
 import 'package:lualike/command/lualike_command_runner.dart';
-import 'package:lualike/src/lua_bytecode/runtime.dart';
 import 'package:test/test.dart';
 
 import '../helpers/package_paths.dart';
@@ -260,6 +259,22 @@ return st1 == nil and string.find(msg1, "variable 'X'", 1, true) ~= nil,
         expect(_flatten(result), equals(<Object?>[true, true, true]));
       },
     );
+
+    test('executeCode handles direct tail calls between closures', () async {
+      final result = await executeCode(r'''
+local function identity(x)
+  return x
+end
+
+local function bounce(x)
+  return identity(x)
+end
+
+return bounce(41)
+''', mode: EngineMode.luaBytecode);
+
+      expect(result, equals(41));
+    });
 
     test('executeCode disables tail calls inside close-local scopes', () async {
       final result = await executeCode(r'''

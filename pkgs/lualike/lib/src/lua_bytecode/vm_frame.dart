@@ -18,8 +18,9 @@ import 'package:lualike/src/utils/platform_utils.dart' as platform;
 import 'package:lualike/src/value.dart';
 
 /// Prototype-level caches shared by all frames of the same closure.
-final Expando<List<bool>> _prototypeLocalExpiryFlags =
-    Expando<List<bool>>('luaBytecodeLocalExpiryFlags');
+final Expando<List<bool>> _prototypeLocalExpiryFlags = Expando<List<bool>>(
+  'luaBytecodeLocalExpiryFlags',
+);
 
 final bool _debugFileOps =
     platform.getEnvironmentVariable('LUALIKE_DEBUG_FILE_OPS') == '1';
@@ -37,12 +38,16 @@ final class LuaBytecodeFrame implements LuaBytecodeGCRootProvider {
     this.extraArgs = 0,
   }) : _nilConst = runtime.constantPrimitiveValue(null),
        registers = List<Value>.filled(
-         closure.prototype.maxStackSize < 1 ? 1 : closure.prototype.maxStackSize,
+         closure.prototype.maxStackSize < 1
+             ? 1
+             : closure.prototype.maxStackSize,
          runtime.constantPrimitiveValue(null),
          growable: true,
        ),
        _lastRegisterWritePc = List<int>.filled(
-         closure.prototype.maxStackSize < 1 ? 1 : closure.prototype.maxStackSize,
+         closure.prototype.maxStackSize < 1
+             ? 1
+             : closure.prototype.maxStackSize,
          -1,
          growable: true,
        ),
@@ -68,8 +73,9 @@ final class LuaBytecodeFrame implements LuaBytecodeGCRootProvider {
   Environment? _debugEnvironment;
   PackedVarargTable? namedVarargTable;
   Value? namedVarargTableValue;
-  late final List<bool> _localExpiryFlags =
-      _localExpiryFlagsFor(closure.prototype);
+  late final List<bool> _localExpiryFlags = _localExpiryFlagsFor(
+    closure.prototype,
+  );
   late final List<List<({int register, int endPc})>>
   _expiredRegisterCandidatesByPc = expiredRegisterCandidatesByPcFor(
     closure.prototype,
@@ -102,6 +108,7 @@ final class LuaBytecodeFrame implements LuaBytecodeGCRootProvider {
   var debugStateVersion = 0;
   var loopGcCounter = 0;
   var closed = false;
+  var isInPool = false;
   var didFireEntryCallHook = false;
   var forceNextLineHook = false;
 
@@ -147,6 +154,7 @@ final class LuaBytecodeFrame implements LuaBytecodeGCRootProvider {
     debugStateVersion = 0;
     loopGcCounter = 0;
     closed = false;
+    isInPool = false;
     didFireEntryCallHook = false;
     forceNextLineHook = false;
     _materializedVarargs = null;
@@ -691,10 +699,11 @@ final class LuaBytecodeFrame implements LuaBytecodeGCRootProvider {
     }
     _openUpvalues.removeWhere((upvalue) => !upvalue.isOpen);
     if (needsRecomputeMax) {
-      _maxOpenUpvalueRegister =
-          _openUpvalueRegisters.isEmpty
-              ? null
-              : _openUpvalueRegisters.reduce((left, right) => left > right ? left : right);
+      _maxOpenUpvalueRegister = _openUpvalueRegisters.isEmpty
+          ? null
+          : _openUpvalueRegisters.reduce(
+              (left, right) => left > right ? left : right,
+            );
     }
   }
 
@@ -766,9 +775,10 @@ final class LuaBytecodeFrame implements LuaBytecodeGCRootProvider {
 }
 
 final Expando<List<List<({int register, int endPc})>>>
-    _prototypeExpiredRegisterCandidatesByPc = Expando<
-      List<List<({int register, int endPc})>>
-    >('luaBytecodeExpiredRegisterCandidatesByPc');
+_prototypeExpiredRegisterCandidatesByPc =
+    Expando<List<List<({int register, int endPc})>>>(
+      'luaBytecodeExpiredRegisterCandidatesByPc',
+    );
 
 List<List<({int register, int endPc})>> expiredRegisterCandidatesByPcFor(
   LuaBytecodePrototype prototype,
@@ -843,9 +853,8 @@ List<List<({int register, int endPc})>> expiredRegisterCandidatesByPcFor(
   return candidatesByPc;
 }
 
-final Expando<List<bool>> _prototypeTrackedRegisterWriteFlags = Expando<
-  List<bool>
->('luaBytecodeTrackedRegisterWriteFlags');
+final Expando<List<bool>> _prototypeTrackedRegisterWriteFlags =
+    Expando<List<bool>>('luaBytecodeTrackedRegisterWriteFlags');
 
 List<bool> trackedRegisterWriteFlagsFor(LuaBytecodePrototype prototype) {
   final cached = _prototypeTrackedRegisterWriteFlags[prototype];
@@ -865,18 +874,15 @@ List<bool> trackedRegisterWriteFlagsFor(LuaBytecodePrototype prototype) {
     }
     if (register >= flags.length) {
       flags.addAll(
-        List<bool>.filled(
-          register - flags.length + 1,
-          false,
-          growable: false,
-        ),
+        List<bool>.filled(register - flags.length + 1, false, growable: false),
       );
     }
     flags[register] = true;
   }
 
-  _prototypeTrackedRegisterWriteFlags[prototype] =
-      List<bool>.unmodifiable(flags);
+  _prototypeTrackedRegisterWriteFlags[prototype] = List<bool>.unmodifiable(
+    flags,
+  );
   return List<bool>.of(flags, growable: true);
 }
 

@@ -59,7 +59,12 @@ export 'src/stdlib/doc.dart';
 export 'src/call_stack.dart';
 export 'src/config.dart';
 export 'src/compile/pipeline.dart'
-    show CompilePipeline, CompilePipelineConfig, CompileBackend, LuaBytecodeArtifact;
+    show
+        CompilePipeline,
+        CompilePipelineConfig,
+        CompileBackend,
+        LuaBytecodeArtifact;
+export 'ir.dart';
 export 'src/environment.dart';
 export 'src/error_utils.dart';
 export 'src/exceptions.dart';

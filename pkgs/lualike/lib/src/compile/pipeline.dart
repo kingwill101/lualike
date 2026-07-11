@@ -9,11 +9,7 @@ import 'package:lualike/src/compile/analyzer_pass.dart';
 import 'package:lualike/src/compile/metatable_folding_pass.dart';
 import 'package:lualike/src/compile/simplify_pass.dart';
 import 'package:lualike/src/compile/type_narrowing_pass.dart';
-import 'package:lualike/src/ir/compiler.dart';
-import 'package:lualike/src/ir/peephole_pass.dart' as ir;
-import 'package:lualike/src/ir/prototype.dart';
-import 'package:lualike/src/ir/serialization.dart';
-import 'package:lualike/src/ir/textual_formatter.dart';
+import 'package:lualike/ir.dart';
 import 'package:lualike/src/lua_bytecode/chunk.dart';
 import 'package:lualike/src/lua_bytecode/emitter.dart';
 import 'package:lualike/src/lua_bytecode/peephole_pass.dart' as lua_bc;
@@ -118,10 +114,14 @@ final class LualikeIrArtifact extends CompileArtifact {
   /// Human-readable disassembly, if [CompilePipelineConfig.dumpIr] was set.
   final String? disassembly;
 
+  /// Human-readable SSA dump, if [CompilePipelineConfig.dumpIr] was set.
+  final String? ssaDisassembly;
+
   LualikeIrArtifact({
     required this.chunk,
     required this.serializedBytes,
     this.disassembly,
+    this.ssaDisassembly,
   });
 }
 
@@ -224,14 +224,17 @@ final class CompilePipeline {
 
     // Peephole optimization on IR (post-emission)
     if (config.enablePeephole) {
-      irChunk = ir.PeepholePass().optimize(irChunk);
+      irChunk = PeepholePass().optimize(irChunk);
     }
 
     final irBytes = serializeLualikeIrChunk(irChunk);
 
     String? disassembly;
+    String? ssaDisassembly;
     if (config.dumpIr) {
       disassembly = formatLualikeIrChunk(irChunk);
+      final ssa = buildLualikeIrSsaFunction(irChunk.mainPrototype);
+      ssaDisassembly = formatLualikeIrSsaFunction(ssa);
     }
 
     // Phase 3: Optionally lower to Lua 5.4 bytecode
@@ -263,10 +266,9 @@ final class CompilePipeline {
       chunk: irChunk,
       serializedBytes: irBytes,
       disassembly: disassembly,
+      ssaDisassembly: ssaDisassembly,
     );
   }
-
-
 
   /// Convenience: parse source, run the pipeline, return the artifact.
   CompileArtifact compileSource(

@@ -3,6 +3,7 @@ library;
 
 import 'package:lualike/src/compile/pipeline.dart';
 import 'package:lualike/src/ir/peephole_pass.dart';
+import 'package:lualike/src/ir/ssa.dart';
 import 'package:lualike/src/ir/prototype.dart';
 import 'package:lualike/src/ir/instruction.dart';
 import 'package:lualike/src/ir/opcode.dart';
@@ -11,7 +12,7 @@ import 'package:test/test.dart';
 
 void main() {
   group('PeepholePass (unit tests)', () {
-    LualikeIrPrototype _makeProto(List<LualikeIrInstruction> code) {
+    LualikeIrPrototype makeProto(List<LualikeIrInstruction> code) {
       return LualikeIrPrototype(
         registerCount: 4,
         paramCount: 0,
@@ -32,7 +33,7 @@ void main() {
     test('removes JMP 0 (no-op)', () {
       final chunk = LualikeIrChunk(
         flags: const LualikeIrChunkFlags(),
-        mainPrototype: _makeProto([
+        mainPrototype: makeProto([
           const AsJInstruction(opcode: LualikeIrOpcode.jmp, sJ: 0),
         ]),
       );
@@ -45,45 +46,46 @@ void main() {
     test('removes LOADK r,k; MOVE r,r (self-copy)', () {
       final chunk = LualikeIrChunk(
         flags: const LualikeIrChunkFlags(),
-        mainPrototype: _makeProto([
+        mainPrototype: makeProto([
           const ABxInstruction(opcode: LualikeIrOpcode.loadK, a: 0, bx: 0),
-          const ABCInstruction(
-            opcode: LualikeIrOpcode.move, a: 0, b: 0, c: 0,
-          ),
+          const ABCInstruction(opcode: LualikeIrOpcode.move, a: 0, b: 0, c: 0),
         ]),
       );
       final result = PeepholePass().optimize(chunk);
       expect(result.mainPrototype.instructions.length, equals(1));
-      expect(result.mainPrototype.instructions.first.opcode,
-          equals(LualikeIrOpcode.loadK));
+      expect(
+        result.mainPrototype.instructions.first.opcode,
+        equals(LualikeIrOpcode.loadK),
+      );
     });
 
     test('removes LOADNIL r; LOADK r,v (dead store)', () {
       final chunk = LualikeIrChunk(
         flags: const LualikeIrChunkFlags(),
-        mainPrototype: _makeProto([
+        mainPrototype: makeProto([
           const ABCInstruction(
-            opcode: LualikeIrOpcode.loadNil, a: 0, b: 0, c: 0,
+            opcode: LualikeIrOpcode.loadNil,
+            a: 0,
+            b: 0,
+            c: 0,
           ),
           const ABxInstruction(opcode: LualikeIrOpcode.loadK, a: 0, bx: 1),
         ]),
       );
       final result = PeepholePass().optimize(chunk);
       expect(result.mainPrototype.instructions.length, equals(1));
-      expect(result.mainPrototype.instructions.first.opcode,
-          equals(LualikeIrOpcode.loadK));
+      expect(
+        result.mainPrototype.instructions.first.opcode,
+        equals(LualikeIrOpcode.loadK),
+      );
     });
 
     test('removes MOVE r1,r2; MOVE r2,r1 (swap)', () {
       final chunk = LualikeIrChunk(
         flags: const LualikeIrChunkFlags(),
-        mainPrototype: _makeProto([
-          const ABCInstruction(
-            opcode: LualikeIrOpcode.move, a: 0, b: 1, c: 0,
-          ),
-          const ABCInstruction(
-            opcode: LualikeIrOpcode.move, a: 1, b: 0, c: 0,
-          ),
+        mainPrototype: makeProto([
+          const ABCInstruction(opcode: LualikeIrOpcode.move, a: 0, b: 1, c: 0),
+          const ABCInstruction(opcode: LualikeIrOpcode.move, a: 1, b: 0, c: 0),
         ]),
       );
       final result = PeepholePass().optimize(chunk);
@@ -96,29 +98,35 @@ void main() {
       final source = 'local x = 5; local y = x + 3; return y';
 
       // All OFF
-      final off = CompilePipeline(
-        config: const CompilePipelineConfig(
-          enableConstantFolding: false,
-          enableConstPropagation: false,
-          enablePeephole: false,
-          target: CompileBackend.lualikeIR,
-        ),
-      ).compileSource(source) as LualikeIrArtifact;
+      final off =
+          CompilePipeline(
+                config: const CompilePipelineConfig(
+                  enableConstantFolding: false,
+                  enableConstPropagation: false,
+                  enablePeephole: false,
+                  target: CompileBackend.lualikeIR,
+                ),
+              ).compileSource(source)
+              as LualikeIrArtifact;
 
       // All ON
-      final on = CompilePipeline(
-        config: const CompilePipelineConfig(
-          enableConstantFolding: true,
-          enableConstPropagation: true,
-          enablePeephole: true,
-          target: CompileBackend.lualikeIR,
-        ),
-      ).compileSource(source) as LualikeIrArtifact;
+      final on =
+          CompilePipeline(
+                config: const CompilePipelineConfig(
+                  enableConstantFolding: true,
+                  enableConstPropagation: true,
+                  enablePeephole: true,
+                  target: CompileBackend.lualikeIR,
+                ),
+              ).compileSource(source)
+              as LualikeIrArtifact;
 
       // With optimizations, the IR should have fewer or equal instructions.
       // (Equal is possible for tiny scripts where overhead dominates.)
-      expect(on.chunk.mainPrototype.instructions.length,
-          lessThanOrEqualTo(off.chunk.mainPrototype.instructions.length));
+      expect(
+        on.chunk.mainPrototype.instructions.length,
+        lessThanOrEqualTo(off.chunk.mainPrototype.instructions.length),
+      );
     });
 
     test('function inlining reduces instructions', () {
@@ -127,22 +135,28 @@ void main() {
         return add(3, 4)
       ''';
 
-      final off = CompilePipeline(
-        config: const CompilePipelineConfig(
-          enableConstantFolding: false,
-          target: CompileBackend.lualikeIR,
-        ),
-      ).compileSource(source) as LualikeIrArtifact;
+      final off =
+          CompilePipeline(
+                config: const CompilePipelineConfig(
+                  enableConstantFolding: false,
+                  target: CompileBackend.lualikeIR,
+                ),
+              ).compileSource(source)
+              as LualikeIrArtifact;
 
-      final on = CompilePipeline(
-        config: const CompilePipelineConfig(
-          enableConstantFolding: true,
-          target: CompileBackend.lualikeIR,
-        ),
-      ).compileSource(source) as LualikeIrArtifact;
+      final on =
+          CompilePipeline(
+                config: const CompilePipelineConfig(
+                  enableConstantFolding: true,
+                  target: CompileBackend.lualikeIR,
+                ),
+              ).compileSource(source)
+              as LualikeIrArtifact;
 
-      expect(on.chunk.mainPrototype.instructions.length,
-          lessThan(off.chunk.mainPrototype.instructions.length));
+      expect(
+        on.chunk.mainPrototype.instructions.length,
+        lessThan(off.chunk.mainPrototype.instructions.length),
+      );
     });
 
     test('dead branch elimination removes else block', () {
@@ -156,23 +170,29 @@ void main() {
         return x
       ''';
 
-      final off = CompilePipeline(
-        config: const CompilePipelineConfig(
-          enableConstantFolding: false,
-          target: CompileBackend.lualikeIR,
-        ),
-      ).compileSource(source) as LualikeIrArtifact;
+      final off =
+          CompilePipeline(
+                config: const CompilePipelineConfig(
+                  enableConstantFolding: false,
+                  target: CompileBackend.lualikeIR,
+                ),
+              ).compileSource(source)
+              as LualikeIrArtifact;
 
-      final on = CompilePipeline(
-        config: const CompilePipelineConfig(
-          enableConstantFolding: true,
-          target: CompileBackend.lualikeIR,
-        ),
-      ).compileSource(source) as LualikeIrArtifact;
+      final on =
+          CompilePipeline(
+                config: const CompilePipelineConfig(
+                  enableConstantFolding: true,
+                  target: CompileBackend.lualikeIR,
+                ),
+              ).compileSource(source)
+              as LualikeIrArtifact;
 
       // With folding, the else branch is eliminated.
-      expect(on.chunk.mainPrototype.instructions.length,
-          lessThan(off.chunk.mainPrototype.instructions.length));
+      expect(
+        on.chunk.mainPrototype.instructions.length,
+        lessThan(off.chunk.mainPrototype.instructions.length),
+      );
     });
 
     test('peephole optimization does not change semantics', () {
@@ -204,22 +224,52 @@ void main() {
     });
 
     test('arithmetic folded in compiled output', () {
-      final off = CompilePipeline(
-        config: const CompilePipelineConfig(
-          enableConstantFolding: false,
-          target: CompileBackend.lualikeIR,
-        ),
-      ).compileSource('return 2 + 3 * 4 - 1') as LualikeIrArtifact;
+      final off =
+          CompilePipeline(
+                config: const CompilePipelineConfig(
+                  enableConstantFolding: false,
+                  target: CompileBackend.lualikeIR,
+                ),
+              ).compileSource('return 2 + 3 * 4 - 1')
+              as LualikeIrArtifact;
 
-      final on = CompilePipeline(
-        config: const CompilePipelineConfig(
-          enableConstantFolding: true,
-          target: CompileBackend.lualikeIR,
-        ),
-      ).compileSource('return 2 + 3 * 4 - 1') as LualikeIrArtifact;
+      final on =
+          CompilePipeline(
+                config: const CompilePipelineConfig(
+                  enableConstantFolding: true,
+                  target: CompileBackend.lualikeIR,
+                ),
+              ).compileSource('return 2 + 3 * 4 - 1')
+              as LualikeIrArtifact;
 
-      expect(on.chunk.mainPrototype.instructions.length,
-          lessThan(off.chunk.mainPrototype.instructions.length));
+      expect(
+        on.chunk.mainPrototype.instructions.length,
+        lessThan(off.chunk.mainPrototype.instructions.length),
+      );
+    });
+
+    test('dumpIr includes SSA output', () {
+      final artifact =
+          CompilePipeline(
+                config: const CompilePipelineConfig(
+                  dumpIr: true,
+                  target: CompileBackend.lualikeIR,
+                ),
+              ).compileSource('return 1 + 2')
+              as LualikeIrArtifact;
+
+      expect(artifact.disassembly, isNotNull);
+      expect(artifact.ssaDisassembly, isNotNull);
+      expect(artifact.ssaDisassembly, contains('ssa {'));
+      expect(artifact.ssaDisassembly, contains('block 0'));
+      expect(
+        formatLualikeIrSsaFunction(
+          LualikeIrSsaFunction.fromPrototype(
+            artifact.chunk.mainPrototype,
+          ).simplifyTrivialPhis(),
+        ),
+        equals(artifact.ssaDisassembly),
+      );
     });
 
     test('type narrowing pass does not crash', () {
@@ -237,8 +287,10 @@ void main() {
         end
         return f(5)
       ''');
-      expect((artifact as LuaBytecodeArtifact).serializedBytes.length,
-          greaterThan(0));
+      expect(
+        (artifact as LuaBytecodeArtifact).serializedBytes.length,
+        greaterThan(0),
+      );
     });
   });
 
