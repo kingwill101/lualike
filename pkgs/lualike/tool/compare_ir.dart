@@ -60,12 +60,13 @@ void main(List<String> args) async {
 }
 
 Future<void> _runTable(List<File> files) async {
-  print('╔══════════════════════════════════════════════════════════════════════════════╗');
-  print('║  IR instruction count: OFF vs ON (folding+peephole) vs SSA (all + passes)  ║');
-  print('╚══════════════════════════════════════════════════════════════════════════════╝');
+  print('╔══════════════════════════════════════════════════════════════════════════════════════════════╗');
+  print('║  IR instructions (Off / On / SSA)  and  serialized byte size                         ║');
+  print('╚══════════════════════════════════════════════════════════════════════════════════════════════╝');
   print('');
-  print('  ${'Script'.padRight(24)} ${'Off'.padRight(7)} ${'On'.padRight(7)} ${'Δ'.padRight(6)} ${'%'.padRight(7)} ${'SSA'.padRight(7)} ${'ΔS'.padRight(6)} ${'%S'}');
-  print('  ${''.padRight(80, '─')}');
+  print('  ${'Script'.padRight(20)} ${'Off'.padRight(5)} ${'On'.padRight(5)} ${'SSA'.padRight(5)}  ${'%On'.padRight(7)} ${'%SSA'.padRight(7)}  '
+        '${'OffSz'.padRight(9)} ${'OnSz'.padRight(9)} ${'SSASz'.padRight(9)}  ${'%OnSz'.padRight(7)} ${'%SSASz'}');
+  print('  ${''.padRight(110, '─')}');
 
   for (final file in files) {
     final name = file.path.split('/').last;
@@ -87,6 +88,7 @@ Future<void> _runTable(List<File> files) async {
     final offArtifact = off.compileSource(source);
     final offIr = offArtifact as LualikeIrArtifact;
     final offCount = _totalInstrs(offIr.chunk.mainPrototype);
+    final offBytes = offIr.serializedBytes.length;
 
     // All optimizations ON (AST folding + peephole)
     final on = CompilePipeline(
@@ -102,7 +104,8 @@ Future<void> _runTable(List<File> files) async {
     );
     final onArtifact = on.compileSource(source);
     final onIr = onArtifact as LualikeIrArtifact;
-    final onCount = onIr.chunk.mainPrototype.instructions.length;
+    final onCount = _totalInstrs(onIr.chunk.mainPrototype);
+    final onBytes = onIr.serializedBytes.length;
 
     // ON + all SSA passes
     final ssa = CompilePipeline(
@@ -121,7 +124,8 @@ Future<void> _runTable(List<File> files) async {
     );
     final ssaArtifact = ssa.compileSource(source);
     final ssaIr = ssaArtifact as LualikeIrArtifact;
-    final ssaCount = ssaIr.chunk.mainPrototype.instructions.length;
+    final ssaCount = _totalInstrs(ssaIr.chunk.mainPrototype);
+    final ssaBytes = ssaIr.serializedBytes.length;
 
     final delta = offCount - onCount;
     final ssaDelta = offCount - ssaCount;
@@ -129,7 +133,15 @@ Future<void> _runTable(List<File> files) async {
     final ssaPct = offCount > 0 ? (ssaDelta / offCount * 100).toStringAsFixed(1) : '0.0';
     final deltaStr = delta >= 0 ? '+$delta' : '$delta';
     final ssaDeltaStr = ssaDelta >= 0 ? '+$ssaDelta' : '$ssaDelta';
-    print('  ${name.padRight(24)} ${offCount.toString().padRight(7)} ${onCount.toString().padRight(7)} ${deltaStr.padRight(6)} ${'$pct%'.padRight(7)} ${ssaCount.toString().padRight(7)} ${ssaDeltaStr.padRight(6)} ${'$ssaPct%'}');
+    final bDelta = offBytes - onBytes;
+    final bSsaDelta = offBytes - ssaBytes;
+    final bPct = offBytes > 0 ? (bDelta / offBytes * 100).toStringAsFixed(1) : '0.0';
+    final bSsaPct = offBytes > 0 ? (bSsaDelta / offBytes * 100).toStringAsFixed(1) : '0.0';
+    print('  ${name.padRight(20)} '
+        '${offCount.toString().padRight(5)} ${onCount.toString().padRight(5)} ${ssaCount.toString().padRight(5)} '
+        '${'$pct%'.padRight(7)} ${'$ssaPct%'.padRight(7)} '
+        '${'${offBytes}b'.padRight(9)} ${'${onBytes}b'.padRight(9)} ${'${ssaBytes}b'.padRight(9)} '
+        '${'$bPct%'.padRight(7)} ${'$bSsaPct%'}');
   }
 }
 
