@@ -304,11 +304,11 @@ final class LuaBytecodeVm {
           runtime.callStack.pop();
         }
       }
-      // Skip state restoration on the happy path when no debug hook is active.
-      // The next frame will overwrite env/scriptPath anyway. Errors and
-      // debug hooks still need restored state, handled in catch blocks.
-      // Must still restore for suspended coroutines (the runtime may be reused).
-      if (exitDebugInterpreter?.debugHookFunction != null || suspended) {
+      // Restore state for entry frames, suspended coroutines, and debug hooks.
+      // Nested frames can skip — the next frame entry overwrites env/scriptPath.
+      if (frame.isEntryFrame ||
+          exitDebugInterpreter?.debugHookFunction != null ||
+          suspended) {
         runtime.callStack.setScriptPath(previousCallStackScriptPath);
         runtime.currentScriptPath = previousScriptPath;
         runtime.setCurrentEnv(previousEnv);
