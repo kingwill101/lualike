@@ -176,6 +176,37 @@ class PeepholePass {
       i++;
     }
 
+    // Integer fast path: when arithmetic op reads a register loaded by LOADI,
+    // convert to the I-variant which avoids the register read.
+    // Requires tracking which registers hold known LOADI values.
+    final loadiValues = <int, int>{}; // register → constant value
+    for (var i = 0; i < result.length; i++) {
+      final inst = result[i];
+      // Track LOADI results
+      if (inst is AsBxInstruction && inst.opcode == LualikeIrOpcode.loadI) {
+        loadiValues[inst.a] = inst.sBx;
+        continue;
+      }
+      // Track other definitions that invalidate our knowledge
+      if (inst is ABCInstruction) {
+        // For ADD/SUB with known constant in C register
+        if (inst.opcode == LualikeIrOpcode.add && loadiValues.containsKey(inst.c)) {
+          final val = loadiValues[inst.c]!;
+          result[i] = ABCInstruction(
+            opcode: LualikeIrOpcode.addI,
+            a: inst.a,
+            b: inst.b,
+            c: val,
+          );
+          changed = true;
+          loadiValues[inst.a] = val;
+          continue;
+        }
+        // Clear tracking if register is overwritten
+        loadiValues.remove(inst.a);
+      }
+    }
+
     // Load-store forwarding:
     // SETFIELD a=table, b=fieldConst, c=value  →  GETFIELD a=dest, b=table, c=fieldConst
     // → replace GETFIELD with MOVE from value
