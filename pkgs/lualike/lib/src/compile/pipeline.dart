@@ -16,6 +16,7 @@ import 'package:lualike/src/lua_bytecode/peephole_pass.dart' as lua_bc;
 import 'package:lualike/src/lua_bytecode/serializer.dart';
 import 'package:lualike/src/ir/ssa_dead_code_pass.dart';
 import 'package:lualike/src/ir/ssa_gvn_pass.dart';
+import 'package:lualike/src/ir/ssa_coalesce_pass.dart';
 import 'package:lualike/src/ir/ssa_sccp_pass.dart';
 import 'package:lualike/src/parse.dart';
 
