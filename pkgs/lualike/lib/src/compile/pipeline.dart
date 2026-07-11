@@ -16,6 +16,7 @@ import 'package:lualike/src/lua_bytecode/peephole_pass.dart' as lua_bc;
 import 'package:lualike/src/lua_bytecode/serializer.dart';
 import 'package:lualike/src/ir/ssa_dead_code_pass.dart';
 import 'package:lualike/src/ir/ssa_gvn_pass.dart';
+import 'package:lualike/src/ir/ssa_sccp_pass.dart';
 import 'package:lualike/src/parse.dart';
 
 /// Configuration for the compilation pipeline.
@@ -56,6 +57,9 @@ final class CompilePipelineConfig {
   /// Whether to run SSA Global Value Numbering on the IR.
   final bool enableSsaGlobalValueNumbering;
 
+  /// Whether to run Sparse Conditional Constant Propagation on the IR.
+  final bool enableSsaSccp;
+
   /// Whether to unroll constant-bounded for-loops in the IR compiler.
   final bool enableLoopUnrolling;
 
@@ -86,6 +90,7 @@ final class CompilePipelineConfig {
     this.enablePeephole = false,
     this.enableSsaDeadCodeElimination = false,
     this.enableSsaGlobalValueNumbering = false,
+    this.enableSsaSccp = false,
     this.enableLoopUnrolling = false,
     this.enableBundling = false,
     this.bundleSearchPaths = const ['.'],
@@ -249,6 +254,13 @@ final class CompilePipeline {
       irChunk = LualikeIrChunk(
         flags: irChunk.flags,
         mainPrototype: eliminateRedundantComputations(irChunk.mainPrototype),
+      );
+    }
+
+    if (config.enableSsaSccp) {
+      irChunk = LualikeIrChunk(
+        flags: irChunk.flags,
+        mainPrototype: runSccp(irChunk.mainPrototype),
       );
     }
 
