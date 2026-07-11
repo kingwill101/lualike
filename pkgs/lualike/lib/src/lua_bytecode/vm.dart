@@ -484,24 +484,27 @@ final class LuaBytecodeVm {
             }
           case Opcode.loadFalse:
             {
-              frame.setRawRegister(word.a, false);
+              frame.setRegister(word.a, framePrimitiveValue(runtime, false));
               break;
             }
           case Opcode.lFalseSkip:
             {
-              frame.setRawRegister(word.a, false);
+              frame.setRegister(word.a, framePrimitiveValue(runtime, false));
               frame.pc += 1;
               break;
             }
           case Opcode.loadTrue:
             {
-              frame.setRawRegister(word.a, true);
+              frame.setRegister(word.a, framePrimitiveValue(runtime, true));
               break;
             }
           case Opcode.loadNil:
             {
               for (var index = 0; index <= word.b; index++) {
-                frame.setRawRegister(word.a + index, null);
+                frame.setRegister(
+                  word.a + index,
+                  framePrimitiveValue(runtime, null),
+                );
               }
               break;
             }
