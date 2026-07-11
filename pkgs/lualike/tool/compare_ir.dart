@@ -1,16 +1,18 @@
-/// Compares IR instruction count with all optimizations enabled vs disabled.
+/// Compares IR instruction count across optimization levels.
 ///
-/// Usage: dart run tool/compare_ir.dart [script.lua]
+/// Usage: dart run tool/compare_ir.dart [script.lua] [--all]
 ///
-/// Shows a table comparing instruction counts per script for each optimization
-/// level, helping identify which passes have the most impact.
+/// Shows instruction counts at three levels:
+///   OFF  — no optimizations
+///   ON   — AST folding + peephole
+///   SSA  — ON + SSA passes (DCE, GVN, SCCP, LICM, Coalesce, Escape)
 library;
 
 import 'dart:io';
 
+import 'package:lualike/ir.dart';
 import 'package:lualike/src/compile/pipeline.dart';
 import 'package:lualike/src/ir/textual_formatter.dart';
-import 'package:lualike/src/parse.dart';
 
 void main(List<String> args) async {
   if (args.isEmpty) {
@@ -58,12 +60,12 @@ void main(List<String> args) async {
 }
 
 Future<void> _runTable(List<File> files) async {
-  print('╔══════════════════════════════════════════════════════════════════╗');
-  print('║  IR instruction count: all passes OFF vs ON                    ║');
-  print('╚══════════════════════════════════════════════════════════════════╝');
+  print('╔══════════════════════════════════════════════════════════════════════════════╗');
+  print('║  IR instruction count: OFF vs ON (folding+peephole) vs SSA (all + passes)  ║');
+  print('╚══════════════════════════════════════════════════════════════════════════════╝');
   print('');
-  print('  ${'Script'.padRight(30)} ${'Off'.padRight(8)} ${'On'.padRight(8)} ${'Δ'.padRight(8)} ${'Reduction'}');
-  print('  ${''.padRight(70, '─')}');
+  print('  ${'Script'.padRight(24)} ${'Off'.padRight(7)} ${'On'.padRight(7)} ${'Δ'.padRight(6)} ${'%'.padRight(7)} ${'SSA'.padRight(7)} ${'ΔS'.padRight(6)} ${'%S'}');
+  print('  ${''.padRight(80, '─')}');
 
   for (final file in files) {
     final name = file.path.split('/').last;
@@ -84,9 +86,9 @@ Future<void> _runTable(List<File> files) async {
     );
     final offArtifact = off.compileSource(source);
     final offIr = offArtifact as LualikeIrArtifact;
-    final offCount = offIr.chunk.mainPrototype.instructions.length;
+    final offCount = _totalInstrs(offIr.chunk.mainPrototype);
 
-    // All optimizations ON
+    // All optimizations ON (AST folding + peephole)
     final on = CompilePipeline(
       config: const CompilePipelineConfig(
         enableConstantFolding: true,
@@ -102,10 +104,32 @@ Future<void> _runTable(List<File> files) async {
     final onIr = onArtifact as LualikeIrArtifact;
     final onCount = onIr.chunk.mainPrototype.instructions.length;
 
+    // ON + all SSA passes
+    final ssa = CompilePipeline(
+      config: const CompilePipelineConfig(
+        enableConstantFolding: true,
+        enableConstPropagation: true,
+        enableTypeNarrowing: true,
+        enableMetatableFolding: true,
+        enablePeephole: true,
+        enableDeadCodeElimination: true,
+        enableSsaDeadCodeElimination: true,
+        enableSsaGlobalValueNumbering: true,
+        enableSsaSccp: true,
+        target: CompileBackend.lualikeIR,
+      ),
+    );
+    final ssaArtifact = ssa.compileSource(source);
+    final ssaIr = ssaArtifact as LualikeIrArtifact;
+    final ssaCount = ssaIr.chunk.mainPrototype.instructions.length;
+
     final delta = offCount - onCount;
+    final ssaDelta = offCount - ssaCount;
     final pct = offCount > 0 ? (delta / offCount * 100).toStringAsFixed(1) : '0.0';
+    final ssaPct = offCount > 0 ? (ssaDelta / offCount * 100).toStringAsFixed(1) : '0.0';
     final deltaStr = delta >= 0 ? '+$delta' : '$delta';
-    print('  ${name.padRight(30)} ${offCount.toString().padRight(8)} ${onCount.toString().padRight(8)} ${deltaStr.padRight(8)} ${'$pct%'}');
+    final ssaDeltaStr = ssaDelta >= 0 ? '+$ssaDelta' : '$ssaDelta';
+    print('  ${name.padRight(24)} ${offCount.toString().padRight(7)} ${onCount.toString().padRight(7)} ${deltaStr.padRight(6)} ${'$pct%'.padRight(7)} ${ssaCount.toString().padRight(7)} ${ssaDeltaStr.padRight(6)} ${'$ssaPct%'}');
   }
 }
 
@@ -162,4 +186,12 @@ Future<void> _runSingle(File file) async {
   print('');
   print('═══ IR (all passes ON) ═══');
   print(formatLualikeIrChunk(onIr.chunk));
+}
+
+int _totalInstrs(LualikeIrPrototype proto) {
+  var count = proto.instructions.length;
+  for (final sub in proto.prototypes) {
+    count += _totalInstrs(sub);
+  }
+  return count;
 }
