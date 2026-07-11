@@ -206,21 +206,47 @@ final class LuaBytecodeCloseSuspension implements CoroutineContinuation {
 }
 
 final class LuaBytecodeFrameSuspension implements CoroutineContinuation {
-  const LuaBytecodeFrameSuspension({
+  LuaBytecodeFrameSuspension({
     required this.vm,
     required this.frame,
     required this.resumeInProtectedCall,
     this.child,
+    this.compactState,
   });
 
   final LuaBytecodeVm vm;
-  final LuaBytecodeFrame frame;
+  LuaBytecodeFrame frame;
   final bool resumeInProtectedCall;
   final CoroutineContinuation? child;
+  final _CompactFrameState? compactState;
+
+  /// Restore compacted frame before resuming.
+  void _ensureFrame() {
+    final cs = compactState;
+    if (cs == null || !frame.closed) return;
+    // Create fresh frame (registers initialized to nil)
+    final newFrame = LuaBytecodeFrame(
+      runtime: vm.runtime,
+      closure: cs.closure,
+      arguments: const <Object?>[],
+      isEntryFrame: cs.isEntryFrame,
+      isTailCall: cs.isTailCall,
+      callName: cs.callName,
+    );
+    // Restore PC, top, and register values
+    newFrame.pc = cs.pc;
+    newFrame.top = cs.top;
+    for (var i = 0; i < cs.registers.length && i < newFrame.registers.length; i++) {
+      newFrame.registers[i] = cs.registers[i];
+    }
+    frame = newFrame;
+  }
 
   @override
   Future<Object?> resume(List<Object?> args) {
     return _withProtectedCallResume(vm.runtime, resumeInProtectedCall, () async {
+      // Restore from compact state if the frame was released to the pool
+      if (compactState != null) _ensureFrame();
       try {
         if (child case final nested?) {
           final nestedFrame = _tmpContinuationFrame(nested);
