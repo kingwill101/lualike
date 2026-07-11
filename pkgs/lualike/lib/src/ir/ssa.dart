@@ -334,12 +334,12 @@ final class _PhiBuilder {
 
   final int targetRegister;
   final Map<int, LualikeIrSsaValue> incomingByPredecessor;
-  late LualikeIrSsaValue value;
+  LualikeIrSsaValue? value;
 
   LualikeIrPhi build() {
     return LualikeIrPhi(
       targetRegister: targetRegister,
-      value: value,
+      value: value!,
       incomingByPredecessor: Map<int, LualikeIrSsaValue>.unmodifiable(
         incomingByPredecessor,
       ),
@@ -442,10 +442,17 @@ Map<int, List<LualikeIrPhi>> _materializePhis(
 ) {
   final result = <int, List<LualikeIrPhi>>{};
   for (final entry in phiBuildersByBlock.entries) {
-    final phis = entry.value
-        .map((builder) => builder.build())
-        .toList(growable: false);
-    result[entry.key] = List<LualikeIrPhi>.unmodifiable(phis);
+    // Skip phi builders whose value was never assigned during renaming.
+    // This can happen for unreachable blocks that appear in dominance
+    // frontiers but are never visited by the rename traversal.
+    final phis = <LualikeIrPhi>[];
+    for (final builder in entry.value) {
+      if (builder.value == null) continue;
+      phis.add(builder.build());
+    }
+    if (phis.isNotEmpty) {
+      result[entry.key] = List<LualikeIrPhi>.unmodifiable(phis);
+    }
   }
   return Map<int, List<LualikeIrPhi>>.unmodifiable(result);
 }
