@@ -1654,12 +1654,10 @@ final class LuaBytecodeVm {
                 }
 
                 // Slow path: metatables, debug hooks, or non-closure callees.
-                final tailName = debugHooksEnabled
-                    ? _callSiteTargetLabel(frame, word.a, call.callee)
-                    : null;
-                final tailNameInfo = debugHooksEnabled
-                    ? _decodeTailCallNameInfo(tailName)
-                    : (name: null, namewhat: '');
+                // We still compute the call-site label here so non-function
+                // tail-call errors keep their field/method/global names.
+                final tailName = _callSiteTargetLabel(frame, word.a, call.callee);
+                final tailNameInfo = _decodeTailCallNameInfo(tailName);
                 final prepared = _flattenTailCallable(call.callee, call.args);
                 final callee = prepared.callee;
                 if (rawLuaSlot(callee) is LuaBytecodeClosure) {
