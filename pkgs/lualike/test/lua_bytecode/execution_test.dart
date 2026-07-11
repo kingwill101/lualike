@@ -6,6 +6,7 @@ import 'dart:io';
 import 'dart:typed_data';
 
 import 'package:lualike/src/interpreter/interpreter.dart';
+import 'package:lualike/src/lua_bytecode/runtime.dart';
 import 'package:lualike/src/lua_string.dart';
 import 'package:lualike/src/runtime/lua_runtime.dart';
 import 'package:lualike/src/value.dart';
@@ -522,7 +523,7 @@ return n - m
 
 Future<List<Object?>> _executeFixture(String luacBinary, String source) async {
   final fixture = _compileFixture(luacBinary, source);
-  final runtime = Interpreter();
+  final runtime = LuaBytecodeRuntime();
   final loadResult = await runtime.loadChunk(
     LuaChunkLoadRequest(
       source: Value(

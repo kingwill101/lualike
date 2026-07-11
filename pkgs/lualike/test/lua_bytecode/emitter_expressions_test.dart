@@ -10,6 +10,7 @@ import 'package:lualike/src/lua_bytecode/chunk.dart';
 import 'package:lualike/src/interpreter/interpreter.dart';
 import 'package:lualike/src/lua_bytecode/disassembler.dart';
 import 'package:lualike/src/lua_bytecode/emitter.dart';
+import 'package:lualike/src/lua_bytecode/runtime.dart';
 import 'package:lualike/src/lua_bytecode/parser.dart';
 import 'package:lualike/src/lua_string.dart';
 import 'package:lualike/src/parse.dart';
@@ -292,7 +293,7 @@ Future<List<Object?>> executeEmitted(
   String? prelude,
   String chunkName = '=(emitter expressions)',
 }) async {
-  final runtime = Interpreter();
+  final runtime = LuaBytecodeRuntime();
   await runPrelude(runtime, prelude);
   final artifact = const LuaBytecodeEmitter().compileSource(
     source,
@@ -330,7 +331,7 @@ Future<List<Object?>> executeSourceWithPrelude(
   }
 }
 
-Future<void> runPrelude(Interpreter runtime, String? prelude) async {
+Future<void> runPrelude(LuaRuntime runtime, String? prelude) async {
   if (prelude == null || prelude.isEmpty) {
     return;
   }
