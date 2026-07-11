@@ -17,6 +17,8 @@ import 'package:lualike/src/lua_bytecode/serializer.dart';
 import 'package:lualike/src/ir/ssa_dead_code_pass.dart';
 import 'package:lualike/src/ir/ssa_gvn_pass.dart';
 import 'package:lualike/src/ir/ssa_coalesce_pass.dart';
+import 'package:lualike/src/ir/ssa_licm_pass.dart';
+import 'package:lualike/src/ir/ssa_escape_pass.dart';
 import 'package:lualike/src/ir/ssa_sccp_pass.dart';
 import 'package:lualike/src/parse.dart';
 
@@ -61,6 +63,15 @@ final class CompilePipelineConfig {
   /// Whether to run Sparse Conditional Constant Propagation on the IR.
   final bool enableSsaSccp;
 
+  /// Whether to run Loop Invariant Code Motion on the IR.
+  final bool enableSsaLicm;
+
+  /// Whether to run Register Coalescing on the IR.
+  final bool enableSsaCoalesce;
+
+  /// Whether to run Escape Analysis + Scalar Replacement on the IR.
+  final bool enableSsaEscape;
+
   /// Whether to unroll constant-bounded for-loops in the IR compiler.
   final bool enableLoopUnrolling;
 
@@ -92,6 +103,9 @@ final class CompilePipelineConfig {
     this.enableSsaDeadCodeElimination = false,
     this.enableSsaGlobalValueNumbering = false,
     this.enableSsaSccp = false,
+    this.enableSsaLicm = false,
+    this.enableSsaCoalesce = false,
+    this.enableSsaEscape = false,
     this.enableLoopUnrolling = false,
     this.enableBundling = false,
     this.bundleSearchPaths = const ['.'],
@@ -262,6 +276,27 @@ final class CompilePipeline {
       irChunk = LualikeIrChunk(
         flags: irChunk.flags,
         mainPrototype: runSccp(irChunk.mainPrototype),
+      );
+    }
+
+    if (config.enableSsaLicm) {
+      irChunk = LualikeIrChunk(
+        flags: irChunk.flags,
+        mainPrototype: hoistLoopInvariants(irChunk.mainPrototype),
+      );
+    }
+
+    if (config.enableSsaCoalesce) {
+      irChunk = LualikeIrChunk(
+        flags: irChunk.flags,
+        mainPrototype: coalesceRegisters(irChunk.mainPrototype),
+      );
+    }
+
+    if (config.enableSsaEscape) {
+      irChunk = LualikeIrChunk(
+        flags: irChunk.flags,
+        mainPrototype: replaceScalars(irChunk.mainPrototype),
       );
     }
 
