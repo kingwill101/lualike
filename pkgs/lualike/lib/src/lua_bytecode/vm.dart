@@ -1643,27 +1643,14 @@ final class LuaBytecodeVm {
                     _debugInterpreter?.debugHookFunction != null;
 
                 // Fast path: tail calls between bytecode closures with no
-                // debug hooks. Close the frame synchronously, recycle it, and
-                // jump straight into invoke() so we avoid TailCallException.
+                // debug hooks. Close the frame synchronously, then hand the
+                // callee back through TailCallException so invoke() can reuse
+                // its existing tail-call loop without re-flattening.
                 if (rawCallee is LuaBytecodeClosure && !debugHooksEnabled) {
                   if (!_closeFrameForCoroutineSync(frame)) {
                     await _closeFrameForCoroutine(frame, error: null);
                   }
-                  try {
-                    final result = await invoke(
-                      rawCallee,
-                      call.args,
-                      functionValue: call.callee,
-                      isTailCall: true,
-                    );
-                    _releaseBytecodeFrameIfReusable(frame);
-                    return result;
-                  } on YieldException catch (error) {
-                    _suspendTailCall(frame, error);
-                  } catch (error) {
-                    _releaseBytecodeFrameIfReusable(frame);
-                    rethrow;
-                  }
+                  throw TailCallException(call.callee, call.args);
                 }
 
                 // Slow path: metatables, debug hooks, or non-closure callees.
@@ -1675,28 +1662,7 @@ final class LuaBytecodeVm {
                     : (name: null, namewhat: '');
                 final prepared = _flattenTailCallable(call.callee, call.args);
                 final callee = prepared.callee;
-                if (rawLuaSlot(callee) case LuaBytecodeClosure nextClosure) {
-                  if (!debugHooksEnabled) {
-                    if (!_closeFrameForCoroutineSync(frame)) {
-                      await _closeFrameForCoroutine(frame, error: null);
-                    }
-                    try {
-                      final result = await invoke(
-                        nextClosure,
-                        prepared.args,
-                        functionValue: callee,
-                        isTailCall: true,
-                        extraArgs: prepared.extraArgs,
-                      );
-                      _releaseBytecodeFrameIfReusable(frame);
-                      return result;
-                    } on YieldException catch (error) {
-                      _suspendTailCall(frame, error);
-                    } catch (error) {
-                      _releaseBytecodeFrameIfReusable(frame);
-                      rethrow;
-                    }
-                  }
+                if (rawLuaSlot(callee) is LuaBytecodeClosure) {
                   if (!_closeFrameForCoroutineSync(frame)) {
                     await _closeFrameForCoroutine(frame, error: null);
                   }
