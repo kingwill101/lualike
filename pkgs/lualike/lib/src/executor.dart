@@ -63,15 +63,21 @@ Future<Object?> executeCode(
     // the multi-pass pipeline instead of the runtime's built-in runAst.
     final folding = foldEnabled ?? LuaLikeConfig().foldEnabled;
     if (folding && selectedMode != EngineMode.ast) {
+      final backend = switch (selectedMode) {
+        EngineMode.luaBytecode => CompileBackend.luaBytecode,
+        EngineMode.ir => CompileBackend.lualikeIR,
+        _ => CompileBackend.luaBytecode,
+      };
+      final enableSsa = backend == CompileBackend.luaBytecode;
       final pipeline = CompilePipeline(
         config: CompilePipelineConfig(
           enableConstantFolding: true,
+          enablePeephole: enableSsa,
+          enableSsaDeadCodeElimination: enableSsa,
+          enableSsaGlobalValueNumbering: enableSsa,
+          enableSsaSccp: enableSsa,
           dumpIr: LuaLikeConfig().dumpIr,
-          target: switch (selectedMode) {
-            EngineMode.luaBytecode => CompileBackend.luaBytecode,
-            EngineMode.ir => CompileBackend.lualikeIR,
-            _ => CompileBackend.luaBytecode,
-          },
+          target: backend,
         ),
       );
       final artifact = pipeline.compile(program);
