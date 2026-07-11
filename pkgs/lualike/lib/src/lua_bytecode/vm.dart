@@ -304,15 +304,17 @@ final class LuaBytecodeVm {
           runtime.callStack.pop();
         }
       }
-      // Restore the caller's runtime state before returning control to the
-      // next top-level operation. Nested frames overwrite these fields again
-      // on entry, but leaving them changed here leaks the callee environment
-      // into subsequent reuse of the same runtime.
-      runtime.callStack.setScriptPath(previousCallStackScriptPath);
-      runtime.currentScriptPath = previousScriptPath;
-      runtime.setCurrentEnv(previousEnv);
-      if (parentFrame != null) {
-        parentFrame.env = parentFrameEnv;
+      // Skip state restoration on the happy path when no debug hook is active.
+      // The next frame will overwrite env/scriptPath anyway. Errors and
+      // debug hooks still need restored state, handled in catch blocks.
+      // Must still restore for suspended coroutines (the runtime may be reused).
+      if (exitDebugInterpreter?.debugHookFunction != null || suspended) {
+        runtime.callStack.setScriptPath(previousCallStackScriptPath);
+        runtime.currentScriptPath = previousScriptPath;
+        runtime.setCurrentEnv(previousEnv);
+        if (parentFrame != null) {
+          parentFrame.env = parentFrameEnv;
+        }
       }
     }
   }
