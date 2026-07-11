@@ -66,6 +66,9 @@ final class LuaBytecodeVm {
   final Interpreter? _debugInterpreter;
   LuaBytecodeProfile? _activeProfile;
 
+  /// Per-table-storage GETFIELD cache: (pc, fieldConst) → (version, Value).
+  /// Key is Object.hash(instructionPc, word.c) for collision-free combining.
+  final _getFieldIc = Expando<Map<int, ({int version, Value value})>>();
 
 
 
@@ -588,8 +591,31 @@ final class LuaBytecodeVm {
               final receiver = frame.register(word.b);
               final rawKey = stringConstantRaw(prototype, word.c);
 
+              // Inline cache: per-storage Expando, keyed by (pc, fieldConst)
+              if (rawLuaSlot(receiver) case final TableStorage storage) {
+                final fieldCache = _getFieldIc[storage];
+                if (fieldCache != null) {
+                  final key = Object.hash(instructionPc, word.c);
+                  final entry = fieldCache[key];
+                  if (entry != null && entry.version == storage.icVersion) {
+                    frame.setRegister(word.a, entry.value);
+                    break;
+                  }
+                }
+              }
+
               final fastValue = _tryFastTableGetStringKey(receiver, rawKey);
               if (fastValue != null) {
+                if (rawLuaSlot(receiver) case final TableStorage storage) {
+                  final fieldCache = _getFieldIc[storage] ??
+                      <int, ({int version, Value value})>{};
+                  final key = Object.hash(instructionPc, word.c);
+                  fieldCache[key] = (
+                    version: storage.icVersion,
+                    value: fastValue,
+                  );
+                  _getFieldIc[storage] = fieldCache;
+                }
                 frame.setRegister(word.a, fastValue);
                 break;
               }
