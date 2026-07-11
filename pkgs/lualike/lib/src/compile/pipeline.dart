@@ -17,6 +17,7 @@ import 'package:lualike/src/lua_bytecode/serializer.dart';
 import 'package:lualike/src/ir/ssa_dead_code_pass.dart';
 import 'package:lualike/src/ir/ssa_gvn_pass.dart';
 import 'package:lualike/src/ir/ssa_coalesce_pass.dart';
+import 'package:lualike/src/ir/inline_pass.dart';
 import 'package:lualike/src/ir/ssa_licm_pass.dart';
 import 'package:lualike/src/ir/ssa_escape_pass.dart';
 import 'package:lualike/src/ir/ssa_sccp_pass.dart';
@@ -72,6 +73,9 @@ final class CompilePipelineConfig {
   /// Whether to run Escape Analysis + Scalar Replacement on the IR.
   final bool enableSsaEscape;
 
+  /// Whether to run Function Inlining on the IR.
+  final bool enableFunctionInlining;
+
   /// Whether to unroll constant-bounded for-loops in the IR compiler.
   final bool enableLoopUnrolling;
 
@@ -106,6 +110,7 @@ final class CompilePipelineConfig {
     this.enableSsaLicm = false,
     this.enableSsaCoalesce = false,
     this.enableSsaEscape = false,
+    this.enableFunctionInlining = false,
     this.enableLoopUnrolling = false,
     this.enableBundling = false,
     this.bundleSearchPaths = const ['.'],
@@ -297,6 +302,13 @@ final class CompilePipeline {
       irChunk = LualikeIrChunk(
         flags: irChunk.flags,
         mainPrototype: replaceScalars(irChunk.mainPrototype),
+      );
+    }
+
+    if (config.enableFunctionInlining) {
+      irChunk = LualikeIrChunk(
+        flags: irChunk.flags,
+        mainPrototype: inlineFunctions(irChunk.mainPrototype),
       );
     }
 

@@ -121,6 +121,7 @@ Future<void> _runTable(List<File> files) async {
         enableSsaLicm: true,
         enableSsaCoalesce: true,
         enableSsaEscape: true,
+        enableFunctionInlining: true,
         target: CompileBackend.lualikeIR,
       ),
     );
