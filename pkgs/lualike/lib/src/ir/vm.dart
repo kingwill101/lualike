@@ -2844,6 +2844,16 @@ class LoopIrVm {
   ) {
     final left = registers[instr.b];
     final right = registers[instr.c];
+    // Integer fast path: when both operands are raw ints, skip double/coercion
+    if (left is int && right is int) {
+      registers[instr.a] = switch (operation) {
+        '+' => left + right,
+        '-' => left - right,
+        '*' => left * right,
+        _ => _applyBinaryOperation(left, right, operation),
+      };
+      return;
+    }
     registers[instr.a] = _applyBinaryOperation(left, right, operation);
   }
 
