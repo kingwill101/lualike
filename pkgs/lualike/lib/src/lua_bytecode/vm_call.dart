@@ -48,12 +48,51 @@ extension LuaBytecodeVmCallEntry on LuaBytecodeVm {
         try {
           final result = await _runFrame(frame);
           _releaseBytecodeFrameIfReusable(frame);
-          return result;
+          if (result is _TailCallResult) {
+            // Tail call via normal return — re-dispatch.
+            final tail = result;
+            final tailRawCallee = rawLuaSlot(tail.functionValue);
+            if (tailRawCallee is LuaBytecodeClosure &&
+                _debugInterpreter?.debugHookFunction == null) {
+              currentClosure = tailRawCallee;
+              currentArgs = tail.args;
+              currentFunctionValue = tail.functionValue;
+              currentCallName = null;
+              currentCallNameWhat = null;
+              currentIsTailCall = true;
+              currentExtraArgs = 0;
+              continue;
+            }
+            final prepared = _flattenTailCallable(tail.functionValue, tail.args);
+            final callee = prepared.callee;
+            final tailNameInfo = _decodeTailCallNameInfo(tail.callName);
+            if (rawLuaSlot(callee) case final LuaBytecodeClosure nextClosure) {
+              currentClosure = nextClosure;
+              currentArgs = prepared.args;
+              currentFunctionValue = callee;
+              if (tail.callName != null) {
+                currentCallName = tailNameInfo.name;
+                currentCallNameWhat = tailNameInfo.namewhat;
+              }
+              currentIsTailCall = true;
+              currentExtraArgs = prepared.extraArgs;
+              continue;
+            }
+            return await _invokePreparedCall(
+              (callee: callee, args: prepared.args),
+              callName: tail.callName != null
+                  ? tailNameInfo.name
+                  : currentCallName,
+              callNameWhat: tail.callName != null
+                  ? tailNameInfo.namewhat
+                  : currentCallNameWhat,
+              isTailCall: true,
+            );
+          }
+          return result as List<Value>;
         } on TailCallException catch (tail) {
+          // Legacy path — TailCallException thrown from _runFrameWithTailCalls etc.
           _releaseBytecodeFrameIfReusable(frame);
-          // Fast path: when the tail-call target is already a
-          // LuaBytecodeClosure (the hot path) and no debug hooks are
-          // active, skip _flattenTailCallable and name resolution.
           final tailRawCallee = rawLuaSlot(tail.functionValue);
           if (tailRawCallee is LuaBytecodeClosure &&
               _debugInterpreter?.debugHookFunction == null) {

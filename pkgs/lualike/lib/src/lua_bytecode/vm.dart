@@ -58,6 +58,16 @@ final RegExp _bytecodeFormattedLuaErrorPattern = RegExp(
   r'^(?:\[[^\n]+\]|[^:\n]+):(?:\d+|\?): ',
 );
 
+/// Returned by [_executeFrame] on a TAILCALL instruction instead of
+/// throwing [TailCallException].  Keeps tail-call control flow in the
+/// normal async completion path (no _completeErrorObject overhead).
+final class _TailCallResult {
+  final dynamic functionValue;
+  final List<Object?> args;
+  final String? callName;
+  const _TailCallResult(this.functionValue, this.args, {this.callName});
+}
+
 final class LuaBytecodeVm {
   LuaBytecodeVm(this.runtime)
     : _debugInterpreter = _resolveDebugInterpreter(runtime);
@@ -100,7 +110,7 @@ final class LuaBytecodeVm {
     return envInterpreter is Interpreter ? envInterpreter : null;
   }
 
-  Future<List<Value>> _runFrame(LuaBytecodeFrame frame) async {
+  Future<Object> _runFrame(LuaBytecodeFrame frame) async {
     final closure = frame.closure;
     final previousEnv = runtime.getCurrentEnv();
     final previousScriptPath = runtime.currentScriptPath;
@@ -191,7 +201,15 @@ final class LuaBytecodeVm {
     List<Value> returnTransferValues = const <Value>[];
     try {
       final result = await _executeFrame(frame, callFrame: activeCallFrame);
-      returnTransferValues = result;
+      if (result is _TailCallResult) {
+        // Tail call via normal return (no TailCallException).
+        // The TAILCALL opcode handler already closed the frame.
+        // Pop the call stack and propagate the result upward.
+        runtime.callStack.pop();
+        poppedCallFrame = true;
+        return result;
+      }
+      returnTransferValues = result as List<Value>;
       return result;
     } on YieldException catch (error) {
       final coroutine = error.coroutine ?? runtime.getCurrentCoroutine();
@@ -207,8 +225,8 @@ final class LuaBytecodeVm {
       suspended = true;
       rethrow;
     } on TailCallException {
-      // Tail-call control flow — bypass expensive error normalization.
-      // The frame is already closed by the TAILCALL opcode handler.
+      // Legacy path — TailCallException thrown from outside _executeFrame
+      // (e.g. from invoke or _runFrameWithTailCalls).
       runtime.callStack.pop();
       poppedCallFrame = true;
       rethrow;
@@ -339,9 +357,64 @@ final class LuaBytecodeVm {
       try {
         final result = await _runFrame(frame);
         _releaseBytecodeFrameIfReusable(frame);
-        return result;
+        if (result is _TailCallResult) {
+          // Re-dispatch the tail call (result came via normal return, not exception).
+          final tail = result;
+          final tailRawCallee = rawLuaSlot(tail.functionValue);
+          if (tailRawCallee is LuaBytecodeClosure &&
+              _debugInterpreter?.debugHookFunction == null) {
+            final tailFnValue = tail.functionValue is Value
+                ? tail.functionValue as Value
+                : null;
+            try {
+              final innerResult = await invoke(
+                tailRawCallee,
+                tail.args,
+                functionValue: tailFnValue,
+                isTailCall: true,
+              );
+              return innerResult;
+            } on YieldException catch (error) {
+              _suspendTailCall(frame, error);
+            } catch (error) {
+              rethrow;
+            }
+          }
+          final prepared = _flattenTailCallable(tail.functionValue, tail.args);
+          final callee = prepared.callee;
+          if (rawLuaSlot(callee) case final LuaBytecodeClosure nextClosure) {
+            try {
+              final innerResult = await invoke(
+                nextClosure,
+                prepared.args,
+                functionValue: callee,
+                callName: tail.callName,
+                extraArgs: prepared.extraArgs,
+              );
+              return innerResult;
+            } on YieldException catch (error) {
+              _suspendTailCall(frame, error);
+            } catch (error) {
+              rethrow;
+            }
+          }
+          try {
+            final innerResult = await _invokeValueWithName(
+              callee,
+              prepared.args,
+              callName: tail.callName,
+              extraArgs: prepared.extraArgs,
+            );
+            return innerResult;
+          } on YieldException catch (error) {
+            _suspendTailCall(frame, error);
+          } catch (error) {
+            rethrow;
+          }
+        }
+        return result as List<Value>;
       } on TailCallException catch (tail) {
-        // Fast path: LuaBytecodeClosure with no debug hooks.
+        // Legacy path — TailCallException thrown by older code paths.
         final tailRawCallee = rawLuaSlot(tail.functionValue);
         if (tailRawCallee is LuaBytecodeClosure &&
             _debugInterpreter?.debugHookFunction == null) {
@@ -403,7 +476,7 @@ final class LuaBytecodeVm {
     }
   }
 
-  Future<List<Value>> _executeFrame(
+  Future<Object> _executeFrame(
     LuaBytecodeFrame frame, {
     required CallFrame callFrame,
   }) async {
@@ -1697,7 +1770,7 @@ final class LuaBytecodeVm {
                   if (!_closeFrameForCoroutineSync(frame)) {
                     await _closeFrameForCoroutine(frame, error: null);
                   }
-                  throw TailCallException(call.callee, call.args);
+                  return _TailCallResult(call.callee, call.args);
                 }
 
                 // Slow path: metatables, debug hooks, or non-closure callees.
@@ -1711,7 +1784,7 @@ final class LuaBytecodeVm {
                   if (!_closeFrameForCoroutineSync(frame)) {
                     await _closeFrameForCoroutine(frame, error: null);
                   }
-                  throw TailCallException(
+                  return _TailCallResult(
                     callee,
                     prepared.args,
                     callName: tailName,
