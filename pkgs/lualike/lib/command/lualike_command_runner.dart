@@ -122,6 +122,12 @@ class LuaLikeCommandRunner extends CommandRunner {
         },
       )
       ..addOption(
+        'lua-test',
+        help: 'Run a Lua test suite file with the standard test environment'
+            ' (sets _port, _soft, package.path). Example: --lua-test calls',
+        valueHelp: 'test',
+      )
+      ..addOption(
         'emit-docs-output',
         help: 'Output path for --emit-docs. Defaults to stdout.',
         valueHelp: 'path',
@@ -264,6 +270,18 @@ class LuaLikeCommandRunner extends CommandRunner {
     final executeStrings = argResults['execute'] as List<String>;
     for (final code in executeStrings) {
       final executeCmd = ExecuteCommand(code, args.toList());
+      await executeCmd.run();
+    }
+
+    // Handle --lua-test (runs a Lua test suite file with standard env)
+    final luaTest = argResults['lua-test'] as String?;
+    if (luaTest != null) {
+      final testFile = luaTest.endsWith('.lua') ? luaTest : '$luaTest.lua';
+      final testPath = 'luascripts/test/$testFile';
+      final initCode = '_port = true; _soft = true; '
+          "package.path = 'luascripts/test/?.lua;luascripts/test/?/init.lua;?.lua;;'; "
+          "dofile('$testPath')";
+      final executeCmd = ExecuteCommand(initCode, args.toList());
       await executeCmd.run();
     }
 
