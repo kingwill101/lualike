@@ -207,3 +207,29 @@ Further gains would require architectural changes: synchronous instruction
 dispatch for the non‑yielding path, register storage that avoids Value boxing
 (abandoned — see Boxing elimination above), or re‑implementing equality and
 arithmetic with native unboxed types.
+
+---
+
+### TailCallException replaced with `_TailCallResult` return value
+
+**Date:** 2026‑07‑11  
+**Status:** Active  
+
+`TailCallException` was thrown as control flow from `_executeFrame` for
+every tail call. Because the entire call chain (`invoke` → `_runFrame` →
+`_executeFrame`) is async, the exception went through
+`_Future._completeErrorObject` — the expensive async error path that
+captures stack traces and propagates errors through listeners.
+
+**Fix:** `_executeFrame` now returns `_TailCallResult` (a plain data class
+that does not extend `Exception`) on `TAILCALL` instructions. The callers
+check with `is _TailCallResult` and re-dispatch normally. The async
+completion goes through the normal `_completeWithValue` path.
+
+`TailCallException` is retained as a legacy path for non-closure tail calls
+and coroutine-resume paths that still use it.
+
+**Result:**
+- calls.lua: 4.50s → 1.42s (−68%)
+- math.lua: 2.76s → 2.28s (−17%)
+- Combined absolute improvement vs baseline: calls.lua −71%, math.lua −76%
