@@ -206,6 +206,12 @@ final class LuaBytecodeVm {
       }
       suspended = true;
       rethrow;
+    } on TailCallException {
+      // Tail-call control flow — bypass expensive error normalization.
+      // The frame is already closed by the TAILCALL opcode handler.
+      runtime.callStack.pop();
+      poppedCallFrame = true;
+      rethrow;
     } on CoroutineCloseSignal catch (signal) {
       var closeYieldable = closeSignalYieldableStates[signal];
       runtime.callStack.pop();
