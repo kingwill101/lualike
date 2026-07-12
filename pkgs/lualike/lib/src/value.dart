@@ -190,6 +190,15 @@ class Value with GCObject implements Map<String, dynamic> {
   /// The underlying raw value being wrapped.
   dynamic _raw;
 
+  /// Inline flags for commonly-used primitive flags. Avoids allocating
+  /// [LuaValueMetadata] for transient primitives that only need
+  /// skipAllocationDebt / skipGcRegistration / isRawPrimitive / isSharedPrimitive.
+  static const int _skipAllocationDebtBit = 1 << 0;
+  static const int _skipGcRegistrationBit = 1 << 1;
+  static const int _isRawPrimitiveBit = 1 << 2;
+  static const int _isSharedPrimitiveBit = 1 << 3;
+  int _inlineFlags = 0;
+
   /// Optional side metadata. Primitive wrappers without runtime flags,
   /// metatables, interpreter attachment, or GC generation state avoid it.
   LuaValueMetadata? _metadataPayload;
@@ -202,8 +211,18 @@ class Value with GCObject implements Map<String, dynamic> {
   LuaClosurePayload _closurePayloadForWrite() =>
       _closurePayload ??= LuaClosurePayload();
 
-  LuaValueMetadata _metadataPayloadForWrite() =>
-      _metadataPayload ??= LuaValueMetadata();
+  LuaValueMetadata _metadataPayloadForWrite() {
+    if (_metadataPayload == null) {
+      _metadataPayload = LuaValueMetadata();
+      // Transfer inline flags to the newly-created metadata.
+      if ((_inlineFlags & _skipAllocationDebtBit) != 0) _metadataPayload!.skipAllocationDebt = true;
+      if ((_inlineFlags & _skipGcRegistrationBit) != 0) _metadataPayload!.skipGcRegistration = true;
+      if ((_inlineFlags & _isRawPrimitiveBit) != 0) _metadataPayload!.isRawPrimitive = true;
+      if ((_inlineFlags & _isSharedPrimitiveBit) != 0) _metadataPayload!.isSharedPrimitive = true;
+      _inlineFlags = 0;
+    }
+    return _metadataPayload!;
+  }
 
   /// Runtime instance associated with this value, when one is needed.
   LuaRuntime? get interpreter => _metadataPayload?.interpreter;
@@ -231,14 +250,19 @@ class Value with GCObject implements Map<String, dynamic> {
       return;
     }
 
-    final metadata = _metadataPayloadForWrite();
-    metadata.isMulti = isMulti;
-    metadata.isConst = isConst;
-    metadata.isToBeClose = isToBeClose;
-    metadata.isTempKey = isTempKey;
-    metadata.skipAllocationDebt = skipAllocationDebt;
-    metadata.skipGcRegistration = skipGcRegistration;
-    metadata.isSharedPrimitive = isSharedPrimitive;
+    // Common flags that fit inline: set directly without metadata.
+    if (skipAllocationDebt) _inlineFlags |= _skipAllocationDebtBit;
+    if (skipGcRegistration) _inlineFlags |= _skipGcRegistrationBit;
+    if (isSharedPrimitive) _inlineFlags |= _isSharedPrimitiveBit;
+
+    // Flags that still need metadata: isMulti, isConst, isToBeClose, isTempKey.
+    if (isMulti || isConst || isToBeClose || isTempKey) {
+      final metadata = _metadataPayloadForWrite();
+      metadata.isMulti = isMulti;
+      metadata.isConst = isConst;
+      metadata.isToBeClose = isToBeClose;
+      metadata.isTempKey = isTempKey;
+    }
   }
 
   /// Whether this value is a multi-result value.
@@ -274,10 +298,14 @@ class Value with GCObject implements Map<String, dynamic> {
   ///
   /// This keeps bookkeeping-neutral clones of shared runtime constants from
   /// perturbing Lua-visible `collectgarbage("count")` results.
-  bool get skipAllocationDebt => _metadataPayload?.skipAllocationDebt ?? false;
+  bool get skipAllocationDebt => _metadataPayload?.skipAllocationDebt ??
+      ((_inlineFlags & _skipAllocationDebtBit) != 0);
   set skipAllocationDebt(bool value) {
-    if (!value && _metadataPayload == null) return;
-    _metadataPayloadForWrite().skipAllocationDebt = value;
+    if (_metadataPayload != null) {
+      _metadataPayload!.skipAllocationDebt = value;
+    } else if (value) {
+      _inlineFlags |= _skipAllocationDebtBit;
+    }
   }
 
   /// Whether this wrapper should skip eager GC registration.
@@ -286,28 +314,40 @@ class Value with GCObject implements Map<String, dynamic> {
   /// per-instance GC references. They can stay off the generational tracking
   /// sets until they escape into a tracked container or a collection discovers
   /// them from roots, which avoids repeated registration churn in tight loops.
-  bool get skipGcRegistration => _metadataPayload?.skipGcRegistration ?? false;
+  bool get skipGcRegistration => _metadataPayload?.skipGcRegistration ??
+      ((_inlineFlags & _skipGcRegistrationBit) != 0);
   set skipGcRegistration(bool value) {
-    if (!value && _metadataPayload == null) return;
-    _metadataPayloadForWrite().skipGcRegistration = value;
+    if (_metadataPayload != null) {
+      _metadataPayload!.skipGcRegistration = value;
+    } else if (value) {
+      _inlineFlags |= _skipGcRegistrationBit;
+    }
   }
 
   /// Whether this wrapper belongs to the runtime's shared primitive cache.
   ///
   /// Shared primitive wrappers are safe to reuse as temporary values, but must
   /// not be mutated in-place when a binding later receives a different value.
-  bool get isSharedPrimitive => _metadataPayload?.isSharedPrimitive ?? false;
+  bool get isSharedPrimitive => _metadataPayload?.isSharedPrimitive ??
+      ((_inlineFlags & _isSharedPrimitiveBit) != 0);
   set isSharedPrimitive(bool value) {
-    if (!value && _metadataPayload == null) return;
-    _metadataPayloadForWrite().isSharedPrimitive = value;
+    if (_metadataPayload != null) {
+      _metadataPayload!.isSharedPrimitive = value;
+    } else if (value) {
+      _inlineFlags |= _isSharedPrimitiveBit;
+    }
   }
 
   /// Whether this Value wraps a raw primitive (int, double, bool, null).
   /// The GC skips these during marking — they contain no heap references.
-  bool get isRawPrimitive => _metadataPayload?.isRawPrimitive ?? false;
+  bool get isRawPrimitive => _metadataPayload?.isRawPrimitive ??
+      ((_inlineFlags & _isRawPrimitiveBit) != 0);
   set isRawPrimitive(bool value) {
-    if (!value && _metadataPayload == null) return;
-    _metadataPayloadForWrite().isRawPrimitive = value;
+    if (_metadataPayload != null) {
+      _metadataPayload!.isRawPrimitive = value;
+    } else if (value) {
+      _inlineFlags |= _isRawPrimitiveBit;
+    }
   }
 
   Map<String, dynamic>? get metatable => _metadataPayload?.metatable;
@@ -883,10 +923,12 @@ class Value with GCObject implements Map<String, dynamic> {
     Object? raw, {
     LuaRuntime? interpreter,
   }) : _raw = raw {
-    final metadata = _metadataPayloadForWrite();
-    metadata.skipAllocationDebt = true;
-    metadata.skipGcRegistration = true;
-    metadata.interpreter = interpreter;
+    // Set common flags inline — no metadata allocation needed for the
+    // common case (transient primitives that don't need metatables).
+    _inlineFlags |= _skipAllocationDebtBit | _skipGcRegistrationBit;
+    if (interpreter != null) {
+      _metadataPayloadForWrite().interpreter = interpreter;
+    }
 
     final type = switch (raw) {
       null => 'nil',
@@ -894,7 +936,7 @@ class Value with GCObject implements Map<String, dynamic> {
       int() || double() || BigInt() => 'number',
       String() => 'string',
       LuaString() => 'string',
-      _ => 'number', // keep existing fallback for any other numeric-like types
+      _ => 'number',
     };
     if (MetaTable().isDefaultMetatableActive(type)) {
       MetaTable().applyDefaultMetatable(this);
