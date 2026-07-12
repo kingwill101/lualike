@@ -352,6 +352,233 @@ final class LuaBytecodeVm {
     }
   }
 
+  Object? _trySyncExecute(LuaBytecodeFrame frame) {
+    if (runtime.getCurrentCoroutine() != null) return null;
+    if (_debugInterpreter?.debugHookFunction != null) return null;
+    final prototype = frame.closure.prototype;
+    final opcodesByPc = prototype.opcodesByPc;
+    while (frame.pc < prototype.code.length) {
+      frame.expireDeadLocals();
+      if (++frame.safePointCounter >= 512) {
+        frame.safePointCounter = 0;
+        runtime.runAutoGcAtSafePoint();
+      }
+      int? nextOpenTop;
+      final word = prototype.code[frame.pc++];
+      final opcode = opcodesByPc[frame.pc - 1];
+      try {
+        switch (opcode) {
+          case Opcode.move:
+            frame.setRegister(word.a, frame.register(word.b)); break;
+          case Opcode.loadI:
+            frame.setRegister(word.a, framePrimitiveValue(runtime, word.sBx)); break;
+          case Opcode.loadF:
+            frame.setRegister(word.a, framePrimitiveValue(runtime, word.sBx.toDouble())); break;
+          case Opcode.loadK:
+            frame.setRegister(word.a, constantValue(runtime, prototype, word.bx)); break;
+          case Opcode.loadKx:
+            frame.setRegister(word.a, constantValue(runtime, prototype, _consumeExtraArg(frame).ax)); break;
+          case Opcode.loadFalse:
+          case Opcode.lFalseSkip:
+            frame.setRegister(word.a, framePrimitiveValue(runtime, false));
+            if (opcode == Opcode.lFalseSkip) frame.pc += 1; break;
+          case Opcode.loadTrue:
+            frame.setRegister(word.a, framePrimitiveValue(runtime, true)); break;
+          case Opcode.loadNil:
+            for (var reg = word.a; reg <= word.a + word.b; reg++) {
+              frame.setRegister(reg, framePrimitiveValue(runtime, null));
+            }
+            break;
+          case Opcode.add: case Opcode.sub: case Opcode.mul:
+          case Opcode.mod: case Opcode.pow: case Opcode.div:
+          case Opcode.idiv: case Opcode.band: case Opcode.bor:
+          case Opcode.bxor: case Opcode.shl: case Opcode.shr:
+          case Opcode.addK: case Opcode.subK: case Opcode.mulK:
+          case Opcode.modK: case Opcode.powK: case Opcode.divK:
+          case Opcode.idivK: case Opcode.bandK: case Opcode.borK:
+          case Opcode.bxorK: case Opcode.addI:
+            _executeBinaryInstruction(frame,
+              targetRegister: word.a,
+              left: frame.register(word.b),
+              right: word.kFlag || opcode == Opcode.addI
+                  ? constantValue(runtime, prototype, word.c)
+                  : frame.register(word.c),
+              operation: switch (opcode) {
+                Opcode.add || Opcode.addK || Opcode.addI => LuaBinaryOperation.add,
+                Opcode.sub || Opcode.subK => LuaBinaryOperation.sub,
+                Opcode.mul || Opcode.mulK => LuaBinaryOperation.mul,
+                Opcode.mod || Opcode.modK => LuaBinaryOperation.mod,
+                Opcode.pow || Opcode.powK => LuaBinaryOperation.pow,
+                Opcode.div || Opcode.divK => LuaBinaryOperation.div,
+                Opcode.idiv || Opcode.idivK => LuaBinaryOperation.idiv,
+                Opcode.band || Opcode.bandK => LuaBinaryOperation.band,
+                Opcode.bor || Opcode.borK => LuaBinaryOperation.bor,
+                Opcode.bxor || Opcode.bxorK => LuaBinaryOperation.bxor,
+                Opcode.shl => LuaBinaryOperation.shl,
+                Opcode.shr => LuaBinaryOperation.shr,
+                _ => LuaBinaryOperation.add,
+              });
+            break;
+          case Opcode.unm: case Opcode.bnot:
+            _executeUnaryInstruction(frame, frame.register(word.b),
+              operandRegister: word.b,
+              metamethod: opcode == Opcode.unm ? '__unm' : '__bnot',
+              fastPath: (op) => opcode == Opcode.unm
+                  ? NumberUtils.negate(rawLuaSlot(op))
+                  : NumberUtils.bitwiseNot(rawLuaSlot(op)));
+            break;
+          case Opcode.notOp:
+            frame.setRegister(word.a,
+              framePrimitiveValue(runtime, !isLuaTruthy(frame.register(word.b))));
+            break;
+          case Opcode.len: {
+            final fastLen = canFastPathLength(frame.register(word.b));
+            if (fastLen == null) return null;
+            frame.setRegister(word.a, framePrimitiveValue(runtime, fastLen));
+            break;
+          }
+          case Opcode.jmp:
+            frame.pc += word.sJ - 1; break;
+          case Opcode.eq: case Opcode.lt: case Opcode.le:
+          case Opcode.eqK:
+          case Opcode.eqI: case Opcode.ltI: case Opcode.leI:
+          case Opcode.gtI: case Opcode.geI:
+            if (!_syncCompare(frame, word, opcode)) return null;
+            break;
+          case Opcode.test:
+            _docondjump(frame, word, isLuaTruthy(frame.register(word.a))); break;
+          case Opcode.testSet: {
+            final value = frame.register(word.b);
+            if (!isLuaTruthy(value) == word.kFlag) frame.pc += 1;
+            else frame.setRegister(word.a, value);
+            break;
+          }
+          case Opcode.call: {
+            final callee = frame.register(word.a);
+            final raw = rawLuaSlot(callee);
+            if (_debugInterpreter?.debugHookFunction == null &&
+                raw is BuiltinFunction && word.b != 0) {
+              final r = _tryHandleFixedArityInlineBuiltinCall(
+                frame, word, callee, raw);
+              if (!identical(r, inlineBuiltinUnhandled)) {
+                nextOpenTop = r as int?; break;
+              }
+            }
+            if (raw is! LuaBytecodeClosure) return null;
+            final args = LuaBytecodeFrameArgsView(frame,
+              start: word.a + 1,
+              count: word.b == 0 ? frame.effectiveTop - (word.a + 1) : word.b - 1);
+            final newFrame = _acquireBytecodeFrame(raw,
+              functionValue: callee, arguments: args, isEntryFrame: false);
+            final r = _trySyncExecute(newFrame);
+            _releaseBytecodeFrameIfReusable(newFrame);
+            if (r == null) return null;
+            if (r is _TailCallResult) {
+              // Handle tail call from sync path
+              final tail = r;
+              final tailRaw = rawLuaSlot(tail.functionValue);
+              if (tailRaw is LuaBytecodeClosure) {
+                // Re-dispatch
+                final nextFrame = _acquireBytecodeFrame(tailRaw,
+                  functionValue: tail.functionValue is Value
+                      ? tail.functionValue as Value : null,
+                  arguments: tail.args, isEntryFrame: false, isTailCall: true);
+                final nextR = _trySyncExecute(nextFrame);
+                _releaseBytecodeFrameIfReusable(nextFrame);
+                if (nextR == null) return null;
+                if (nextR is _TailCallResult) return null;
+                final results2 = nextR as List<Value>;
+                if (word.c == 1) _closeDiscardedCallResults(frame, results2);
+                nextOpenTop = _storeCallResults(frame, word.a, word.c, results2);
+                break;
+              }
+              return null;
+            }
+            final results = r as List<Value>;
+            if (word.c == 1) _closeDiscardedCallResults(frame, results);
+            nextOpenTop = _storeCallResults(frame, word.a, word.c, results);
+            break;
+          }
+          case Opcode.tailCall: {
+            final callee = frame.register(word.a);
+            final raw = rawLuaSlot(callee);
+            if (raw is! LuaBytecodeClosure ||
+                _debugInterpreter?.debugHookFunction != null) return null;
+            if (!_closeFrameForCoroutineSync(frame)) return null;
+            return _TailCallResult(callee, _resolveCall(frame, word).args);
+          }
+          case Opcode.return_:
+          case Opcode.return0:
+          case Opcode.return1:
+            return _syncReturn(frame, word);
+          case Opcode.getUpval:
+            frame.setRegister(word.a, frame.closure.readUpvalue(word.b)); break;
+          case Opcode.setUpval:
+            frame.closure.writeUpvalue(word.b, frame.register(word.a)); break;
+          case Opcode.newTable:
+            frame.setRegister(word.a, Value(TableStorage(), interpreter: runtime)); break;
+          case Opcode.setList:
+            _setList(frame, word); break;
+          case Opcode.close:
+          case Opcode.varArgPrep:
+          case Opcode.extraArg:
+            return null; // complex opcode — needs async
+          default:
+            return null;
+        }
+      } on YieldException {
+        return null;
+      }
+      if (nextOpenTop != null) {
+        frame.openTop = nextOpenTop >= 0 ? nextOpenTop : null;
+        frame.top = nextOpenTop;
+      }
+    }
+    return const <Value>[];
+  }
+
+  List<Value> _syncReturn(LuaBytecodeFrame frame, LuaBytecodeInstructionWord word) {
+    if (word.opcode == Opcode.return0) return const <Value>[];
+    if (word.opcode == Opcode.return1) return <Value>[frame.register(word.a)];
+    final count = word.b == 0 ? frame.effectiveTop - word.a : word.b - 1;
+    if (count <= 0) return const <Value>[];
+    final results = List<Value>.generate(count, (i) => frame.register(word.a + i));
+    return results;
+  }
+
+  bool _syncCompare(LuaBytecodeFrame frame,
+      LuaBytecodeInstructionWord word, Opcode opcode) {
+    final prototype = frame.closure.prototype;
+    final left = frame.register(word.a);
+    final bool? result = switch (opcode) {
+      Opcode.eq => _syncEq(left, frame.register(word.b)),
+      Opcode.lt => tryPrimitiveOrdering(left, frame.register(word.b),
+        PrimitiveCompare.lessThan),
+      Opcode.le => tryPrimitiveOrdering(left, frame.register(word.b),
+        PrimitiveCompare.lessThanOrEqual),
+      Opcode.eqK => _syncEq(left, constantValue(runtime, prototype, word.b)),
+      Opcode.eqI => compareImmediateEquals(left, word.b),
+      Opcode.ltI => tryPrimitiveImmediateOrdering(left, word.b,
+        PrimitiveCompare.lessThan),
+      Opcode.leI => tryPrimitiveImmediateOrdering(left, word.b,
+        PrimitiveCompare.lessThanOrEqual),
+      Opcode.gtI => tryPrimitiveImmediateOrdering(left, word.b,
+        PrimitiveCompare.greaterThan),
+      Opcode.geI => tryPrimitiveImmediateOrdering(left, word.b,
+        PrimitiveCompare.greaterThanOrEqual),
+      _ => null,
+    };
+    if (result == null) return false;
+    _docondjump(frame, word, result);
+    return true;
+  }
+
+  bool? _syncEq(Value left, Value right) {
+    if (rawEquals(left, right)) return true;
+    if (!supportsEqualityMetamethod(left, right)) return false;
+    return null;
+  }
+
   Future<List<Value>> _runFrameWithTailCalls(LuaBytecodeFrame frame) async {
     while (true) {
       try {
