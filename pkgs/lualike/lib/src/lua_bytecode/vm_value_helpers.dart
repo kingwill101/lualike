@@ -400,7 +400,13 @@ Value runtimeValue(LuaRuntime runtime, Object? value) {
     null ||
     bool() ||
     num() ||
-    BigInt() => runtime.constantPrimitiveValue(value),
+    BigInt() =>
+        // Use a transient primitive to avoid the HashMap overhead in
+        // constantPrimitiveValue.  Arithmetic results and string-concat
+        // results are almost always unique.  Bytecode constants (LOADK)
+        // are already Values from constantValue() and hit the Value
+        // branch above.  See doc/decisions.md.
+        Value.transientPrimitive(value, interpreter: runtime),
     final LuaString string => runtime.constantStringValue(string.bytes),
     final String string => runtime.constantRawStringValue(string),
     final Map map => valueFromLuaSlot(runtime, map),

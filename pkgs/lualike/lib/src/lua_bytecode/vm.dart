@@ -68,6 +68,11 @@ final class LuaBytecodeVm {
 
   /// Per-table-storage GETFIELD cache: (pc, fieldConst) → (version, Value).
   /// Key is Object.hash(instructionPc, word.c) for collision-free combining.
+  /// Cache for call-site name computations, keyed by
+  /// `Object.hash(prototype, pc)`.  Avoids the backward instruction walk
+  /// on repeated calls to the same call site.
+  final _callSiteNameCache = <int, ({String? name, String namewhat})>{};
+
   final _getFieldIc = Expando<Map<int, ({int version, Value value})>>();
 
 

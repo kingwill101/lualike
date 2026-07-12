@@ -177,7 +177,11 @@ class GenerationalGCManager {
   /// Incremental GC state tracking
   GCPhase _currentPhase = GCPhase.idle;
   List<GCObject> _objectsToMark = [];
-  final Set<GCObject> _queuedToMark = HashSet<GCObject>();
+  // Use identity-based hashing for the marking queue: we only need to
+  // check whether a specific object has been enqueued, which is an
+  // identity comparison.  Value.hashCode (Lua-aware) is expensive and
+  // unnecessary here (see doc/decisions.md).
+  final Set<GCObject> _queuedToMark = HashSet<GCObject>.identity();
   int _markingIndex = 0;
   List<GCObject> _objectsToSweep = [];
   int _sweepingIndex = 0;
@@ -345,8 +349,8 @@ class GenerationalGCManager {
   final Set<GCObject> _rememberedSet = HashSet<GCObject>.identity();
 
   // New fields for finalization logic
-  final Set<GCObject> _toBeFinalized = {};
-  final Set<GCObject> _alreadyFinalized = {};
+  final Set<GCObject> _toBeFinalized = HashSet<GCObject>.identity();
+  final Set<GCObject> _alreadyFinalized = HashSet<GCObject>.identity();
 
   // Weak table tracking for major collections (package-private for testing)
   final List<Value> weakValuesTables = [];

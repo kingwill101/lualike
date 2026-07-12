@@ -132,6 +132,8 @@ class LuaValueMetadata {
   Environment? globalProxyEnvironment;
   LuaRuntime? interpreter;
   int _flags = 0;
+  /// Cached Lua hash code (computed once, zero means uncached).
+  int? _cachedLuaHashCode;
 
   bool _hasFlag(int flag) => (_flags & flag) != 0;
 
@@ -1576,7 +1578,15 @@ class Value with GCObject implements Map<String, dynamic> {
   }
 
   @override
-  int get hashCode => _luaHashCode(raw);
+  int get hashCode {
+    final meta = _metadataPayload;
+    if (meta != null && meta._cachedLuaHashCode != null) {
+      return meta._cachedLuaHashCode!;
+    }
+    final hash = _luaHashCode(raw);
+    if (meta != null) meta._cachedLuaHashCode = hash;
+    return hash;
+  }
 
   static int _luaHashCode(Object? value) {
     if (value is Value) {

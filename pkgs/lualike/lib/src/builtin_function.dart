@@ -62,9 +62,21 @@ abstract class BuiltinFunction {
   /// Optional two-argument fast path used by hot bytecode call sites.
   Object? fastCall2(Object? arg0, Object? arg1) => fastCallUnsupported;
 
-  /// Reuses cached wrappers for primitive Lua values when the active runtime
-  /// supports it, falling back to a fresh wrapper otherwise.
+  /// Wraps a raw primitive value in a transient [Value] without creating a
+  /// permanent cache entry. This avoids the HashMap overhead in
+  /// [Interpreter.constantPrimitiveValue] for builtin results (e.g.
+  /// every distinct double from [math.sin]) where caching never hits.
   Value primitiveValue(Object? raw) {
+    if (raw is Value) return raw;
+    final r = interpreter;
+    // For scalar primitives (numbers, nil, bools) from builtin results,
+    // use a transient Value to avoid the HashMap overhead in
+    // constantPrimitiveValue.  Cache hits are extremely unlikely here
+    // since values like math.sin(i) are almost always unique.
+    // See doc/decisions.md for rationale and benchmark data.
+    if (r != null && (raw is num || raw == null || raw is bool)) {
+      return Value.transientPrimitive(raw, interpreter: r);
+    }
     return cachedPrimitiveOrValue(interpreter, raw);
   }
 

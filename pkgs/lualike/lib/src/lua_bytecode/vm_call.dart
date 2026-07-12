@@ -1181,6 +1181,24 @@ extension LuaBytecodeVmCallEntry on LuaBytecodeVm {
     Value callee,
   ) {
     final currentPc = frame.pc;
+    final prototype = frame.closure.prototype;
+    final cacheKey = Object.hash(prototype, currentPc);
+    final cached = _callSiteNameCache[cacheKey];
+    if (cached != null) return cached;
+
+    final result = _computeCallSiteNameInfo(frame, register, callee);
+    _callSiteNameCache[cacheKey] = result;
+    return result;
+  }
+
+  /// Computes the call-site name without caching.  Use [_callSiteNameInfo]
+  /// for normal call paths — it caches per (prototype, pc).
+  ({String? name, String namewhat}) _computeCallSiteNameInfo(
+    LuaBytecodeFrame frame,
+    int register,
+    Value callee,
+  ) {
+    final currentPc = frame.pc;
     final logicalMergeValue = _registerHoldsLogicalMergeValue(
       frame,
       register,
