@@ -73,6 +73,10 @@ final class LuaBytecodeVm {
   /// on repeated calls to the same call site.
   final _callSiteNameCache = <int, ({String? name, String namewhat})>{};
 
+  /// Cached main-thread coroutine — never changes after first access.
+  /// Avoids the `Interpreter.getMainThread` dispatch on every frame entry.
+  Coroutine? _cachedMainThread;
+
   final _getFieldIc = Expando<Map<int, ({int version, Value value})>>();
 
 
@@ -399,7 +403,7 @@ final class LuaBytecodeVm {
   }) async {
     final prototype = frame.closure.prototype;
     final opcodesByPc = prototype.opcodesByPc;
-    final mainThread = runtime.getMainThread();
+    final mainThread = _cachedMainThread ??= runtime.getMainThread();
     final linesByPc = prototype.hasDebugInfo ? prototype.linesByPc : null;
     var currentCoroutine = runtime.getCurrentCoroutine();
     // Cache profiling state — profile is immutable during frame execution.
