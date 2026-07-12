@@ -1,0 +1,28 @@
+name: flutter_lualike
+description: >
+    Flutter AssetBundle filesystem backend for lualike. Provides transparent
+    read-only file access for dofile(), require(), io.open(), and module
+    loading from Flutter assets. Includes a composite backend that falls back
+    to the local filesystem for desktop platforms.
+version: 0.1.0
+resolution: workspace
+repository: https://github.com/kingwill101/lualike
+topics:
+  - lua
+  - scripting
+  - flutter
+  - asset-bundle
+
+environment:
+  sdk: ">=3.9.0 <4.0.0"
+
+dependencies:
+  flutter:
+    sdk: flutter
+  lualike:
+    path: ../lualike
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  lints: ^6.1.0

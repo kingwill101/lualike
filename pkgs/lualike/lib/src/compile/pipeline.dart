@@ -7,9 +7,14 @@ import 'package:lualike/src/compile/dead_code_pass.dart';
 import 'package:lualike/src/compile/inlining_heuristics_pass.dart';
 import 'package:lualike/src/compile/analyzer_pass.dart';
 import 'package:lualike/src/compile/metatable_folding_pass.dart';
-import 'package:lualike/src/compile/simplify_pass.dart';
 import 'package:lualike/src/compile/type_narrowing_pass.dart';
-import 'package:lualike/ir.dart';
+import 'package:lualike/src/goto_validator.dart';
+import 'package:lualike/src/ir/compiler.dart';
+import 'package:lualike/src/ir/peephole_pass.dart' as ir;
+import 'package:lualike/src/ir/bytecode_lowering.dart';
+import 'package:lualike/src/ir/prototype.dart';
+import 'package:lualike/src/ir/serialization.dart';
+import 'package:lualike/src/ir/textual_formatter.dart';
 import 'package:lualike/src/lua_bytecode/chunk.dart';
 import 'package:lualike/src/lua_bytecode/emitter.dart';
 import 'package:lualike/src/lua_bytecode/peephole_pass.dart' as lua_bc;
@@ -52,7 +57,7 @@ final class CompilePipelineConfig {
   /// Whether to fold table operations with known metatables.
   final bool enableMetatableFolding;
 
-  /// Whether to run peephole optimization on IR bytecode.
+  /// Whether to run peephole optimization on emitted IR and bytecode.
   final bool enablePeephole;
 
   /// Whether to run SSA-based dead code elimination on the IR.
@@ -130,9 +135,8 @@ enum CompileBackend {
 
 /// Result of running the compilation pipeline.
 ///
-/// The AST has already been simplified by the constant folding pass before
-/// reaching the compiler backends, so callers can trust the bytecode
-/// incorporates all folding optimizations.
+/// The AST keeps the folding annotations produced by the constant folding
+/// pass so the compiler backends can emit the optimized form directly.
 sealed class CompileArtifact {
   /// The serialized bytecode bytes ready for distribution or loading.
   List<int> get serializedBytes;
@@ -230,9 +234,8 @@ final class CompilePipeline {
       if (config.enableMetatableFolding) MetatableFoldingPass(),
       // Inlining heuristics: configure when inlining is profitable
       if (config.enableConstantFolding) InliningHeuristicsPass(),
-      // Folding phase: analyze and simplify constant expressions
+      // Folding phase: analyze and annotate constant expressions
       if (config.enableConstantFolding) ConstantFoldingPass(),
-      if (config.enableConstantFolding) ASTSimplifier(),
       // Dead code elimination: tree-shake unused module exports
       if (config.enableDeadCodeElimination) DeadCodeEliminationPass(),
     ];
@@ -242,6 +245,11 @@ final class CompilePipeline {
   ///
   /// Returns the compilation artifact for the target backend.
   CompileArtifact compile(Program program) {
+    final gotoError = GotoLabelValidator().checkGotoLabelViolations(program);
+    if (gotoError != null) {
+      throw Exception(gotoError);
+    }
+
     // Phase 1: Run all AST passes in sequence
     final context = CompilerContext(program);
     for (final pass in _buildPassList()) {
@@ -249,15 +257,17 @@ final class CompilePipeline {
     }
     final foldedProgram = context.program;
 
-    // Phase 2: Compile simplified AST to IR
+    // Phase 2: Compile simplified AST to IR.
+    // The IR compiler consumes folding annotations directly so the bytecode
+    // backend can benefit from the same constant/loop optimizations.
     final irCompiler = LualikeIrCompiler(
+      foldingResult: context.foldingResult,
       enableLoopUnrolling: config.target == CompileBackend.luaBytecode
           ? config.enableLoopUnrolling
           : false,
     );
     var irChunk = irCompiler.compile(foldedProgram);
 
-    // Peephole optimization on IR (post-emission)
     if (config.enablePeephole) {
       irChunk = PeepholePass().optimize(irChunk);
     }
@@ -322,11 +332,10 @@ final class CompilePipeline {
       ssaDisassembly = formatLualikeIrSsaFunction(ssa);
     }
 
-    // Phase 3: Optionally lower to Lua 5.4 bytecode
+    // Phase 3: Lower the optimized IR to Lua 5.4 bytecode when requested.
     if (config.target == CompileBackend.luaBytecode) {
-      var luaChunk = _lowerToLuaBytecode(foldedProgram);
+      var luaChunk = lowerIrChunkToLuaBytecodeChunk(irChunk);
 
-      // Peephole optimization on Lua bytecode (post-emission)
       if (config.enablePeephole) {
         luaChunk = lua_bc.LuaBytecodePeepholePass().optimize(luaChunk);
       }
@@ -362,12 +371,5 @@ final class CompilePipeline {
   }) {
     final program = parse(source, url: chunkName);
     return compile(program);
-  }
-
-  /// Lower to Lua 5.4 bytecode using the existing Lua bytecode emitter.
-  LuaBytecodeBinaryChunk _lowerToLuaBytecode(Program program) {
-    const emitter = LuaBytecodeEmitter();
-    final artifact = emitter.compileProgram(program);
-    return artifact.chunk;
   }
 }

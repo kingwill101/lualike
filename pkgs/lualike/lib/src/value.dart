@@ -199,6 +199,11 @@ class Value with GCObject implements Map<String, dynamic> {
   static const int _isSharedPrimitiveBit = 1 << 3;
   int _inlineFlags = 0;
 
+  /// Inline interpreter for Values without metadata. Avoids allocating
+  /// [LuaValueMetadata] for transient primitives that only need a runtime
+  /// reference for type metatable lookups.
+  LuaRuntime? _inlineInterpreter;
+
   /// Optional side metadata. Primitive wrappers without runtime flags,
   /// metatables, interpreter attachment, or GC generation state avoid it.
   LuaValueMetadata? _metadataPayload;
@@ -220,15 +225,24 @@ class Value with GCObject implements Map<String, dynamic> {
       if ((_inlineFlags & _isRawPrimitiveBit) != 0) _metadataPayload!.isRawPrimitive = true;
       if ((_inlineFlags & _isSharedPrimitiveBit) != 0) _metadataPayload!.isSharedPrimitive = true;
       _inlineFlags = 0;
+      if (_inlineInterpreter != null) {
+        _metadataPayload!.interpreter = _inlineInterpreter;
+        _inlineInterpreter = null;
+      }
     }
     return _metadataPayload!;
   }
 
   /// Runtime instance associated with this value, when one is needed.
-  LuaRuntime? get interpreter => _metadataPayload?.interpreter;
+  /// Inline when no metadata exists; delegates to metadata otherwise.
+  LuaRuntime? get interpreter =>
+      _metadataPayload?.interpreter ?? _inlineInterpreter;
   set interpreter(LuaRuntime? value) {
-    if (value == null && _metadataPayload == null) return;
-    _metadataPayloadForWrite().interpreter = value;
+    if (_metadataPayload != null) {
+      _metadataPayload!.interpreter = value;
+    } else {
+      _inlineInterpreter = value;
+    }
   }
 
   void _setValueFlags({
@@ -923,12 +937,9 @@ class Value with GCObject implements Map<String, dynamic> {
     Object? raw, {
     LuaRuntime? interpreter,
   }) : _raw = raw {
-    // Set common flags inline — no metadata allocation needed for the
-    // common case (transient primitives that don't need metatables).
+    // Set common flags and interpreter inline — no metadata allocation.
     _inlineFlags |= _skipAllocationDebtBit | _skipGcRegistrationBit;
-    if (interpreter != null) {
-      _metadataPayloadForWrite().interpreter = interpreter;
-    }
+    _inlineInterpreter = interpreter;
 
     final type = switch (raw) {
       null => 'nil',

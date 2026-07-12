@@ -4,17 +4,14 @@
 /// constant expressions and that the IR compiler emits loadK instead of
 /// full expression lowering for folded nodes.
 
+library;
+
 import 'dart:convert' show utf8;
 
 import 'package:lualike/src/ast.dart';
 import 'package:lualike/src/compile/constant_folding_pass.dart';
 import 'package:lualike/src/compile/fold_result.dart';
 import 'package:lualike/src/compile/pipeline.dart';
-import 'package:lualike/src/ir/chunk_builder.dart';
-import 'package:lualike/src/ir/prototype.dart';
-import 'package:lualike/src/ir/textual_formatter.dart';
-import 'package:lualike/src/lua_bytecode/chunk.dart';
-import 'package:lualike/src/lua_bytecode/serializer.dart';
 import 'package:lualike/src/parse.dart';
 import 'package:test/test.dart';
 
@@ -79,10 +76,7 @@ void main() {
       final returnStmt = program.statements.first as ReturnStatement;
       final binExpr = returnStmt.expr.first as BinaryExpression;
       expect(pass.result.isConstant(binExpr), isTrue);
-      expect(
-        pass.result.getValue(binExpr),
-        equals(utf8.encode('ab')),
-      );
+      expect(pass.result.getValue(binExpr), equals(utf8.encode('ab')));
     });
 
     test('folds unary not: not false', () {
@@ -371,7 +365,10 @@ void main() {
       final returnStmt = program.statements.last as ReturnStatement;
       final call = returnStmt.expr.first as FunctionCall;
       expect(pass.result.isConstant(call), isTrue);
-      expect(pass.result.getValue(call), equals(30)); // triple(5)=15, double(15)=30
+      expect(
+        pass.result.getValue(call),
+        equals(30),
+      ); // triple(5)=15, double(15)=30
     });
 
     test('folds known global function with const args', () {
@@ -496,6 +493,44 @@ void main() {
         foldedIr.chunk.mainPrototype.instructions.length,
         lessThan(unfoldedIr.chunk.mainPrototype.instructions.length),
       );
+    });
+
+    test('loop unrolling changes compiled bytecode output', () {
+      const source = '''
+        local sum = 0
+        for i = 1, 3 do
+          sum = sum + i
+        end
+        return sum
+      ''';
+
+      final noUnroll =
+          CompilePipeline(
+                config: const CompilePipelineConfig(
+                  enableConstantFolding: true,
+                  enableLoopUnrolling: false,
+                  enablePeephole: false,
+                  target: CompileBackend.luaBytecode,
+                ),
+              ).compileSource(source)
+              as LuaBytecodeArtifact;
+
+      final unrolled =
+          CompilePipeline(
+                config: const CompilePipelineConfig(
+                  enableConstantFolding: true,
+                  enableLoopUnrolling: true,
+                  enablePeephole: false,
+                  target: CompileBackend.luaBytecode,
+                ),
+              ).compileSource(source)
+              as LuaBytecodeArtifact;
+
+      expect(
+        unrolled.chunk.mainPrototype.code.length,
+        isNot(equals(noUnroll.chunk.mainPrototype.code.length)),
+      );
+      expect(unrolled.serializedBytes, isNot(equals(noUnroll.serializedBytes)));
     });
   });
 }

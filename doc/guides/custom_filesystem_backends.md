@@ -106,7 +106,6 @@ and others on the local filesystem:
 ```dart
 import 'package:file/local.dart';
 import 'package:file_lualike/file_lualike.dart';
-import 'package:flutter_lualike/flutter_lualike.dart';
 
 setFileSystemBackend(CompositeFileSystemBackend([
   AssetBundleFileSystemBackend(rootBundle, assetRoot: 'assets'),

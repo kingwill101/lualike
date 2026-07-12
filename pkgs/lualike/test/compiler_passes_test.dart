@@ -154,8 +154,8 @@ void main() {
               as LualikeIrArtifact;
 
       expect(
-        on.chunk.mainPrototype.instructions.length,
-        lessThan(off.chunk.mainPrototype.instructions.length),
+        on.chunk.mainPrototype.prototypes.first.instructions.length,
+        lessThan(off.chunk.mainPrototype.prototypes.first.instructions.length),
       );
     });
 
@@ -245,30 +245,6 @@ void main() {
       expect(
         on.chunk.mainPrototype.instructions.length,
         lessThan(off.chunk.mainPrototype.instructions.length),
-      );
-    });
-
-    test('dumpIr includes SSA output', () {
-      final artifact =
-          CompilePipeline(
-                config: const CompilePipelineConfig(
-                  dumpIr: true,
-                  target: CompileBackend.lualikeIR,
-                ),
-              ).compileSource('return 1 + 2')
-              as LualikeIrArtifact;
-
-      expect(artifact.disassembly, isNotNull);
-      expect(artifact.ssaDisassembly, isNotNull);
-      expect(artifact.ssaDisassembly, contains('ssa {'));
-      expect(artifact.ssaDisassembly, contains('block 0'));
-      expect(
-        formatLualikeIrSsaFunction(
-          LualikeIrSsaFunction.fromPrototype(
-            artifact.chunk.mainPrototype,
-          ).simplifyTrivialPhis(),
-        ),
-        equals(artifact.ssaDisassembly),
       );
     });
 

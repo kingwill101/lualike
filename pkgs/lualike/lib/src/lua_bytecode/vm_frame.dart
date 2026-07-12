@@ -137,15 +137,26 @@ final class LuaBytecodeFrame implements LuaBytecodeGCRootProvider {
     final nilConst = _nilConst;
     final parameterCount = closure.prototype.parameterCount;
     final argCount = arguments.length;
-    final normalizedArgs = List<Value>.filled(
-      argCount,
-      _nilConst,
-      growable: false,
-    );
-    for (var index = 0; index < argCount; index++) {
-      normalizedArgs[index] = runtimeValue(runtime, arguments[index]);
+
+    // Normalize arguments — Values pass through, other types get wrapped.
+    // Small arg counts use a growable list to avoid the fixed-size allocation.
+    late final List<Value> args;
+    if (argCount <= 4) {
+      final small = <Value>[];
+      for (var index = 0; index < argCount; index++) {
+        final arg = arguments[index];
+        small.add(arg is Value ? arg : runtimeValue(runtime, arg));
+      }
+      args = small;
+    } else {
+      final fixed = List<Value>.filled(argCount, nilConst, growable: false);
+      for (var index = 0; index < argCount; index++) {
+        final arg = arguments[index];
+        fixed[index] = arg is Value ? arg : runtimeValue(runtime, arg);
+      }
+      args = fixed;
     }
-    callArgs = normalizedArgs;
+    callArgs = args;
 
     pc = 0;
     top = parameterCount;
@@ -177,20 +188,20 @@ final class LuaBytecodeFrame implements LuaBytecodeGCRootProvider {
       _lastRegisterWritePc[index] = -1;
     }
     for (var index = 0; index < parameterCount; index++) {
-      final value = index < normalizedArgs.length
-          ? normalizedArgs[index]
+      final value = index < args.length
+          ? args[index]
           : nilConst;
       value.interpreter ??= runtime;
       regs[index] = value;
     }
     if (closure.prototype.isVararg) {
       _varargStart = parameterCount;
-      _varargCount = normalizedArgs.length > parameterCount
-          ? normalizedArgs.length - parameterCount
+      _varargCount = args.length > parameterCount
+          ? args.length - parameterCount
           : 0;
       if (closure.prototype.needsVarargTable) {
         _materializedVarargs = List<Value>.of(
-          normalizedArgs.skip(parameterCount),
+          args.skip(parameterCount),
           growable: true,
         );
         final packed = packVarargsTable(varargs, runtime: runtime);

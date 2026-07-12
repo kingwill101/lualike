@@ -703,7 +703,11 @@ class _PrototypeContext {
     // time, emit a loadK / loadI directly instead of lowering the full
     // expression tree.
     if (foldingResult != null && foldingResult!.isConstant(node)) {
-      return _emitFoldedConstant(node, foldingResult!.getValue(node), target: target);
+      return _emitFoldedConstant(
+        node,
+        foldingResult!.getValue(node),
+        target: target,
+      );
     }
 
     if (node is BinaryExpression && node.op == '..') {
@@ -1934,18 +1938,20 @@ class _PrototypeContext {
 
     // Loop unrolling: if start, end, and step are all compile-time constants
     // and the iteration count is small, unroll the loop body directly.
-    if (foldingResult != null &&
+    if (enableLoopUnrolling &&
+        foldingResult != null &&
         foldingResult!.isConstant(node.start) &&
         foldingResult!.isConstant(node.endExpr) &&
         foldingResult!.isConstant(node.stepExpr)) {
-      final startVal =
-          _numericFoldedValue(foldingResult!.getValue(node.start));
-      final endVal =
-          _numericFoldedValue(foldingResult!.getValue(node.endExpr));
-      final stepVal =
-          _numericFoldedValue(foldingResult!.getValue(node.stepExpr));
+      final startVal = _numericFoldedValue(foldingResult!.getValue(node.start));
+      final endVal = _numericFoldedValue(foldingResult!.getValue(node.endExpr));
+      final stepVal = _numericFoldedValue(
+        foldingResult!.getValue(node.stepExpr),
+      );
 
-      if (startVal != null && endVal != null && stepVal != null &&
+      if (startVal != null &&
+          endVal != null &&
+          stepVal != null &&
           stepVal != 0) {
         // Compute iteration count in Lua semantics.
         final iterCount = ((endVal - startVal) / stepVal).floor() + 1;
@@ -2013,7 +2019,11 @@ class _PrototypeContext {
   /// Unroll a for-loop with constant bounds into N sequential copies of
   /// the loop body, each with the loop variable bound to its iteration value.
   void _emitUnrolledForLoop(
-      ForLoop node, num startVal, num stepVal, int iterCount) {
+    ForLoop node,
+    num startVal,
+    num stepVal,
+    int iterCount,
+  ) {
     for (var i = 0; i < iterCount; i++) {
       final iterValue = startVal + i * stepVal;
       final reg = _allocateRegister();

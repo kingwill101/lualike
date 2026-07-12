@@ -2,7 +2,6 @@ import 'dart:typed_data';
 
 import 'package:lualike/lualike.dart';
 
-
 import 'package:lualike/src/runtime/lua_results.dart';
 import 'package:lualike/src/lua_bytecode/runtime.dart';
 import 'package:lualike/src/lua_bytecode/vm_value_helpers.dart';
@@ -112,12 +111,15 @@ Future<int> getTableLength(Value table, {String? context}) async {
   // Check if table has a __len metamethod
   if (table.hasMetamethod('__len')) {
     try {
-      final lenResult = await table.callMetamethodAsync('__len', [table]);
+      final lenResult = table.callMetamethod('__len', [table]);
+      final awaitedLenResult = lenResult is Future
+          ? await lenResult
+          : lenResult;
       Logger.debugLazy(
         () =>
-            "getTableLength: lenResult = $lenResult, type = ${lenResult.runtimeType}",
+            "getTableLength: lenResult = $awaitedLenResult, type = ${awaitedLenResult.runtimeType}",
       );
-      final lenValue = rawLuaSlot(lenResult);
+      final lenValue = rawLuaSlot(awaitedLenResult);
       if (lenValue is! int && lenValue is! BigInt) {
         throw LuaError("object length is not an integer");
       }
@@ -164,11 +166,26 @@ Value _wrapTableLibraryValue(LuaRuntime? runtime, Object? value) {
   return cachedPrimitiveOrValue(runtime, value);
 }
 
+/// Synchronous table sequence read for tables without __index metamethod.
+/// Returns null when async is needed (table has __index).
+Value? _trySyncTableRead(Value table, int index, {LuaRuntime? runtime}) {
+  if (table.hasMetamethod('__index')) return null;
+  final raw = table.raw;
+  if (raw is Map) {
+    final value = raw[index];
+    return _wrapTableLibraryValue(table.interpreter ?? runtime, value);
+  }
+  return null;
+}
+
 Future<Value> _tableSequenceReadAsync(
   Value table,
   int index, {
   LuaRuntime? runtime,
 }) async {
+  // Fast path: tables without __index can be read synchronously.
+  final syncResult = _trySyncTableRead(table, index, runtime: runtime);
+  if (syncResult != null) return syncResult;
   final value = await table.getValueAsync(index);
   return _wrapTableLibraryValue(table.interpreter ?? runtime, value);
 }
@@ -1084,8 +1101,11 @@ class _TableSort extends BuiltinFunction {
       // Sort comparator calls are tiny but very frequent; bypass the generic
       // Value/function call path so we don't allocate the wrapper list or
       // re-dispatch through the slower callFunction machinery.
-      return (rawSlot.runtime as LuaBytecodeRuntime)
-          .callBytecodeClosureDirect(rawSlot, a, b);
+      return (rawSlot.runtime as LuaBytecodeRuntime).callBytecodeClosureDirect(
+        rawSlot,
+        a,
+        b,
+      );
     }
     if (runtime != null) {
       if (rawSlot is Function) {
@@ -1261,11 +1281,9 @@ class _TableSort extends BuiltinFunction {
       // Prefer __lt from 'a'
       if (aValue.hasMetamethod('__lt')) {
         try {
-          final result = await aValue.callMetamethodAsync('__lt', [
-            aValue,
-            bValue,
-          ]);
-          final boolRes = _isTrueTableValue(result);
+          final result = aValue.callMetamethod('__lt', [aValue, bValue]);
+          final awaitedResult = result is Future ? await result : result;
+          final boolRes = _isTrueTableValue(awaitedResult);
           return boolRes ? -1 : 1;
         } catch (e) {
           Logger.debugLazy(
@@ -1278,11 +1296,9 @@ class _TableSort extends BuiltinFunction {
       // Try __lt from 'b' (reverse)
       if (bValue.hasMetamethod('__lt')) {
         try {
-          final result = await bValue.callMetamethodAsync('__lt', [
-            bValue,
-            aValue,
-          ]);
-          final boolRes = _isTrueTableValue(result);
+          final result = bValue.callMetamethod('__lt', [bValue, aValue]);
+          final awaitedResult = result is Future ? await result : result;
+          final boolRes = _isTrueTableValue(awaitedResult);
           return boolRes ? 1 : -1;
         } catch (e) {
           Logger.debugLazy(
