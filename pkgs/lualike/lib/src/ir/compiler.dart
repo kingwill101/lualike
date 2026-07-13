@@ -2922,7 +2922,13 @@ class _PrototypeContext {
       }
 
       if (isLast && expr is FunctionCall) {
-        final call = _emitFunctionCall(expr, resultCount: remainingTargets);
+        // Pass preferredReg as base so results land directly in the
+        // named variable registers (eliminates MOVEs from temp to target).
+        final call = _emitFunctionCall(
+          expr,
+          resultCount: remainingTargets,
+          baseRegister: preferredReg,
+        );
         final base = call.base;
         if (remainingTargets > 1) {
           _ensureRegister(base + remainingTargets - 1);
