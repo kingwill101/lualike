@@ -1,6 +1,7 @@
 /// Runtime helpers for executing LOVE scripts inside LuaLike.
 library;
 
+import 'dart:async';
 import 'dart:collection';
 import 'dart:convert' as convert;
 
@@ -579,7 +580,7 @@ end
     ]);
   }
 
-  Future<Object?> queueResize(int width, int height) {
+  FutureOr<Object?> queueResize(int width, int height) {
     return _queueLoveEvent('resize', <Object?>[width, height]);
   }
 
@@ -587,7 +588,7 @@ end
     return _dispatchLoveEventAndCallbackIfDefined('focus', <Object?>[focused]);
   }
 
-  Future<Object?> queueFocus(bool focused) {
+  FutureOr<Object?> queueFocus(bool focused) {
     return _queueLoveEvent('focus', <Object?>[focused]);
   }
 
@@ -603,7 +604,7 @@ end
     ]);
   }
 
-  Future<Object?> queueKeyPressed(
+  FutureOr<Object?> queueKeyPressed(
     String key, {
     String? scancode,
     bool isRepeat = false,
@@ -618,7 +619,7 @@ end
     ]);
   }
 
-  Future<Object?> queueKeyReleased(String key, {String? scancode}) {
+  FutureOr<Object?> queueKeyReleased(String key, {String? scancode}) {
     return _queueLoveEvent('keyreleased', <Object?>[key, scancode]);
   }
 
@@ -638,7 +639,7 @@ end
     ]);
   }
 
-  Future<Object?> queueMouseMoved(
+  FutureOr<Object?> queueMouseMoved(
     double x,
     double y,
     double dx,
@@ -664,7 +665,7 @@ end
     ]);
   }
 
-  Future<Object?> queueMousePressed(
+  FutureOr<Object?> queueMousePressed(
     double x,
     double y,
     int button, {
@@ -696,7 +697,7 @@ end
     ]);
   }
 
-  Future<Object?> queueMouseReleased(
+  FutureOr<Object?> queueMouseReleased(
     double x,
     double y,
     int button, {
@@ -718,7 +719,7 @@ end
     ]);
   }
 
-  Future<Object?> queueMouseFocus(bool focused) {
+  FutureOr<Object?> queueMouseFocus(bool focused) {
     return _queueLoveEvent('mousefocus', <Object?>[focused]);
   }
 
@@ -746,7 +747,7 @@ end
     return _dispatchLoveEventAndCallbackIfDefined('lowmemory');
   }
 
-  Future<Object?> queueLowMemory() {
+  FutureOr<Object?> queueLowMemory() {
     return _queueLoveEvent('lowmemory');
   }
 
@@ -754,7 +755,7 @@ end
     return _dispatchLoveEventAndCallbackIfDefined('textinput', <Object?>[text]);
   }
 
-  Future<Object?> queueTextInput(String text) {
+  FutureOr<Object?> queueTextInput(String text) {
     return _queueLoveEvent('textinput', <Object?>[text]);
   }
 
@@ -766,7 +767,7 @@ end
     ]);
   }
 
-  Future<Object?> queueTextEdited(String text, int start, int length) {
+  FutureOr<Object?> queueTextEdited(String text, int start, int length) {
     return _queueLoveEvent('textedited', <Object?>[text, start, length]);
   }
 
@@ -795,7 +796,7 @@ end
     ]);
   }
 
-  Future<Object?> queueTouchPressed(
+  FutureOr<Object?> queueTouchPressed(
     int id,
     double x,
     double y,
@@ -831,7 +832,7 @@ end
     ]);
   }
 
-  Future<Object?> queueTouchReleased(
+  FutureOr<Object?> queueTouchReleased(
     int id,
     double x,
     double y,
@@ -867,7 +868,7 @@ end
     ]);
   }
 
-  Future<Object?> queueTouchMoved(
+  FutureOr<Object?> queueTouchMoved(
     int id,
     double x,
     double y,
@@ -885,7 +886,7 @@ end
     ]);
   }
 
-  Future<Object?> queueWheelMoved(double x, double y) {
+  FutureOr<Object?> queueWheelMoved(double x, double y) {
     return _queueLoveEvent('wheelmoved', <Object?>[x, y]);
   }
 
@@ -895,7 +896,7 @@ end
     ]);
   }
 
-  Future<Object?> queueVisible(bool visible) {
+  FutureOr<Object?> queueVisible(bool visible) {
     return _queueLoveEvent('visible', <Object?>[visible]);
   }
 
@@ -966,7 +967,7 @@ end
     return callLoveCallbackIfDefined(name, args);
   }
 
-  Future<Object?> _queueLoveEvent(
+  FutureOr<Object?> _queueLoveEvent(
     String name, [
     List<Object?> args = const <Object?>[],
   ]) {
@@ -984,7 +985,7 @@ end
       );
     }
     context.events.pushMessage(name, args);
-    return Future<Object?>.value(null);
+    return null;
   }
 
   String? _mainLoopCallbackName(String name) {

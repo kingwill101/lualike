@@ -797,14 +797,14 @@ class LoveFlameInputAdapter {
   /// Input adapters only call synchronous `queue*` methods that push onto the
   /// LOVE event queue; callbacks run later in the main loop. Avoiding a
   /// Future chain keeps high-rate pointer moves off the microtask queue.
-  void _dispatch(Future<Object?> Function(LoveScriptRuntime runtime) callback) {
+  void _dispatch(FutureOr<Object?> Function(LoveScriptRuntime runtime) callback) {
     final runtime = _runtimeProvider();
     if (runtime == null) {
       return;
     }
 
     try {
-      // queue* methods complete synchronously; discard the completed Future.
+      // queue* methods complete synchronously; discard their return value.
       callback(runtime);
     } catch (error, stackTrace) {
       onError?.call(error, stackTrace);
