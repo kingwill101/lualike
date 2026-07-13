@@ -702,12 +702,15 @@ class _PrototypeContext {
     // If the constant folding pass determined this node's value at compile
     // time, emit a loadK / loadI directly instead of lowering the full
     // expression tree.
+    //
+    // Tables (Map) are mutable identity values: each evaluation of `{}` or
+    // `{...}` must allocate a fresh table. Folding may still use the Map to
+    // resolve field reads, but emission must fall through to NEWTABLE.
     if (foldingResult != null && foldingResult!.isConstant(node)) {
-      return _emitFoldedConstant(
-        node,
-        foldingResult!.getValue(node),
-        target: target,
-      );
+      final folded = foldingResult!.getValue(node);
+      if (folded is! Map) {
+        return _emitFoldedConstant(node, folded, target: target);
+      }
     }
 
     if (node is BinaryExpression && node.op == '..') {
@@ -1315,10 +1318,13 @@ class _PrototypeContext {
       return reg;
     }
 
-    // Unrecognized folded value type — should not happen in practice.
-    // Emit nil as a safe default to avoid infinite recursion.
-    emitter.emitABC(opcode: LualikeIrOpcode.loadNil, a: reg, b: 0, c: 0);
-    return reg;
+    // Maps are handled by the caller (skip fold → NEWTABLE). Other unknown
+    // folded types must not silently become nil — that produced empty-table
+    // bugs (`local mt = {}` → LOADNIL) under constant folding.
+    throw StateError(
+      'unsupported folded constant type ${value.runtimeType} '
+      'for ${node.runtimeType}',
+    );
   }
 
   void _emitAssignmentIndexAccessExpr(AssignmentIndexAccessExpr node) {

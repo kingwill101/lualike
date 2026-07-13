@@ -21,7 +21,7 @@
 /// [LocalDebugEntry]s so their defining pure stores survive DCE.
 library;
 
-import 'instruction.dart';
+import 'instruction_compact.dart';
 import 'opcode.dart';
 import 'prototype.dart';
 import 'ssa.dart';
@@ -142,23 +142,22 @@ LualikeIrPrototype? _eliminateOnce(LualikeIrPrototype prototype) {
   if (unusedByPc.isEmpty) return null;
 
   final instructions = prototype.instructions;
-  final kept = <int>[];
-  var removed = false;
-
+  final removePcs = <int>{};
   for (var i = 0; i < instructions.length; i++) {
     if (_pureOpcodes.contains(instructions[i].opcode) &&
         unusedByPc.containsKey(i)) {
-      removed = true;
-      continue;
+      removePcs.add(i);
     }
-    kept.add(i);
   }
 
-  if (!removed) return null;
+  if (removePcs.isEmpty) return null;
 
-  final newInstructions = <LualikeIrInstruction>[
-    for (final i in kept) instructions[i],
-  ];
+  final newInstructions = compactIrInstructions(instructions, removePcs);
+  final newDebug = remapDebugInfoAfterCompact(
+    prototype.debugInfo,
+    instructions.length,
+    removePcs,
+  );
 
   // Recurse into sub-prototypes
   final newPrototypes = <LualikeIrPrototype>[
@@ -175,7 +174,7 @@ LualikeIrPrototype? _eliminateOnce(LualikeIrPrototype prototype) {
     prototypes: newPrototypes,
     lineDefined: prototype.lineDefined,
     lastLineDefined: prototype.lastLineDefined,
-    debugInfo: prototype.debugInfo,
+    debugInfo: newDebug,
     registerConstFlags: prototype.registerConstFlags,
     constSealPoints: prototype.constSealPoints,
   );

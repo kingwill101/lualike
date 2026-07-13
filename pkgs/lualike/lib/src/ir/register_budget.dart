@@ -150,8 +150,12 @@ Set<int> _registersReferenced(LualikeIrInstruction inst) {
         case LualikeIrOpcode.notOp:
         case LualikeIrOpcode.len:
         case LualikeIrOpcode.getUpval:
+          add(i.b);
         case LualikeIrOpcode.test:
+          // TEST A k reads R(A).
+          add(i.a);
         case LualikeIrOpcode.testSet:
+          // TESTSET A B k reads R(B).
           add(i.b);
         case LualikeIrOpcode.getTable:
         case LualikeIrOpcode.getI:
@@ -189,6 +193,14 @@ Set<int> _registersReferenced(LualikeIrInstruction inst) {
         case LualikeIrOpcode.le:
           add(i.b);
           add(i.c);
+        case LualikeIrOpcode.eqI:
+        case LualikeIrOpcode.ltI:
+        case LualikeIrOpcode.leI:
+        case LualikeIrOpcode.gtI:
+        case LualikeIrOpcode.geI:
+        case LualikeIrOpcode.eqK:
+          // IR: B is the compared register; C is immediate / Kst.
+          add(i.b);
         case LualikeIrOpcode.addI:
         case LualikeIrOpcode.shlI:
         case LualikeIrOpcode.shrI:

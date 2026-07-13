@@ -7,14 +7,18 @@
 ///
 /// | Pattern | Replacement |
 /// |---------|-------------|
-/// | `JMP 0` (no-op) | removed |
+/// | `JMP 0` (no-op) | removed (with jump fixup) |
 /// | `LOADK r, k; MOVE r, r` | `LOADK r, k` |
 /// | `LOADNIL r; LOADK r, v` | `LOADK r, v` |
 /// | `LOADI r, 0; LOADK r, v` | `LOADK r, v` |
 /// | `MOVE r1, r2; MOVE r3, r1` | `MOVE r1, r2; MOVE r3, r2` |
+///
+/// Removals go through [compactIrInstructions] so relative JMP/FOR offsets
+/// stay correct.
 library;
 
 import 'package:lualike/src/ir/instruction.dart';
+import 'package:lualike/src/ir/instruction_compact.dart';
 import 'package:lualike/src/ir/opcode.dart';
 import 'package:lualike/src/ir/prototype.dart';
 
@@ -27,8 +31,13 @@ class PeepholePass {
   }
 
   LualikeIrPrototype _optimizePrototype(LualikeIrPrototype proto) {
-    final instructions = _peephole(proto.instructions);
+    final oldLen = proto.instructions.length;
+    final removePcs = <int>{};
+    final instructions = _peephole(proto.instructions, removePcs);
     final optimizedProtos = proto.prototypes.map(_optimizePrototype).toList();
+    final debugInfo = removePcs.isEmpty
+        ? proto.debugInfo
+        : remapDebugInfoAfterCompact(proto.debugInfo, oldLen, removePcs);
     return LualikeIrPrototype(
       registerCount: proto.registerCount,
       paramCount: proto.paramCount,
@@ -40,42 +49,81 @@ class PeepholePass {
       prototypes: optimizedProtos,
       lineDefined: proto.lineDefined,
       lastLineDefined: proto.lastLineDefined,
-      debugInfo: proto.debugInfo,
+      debugInfo: debugInfo,
       registerConstFlags: proto.registerConstFlags,
       constSealPoints: proto.constSealPoints,
     );
   }
 
-  List<LualikeIrInstruction> _peephole(List<LualikeIrInstruction> code) {
-    if (code.length < 2) return code;
+  List<LualikeIrInstruction> _peephole(
+    List<LualikeIrInstruction> code,
+    Set<int> removePcsOut,
+  ) {
+    if (code.length < 2) {
+      return code;
+    }
 
     final result = List<LualikeIrInstruction>.of(code);
-    var changed = false;
+    final removePcs = <int>{};
+    var rewritten = false;
     var i = 0;
 
-    while (i < result.length) {
-      final inst = result[i];
-      final next = i + 1 < result.length ? result[i + 1] : null;
+    int? nextKept(int start) {
+      for (var j = start; j < result.length; j++) {
+        if (!removePcs.contains(j)) {
+          return j;
+        }
+      }
+      return null;
+    }
 
-      // Keep `JMP 0` in place so later jump targets remain stable.
-      // (It is already a no-op.)
+    while (i < result.length) {
+      if (removePcs.contains(i)) {
+        i++;
+        continue;
+      }
+      final inst = result[i];
+      final nextIndex = nextKept(i + 1);
+      final next = nextIndex != null ? result[nextIndex] : null;
+
+      // JMP 0 is a no-op only when the previous op does not use skip-next
+      // control (TEST/comparisons). Those pairs must keep the JMP even at
+      // sJ=0 so a truthy TEST does not skip the following real instruction.
+      if (inst is AsJInstruction &&
+          inst.opcode == LualikeIrOpcode.jmp &&
+          inst.sJ == 0) {
+        final prev = () {
+          for (var j = i - 1; j >= 0; j--) {
+            if (!removePcs.contains(j)) {
+              return result[j];
+            }
+          }
+          return null;
+        }();
+        if (prev == null || !_isConditionalSkipNext(prev.opcode)) {
+          removePcs.add(i);
+        }
+        i++;
+        continue;
+      }
 
       // LOADK r, k; MOVE r, r → remove MOVE (copy to self)
       if (next != null &&
+          nextIndex != null &&
           _isLoad(inst) &&
           next is ABCInstruction &&
           next.opcode == LualikeIrOpcode.move &&
           next.a == _loadReg(inst) &&
           next.b == _loadReg(inst) &&
           next.c == 0) {
-        result.removeAt(i + 1);
-        changed = true;
+        removePcs.add(nextIndex);
         i++;
         continue;
       }
 
-      // Merge consecutive LOADNILs: LOADNIL r, b; LOADNIL r+b+1, b' → LOADNIL r, b+b'+1
-      if (inst is ABCInstruction &&
+      // Merge consecutive LOADNILs.
+      if (nextIndex != null &&
+          inst is ABCInstruction &&
           inst.opcode == LualikeIrOpcode.loadNil &&
           next is ABCInstruction &&
           next.opcode == LualikeIrOpcode.loadNil &&
@@ -86,8 +134,9 @@ class PeepholePass {
           b: inst.b + next.b + 1,
           c: 0,
         );
-        result.removeAt(i + 1);
-        changed = true;
+        removePcs.add(nextIndex);
+        rewritten = true;
+        i++;
         continue;
       }
 
@@ -97,20 +146,20 @@ class PeepholePass {
           next != null &&
           _isLoad(next) &&
           _loadReg(next) == inst.a) {
-        result.removeAt(i);
-        changed = true;
+        removePcs.add(i);
+        i++;
         continue;
       }
 
-      // MOVE r1, r2; MOVE r2, r1 → only keep first (swap of same value)
-      if (inst is ABCInstruction &&
+      // MOVE r1, r2; MOVE r2, r1 → only keep first
+      if (nextIndex != null &&
+          inst is ABCInstruction &&
           inst.opcode == LualikeIrOpcode.move &&
           next is ABCInstruction &&
           next.opcode == LualikeIrOpcode.move &&
           inst.a == next.b &&
           inst.b == next.a) {
-        result.removeAt(i + 1);
-        changed = true;
+        removePcs.add(nextIndex);
         i++;
         continue;
       }
@@ -123,7 +172,8 @@ class PeepholePass {
           b: inst.b,
           c: 0,
         );
-        changed = true;
+        rewritten = true;
+        i++;
         continue;
       }
 
@@ -135,7 +185,8 @@ class PeepholePass {
           a: inst.a,
           sBx: 1,
         );
-        changed = true;
+        rewritten = true;
+        i++;
         continue;
       }
 
@@ -149,23 +200,17 @@ class PeepholePass {
           b: inst.b,
           c: inst.b,
         );
-        changed = true;
-        continue;
-      }
-
-      // Jump threading: JMP +1 → remove (fall-through is next instruction)
-      if (inst is AsJInstruction &&
-          inst.opcode == LualikeIrOpcode.jmp &&
-          inst.sJ == 1) {
-        result.removeAt(i);
-        changed = true;
+        rewritten = true;
+        i++;
         continue;
       }
 
       // Jump threading: JMP -> JMP → redirect to final target
       if (inst is AsJInstruction && inst.opcode == LualikeIrOpcode.jmp) {
         final targetPc = i + 1 + inst.sJ;
-        if (targetPc >= 0 && targetPc < result.length) {
+        if (targetPc >= 0 &&
+            targetPc < result.length &&
+            !removePcs.contains(targetPc)) {
           final targetInst = result[targetPc];
           if (targetInst is AsJInstruction &&
               targetInst.opcode == LualikeIrOpcode.jmp) {
@@ -176,7 +221,8 @@ class PeepholePass {
                 opcode: LualikeIrOpcode.jmp,
                 sJ: newSj,
               );
-              changed = true;
+              rewritten = true;
+              i++;
               continue;
             }
           }
@@ -186,51 +232,52 @@ class PeepholePass {
       i++;
     }
 
-    // Integer fast path: when arithmetic op reads a register loaded by LOADI,
-    // convert to the I-variant which avoids the register read.
-    // Requires tracking which registers hold known LOADI values.
-    final loadiValues = <int, int>{}; // register → constant value
-    for (var i = 0; i < result.length; i++) {
-      final inst = result[i];
-      // Track LOADI results
+    // Integer fast path: ADD with LOADI operand → ADDI
+    final loadiValues = <int, int>{};
+    for (var j = 0; j < result.length; j++) {
+      if (removePcs.contains(j)) {
+        continue;
+      }
+      final inst = result[j];
       if (inst is AsBxInstruction && inst.opcode == LualikeIrOpcode.loadI) {
         loadiValues[inst.a] = inst.sBx;
         continue;
       }
-      // Track other definitions that invalidate our knowledge
       if (inst is ABCInstruction) {
-        // For ADD/SUB with known constant in C register
         if (inst.opcode == LualikeIrOpcode.add &&
             loadiValues.containsKey(inst.c)) {
           final val = loadiValues[inst.c]!;
-          result[i] = ABCInstruction(
+          result[j] = ABCInstruction(
             opcode: LualikeIrOpcode.addI,
             a: inst.a,
             b: inst.b,
             c: val,
           );
-          changed = true;
+          rewritten = true;
           loadiValues[inst.a] = val;
           continue;
         }
-        // Clear tracking if register is overwritten
         loadiValues.remove(inst.a);
       }
     }
 
-    // Load-store forwarding:
-    // SETFIELD a=table, b=fieldConst, c=value  →  GETFIELD a=dest, b=table, c=fieldConst
-    // → replace GETFIELD with MOVE from value
-    for (var i = 0; i < result.length; i++) {
-      final inst = result[i];
-      if (inst is! ABCInstruction || inst.opcode != LualikeIrOpcode.setField)
+    // Load-store forwarding: SETFIELD then GETFIELD same key → MOVE
+    for (var j = 0; j < result.length; j++) {
+      if (removePcs.contains(j)) {
         continue;
+      }
+      final inst = result[j];
+      if (inst is! ABCInstruction || inst.opcode != LualikeIrOpcode.setField) {
+        continue;
+      }
       final tableReg = inst.a;
       final fieldConst = inst.b;
 
-      for (var j = i + 1; j < result.length; j++) {
-        final later = result[j];
-        // Stop scan if table register is redefined
+      for (var k = j + 1; k < result.length; k++) {
+        if (removePcs.contains(k)) {
+          continue;
+        }
+        final later = result[k];
         if (later is ABCInstruction &&
             later.a == tableReg &&
             later.opcode != LualikeIrOpcode.getField) {
@@ -241,20 +288,43 @@ class PeepholePass {
             later.opcode == LualikeIrOpcode.getField &&
             later.b == tableReg &&
             later.c == fieldConst) {
-          // Forward the stored value
-          result[j] = ABCInstruction(
+          result[k] = ABCInstruction(
             opcode: LualikeIrOpcode.move,
             a: later.a,
             b: inst.c,
             c: 0,
           );
-          changed = true;
+          rewritten = true;
           break;
         }
       }
     }
 
-    return changed ? result : code;
+    if (removePcs.isEmpty && !rewritten) {
+      return code;
+    }
+    removePcsOut.addAll(removePcs);
+    if (removePcs.isEmpty) {
+      return result;
+    }
+    return compactIrInstructions(result, removePcs);
+  }
+
+  bool _isConditionalSkipNext(LualikeIrOpcode opcode) {
+    return switch (opcode) {
+      LualikeIrOpcode.test ||
+      LualikeIrOpcode.testSet ||
+      LualikeIrOpcode.eq ||
+      LualikeIrOpcode.lt ||
+      LualikeIrOpcode.le ||
+      LualikeIrOpcode.eqK ||
+      LualikeIrOpcode.eqI ||
+      LualikeIrOpcode.ltI ||
+      LualikeIrOpcode.leI ||
+      LualikeIrOpcode.gtI ||
+      LualikeIrOpcode.geI => true,
+      _ => false,
+    };
   }
 
   /// ADDx+0, SUBx-0, MULx*1, DIVx/1 → MOVE

@@ -11,6 +11,7 @@ import 'compile/pipeline.dart';
 import 'ir/runtime.dart';
 import 'lua_error.dart';
 import 'lua_bytecode/runtime.dart';
+import 'lua_bytecode/vm_value_helpers.dart';
 import 'lua_string.dart';
 import 'runtime/lua_slot.dart';
 import 'value.dart';
@@ -93,6 +94,22 @@ Future<Object?> executeCode(
         stderr.writeln('--- Lualike SSA ---');
         stderr.writeln(artifact.ssaDisassembly);
         stderr.writeln('--- End Lualike SSA ---');
+      }
+
+      // Top-level scripts must share the live global environment (stdlib,
+      // package.path from prior -e snippets). loadBytecode() isolates env for
+      // load(); do not use it for entry chunks.
+      if (runtime is LuaBytecodeRuntime && artifact is LuaBytecodeArtifact) {
+        final env = runtime.getCurrentEnv();
+        final closure = LuaBytecodeClosure.main(
+          runtime: runtime,
+          chunk: artifact.chunk,
+          chunkName: url?.toString() ?? '=(pipeline)',
+          environment: env,
+        );
+        final function = Value(closure)..interpreter = runtime;
+        await runtime.callFunction(function, const <Object?>[]);
+        return null;
       }
 
       final chunk = await runtime.loadBytecode(

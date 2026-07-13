@@ -659,25 +659,26 @@ final class LuaBytecodeVm {
         PrimitiveCompare.lessThanOrEqual,
       ),
       Opcode.eqK => _syncEq(left, constantValue(runtime, prototype, word.b)),
-      Opcode.eqI => compareImmediateEquals(left, word.b),
+      // B is a signed immediate (sB), not an unsigned field.
+      Opcode.eqI => compareImmediateEquals(left, signedB(word)),
       Opcode.ltI => tryPrimitiveImmediateOrdering(
         left,
-        word.b,
+        signedB(word),
         PrimitiveCompare.lessThan,
       ),
       Opcode.leI => tryPrimitiveImmediateOrdering(
         left,
-        word.b,
+        signedB(word),
         PrimitiveCompare.lessThanOrEqual,
       ),
       Opcode.gtI => tryPrimitiveImmediateOrdering(
         left,
-        word.b,
+        signedB(word),
         PrimitiveCompare.greaterThan,
       ),
       Opcode.geI => tryPrimitiveImmediateOrdering(
         left,
-        word.b,
+        signedB(word),
         PrimitiveCompare.greaterThanOrEqual,
       ),
       _ => null,

@@ -1189,9 +1189,13 @@ final class LuaBytecodeStructuredCompiler {
       () {
         // If the constant folding pass determined this node's value at
         // compile time, emit a LOADK / LOADI directly.
+        // Tables (Map) are mutable identity values — never replace allocation.
         if (foldingResult != null && foldingResult!.isConstant(node)) {
-          _emitFoldedConstant(node, foldingResult!.getValue(node), targetRegister);
-          return;
+          final folded = foldingResult!.getValue(node);
+          if (folded is! Map) {
+            _emitFoldedConstant(node, folded, targetRegister);
+            return;
+          }
         }
 
         final savedTemp = _nextTemp;
@@ -1347,9 +1351,11 @@ final class LuaBytecodeStructuredCompiler {
       return;
     }
 
-    // Unrecognized folded value type — should not happen in practice.
-    // Emit nil as a safe default to avoid infinite recursion.
-    _prototype.emitLoadNil(target: targetRegister);
+    // Maps are skipped by the caller so TableConstructor still allocates.
+    throw StateError(
+      'unsupported folded constant type ${value.runtimeType} '
+      'for ${node.runtimeType}',
+    );
   }
 
   void _emitIdentifierToRegister(String name, int targetRegister) {
@@ -3047,10 +3053,7 @@ final class LuaBytecodeStructuredCompiler {
     final local = _lookupLocal(name);
     if (local != null) {
       _capturedLocals.add(local);
-      return LuaBytecodeStructuredCapture(
-        index: local.register,
-        inStack: true,
-      );
+      return LuaBytecodeStructuredCapture(index: local.register, inStack: true);
     }
 
     final existing = _upvaluesByName[name];
@@ -3623,10 +3626,7 @@ final class LuaBytecodeStructuredLocal {
 }
 
 final class LuaBytecodeStructuredUpvalue {
-  const LuaBytecodeStructuredUpvalue({
-    required this.name,
-    required this.index,
-  });
+  const LuaBytecodeStructuredUpvalue({required this.name, required this.index});
 
   final String name;
   final int index;
