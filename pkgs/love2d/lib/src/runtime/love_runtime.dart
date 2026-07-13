@@ -617,9 +617,8 @@ class LoveGraphicsSurface {
       clearColorMask: _clearColorMask,
       clearStencil: _clearStencil,
       clearScissor: _clearScissor,
-      commands: List<LoveDrawCommand>.unmodifiable(
-        List<LoveDrawCommand>.from(_commands),
-      ),
+      // Single fixed-length copy; renderer treats this list as read-only.
+      commands: List<LoveDrawCommand>.of(_commands, growable: false),
     );
     _cachedSnapshot = snapshot;
     _cachedSnapshotRevision = _revision;
@@ -2556,7 +2555,9 @@ sealed class LoveDrawCommand {
     int? stencilValue,
     this.stencilAction,
     int? stencilWriteValue,
-  }) : shader = shader?.snapshot(),
+  }) : // Freeze live graphics state once here. Callers must pass the live
+       // transform/shader (not pre-copied/pre-snapshotted values).
+       shader = shader?.snapshot(),
        transform = Matrix4.copy(transform),
        stencilCompare = stencilCompare ?? LoveGraphicsCompareMode.always,
        stencilValue = stencilValue ?? 0,
@@ -2625,7 +2626,8 @@ class LoveTextCommand extends LoveDrawCommand {
     required super.scissor,
     super.shader,
     required super.transform,
-    required Matrix4 textTransform,
+    // Caller passes an owned matrix (_standardTransform / Matrix4.copy).
+    required this.textTransform,
     required LoveFont font,
     required List<LoveTextSpan> spans,
     required this.x,
@@ -2633,8 +2635,7 @@ class LoveTextCommand extends LoveDrawCommand {
     this.limit,
     this.align = 'left',
   }) : spans = List<LoveTextSpan>.unmodifiable(spans),
-       font = font._snapshotForDrawCommand(),
-       textTransform = Matrix4.copy(textTransform);
+       font = font._snapshotForDrawCommand();
 
   final List<LoveTextSpan> spans;
   final LoveFont font;
@@ -2660,10 +2661,10 @@ class LoveTextObjectCommand extends LoveDrawCommand {
     required super.scissor,
     super.shader,
     required super.transform,
-    required Matrix4 drawTransform,
+    // Caller passes an owned matrix from transform helpers.
+    required this.drawTransform,
     required LoveTextDrawable textObject,
-  }) : drawTransform = Matrix4.copy(drawTransform),
-       textObject = textObject.copy();
+  }) : textObject = textObject.copy();
 
   final Matrix4 drawTransform;
   final LoveTextDrawable textObject;
@@ -2682,12 +2683,12 @@ class LoveImageCommand extends LoveDrawCommand {
     required super.scissor,
     super.shader,
     required super.transform,
-    required Matrix4 drawTransform,
+    // Caller passes an owned matrix from transform helpers.
+    required this.drawTransform,
     required this.image,
     LoveQuad? quad,
     this.layer,
-  }) : quad = quad?.copy(),
-       drawTransform = Matrix4.copy(drawTransform);
+  }) : quad = quad?.copy();
 
   final LoveImage image;
   final LoveQuad? quad;
@@ -2708,11 +2709,11 @@ class LoveVideoCommand extends LoveDrawCommand {
     required super.scissor,
     super.shader,
     required super.transform,
-    required Matrix4 drawTransform,
+    // Caller passes an owned matrix from transform helpers.
+    required this.drawTransform,
     required this.video,
     LoveQuad? quad,
-  }) : quad = quad?.copy(),
-       drawTransform = Matrix4.copy(drawTransform);
+  }) : quad = quad?.copy();
 
   final LoveVideo video;
   final LoveQuad? quad;
@@ -2732,10 +2733,10 @@ class LoveSpriteBatchCommand extends LoveDrawCommand {
     required super.scissor,
     super.shader,
     required super.transform,
-    required Matrix4 drawTransform,
+    // Caller passes an owned matrix from transform helpers.
+    required this.drawTransform,
     required LoveSpriteBatch spriteBatch,
-  }) : drawTransform = Matrix4.copy(drawTransform),
-       spriteBatch = spriteBatch.copyForDraw();
+  }) : spriteBatch = spriteBatch.copyForDraw();
 
   final Matrix4 drawTransform;
   final LoveSpriteBatch spriteBatch;
@@ -2754,10 +2755,10 @@ class LoveParticleSystemCommand extends LoveDrawCommand {
     required super.scissor,
     super.shader,
     required super.transform,
-    required Matrix4 drawTransform,
+    // Caller passes an owned matrix from transform helpers.
+    required this.drawTransform,
     required LoveParticleSystemSnapshot particleSystem,
-  }) : drawTransform = Matrix4.copy(drawTransform),
-       particleSystem = particleSystem.copy();
+  }) : particleSystem = particleSystem.copy();
 
   final Matrix4 drawTransform;
   final LoveParticleSystemSnapshot particleSystem;
@@ -2776,14 +2777,14 @@ class LoveMeshCommand extends LoveDrawCommand {
     required super.scissor,
     required super.shader,
     required super.transform,
-    required Matrix4 drawTransform,
+    // Caller passes an owned matrix from transform helpers.
+    required this.drawTransform,
     required LoveMesh mesh,
     this.instanceCount = 1,
     this.pointSize = 1.0,
     required this.frontFaceWinding,
     required this.cullMode,
-  }) : drawTransform = Matrix4.copy(drawTransform),
-       mesh = mesh.copyForDraw();
+  }) : mesh = mesh.copyForDraw();
 
   final LoveMesh mesh;
   final Matrix4 drawTransform;

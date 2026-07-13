@@ -16,9 +16,11 @@ import 'love_runtime.dart';
 part 'input/love_joystick_callback_support.dart';
 
 /// Whether runtime tracing is enabled for touch-leak debugging.
+///
+/// Defaults to off so the main loop never allocates trace maps/strings in
+/// production. Enable with `--dart-define=LOVE2D_TRACE_TOUCH_LEAK=true`.
 const bool _loveTraceRuntimeLeak = bool.fromEnvironment(
   'LOVE2D_TRACE_TOUCH_LEAK',
-  defaultValue: true,
 );
 
 /// Emits a runtime trace message for [stage] when tracing is enabled.
@@ -41,7 +43,13 @@ void _loveTraceRuntime(
 }
 
 /// Returns whether callback signal [name] should be included in tracing.
+///
+/// Always false when tracing is disabled so callers skip detail construction.
 bool _loveShouldTraceRuntimeSignal(String name) {
+  if (!_loveTraceRuntimeLeak) {
+    return false;
+  }
+
   return switch (name) {
     'touchpressed' || 'touchreleased' || 'touchmoved' || 'update' => true,
     _ => false,

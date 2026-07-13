@@ -18,9 +18,11 @@ part 'love_flame_gamepad_bridge.dart';
 part 'love_flame_key_mapping.dart';
 
 /// Whether verbose touch-trace logging is enabled for debugging input leaks.
+///
+/// Defaults to off so pointer/touch handling never allocates trace maps in
+/// production. Enable with `--dart-define=LOVE2D_TRACE_TOUCH_LEAK=true`.
 const bool _loveTraceTouchLeak = bool.fromEnvironment(
   'LOVE2D_TRACE_TOUCH_LEAK',
-  defaultValue: true,
 );
 
 /// Emits a debug trace line for touch input processing when enabled.
@@ -109,9 +111,6 @@ class LoveFlameInputAdapter {
     dispatch: _dispatch,
   );
 
-  /// The tail future for queued asynchronous runtime dispatch work.
-  Future<void> _dispatchQueue = Future<void>.value();
-
   /// Whether the LOVE viewport currently has keyboard focus.
   bool _focused = false;
 
@@ -143,10 +142,10 @@ class LoveFlameInputAdapter {
   TextEditingValue get currentTextEditingValue => _textInputState.editingValue;
 
   /// Waits for all queued input dispatches to finish.
-  Future<void> flush() async {
-    await _dispatchQueue;
-    await _joystickInput.flush();
-  }
+  ///
+  /// Keyboard/mouse/touch queueing is synchronous. Only joystick work may
+  /// still need an async drain.
+  Future<void> flush() => _joystickInput.flush();
 
   /// Starts a platform text input session for LOVE text entry.
   void beginPlatformTextInputSession() {
@@ -309,17 +308,19 @@ class LoveFlameInputAdapter {
     _updateMousePosition(event.localPosition);
     final isTouch = _isTouch(event);
     if (isTouch) {
-      _loveTraceTouchInput(
-        'pointer.move',
-        details: <String, Object?>{
-          'pointer': event.pointer,
-          'x': logicalPosition.dx,
-          'y': logicalPosition.dy,
-          'dx': logicalDelta.dx,
-          'dy': logicalDelta.dy,
-          'activeTouchesBefore': touch.getTouches(),
-        },
-      );
+      if (_loveTraceTouchLeak) {
+        _loveTraceTouchInput(
+          'pointer.move',
+          details: <String, Object?>{
+            'pointer': event.pointer,
+            'x': logicalPosition.dx,
+            'y': logicalPosition.dy,
+            'dx': logicalDelta.dx,
+            'dy': logicalDelta.dy,
+            'activeTouchesBefore': touch.getTouches(),
+          },
+        );
+      }
       final x = logicalPosition.dx;
       final y = logicalPosition.dy;
       final dx = logicalDelta.dx;
@@ -342,13 +343,15 @@ class LoveFlameInputAdapter {
           event.pressure,
         ),
       );
-      _loveTraceTouchInput(
-        'pointer.move.applied',
-        details: <String, Object?>{
-          'pointer': event.pointer,
-          'activeTouchesAfter': touch.getTouches(),
-        },
-      );
+      if (_loveTraceTouchLeak) {
+        _loveTraceTouchInput(
+          'pointer.move.applied',
+          details: <String, Object?>{
+            'pointer': event.pointer,
+            'activeTouchesAfter': touch.getTouches(),
+          },
+        );
+      }
     }
 
     final x = mouse.x;
@@ -366,16 +369,18 @@ class LoveFlameInputAdapter {
     _updateMousePosition(event.localPosition);
     final isTouch = _isTouch(event);
     if (isTouch) {
-      _loveTraceTouchInput(
-        'pointer.down',
-        details: <String, Object?>{
-          'pointer': event.pointer,
-          'x': logicalPosition.dx,
-          'y': logicalPosition.dy,
-          'pressure': event.pressure,
-          'activeTouchesBefore': touch.getTouches(),
-        },
-      );
+      if (_loveTraceTouchLeak) {
+        _loveTraceTouchInput(
+          'pointer.down',
+          details: <String, Object?>{
+            'pointer': event.pointer,
+            'x': logicalPosition.dx,
+            'y': logicalPosition.dy,
+            'pressure': event.pressure,
+            'activeTouchesBefore': touch.getTouches(),
+          },
+        );
+      }
       final x = logicalPosition.dx;
       final y = logicalPosition.dy;
       touch.beginTouch(id: event.pointer, x: x, y: y, pressure: event.pressure);
@@ -389,13 +394,15 @@ class LoveFlameInputAdapter {
           event.pressure,
         ),
       );
-      _loveTraceTouchInput(
-        'pointer.down.applied',
-        details: <String, Object?>{
-          'pointer': event.pointer,
-          'activeTouchesAfter': touch.getTouches(),
-        },
-      );
+      if (_loveTraceTouchLeak) {
+        _loveTraceTouchInput(
+          'pointer.down.applied',
+          details: <String, Object?>{
+            'pointer': event.pointer,
+            'activeTouchesAfter': touch.getTouches(),
+          },
+        );
+      }
     }
 
     final button = _loveMouseButtonFromButtons(event.buttons);
@@ -419,18 +426,20 @@ class LoveFlameInputAdapter {
     _updateMousePosition(event.localPosition);
     final isTouch = _isTouch(event);
     if (isTouch) {
-      _loveTraceTouchInput(
-        'pointer.up',
-        details: <String, Object?>{
-          'pointer': event.pointer,
-          'x': logicalPosition.dx,
-          'y': logicalPosition.dy,
-          'dx': logicalDelta.dx,
-          'dy': logicalDelta.dy,
-          'pressure': event.pressure,
-          'activeTouchesBefore': touch.getTouches(),
-        },
-      );
+      if (_loveTraceTouchLeak) {
+        _loveTraceTouchInput(
+          'pointer.up',
+          details: <String, Object?>{
+            'pointer': event.pointer,
+            'x': logicalPosition.dx,
+            'y': logicalPosition.dy,
+            'dx': logicalDelta.dx,
+            'dy': logicalDelta.dy,
+            'pressure': event.pressure,
+            'activeTouchesBefore': touch.getTouches(),
+          },
+        );
+      }
       final x = logicalPosition.dx;
       final y = logicalPosition.dy;
       touch.endTouch(event.pointer);
@@ -444,13 +453,15 @@ class LoveFlameInputAdapter {
           event.pressure,
         ),
       );
-      _loveTraceTouchInput(
-        'pointer.up.applied',
-        details: <String, Object?>{
-          'pointer': event.pointer,
-          'activeTouchesAfter': touch.getTouches(),
-        },
-      );
+      if (_loveTraceTouchLeak) {
+        _loveTraceTouchInput(
+          'pointer.up.applied',
+          details: <String, Object?>{
+            'pointer': event.pointer,
+            'activeTouchesAfter': touch.getTouches(),
+          },
+        );
+      }
     }
 
     final button =
@@ -471,21 +482,25 @@ class LoveFlameInputAdapter {
   /// Handles pointer cancellation by clearing tracked touch and mouse state.
   void handlePointerCancel(PointerCancelEvent event) {
     if (_isTouch(event)) {
-      _loveTraceTouchInput(
-        'pointer.cancel',
-        details: <String, Object?>{
-          'pointer': event.pointer,
-          'activeTouchesBefore': touch.getTouches(),
-        },
-      );
+      if (_loveTraceTouchLeak) {
+        _loveTraceTouchInput(
+          'pointer.cancel',
+          details: <String, Object?>{
+            'pointer': event.pointer,
+            'activeTouchesBefore': touch.getTouches(),
+          },
+        );
+      }
       touch.endTouch(event.pointer);
-      _loveTraceTouchInput(
-        'pointer.cancel.applied',
-        details: <String, Object?>{
-          'pointer': event.pointer,
-          'activeTouchesAfter': touch.getTouches(),
-        },
-      );
+      if (_loveTraceTouchLeak) {
+        _loveTraceTouchInput(
+          'pointer.cancel.applied',
+          details: <String, Object?>{
+            'pointer': event.pointer,
+            'activeTouchesAfter': touch.getTouches(),
+          },
+        );
+      }
     }
 
     final button = _pointerButtons.remove(event.pointer);
@@ -737,22 +752,22 @@ class LoveFlameInputAdapter {
     _dispatch((runtime) => runtime.queueMouseFocus(focused));
   }
 
-  /// Queues [callback] onto the active LOVE runtime in dispatch order.
+  /// Queues [callback] onto the active LOVE runtime immediately.
+  ///
+  /// Input adapters only call synchronous `queue*` methods that push onto the
+  /// LOVE event queue; callbacks run later in the main loop. Avoiding a
+  /// Future chain keeps high-rate pointer moves off the microtask queue.
   void _dispatch(Future<Object?> Function(LoveScriptRuntime runtime) callback) {
     final runtime = _runtimeProvider();
     if (runtime == null) {
       return;
     }
 
-    _dispatchQueue = _dispatchQueue.then((_) async {
-      try {
-        await callback(runtime);
-      } catch (error, stackTrace) {
-        final handler = onError;
-        if (handler != null) {
-          handler(error, stackTrace);
-        }
-      }
-    });
+    try {
+      // queue* methods complete synchronously; discard the completed Future.
+      callback(runtime);
+    } catch (error, stackTrace) {
+      onError?.call(error, stackTrace);
+    }
   }
 }
