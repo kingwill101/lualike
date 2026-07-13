@@ -3091,11 +3091,19 @@ class LoveGraphicsState {
 }
 
 class LoveGraphicsStackFrame {
-  LoveGraphicsStackFrame({required this.type, required LoveGraphicsState state})
-    : state = state.copy();
+  LoveGraphicsStackFrame.transformOnly({required Matrix4 transform})
+    : type = LoveGraphicsStackType.transform,
+      state = null,
+      transform = Matrix4.copy(transform);
+
+  LoveGraphicsStackFrame.all({required LoveGraphicsState state})
+    : type = LoveGraphicsStackType.all,
+      state = state.copy(),
+      transform = null;
 
   final LoveGraphicsStackType type;
-  final LoveGraphicsState state;
+  final LoveGraphicsState? state;
+  final Matrix4? transform;
 }
 
 class LoveCanvasRenderTarget {
@@ -3451,7 +3459,14 @@ class LoveGraphicsFrame {
       throw StateError('Maximum graphics stack depth reached');
     }
 
-    _stack.add(LoveGraphicsStackFrame(type: type, state: _state));
+    switch (type) {
+      case LoveGraphicsStackType.all:
+        _stack.add(LoveGraphicsStackFrame.all(state: _state));
+      case LoveGraphicsStackType.transform:
+        _stack.add(
+          LoveGraphicsStackFrame.transformOnly(transform: _state.transform),
+        );
+    }
   }
 
   void pop() {
@@ -3462,12 +3477,12 @@ class LoveGraphicsFrame {
     final frame = _stack.removeLast();
     switch (frame.type) {
       case LoveGraphicsStackType.all:
-        _state = frame.state.copy();
+        _state = frame.state!;
         if (_commandColorMaskOverride != null) {
           _commandColorMaskOverride = _state.colorMask;
         }
       case LoveGraphicsStackType.transform:
-        _state.transform = Matrix4.copy(frame.state.transform);
+        _state.transform = Matrix4.copy(frame.transform!);
     }
   }
 
