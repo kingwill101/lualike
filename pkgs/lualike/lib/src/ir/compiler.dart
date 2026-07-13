@@ -632,6 +632,17 @@ class _PrototypeContext {
       final isLast = i == node.expr.length - 1;
 
       if (!isLast) {
+        // Simple identifier reads: use the local's register directly.
+        // _emitExpression would allocate a temp + MOVE, which is harmless
+        // but wasteful when we're about to return from these registers.
+        if (expr is Identifier) {
+          final binding = _resolveCurrentFunctionBinding(expr.name);
+          final localReg = binding.register;
+          if (localReg != null) {
+            valueRegs.add(localReg);
+            continue;
+          }
+        }
         final reg = _emitExpression(expr);
         valueRegs.add(reg);
         continue;
@@ -658,6 +669,15 @@ class _PrototypeContext {
         continue;
       }
 
+      // Last expression: also use local register directly for simple reads.
+      if (expr is Identifier) {
+        final binding = _resolveCurrentFunctionBinding(expr.name);
+        final localReg = binding.register;
+        if (localReg != null) {
+          valueRegs.add(localReg);
+          continue;
+        }
+      }
       final reg = _emitExpression(expr);
       valueRegs.add(reg);
     }
