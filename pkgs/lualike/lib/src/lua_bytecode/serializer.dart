@@ -101,11 +101,22 @@ final class LuaBytecodeWriter {
         }
       }
 
+      final hasRegisterInfo = prototype.localVariables.any(
+        (local) => local.register != null,
+      );
       _writeVarint(prototype.localVariables.length);
       for (final local in prototype.localVariables) {
         _writeString(local.name);
         _writeVarint(local.startPc);
         _writeVarint(local.endPc);
+        if (hasRegisterInfo) {
+          if (local.register case final reg?) {
+            _writeByte(1);
+            _writeVarint(reg);
+          } else {
+            _writeByte(0);
+          }
+        }
       }
 
       if (prototype.upvalueNames.isEmpty) {
