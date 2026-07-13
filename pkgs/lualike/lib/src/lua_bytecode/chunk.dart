@@ -21,8 +21,6 @@ abstract final class LuaBytecodePrototypeFlags {
   static const int hasHiddenVarargs = 0x01;
   static const int hasVarargTable = 0x02;
   static const int fixedMemory = 0x04;
-  /// Prototype flag: local variable entries include register info.
-  static const int hasLocalRegisterInfo = 0x08;
 }
 
 abstract final class LuaBytecodeDebugLayout {

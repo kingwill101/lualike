@@ -133,7 +133,6 @@ final class LuaBytecodeReader {
     final source = _readString();
     final debugInfo = _readDebugInfo(
       intSize: header.intSize,
-      flags: flags,
       upvalueCount: upvalues.length,
     );
 
@@ -229,7 +228,6 @@ final class LuaBytecodeReader {
 
   _PrototypeDebugInfo _readDebugInfo({
     required int intSize,
-    required int flags,
     required int upvalueCount,
   }) {
     final lineInfoCount = _readVarint();
@@ -253,17 +251,13 @@ final class LuaBytecodeReader {
     }
 
     final localVariableCount = _readVarint();
-    final hasRegisterInfo =
-        flags & LuaBytecodePrototypeFlags.hasLocalRegisterInfo != 0;
     final localVariables = <LuaBytecodeLocalVariableDebugInfo>[
       for (var index = 0; index < localVariableCount; index++)
         LuaBytecodeLocalVariableDebugInfo(
           name: _readString(),
           startPc: _readVarint(),
           endPc: _readVarint(),
-          register: hasRegisterInfo
-              ? (_readByte() == 1 ? _readVarint() : null)
-              : null,
+          register: null,
         ),
     ];
 

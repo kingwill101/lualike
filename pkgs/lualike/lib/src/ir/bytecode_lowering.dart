@@ -141,11 +141,7 @@ LuaBytecodePrototype lowerIrPrototypeToLuaBytecodePrototype(
     lineDefined: isMainPrototype ? 0 : prototype.lineDefined,
     lastLineDefined: prototype.lastLineDefined,
     parameterCount: prototype.paramCount,
-    flags: _prototypeFlags(
-      prototype,
-      isMainPrototype: isMainPrototype,
-      locals: locals,
-    ),
+    flags: _prototypeFlags(prototype, isMainPrototype: isMainPrototype),
     // IR registerCount is the SSA/local allocation; mechanical lowering may
     // write scratch at tempBase = registerCount and tempBase+1 (high Kst /
     // SHLI materialization). Reserve those slots only — do not scan ABC C
@@ -170,7 +166,6 @@ LuaBytecodePrototype lowerIrPrototypeToLuaBytecodePrototype(
 int _prototypeFlags(
   LualikeIrPrototype prototype, {
   required bool isMainPrototype,
-  List<LuaBytecodeLocalVariableDebugInfo>? locals,
 }) {
   var flags = 0;
   if (prototype.isVararg || isMainPrototype) {
@@ -178,9 +173,6 @@ int _prototypeFlags(
   }
   if (prototype.namedVarargRegister != null) {
     flags |= LuaBytecodePrototypeFlags.hasVarargTable;
-  }
-  if (locals != null && locals.any((l) => l.register != null)) {
-    flags |= LuaBytecodePrototypeFlags.hasLocalRegisterInfo;
   }
   return flags;
 }
