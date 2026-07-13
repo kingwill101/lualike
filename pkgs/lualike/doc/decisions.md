@@ -377,5 +377,11 @@ results directly into the target registers, eliminating the unpacking MOVEs.
 - multiret: 20→13 (-1→-8) significantly better
 - coroutine: 39→38 (-4→-5) better
 
-**Remaining:** table (+2), float (+2), loops (+3) — all from SETFIELD
-with register values instead of Kst constants (bytecode-peephole fix).
+**SETFIELD Kst inlining (2026‑07‑13):** The `_tryLiteralConstant` helper
+checks if a table-constructor value is a literal and, if so, emits
+SETFIELD with k=true (value as Kst constant index) instead of emitting
+LOADI + SETFIELD with a register value.  This eliminated the last
+remaining gaps in `table` and `loops`.
+
+**Remaining:** float (+2) — from `nan ~= nan` not-equal comparison
+pattern that emits an extra NOT instruction.
