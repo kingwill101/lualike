@@ -33,6 +33,7 @@ If no script or code is provided, lualike starts in interactive REPL mode.
 |------|-------------|
 | `--fold` / `--no-fold` | Enable/disable constant folding pass (default: off) |
 | `--dump-ir` | Print IR instruction dump and exit (IR mode) |
+| `--disassemble` | Print bytecode disassembly and exit (lua-bytecode mode) |
 
 ## Execution
 

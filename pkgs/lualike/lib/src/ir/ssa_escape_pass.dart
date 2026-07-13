@@ -297,9 +297,10 @@ LualikeIrPrototype? _runOnce(LualikeIrPrototype prototype) {
         final kindCmp = a.kind.compareTo(b.kind);
         return kindCmp != 0 ? kindCmp : a.value.compareTo(b.value);
       });
-    // Stay within Lua u8 maxstack / ABC register fields.
+    // Stay within budget that leaves room for two mechanical-lowering
+    // temp slots (tempBase = registerCount, tempBase + 1).
     if (nextReg + orderedKeys.length >
-        IrBytecodeRegisterBudget.maxRegisterCount + 1) {
+        IrBytecodeRegisterBudget.maxRegisterCount) {
       continue;
     }
     fieldRegBase[tableReg] = nextReg;

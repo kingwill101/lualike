@@ -1,3 +1,4 @@
+import 'dart:convert';
 import 'dart:io';
 
 import 'package:artisanal/args.dart';
@@ -6,9 +7,12 @@ import 'package:lualike/command/version_command.dart';
 import 'package:lualike/src/compile/pipeline.dart';
 import 'package:lualike/src/config.dart';
 import 'package:lualike/src/interop.dart';
+import 'package:lualike/src/lua_bytecode/disassembler.dart';
+import 'package:lualike/src/lua_bytecode/parser.dart';
 import 'package:lualike/src/lua_bytecode/runtime.dart';
 import 'package:lualike/src/logging/level.dart' as ctx;
 import 'package:lualike/src/logging/logging.dart';
+import 'package:lualike/src/parse.dart';
 
 import 'base_command.dart';
 import 'execute_command.dart';
@@ -58,6 +62,14 @@ class LuaLikeCommandRunner extends CommandRunner {
       ..addFlag(
         'dump-ir',
         help: 'Print IR instructions and exit without executing (IR mode)',
+        negatable: false,
+        defaultsTo: false,
+      )
+      ..addFlag(
+        'disassemble',
+        help:
+            'Print bytecode disassembly and exit without executing'
+            ' (lua-bytecode mode)',
         negatable: false,
         defaultsTo: false,
       )
@@ -187,6 +199,35 @@ class LuaLikeCommandRunner extends CommandRunner {
     }
     config.dumpIr = argResults['dump-ir'] as bool;
     config.foldEnabled = argResults['fold'] as bool;
+
+    // Handle --disassemble (print bytecode listing, no execution)
+    if (argResults['disassemble'] as bool) {
+      if (restArgs.isEmpty) {
+        stderr.writeln('Error: --disassemble requires a script file argument.');
+        exit(1);
+      }
+      final scriptPath = restArgs.first;
+      final bytes = File(scriptPath).readAsBytesSync();
+      try {
+        // Official header → parse as binary chunk
+        if (bytes.isNotEmpty && bytes.first == 0x1B) {
+          final chunk = const LuaBytecodeParser().parse(bytes);
+          print(const LuaBytecodeDisassembler().render(chunk));
+        } else {
+          final source = _decodeSource(bytes);
+          final program = parse(source, url: scriptPath);
+          final artifact = CompilePipeline(
+            config: CompilePipelineConfig.luaBytecodeOptimized(),
+          ).compile(program) as LuaBytecodeArtifact;
+          print(const LuaBytecodeDisassembler().render(artifact.chunk));
+        }
+      } catch (e, st) {
+        stderr.writeln('Disassembly failed: $e');
+        stderr.writeln(st);
+        exit(1);
+      }
+      exit(0);
+    }
 
     // Handle --compile (compile-only, no execution)
     if (argResults['compile'] as bool) {
@@ -417,6 +458,14 @@ bool _looksLikeTrackedLuaBytecodeScript(String scriptPath) {
     }
   } catch (_) {
     return false;
+  }
+}
+
+String _decodeSource(List<int> bytes) {
+  try {
+    return utf8.decode(bytes);
+  } on FormatException {
+    return latin1.decode(bytes);
   }
 }
 
