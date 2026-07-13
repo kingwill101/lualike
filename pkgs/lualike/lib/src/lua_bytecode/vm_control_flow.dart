@@ -355,10 +355,7 @@ extension LuaBytecodeVmControlFlow on LuaBytecodeVm {
                 negativeStepDivisor(stepValue);
       frame.setRegister(
         base,
-        transientPrimitiveValue(
-          runtime,
-          signedInt64FromUnsigned(count),
-        ),
+        transientPrimitiveValue(runtime, signedInt64FromUnsigned(count)),
       );
       frame.setRegister(base + 1, transientPrimitiveValue(runtime, stepValue));
       frame.setRegister(base + 2, transientPrimitiveValue(runtime, init));
@@ -395,12 +392,19 @@ extension LuaBytecodeVmControlFlow on LuaBytecodeVm {
           rawCount > 0 &&
           rawStep is int &&
           rawIndex is int) {
-        // Always allocate fresh Values for loop variables. Even if no upvalues
-        // are open *now*, a closure inside the loop body may capture the loop
-        // variable register and later read it after it has been mutated in place.
-        // The allocation cost (~50ns) is negligible vs correctness.
-        frame.setRegister(base, transientPrimitiveValue(runtime, rawCount - 1));
-        frame.setRegister(base + 2, transientPrimitiveValue(runtime, rawIndex + rawStep));
+        // Fresh transient Values (not the shared constant pool) so a closure
+        // that captures the loop register cannot see later in-place mutation.
+        // storeRegisterRaw: transients are already frame-private and skip
+        // setRegister's shared-primitive reboxing (FORLOOP is a top opcode
+        // on LUALIKE_PROFILE_BYTECODE pure-loop benches).
+        frame.storeRegisterRaw(
+          base,
+          transientPrimitiveValue(runtime, rawCount - 1),
+        );
+        frame.storeRegisterRaw(
+          base + 2,
+          transientPrimitiveValue(runtime, rawIndex + rawStep),
+        );
         return true;
       }
       final count = unsignedForLoopCounter(countValue);
