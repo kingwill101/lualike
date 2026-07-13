@@ -52,8 +52,11 @@ final class CompilePipelineConfig {
   /// Whether to fold table operations with known metatables.
   final bool enableMetatableFolding;
 
-  /// Whether to run peephole optimization on emitted IR and bytecode.
+  /// Whether to run peephole optimization on emitted IR.
   final bool enablePeephole;
+
+  /// Whether to run peephole optimization on lowered bytecode.
+  final bool enableBytecodePeephole;
 
   /// Whether to run SSA-based dead code elimination on the IR.
   ///
@@ -120,6 +123,7 @@ final class CompilePipelineConfig {
     bool enableLoopUnrolling = false,
     bool enableBundling = false,
     List<String> bundleSearchPaths = const ['.'],
+    bool enableBytecodePeephole = true,
   }) {
     return CompilePipelineConfig(
       stripDebug: stripDebug,
@@ -130,6 +134,7 @@ final class CompilePipelineConfig {
       enableTypeNarrowing: true,
       enableMetatableFolding: false,
       enablePeephole: true,
+      enableBytecodePeephole: enableBytecodePeephole,
       enableSsaDeadCodeElimination: true,
       enableSsaGlobalValueNumbering: true,
       enableSsaSccp: true,
@@ -157,6 +162,7 @@ final class CompilePipelineConfig {
     this.enableTypeNarrowing = false,
     this.enableMetatableFolding = false,
     this.enablePeephole = false,
+    this.enableBytecodePeephole = false,
     this.enableSsaDeadCodeElimination = false,
     this.enableSsaGlobalValueNumbering = false,
     this.enableSsaSccp = false,
@@ -337,7 +343,7 @@ final class CompilePipeline {
     if (config.target == CompileBackend.luaBytecode) {
       var luaChunk = lowerIrChunkToLuaBytecodeChunk(irChunk);
 
-      if (config.enablePeephole) {
+      if (config.enableBytecodePeephole) {
         luaChunk = lua_bc.LuaBytecodePeepholePass().optimize(luaChunk);
       }
 

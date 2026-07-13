@@ -74,6 +74,12 @@ class LuaLikeCommandRunner extends CommandRunner {
         defaultsTo: false,
       )
       ..addFlag(
+        'raw',
+        help: 'Skip bytecode peephole pass (raw lowering output)',
+        negatable: false,
+        defaultsTo: false,
+      )
+      ..addFlag(
         'fold',
         help: 'Enable constant folding pass for bytecode engines',
         negatable: true,
@@ -216,8 +222,11 @@ class LuaLikeCommandRunner extends CommandRunner {
         } else {
           final source = _decodeSource(bytes);
           final program = parse(source, url: scriptPath);
+          final rawBc = argResults['raw'] as bool;
           final artifact = CompilePipeline(
-            config: CompilePipelineConfig.luaBytecodeOptimized(),
+            config: CompilePipelineConfig.luaBytecodeOptimized(
+              enableBytecodePeephole: !rawBc,
+            ),
           ).compile(program) as LuaBytecodeArtifact;
           print(const LuaBytecodeDisassembler().render(artifact.chunk));
         }
