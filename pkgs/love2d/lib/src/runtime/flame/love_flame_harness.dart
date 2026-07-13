@@ -85,7 +85,7 @@ class LoveFlameHarness extends StatefulWidget {
     this.videoFrameProviderFactory,
     this.onInputAdaptersReady,
     this.onQuitRequested,
-    this.engineMode = EngineMode.luaBytecode,
+    this.engineMode = EngineMode.ast,
     this.automaticGc = false,
     this.imageWarmupAssetKeys,
     this.debugImageWarmupOverride,

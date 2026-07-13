@@ -12,10 +12,10 @@ import 'package:path/path.dart' as path;
 void main() {
   final binding = TestWidgetsFlutterBinding.ensureInitialized();
 
-  test('LoveFlameHarness defaults to bytecode runtime mode', () {
+  test('LoveFlameHarness defaults to AST runtime mode', () {
     const harness = LoveFlameHarness(entryAsset: 'assets/game/main.lua');
 
-    expect(harness.engineMode, EngineMode.luaBytecode);
+    expect(harness.engineMode, EngineMode.ast);
     expect(harness.automaticGc, isFalse);
   });
 
