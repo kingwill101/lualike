@@ -1,7 +1,8 @@
 /// Post-emission peephole optimization for Lua 5.5 bytecode.
 ///
 /// Operates on [LuaBytecodePrototype] after compilation and removes
-/// redundant instruction patterns.
+/// redundant instruction patterns. Patterns are validated against
+/// `luac55` (Lua 5.5) emission, not 5.4.
 ///
 /// ## Patterns
 ///
@@ -11,6 +12,10 @@
 /// | `LOADNIL r; LOADK r, v` | `LOADK r, v` (dead store) |
 /// | `JMP 0` | removed (no-op) |
 /// | `MOVE r1, r2; MOVE r2, r1` | `MOVE r1, r2` (swap) |
+/// | `ARITH tmp,b,c; MMBIN*; MOVE dest,tmp` | `ARITH dest,b,c; MMBIN*` |
+///
+/// The arithmetic fold matches luac55's in-place form
+/// (`ADD s,s,i` / `ADDI t,s,k`) and drops the SSA temp + MOVE.
 ///
 /// ## Jump safety
 ///
@@ -38,13 +43,19 @@ class LuaBytecodePeepholePass {
   LuaBytecodePrototype _optimizeProto(LuaBytecodePrototype proto) {
     final peepholed = _peephole(proto.code);
     final optimizedProtos = proto.prototypes.map(_optimizeProto).toList();
+    final code = peepholed.code;
     return LuaBytecodePrototype(
       lineDefined: proto.lineDefined,
       lastLineDefined: proto.lastLineDefined,
       parameterCount: proto.parameterCount,
       flags: proto.flags,
-      maxStackSize: proto.maxStackSize,
-      code: peepholed.code,
+      // Never raise maxstack; only shrink when temps were clearly dropped.
+      maxStackSize: _tightMaxStack(
+        code,
+        parameterCount: proto.parameterCount,
+        previous: proto.maxStackSize,
+      ),
+      code: code,
       constants: proto.constants,
       upvalues: proto.upvalues,
       prototypes: optimizedProtos,
@@ -118,6 +129,17 @@ class LuaBytecodePeepholePass {
           continue;
         }
 
+        // LOAD* tmp ; MOVE dest, tmp → LOAD* dest  (luac55-style)
+        if (_isSimpleLoad(inst) &&
+            _isMove(next) &&
+            next.b == inst.a &&
+            next.a != inst.a) {
+          result[i] = _rewriteLoadDest(inst, next.a);
+          removePcs.add(nextIndex);
+          i++;
+          continue;
+        }
+
         // LOADNIL r; LOADK r, v → remove LOADNIL (b=0 means one register)
         if (inst.opcode == Opcode.loadNil &&
             _isLoadK(next) &&
@@ -134,6 +156,28 @@ class LuaBytecodePeepholePass {
             inst.a == next.b &&
             inst.b == next.a) {
           removePcs.add(nextIndex);
+          i++;
+          continue;
+        }
+
+        // ARITH tmp,b,c ; MMBIN* left,right ; MOVE dest,tmp
+        // → ARITH dest,b,c ; MMBIN*  (luac55 in-place style)
+        final mmIndex = nextIndex;
+        final mm = next;
+        final moveIndex = _nextKept(mmIndex + 1, result.length, removePcs);
+        final move = moveIndex != null ? result[moveIndex] : null;
+        if (move != null &&
+            moveIndex != null &&
+            _isRegisterArithmetic(inst) &&
+            _isMmBinFamily(mm) &&
+            _isMove(move) &&
+            move.b == inst.a &&
+            move.a != inst.a &&
+            _mmBinMatchesArithmetic(inst, mm)) {
+          result[i] = _rewriteArithmeticDest(inst, move.a);
+          // MMBIN operands are the arithmetic sources, not the dest register
+          // (same as luac55). Leave [mm] unchanged.
+          removePcs.add(moveIndex);
           i++;
           continue;
         }
@@ -173,6 +217,113 @@ class LuaBytecodePeepholePass {
   bool _isMove(LuaBytecodeInstructionWord inst) => inst.opcode == Opcode.move;
   bool _isLoadK(LuaBytecodeInstructionWord inst) => inst.opcode == Opcode.loadK;
 
+  bool _isSimpleLoad(LuaBytecodeInstructionWord inst) {
+    return switch (inst.opcode) {
+      Opcode.loadI ||
+      Opcode.loadF ||
+      Opcode.loadK ||
+      Opcode.loadFalse ||
+      Opcode.loadTrue ||
+      Opcode.lFalseSkip => true,
+      _ => false,
+    };
+  }
+
+  LuaBytecodeInstructionWord _rewriteLoadDest(
+    LuaBytecodeInstructionWord load,
+    int dest,
+  ) {
+    final op = load.opcode;
+    return switch (op) {
+      Opcode.loadI || Opcode.loadF => LuaBytecodeInstructionWord.asBx(
+        opcode: op.code,
+        a: dest,
+        sBx: load.sBx,
+      ),
+      Opcode.loadK => LuaBytecodeInstructionWord.abx(
+        opcode: op.code,
+        a: dest,
+        bx: load.bx,
+      ),
+      _ => LuaBytecodeInstructionWord.abc(
+        opcode: op.code,
+        a: dest,
+        b: load.b,
+        c: load.c,
+        k: load.kFlag,
+      ),
+    };
+  }
+
+  bool _isRegisterArithmetic(LuaBytecodeInstructionWord inst) {
+    return switch (inst.opcode) {
+      Opcode.add ||
+      Opcode.sub ||
+      Opcode.mul ||
+      Opcode.mod ||
+      Opcode.pow ||
+      Opcode.div ||
+      Opcode.idiv ||
+      Opcode.band ||
+      Opcode.bor ||
+      Opcode.bxor ||
+      Opcode.shl ||
+      Opcode.shr ||
+      Opcode.addK ||
+      Opcode.subK ||
+      Opcode.mulK ||
+      Opcode.modK ||
+      Opcode.powK ||
+      Opcode.divK ||
+      Opcode.idivK ||
+      Opcode.bandK ||
+      Opcode.borK ||
+      Opcode.bxorK ||
+      Opcode.addI ||
+      Opcode.shlI ||
+      Opcode.shrI => true,
+      _ => false,
+    };
+  }
+
+  bool _isMmBinFamily(LuaBytecodeInstructionWord inst) {
+    return switch (inst.opcode) {
+      Opcode.mmBin || Opcode.mmBinI || Opcode.mmBinK => true,
+      _ => false,
+    };
+  }
+
+  /// MMBIN* A/B match the arithmetic sources (left / right), not the temp
+  /// destination — matching [lowerIrChunkToLuaBytecodeChunk] emission.
+  bool _mmBinMatchesArithmetic(
+    LuaBytecodeInstructionWord arith,
+    LuaBytecodeInstructionWord mm,
+  ) {
+    return switch (mm.opcode) {
+      Opcode.mmBin => mm.a == arith.b && mm.b == arith.c,
+      Opcode.mmBinK => mm.a == arith.b && mm.b == arith.c,
+      // MMBINI: A = left reg, sB = immediate (same field as arith C).
+      Opcode.mmBinI => mm.a == arith.b && mm.b == arith.c,
+      _ => false,
+    };
+  }
+
+  LuaBytecodeInstructionWord _rewriteArithmeticDest(
+    LuaBytecodeInstructionWord arith,
+    int dest,
+  ) {
+    final op = arith.opcode;
+    // ADD/SUB/... use ABC; ADDK family uses ABC with C = const index;
+    // ADDI / SHLI / SHRI use signed C.
+    return LuaBytecodeInstructionWord.abc(
+      opcode: op.code,
+      a: dest,
+      b: arith.b,
+      c: arith.c,
+      k: arith.kFlag,
+    );
+  }
+
   /// Opcodes whose VM handler may `pc += 1` to skip the following JMP.
   bool _isConditionalSkipNext(LuaBytecodeInstructionWord inst) {
     return switch (inst.opcode) {
@@ -190,6 +341,109 @@ class LuaBytecodePeepholePass {
       _ => false,
     };
   }
+}
+
+/// Shrink [previous] maxstack when register high-water clearly dropped.
+///
+/// Never returns more than [previous]. Under-estimate is avoided by only
+/// counting known register operands (MMBIN C is an event id, not a reg).
+int _tightMaxStack(
+  List<LuaBytecodeInstructionWord> code, {
+  required int parameterCount,
+  required int previous,
+}) {
+  var maxReg = parameterCount > 0 ? parameterCount - 1 : 0;
+  void consider(int reg) {
+    if (reg > maxReg) {
+      maxReg = reg;
+    }
+  }
+
+  for (final inst in code) {
+    final op = inst.opcode;
+    consider(inst.a);
+    switch (op) {
+      case Opcode.move ||
+          Opcode.getUpval ||
+          Opcode.setUpval ||
+          Opcode.unm ||
+          Opcode.bnot ||
+          Opcode.notOp ||
+          Opcode.len ||
+          Opcode.testSet:
+        consider(inst.b);
+      case Opcode.getTable ||
+          Opcode.getI ||
+          Opcode.getField ||
+          Opcode.setTable ||
+          Opcode.setI ||
+          Opcode.setField ||
+          Opcode.self ||
+          Opcode.add ||
+          Opcode.sub ||
+          Opcode.mul ||
+          Opcode.mod ||
+          Opcode.pow ||
+          Opcode.div ||
+          Opcode.idiv ||
+          Opcode.band ||
+          Opcode.bor ||
+          Opcode.bxor ||
+          Opcode.shl ||
+          Opcode.shr ||
+          Opcode.eq ||
+          Opcode.lt ||
+          Opcode.le ||
+          Opcode.mmBin:
+        consider(inst.b);
+        consider(inst.c);
+      case Opcode.addK ||
+          Opcode.subK ||
+          Opcode.mulK ||
+          Opcode.modK ||
+          Opcode.powK ||
+          Opcode.divK ||
+          Opcode.idivK ||
+          Opcode.bandK ||
+          Opcode.borK ||
+          Opcode.bxorK ||
+          Opcode.addI ||
+          Opcode.shlI ||
+          Opcode.shrI ||
+          Opcode.eqK ||
+          Opcode.eqI ||
+          Opcode.ltI ||
+          Opcode.leI ||
+          Opcode.gtI ||
+          Opcode.geI ||
+          Opcode.mmBinI ||
+          Opcode.mmBinK ||
+          Opcode.getTabUp ||
+          Opcode.setTabUp:
+        consider(inst.b);
+      case Opcode.concat:
+        consider(inst.b);
+      // A..B window
+      case Opcode.loadNil:
+        consider(inst.a + inst.b);
+      case Opcode.forPrep || Opcode.forLoop:
+        consider(inst.a + 3);
+      case Opcode.tForPrep || Opcode.tForCall || Opcode.tForLoop:
+        consider(inst.a + 4);
+      case Opcode.call || Opcode.tailCall:
+        if (inst.b > 1) {
+          consider(inst.a + inst.b - 1);
+        }
+        if (inst.c > 1) {
+          consider(inst.a + inst.c - 2);
+        }
+      default:
+        break;
+    }
+  }
+  final slots = maxReg + 1;
+  final tight = slots < 2 ? 2 : slots;
+  return tight < previous ? tight : previous;
 }
 
 /// Drop [removePcs] and rewrite relative control-flow offsets.

@@ -1,5 +1,13 @@
 ## Unreleased
 
+- Bytecode density (Lua **5.5** / `luac55` baseline): peephole folds
+  `ARITH tmp; MMBIN*; MOVE dest,tmp` into in-place `ARITH dest` and
+  `LOAD* tmp; MOVE dest,tmp` into `LOAD* dest`. Integer `FORLOOP` and
+  binary arithmetic fast paths use `storeRegisterRaw` for private
+  transients. Soft suite remains the Lua 5.5 port tests.
+- Loop unrolling still available via
+  `CompilePipelineConfig.enableLoopUnrolling` (default off; IR
+  constant-bounded `for` up to 64 iters).
 - Bytecode VM hot-path tweaks: cheaper opcode decode, coarser GC loop
   safepoints, and `MOVE` via `storeRegisterRaw` (avoids re-cloning values
   that are already frame-safe). Keeps load/store isolation for

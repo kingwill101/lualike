@@ -1708,35 +1708,40 @@ final class LuaBytecodeStructuredCompiler {
       }
     }
 
-    final operandBase = _reserveTempBlock(2);
+    // luac55-style: evaluate left into the destination, right into one
+    // scratch, then ARITH dest,dest,scratch (no temp result + MOVE).
+    // Safe when the destination is not live in [right] as a source that
+    // must be read after left overwrites it — for the common `s = s + x`
+    // / `t = s + x` shapes left is fully evaluated first (Lua order).
     final operatorLine = _multilineBinaryOperatorLine(expression);
     _withStickySourceLine(
       operatorLine,
       () => _emitExpressionToRegister(
         left,
-        operandBase,
+        targetRegister,
         lineOverride: operatorLine,
       ),
     );
-    _emitExpressionToRegister(right, operandBase + 1);
-    _withSourceLine(operatorLine, () {
-      _prototype.emitAbc(
-        _binaryOpcodeFor(op),
-        a: operandBase,
-        b: operandBase,
-        c: operandBase + 1,
-      );
-      _prototype.emitAbc(
-        'MMBIN',
-        a: operandBase,
-        b: operandBase + 1,
-        c: _binaryMetamethodEventFor(op),
-      );
-      if (operandBase != targetRegister) {
-        _prototype.emitMove(target: targetRegister, source: operandBase);
-      }
-    });
-    _releaseTempBlock(operandBase, 2);
+    final scratch = _reserveTempBlock(1);
+    try {
+      _emitExpressionToRegister(right, scratch);
+      _withSourceLine(operatorLine, () {
+        _prototype.emitAbc(
+          _binaryOpcodeFor(op),
+          a: targetRegister,
+          b: targetRegister,
+          c: scratch,
+        );
+        _prototype.emitAbc(
+          'MMBIN',
+          a: targetRegister,
+          b: scratch,
+          c: _binaryMetamethodEventFor(op),
+        );
+      });
+    } finally {
+      _releaseTempBlock(scratch, 1);
+    }
   }
 
   void _collectLeftLinearBinaryOperands(
