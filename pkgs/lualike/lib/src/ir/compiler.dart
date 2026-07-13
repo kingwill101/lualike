@@ -3083,7 +3083,12 @@ class _PrototypeContext {
         }
       }
 
-      final rightReg = _emitExpression(node.right);
+      // For register-register comparisons, the right operand is read-only
+      // — no temp copy needed even if it aliases leftReg (EQ reads both
+      // operands before writing).  Identifier directly returns its register.
+      final rightReg = node.right is Identifier
+          ? _emitExpression(node.right, target: leftReg)
+          : _emitExpression(node.right);
       switch (node.op) {
         case '==':
           emitter.emitABC(
