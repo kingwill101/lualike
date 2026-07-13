@@ -1,6 +1,7 @@
-/// Trace a Lua source through every IR/bytecode pipeline phase.
+/// Trace a Lua source through every compiler phase.
 ///
-/// Shows output after each compiler pass so structural changes are visible.
+/// Shows output after each pass so structural changes are visible.
+/// Includes AST passes (const prop, folding, …) before the IR pipeline.
 /// Optionally includes luac55 reference for comparison.
 ///
 /// Usage:
@@ -13,6 +14,13 @@ library;
 import 'dart:io';
 
 import 'package:lualike/ir.dart';
+import 'package:lualike/src/compile/compiler_pass.dart';
+import 'package:lualike/src/compile/const_propagation_pass.dart';
+import 'package:lualike/src/compile/constant_folding_pass.dart';
+import 'package:lualike/src/compile/analyzer_pass.dart';
+import 'package:lualike/src/compile/type_narrowing_pass.dart';
+import 'package:lualike/src/compile/inlining_heuristics_pass.dart';
+import 'package:lualike/src/compile/dead_code_pass.dart';
 import 'package:lualike/src/ir/compiler.dart';
 import 'package:lualike/src/ir/peephole_pass.dart' as ir_peep;
 import 'package:lualike/src/ir/ssa_dead_code_pass.dart';
@@ -30,6 +38,7 @@ const _defaultLuac55 =
     '/home/kingwill101/Downloads/lua-5.5.0_Linux68_64_bin/luac55';
 
 enum TracePhase {
+  ast,
   ir,
   peephole,
   dce,
@@ -77,7 +86,8 @@ void main(List<String> args) async {
     stderr.writeln('       dart run tool/trace.dart -e "lua code" [options]');
     stderr.writeln('');
     stderr.writeln('Phases (default: show all):');
-    stderr.writeln('  ir        Raw IR compiler output');
+    stderr.writeln('  ast       After AST passes (const prop, folding, …)');
+    stderr.writeln('  ir        After IR compiler');
     stderr.writeln('  peephole  After IR peephole pass');
     stderr.writeln('  dce       After SSA dead-code elimination');
     stderr.writeln('  gvn       After global value numbering');
@@ -110,8 +120,26 @@ void main(List<String> args) async {
   }
 
   // ── Step through each pipeline phase ────────────────────────────────
-  var irChunk = LualikeIrCompiler().compile(program);
+  // Phase 0: AST passes (const prop, folding, etc.)
+  final context = CompilerContext(program);
+  final astPasses = <CompilerPass>[
+    ConstPropagationPass(),
+    AnalyzerPass(),
+    TypeNarrowingPass(),
+    InliningHeuristicsPass(),
+    ConstantFoldingPass(),
+    DeadCodeEliminationPass(),
+  ];
+  var foldedProgram = program;
+  for (final pass in astPasses) {
+    foldedProgram = pass.run(foldedProgram, context);
+  }
+
+  // Phase 1: IR compile (with folding context from AST passes)
+  var irChunk = LualikeIrCompiler(foldingResult: context.foldingResult)
+      .compile(foldedProgram);
   var chunk = irChunk;
+
   bool showAll = stopAt == null;
 
   void emit(String label) {
@@ -122,9 +150,18 @@ void main(List<String> args) async {
     sections.add(formatLualikeIrChunk(chunk).trimRight());
   }
 
-  // 1. Raw IR
+  if (showAll || stopAt == TracePhase.ast) {
+    sections.add('');
+    sections.add('═' * 60);
+    sections.add('  AST passes (const prop, fold, …)');
+    sections.add('═' * 60);
+    sections.add(foldedProgram.toString().trimRight());
+    if (!showAll) return _printAndExit(sections);
+  }
+
+  // 1. IR
   if (showAll || stopAt == TracePhase.ir) {
-    emit('IR compiler (raw)');
+    emit('IR compiler');
     if (!showAll) return _printAndExit(sections);
   }
 
