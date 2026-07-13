@@ -751,7 +751,9 @@ List<LuaBytecodeInstructionWord>? _lowerCompareSequence(
       a: a,
       b: _encodeBOperand(instruction.opcode, b),
       c: _encodeCOperand(instruction.opcode, c),
-      k: true,
+      // k=true: skip next when condition is FALSE (for `==`).
+      // k=false: skip next when condition is TRUE (for `~=` / `!=`).
+      k: instruction.k,
     );
   }
 
@@ -794,7 +796,7 @@ List<LuaBytecodeInstructionWord>? _lowerCompareSequence(
       a: left,
       b: right,
       c: 0,
-      k: true,
+      k: instruction.k,
     );
   }
 

@@ -3100,12 +3100,7 @@ class _PrototypeContext {
             a: resultReg,
             b: leftReg,
             c: rightReg,
-          );
-          emitter.emitABC(
-            opcode: LualikeIrOpcode.notOp,
-            a: resultReg,
-            b: resultReg,
-            c: 0,
+            k: false,
           );
           break;
         case '<':
@@ -3302,21 +3297,19 @@ class _PrototypeContext {
           a: leftReg,
           b: leftReg,
           c: rightReg,
+          k: true,
         );
         break;
       case '~=':
       case '!=':
+        // Inverted EQ (k=false): skip next when condition IS true,
+        // giving `not equal` semantics without a separate NOT instruction.
         emitter.emitABC(
           opcode: LualikeIrOpcode.eq,
           a: leftReg,
           b: leftReg,
           c: rightReg,
-        );
-        emitter.emitABC(
-          opcode: LualikeIrOpcode.notOp,
-          a: leftReg,
-          b: leftReg,
-          c: 0,
+          k: false,
         );
         break;
       case '<':
