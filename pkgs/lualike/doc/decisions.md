@@ -353,3 +353,29 @@ SSA off (post-SSA shapes are not IR-VM ready).
 prototypes that cannot fit in 8-bit ABC fields / u8 maxstack (see
 `lib/src/ir/register_budget.dart`).
 
+
+---
+
+## CALL ABI: pass target register as call base for assignments
+
+**Date:** 2026‑07‑13  
+**Status:** Active  
+
+**Context:** The IR compiler's CALL instruction uses the same register for
+the function and the first result (`R(A) = function, R(A)..R(A+C-1) = results`).
+For `local a, b, c = multi()`, the compiler previously allocated a fresh
+register for the call base, then MOVEd results to the named variable
+registers — adding 1-3 MOVEs per call.
+
+**Fix:** `_emitAssignmentValues` now passes the first target register
+as `baseRegister` to `_emitFunctionCall` when available. The call writes
+results directly into the target registers, eliminating the unpacking MOVEs.
+
+**Impact (--raw, instructions vs luac55):**
+- calls: 18→15 (+2→-1) now beats luac55
+- upvalues: 33→29 (+3→-1) now beats luac55
+- multiret: 20→13 (-1→-8) significantly better
+- coroutine: 39→38 (-4→-5) better
+
+**Remaining:** table (+2), float (+2), loops (+3) — all from SETFIELD
+with register values instead of Kst constants (bytecode-peephole fix).
