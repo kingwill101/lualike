@@ -5,6 +5,10 @@ final Expando<Value> _loveDataPointerCache = Expando<Value>(
   'love2dDataPointer',
 );
 
+/// Reuses per-runtime shared method tables for LOVE data wrapper families.
+final Expando<Map<String, Value>> _loveDataMethodsCache =
+    Expando<Map<String, Value>>('love2dDataMethods');
+
 T _requireLoveDataSubtype<T extends Object>(
   List<Object?> args,
   int index,
@@ -29,10 +33,6 @@ T _requireLoveDataSubtype<T extends Object>(
   );
 }
 
-Object? _dataWrapperObjectByKey(Object? value, String objectKey) {
-  final table = _tableIdentityIfPresent(value);
-  return table?[objectKey];
-}
 
 /// Wraps [data] as a Lua-facing `ByteData` object table.
 Value _wrapByteData(LibraryRegistrationContext context, LoveByteData data) {
@@ -43,12 +43,14 @@ Value _wrapByteData(LibraryRegistrationContext context, LoveByteData data) {
 
   final table = _wrapLoveDataObject(
     context,
+    cacheKey: 'ByteData',
     rawObject: data,
     objectKey: _loveByteDataObjectKey,
     typeName: 'ByteData',
     hierarchy: const <String>{'ByteData', 'Data', 'Object'},
     clone: (args) =>
         _wrapByteData(context, _requireByteData(args, 0, 'Data:clone').clone()),
+    resolver: _byteDataIfPresent,
   );
   _loveByteDataWrapperCache[data] = table;
   return table;
@@ -63,12 +65,14 @@ Value _wrapDataView(LibraryRegistrationContext context, LoveDataView data) {
 
   final table = _wrapLoveDataObject(
     context,
+    cacheKey: 'DataView',
     rawObject: data,
     objectKey: _loveDataViewObjectKey,
     typeName: 'DataView',
     hierarchy: const <String>{'DataView', 'Data', 'Object'},
     clone: (args) =>
         _wrapDataView(context, _requireDataView(args, 0, 'Data:clone').clone()),
+    resolver: _dataViewIfPresent,
   );
   _loveDataViewWrapperCache[data] = table;
   return table;
@@ -87,6 +91,7 @@ Value _wrapCompressedData(
   final builder = BuiltinFunctionBuilder(context);
   final table = _wrapLoveDataObject(
     context,
+    cacheKey: 'CompressedData',
     rawObject: data,
     objectKey: _loveCompressedDataObjectKey,
     typeName: 'CompressedData',
@@ -95,6 +100,7 @@ Value _wrapCompressedData(
       context,
       _requireCompressedData(args, 0, 'Data:clone').clone(),
     ),
+    resolver: _compressedDataIfPresent,
     extraEntries: <Object?, Object?>{
       'getFormat': Value(
         builder.create(
@@ -111,101 +117,153 @@ Value _wrapCompressedData(
 }
 
 /// Builds the common Lua object table used by LÖVE `Data` subtypes.
-Value _wrapLoveDataObject(
+Value _wrapLoveDataObject<T extends LoveDataObject>(
   LibraryRegistrationContext context, {
+  required String cacheKey,
   required Object rawObject,
   required String objectKey,
   required String typeName,
   required Set<String> hierarchy,
+  required T? Function(Object? value) resolver,
   required Object? Function(List<Object?> args) clone,
   Map<Object?, Object?> extraEntries = const <Object?, Object?>{},
 }) {
-  final builder = BuiltinFunctionBuilder(context);
-  final pointerGetter = builder.create(
-    (args) => _wrapDataPointer(
-      context,
-      identity: _requireLoveDataObject(args, 0, 'Data:getPointer'),
-      bytes: _requireLoveDataObject(args, 0, 'Data:getPointer').bytes,
-    ),
-  );
-  return ValueClass.table(<Object?, Object?>{
-    objectKey: rawObject,
-    'clone': Value(builder.create(clone), functionName: 'clone'),
-    'getPointer': Value(pointerGetter, functionName: 'getPointer'),
-    'getFFIPointer': Value(pointerGetter, functionName: 'getFFIPointer'),
-    'getSize': Value(
-      builder.create(
-        (args) => _requireLoveDataObject(args, 0, 'Data:getSize').size,
+  final interpreter = context.interpreter;
+  if (interpreter == null) {
+    throw StateError('No Lua runtime available for $typeName bindings');
+  }
+
+  final methodsCache = _loveDataMethodsCache[interpreter] ??=
+      <String, Value>{};
+  Value? cachedMethods = methodsCache[cacheKey];
+  if (cachedMethods == null) {
+    final builder = BuiltinFunctionBuilder(context);
+    final methods = ValueClass.table(<Object?, Object?>{
+      'clone': Value(builder.create(clone), functionName: 'clone'),
+      'getPointer': Value(
+        builder.create((args) {
+          final object = _requireLoveDataSubtype(
+            args,
+            0,
+            'Data:getPointer',
+            expected: typeName,
+            resolver: resolver,
+          );
+          return _wrapDataPointer(
+            context,
+            identity: object,
+            bytes: object.bytes,
+          );
+        }),
+        functionName: 'getPointer',
       ),
-      functionName: 'getSize',
-    ),
-    'getString': Value(
-      builder.create((args) {
-        final interpreter = context.interpreter;
-        if (interpreter == null) {
-          throw StateError('No Lua runtime available for Data:getString');
-        }
+      'getFFIPointer': Value(
+        builder.create((args) {
+          final object = _requireLoveDataSubtype(
+            args,
+            0,
+            'Data:getPointer',
+            expected: typeName,
+            resolver: resolver,
+          );
+          return _wrapDataPointer(
+            context,
+            identity: object,
+            bytes: object.bytes,
+          );
+        }),
+        functionName: 'getFFIPointer',
+      ),
+      'getSize': Value(
+        builder.create((args) {
+          return _requireLoveDataSubtype(
+            args,
+            0,
+            'Data:getSize',
+            expected: typeName,
+            resolver: resolver,
+          ).size;
+        }),
+        functionName: 'getSize',
+      ),
+      'getString': Value(
+        builder.create((args) {
+          final object = _requireLoveDataSubtype(
+            args,
+            0,
+            'Data:getString',
+            expected: typeName,
+            resolver: resolver,
+          );
+          return interpreter.constantStringValue(object.bytes);
+        }),
+        functionName: 'getString',
+      ),
+      'release': Value(
+        builder.create((args) {
+          final receiver = _valueAt(args, 0);
+          final object = resolver(receiver);
+          if (object == null) {
+            _throwLuaStyleTypeError(
+              symbol: 'Object:release',
+              index: 0,
+              expected: typeName,
+              actual: receiver,
+            );
+          }
+          if (_loveDataReleased[object] == true) {
+            return false;
+          }
 
-        return interpreter.constantStringValue(
-          _requireLoveDataObject(args, 0, 'Data:getString').bytes,
-        );
-      }),
-      functionName: 'getString',
-    ),
-    'release': Value(
-      builder.create((args) {
-        final receiver = _valueAt(args, 0);
-        final object = _dataWrapperObjectByKey(receiver, objectKey);
-        if (object == null) {
-          _throwLuaStyleTypeError(
-            symbol: 'Object:release',
-            index: 0,
-            expected: typeName,
-            actual: receiver,
-          );
-        }
-        if (_loveDataReleased[object] == true) {
-          return false;
-        }
+          _loveDataReleased[object] = true;
+          return true;
+        }),
+        functionName: 'release',
+      ),
+      'type': Value(
+        builder.create((args) {
+          final receiver = _valueAt(args, 0);
+          if (resolver(receiver) == null) {
+            _throwLuaStyleTypeError(
+              symbol: 'Object:type',
+              index: 0,
+              expected: typeName,
+              actual: receiver,
+            );
+          }
+          return typeName;
+        }),
+        functionName: 'type',
+      ),
+      'typeOf': Value(
+        builder.create((args) {
+          final receiver = _valueAt(args, 0);
+          if (resolver(receiver) == null) {
+            _throwLuaStyleTypeError(
+              symbol: 'Object:typeOf',
+              index: 0,
+              expected: typeName,
+              actual: receiver,
+            );
+          }
+          final queried = _requireString(args, 1, 'Object:typeOf');
+          return hierarchy.contains(queried);
+        }),
+        functionName: 'typeOf',
+      ),
+    })..interpreter = interpreter;
+    methodsCache[cacheKey] = methods;
+    cachedMethods = methods;
+  }
 
-        _loveDataReleased[object] = true;
-        return true;
-      }),
-      functionName: 'release',
-    ),
-    'type': Value(
-      builder.create((args) {
-        final receiver = _valueAt(args, 0);
-        if (_dataWrapperObjectByKey(receiver, objectKey) == null) {
-          _throwLuaStyleTypeError(
-            symbol: 'Object:type',
-            index: 0,
-            expected: typeName,
-            actual: receiver,
-          );
-        }
-        return typeName;
-      }),
-      functionName: 'type',
-    ),
-    'typeOf': Value(
-      builder.create((args) {
-        final receiver = _valueAt(args, 0);
-        if (_dataWrapperObjectByKey(receiver, objectKey) == null) {
-          _throwLuaStyleTypeError(
-            symbol: 'Object:typeOf',
-            index: 0,
-            expected: typeName,
-            actual: receiver,
-          );
-        }
-        final queried = _requireString(args, 1, 'Object:typeOf');
-        return hierarchy.contains(queried);
-      }),
-      functionName: 'typeOf',
-    ),
+  final methodsMap = cachedMethods.raw as Map<Object?, Object?>;
+  final table = ValueClass.table(<Object?, Object?>{
+    objectKey: rawObject,
+    ...methodsMap,
     ...extraEntries,
-  });
+  })..interpreter = interpreter;
+  table.setMetatable(<String, dynamic>{'__index': cachedMethods});
+  return table;
 }
 
 /// Wraps a transient pointer view for a `Data` object.
@@ -291,21 +349,6 @@ LoveDataObject? _loveDataObjectIfPresent(Object? value) {
       _glyphDataIfPresent(value) ??
       _soundDataIfPresent(value) ??
       _compressedDataIfPresent(value);
-}
-
-/// Returns a required `Data` receiver.
-LoveDataObject _requireLoveDataObject(
-  List<Object?> args,
-  int index,
-  String symbol,
-) {
-  return _requireLoveDataSubtype(
-    args,
-    index,
-    symbol,
-    expected: 'Data',
-    resolver: _loveDataObjectIfPresent,
-  );
 }
 
 /// Returns a required `ByteData` receiver.

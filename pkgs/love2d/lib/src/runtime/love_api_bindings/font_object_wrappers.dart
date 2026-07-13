@@ -154,10 +154,12 @@ Value _wrapGlyphData(LibraryRegistrationContext context, LoveGlyphData data) {
   const hierarchy = <String>{'GlyphData', 'Data', 'Object'};
   final table = _wrapLoveDataObject(
     context,
+    cacheKey: 'GlyphData',
     rawObject: data,
     objectKey: _loveGlyphDataObjectKey,
     typeName: 'GlyphData',
     hierarchy: hierarchy,
+    resolver: _glyphDataIfPresent,
     clone: (args) => _wrapGlyphData(
       context,
       _requireGlyphData(args, 0, 'GlyphData:clone').clone(),

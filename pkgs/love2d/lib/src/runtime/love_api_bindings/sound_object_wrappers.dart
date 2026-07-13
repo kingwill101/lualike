@@ -95,10 +95,12 @@ Value _wrapSoundData(LibraryRegistrationContext context, LoveSoundData data) {
   final builder = BuiltinFunctionBuilder(context);
   final table = _wrapLoveDataObject(
     context,
+    cacheKey: 'SoundData',
     rawObject: data,
     objectKey: _loveSoundDataObjectKey,
     typeName: 'SoundData',
     hierarchy: const <String>{'SoundData', 'Data', 'Object'},
+    resolver: _soundDataIfPresent,
     clone: (args) => _wrapSoundData(
       context,
       _requireSoundData(args, 0, 'Data:clone').clone(),
