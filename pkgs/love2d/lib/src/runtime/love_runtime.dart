@@ -518,7 +518,8 @@ class LoveGraphicsSurface {
        _lastClearColorMask = clearColorMask ?? LoveGraphicsColorMask.all,
        _lastClearScissor = clearScissor;
 
-  final List<LoveDrawCommand> _commands = <LoveDrawCommand>[];
+  List<LoveDrawCommand> _commands = <LoveDrawCommand>[];
+  bool _commandsShared = false;
   int _revision = 0;
   int? _cachedSnapshotRevision;
   LoveGraphicsSurfaceSnapshot? _cachedSnapshot;
@@ -544,7 +545,7 @@ class LoveGraphicsSurface {
 
   /// The recorded draw commands for this surface.
   List<LoveDrawCommand> get commands =>
-      List<LoveDrawCommand>.unmodifiable(_commands);
+      UnmodifiableListView<LoveDrawCommand>(_commands);
 
   /// Monotonically increasing revision for this surface's recorded contents.
   int get revision => _revision;
@@ -556,7 +557,8 @@ class LoveGraphicsSurface {
     int clearStencil = 0,
     LoveScissorRect? clearScissor,
   }) {
-    _commands.clear();
+    _commands = <LoveDrawCommand>[];
+    _commandsShared = false;
     _revision++;
     _clearColor = clearColor.clamped();
     _clearColorMask = clearColorMask;
@@ -589,6 +591,7 @@ class LoveGraphicsSurface {
       return;
     }
 
+    _ensureCommandsWritable();
     _commands.add(
       LoveColorClearCommand(
         scissor: clearScissor,
@@ -601,6 +604,7 @@ class LoveGraphicsSurface {
 
   /// Appends [command] to the recorded draw command list.
   void addCommand(LoveDrawCommand command) {
+    _ensureCommandsWritable();
     _commands.add(command);
     _revision++;
   }
@@ -617,12 +621,23 @@ class LoveGraphicsSurface {
       clearColorMask: _clearColorMask,
       clearStencil: _clearStencil,
       clearScissor: _clearScissor,
-      // Single fixed-length copy; renderer treats this list as read-only.
-      commands: List<LoveDrawCommand>.of(_commands, growable: false),
+      // Transfer ownership of the current command buffer; future mutations
+      // clone on write so the snapshot remains stable.
+      commands: _commands,
     );
+    _commandsShared = true;
     _cachedSnapshot = snapshot;
     _cachedSnapshotRevision = _revision;
     return snapshot;
+  }
+
+  void _ensureCommandsWritable() {
+    if (!_commandsShared) {
+      return;
+    }
+
+    _commands = List<LoveDrawCommand>.of(_commands, growable: true);
+    _commandsShared = false;
   }
 }
 
