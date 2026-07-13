@@ -9,11 +9,13 @@ import 'package:lualike/src/compile/analyzer_pass.dart';
 import 'package:lualike/src/compile/metatable_folding_pass.dart';
 import 'package:lualike/src/compile/type_narrowing_pass.dart';
 import 'package:lualike/src/goto_validator.dart';
+import 'package:lualike/ir.dart';
 import 'package:lualike/src/ir/compiler.dart';
 import 'package:lualike/src/ir/peephole_pass.dart' as ir;
 import 'package:lualike/src/ir/bytecode_lowering.dart';
 import 'package:lualike/src/ir/prototype.dart';
 import 'package:lualike/src/ir/serialization.dart';
+import 'package:lualike/src/ir/ssa.dart';
 import 'package:lualike/src/ir/textual_formatter.dart';
 import 'package:lualike/src/lua_bytecode/chunk.dart';
 import 'package:lualike/src/lua_bytecode/emitter.dart';
@@ -269,7 +271,7 @@ final class CompilePipeline {
     var irChunk = irCompiler.compile(foldedProgram);
 
     if (config.enablePeephole) {
-      irChunk = PeepholePass().optimize(irChunk);
+      irChunk = ir.PeepholePass().optimize(irChunk);
     }
 
     // SSA-based dead code elimination on IR
