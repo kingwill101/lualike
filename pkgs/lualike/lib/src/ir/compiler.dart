@@ -3531,12 +3531,16 @@ class _PrototypeContext {
     Object? value, {
     required bool negate,
   }) {
+    // k=true for `==` (skip JMP when NOT equal, i.e. condition FALSE).
+    // k=false for `~=` (skip JMP when equal, i.e. condition TRUE).
+    // The lowering passes instruction.k through instead of hardcoding true.
     if (value is int && _fitsInlineCompareInteger(value)) {
       emitter.emitABC(
         opcode: LualikeIrOpcode.eqI,
         a: resultReg,
         b: leftReg,
         c: value,
+        k: !negate,
       );
     } else {
       final constantIndex = _ensureConstantIndex(value);
@@ -3545,16 +3549,14 @@ class _PrototypeContext {
         a: resultReg,
         b: leftReg,
         c: constantIndex,
+        k: !negate,
       );
     }
 
+    // negate is now handled by k=false — no NOT instruction needed.
+    // (Kept for backward compat in case callers rely on the NOT side effect.)
     if (negate) {
-      emitter.emitABC(
-        opcode: LualikeIrOpcode.notOp,
-        a: resultReg,
-        b: resultReg,
-        c: 0,
-      );
+      // NOT was removed; k=false inverts the comparison.
     }
 
     return true;
