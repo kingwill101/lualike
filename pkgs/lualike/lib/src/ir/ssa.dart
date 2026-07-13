@@ -839,6 +839,13 @@ Set<int> _usedRegistersForInstruction(
     },
     ABCInstruction(opcode: LualikeIrOpcode.setField, a: final a, c: final c) =>
       {...single(a), ...single(c)},
+    // SETLIST reads R(A) (table) and R(A+1)..R(A+B) (or open to top when B==0).
+    // Missing this lets DCE drop LOADI/MOVE into the SETLIST window — array
+    // constructors become empty tables (`{10,9}` → nils).
+    ABCInstruction(opcode: LualikeIrOpcode.setList, a: final a, b: final b) =>
+      b == 0
+          ? {...single(a), ...range(a + 1, registerCount - (a + 1))}
+          : {...single(a), ...range(a + 1, b)},
     ABCInstruction(opcode: LualikeIrOpcode.selfOp, b: final b) => single(b),
     ABCInstruction(opcode: LualikeIrOpcode.addI, b: final b) => single(b),
     ABCInstruction(opcode: LualikeIrOpcode.addK, b: final b) => single(b),
@@ -918,9 +925,7 @@ Set<int> _usedRegistersForInstruction(
     ABCInstruction(opcode: LualikeIrOpcode.testSet, b: final b) => single(b),
     // IR compares: A=result (def), B/C = operand registers / imm.
     ABCInstruction(
-      opcode: LualikeIrOpcode.eq ||
-          LualikeIrOpcode.lt ||
-          LualikeIrOpcode.le,
+      opcode: LualikeIrOpcode.eq || LualikeIrOpcode.lt || LualikeIrOpcode.le,
       b: final b,
       c: final c,
     ) =>

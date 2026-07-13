@@ -119,16 +119,18 @@ Future<Object?> executeCode(
           environment: env,
         );
         final function = Value(closure)..interpreter = runtime;
-        await runtime.callFunction(function, const <Object?>[]);
-        return null;
+        return _publicExecutionResult(
+          await runtime.callFunction(function, const <Object?>[]),
+        );
       }
 
       final chunk = await runtime.loadBytecode(
         artifact.serializedBytes,
         moduleName: url?.toString() ?? '=(pipeline)',
       );
-      await runtime.callFunction(chunk, const <Object?>[]);
-      return null;
+      return _publicExecutionResult(
+        await runtime.callFunction(chunk, const <Object?>[]),
+      );
     }
 
     return _publicExecutionResult(await runtime.runAst(program.statements));

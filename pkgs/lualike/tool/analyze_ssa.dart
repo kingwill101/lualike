@@ -1,7 +1,7 @@
 /// Analyzes SSA form for compiled IR prototypes.
 ///
-/// Usage: dart run tool/analyze_ssa.dart <script.lua> [--verbose]
-///        dart run tool/analyze_ssa.dart <dir> [--verbose]
+/// Usage: dart run tool/analyze_ssa.dart `<script.lua>` [--verbose]
+///        dart run tool/analyze_ssa.dart `<dir>` [--verbose]
 library;
 
 import 'dart:io';

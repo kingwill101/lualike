@@ -22,21 +22,19 @@ void main() {
       final nameIndex = proto.constants.indexWhere(
         (constant) => constant is ShortStringConstant && constant.value == 'a',
       );
-      final twoIndex = proto.constants.indexWhere(
-        (constant) => constant is IntegerConstant && constant.value == 2,
-      );
       expect(nameIndex, isNonNegative);
-      expect(twoIndex, isNonNegative);
 
       final getTab = instructions[0] as ABCInstruction;
       expect(getTab.opcode, LualikeIrOpcode.getTabUp);
       expect(getTab.c, equals(nameIndex));
 
+      // IR compiler emits ADDI (c=immediate) instead of ADDK for small
+      // integer constants, matching luac55 behavior.
       final add = instructions[1] as ABCInstruction;
-      expect(add.opcode, LualikeIrOpcode.addK);
+      expect(add.opcode, LualikeIrOpcode.addI);
       expect(add.a, equals(0));
       expect(add.b, equals(0));
-      expect(add.c, equals(twoIndex));
+      expect(add.c, equals(2));
       expect(add.k, isTrue);
     });
 

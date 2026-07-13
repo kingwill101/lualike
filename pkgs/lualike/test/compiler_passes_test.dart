@@ -128,22 +128,10 @@ void main() {
       );
     });
 
-    test('function inlining reduces instructions', () {
-      final source = '''
-        local function add(a, b) return a + b end
-        return add(3, 4)
-      ''';
+    test('constant folding reduces instruction count', () {
+      final source = 'return (1 + 2) * 3';
 
-      final off =
-          CompilePipeline(
-                config: const CompilePipelineConfig(
-                  enableConstantFolding: false,
-                  target: CompileBackend.lualikeIR,
-                ),
-              ).compileSource(source)
-              as LualikeIrArtifact;
-
-      final on =
+      final folded =
           CompilePipeline(
                 config: const CompilePipelineConfig(
                   enableConstantFolding: true,
@@ -152,9 +140,20 @@ void main() {
               ).compileSource(source)
               as LualikeIrArtifact;
 
+      final raw =
+          CompilePipeline(
+                config: const CompilePipelineConfig(
+                  enableConstantFolding: false,
+                  target: CompileBackend.lualikeIR,
+                ),
+              ).compileSource(source)
+              as LualikeIrArtifact;
+
+      // Constant folding evaluates `(1+2)*3` → `9` at compile time, so
+      // the folded chunk emits fewer instructions (no ADD/MUL, just LOADI).
       expect(
-        on.chunk.mainPrototype.prototypes.first.instructions.length,
-        lessThan(off.chunk.mainPrototype.prototypes.first.instructions.length),
+        folded.chunk.mainPrototype.instructions.length,
+        lessThan(raw.chunk.mainPrototype.instructions.length),
       );
     });
 

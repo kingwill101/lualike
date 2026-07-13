@@ -514,6 +514,16 @@ final class LuaBytecodeVm {
               frame.setRegister(reg, framePrimitiveValue(runtime, null));
             }
             break;
+          case Opcode.addI:
+            // C is a signed immediate (luac55 ADDI), not a Kst index.
+            _executeBinaryInstruction(
+              frame,
+              targetRegister: word.a,
+              left: frame.register(word.b),
+              right: transientPrimitiveValue(runtime, signedC(word)),
+              operation: LuaBinaryOperation.add,
+            );
+            break;
           case Opcode.add:
           case Opcode.sub:
           case Opcode.mul:
@@ -536,18 +546,15 @@ final class LuaBytecodeVm {
           case Opcode.bandK:
           case Opcode.borK:
           case Opcode.bxorK:
-          case Opcode.addI:
             _executeBinaryInstruction(
               frame,
               targetRegister: word.a,
               left: frame.register(word.b),
-              right: word.kFlag || opcode == Opcode.addI
+              right: word.kFlag
                   ? constantValue(runtime, prototype, word.c)
                   : frame.register(word.c),
               operation: switch (opcode) {
-                Opcode.add ||
-                Opcode.addK ||
-                Opcode.addI => LuaBinaryOperation.add,
+                Opcode.add || Opcode.addK => LuaBinaryOperation.add,
                 Opcode.sub || Opcode.subK => LuaBinaryOperation.sub,
                 Opcode.mul || Opcode.mulK => LuaBinaryOperation.mul,
                 Opcode.mod || Opcode.modK => LuaBinaryOperation.mod,

@@ -1,5 +1,17 @@
 ## Unreleased
 
+- `executeCode` / IR pipeline now returns top-level chunk results for
+  `EngineMode.luaBytecode` (was always `null`).
+- SSA use-def: **SETLIST** reads `R(A)..R(A+B)` so DCE cannot drop array
+  constructor fills (`{10,9}`). Escape SROA skips SETLIST/dynamic-key
+  tables and treats CALL/RETURN register windows as escapes.
+- Multi-value `return a, b, f()` packs fixed results contiguously before the
+  open call window so `RETURN` no longer leaks hole/stack junk.
+- Bytecode call entry: one-pass param/register init (skip intermediate arg
+  list on non-vararg), and pool recycle without double-nil of registers.
+- IR→bytecode `maxstack` reserves only the two mechanical-lowering temps
+  (`registerCount + 2`), not a blind ABC scan (ADDI C is an immediate).
+- Sync ADDI path uses signed immediate C (was incorrectly treated as Kst).
 - IR emits **ADDI** (luac55-style) for small integer `+`/`-` immediates
   instead of always using ADDK + constant pool.
 - Sync nested BC calls push a real call-stack frame and close TBC locals

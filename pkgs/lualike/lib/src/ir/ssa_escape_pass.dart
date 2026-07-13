@@ -7,8 +7,13 @@
 ///   - Returned from the function
 ///   - Stored in another escaping value
 ///
-/// Phase 2: Scalar Replacement — for each non-escaping table, replaces
-/// field accesses with direct register operations and removes the allocation.
+/// Phase 2: Scalar Replacement — for each non-escaping table that is only
+/// accessed via constant-key SETFIELD/SETI/GETFIELD/GETI, replaces field
+/// accesses with direct register operations and removes the allocation.
+///
+/// Tables touched by SETLIST / GETTABLE / SETTABLE stay as real tables:
+/// those ops are not rewritten, so SROA would leave SETLIST writing into a
+/// LOADNIL'd slot (nil indexing) or read uninitialised scalar fields.
 library;
 
 import 'instruction.dart';
@@ -21,7 +26,9 @@ LualikeIrPrototype replaceScalars(LualikeIrPrototype prototype) {
   var current = prototype;
   for (var iter = 0; iter < 5; iter++) {
     final result = _runOnce(current);
-    if (result == null) return current;
+    if (result == null) {
+      return current;
+    }
     current = result;
   }
   return current;
@@ -44,7 +51,9 @@ final class _TableFieldAccessKey {
 }
 
 int? _tableRegisterForAccess(LualikeIrInstruction inst) {
-  if (inst is! ABCInstruction) return null;
+  if (inst is! ABCInstruction) {
+    return null;
+  }
   return switch (inst.opcode) {
     LualikeIrOpcode.getField ||
     LualikeIrOpcode.getI ||
@@ -52,12 +61,15 @@ int? _tableRegisterForAccess(LualikeIrInstruction inst) {
     LualikeIrOpcode.setField ||
     LualikeIrOpcode.setI ||
     LualikeIrOpcode.setTable => inst.a,
+    LualikeIrOpcode.setList => inst.a,
     _ => null,
   };
 }
 
 _TableFieldAccessKey? _fieldAccessKey(LualikeIrInstruction inst) {
-  if (inst is! ABCInstruction) return null;
+  if (inst is! ABCInstruction) {
+    return null;
+  }
   return switch (inst.opcode) {
     LualikeIrOpcode.getField => _TableFieldAccessKey('field', inst.c),
     LualikeIrOpcode.getI => _TableFieldAccessKey('int', inst.c),
@@ -68,7 +80,9 @@ _TableFieldAccessKey? _fieldAccessKey(LualikeIrInstruction inst) {
 }
 
 int? _writeValueRegister(LualikeIrInstruction inst) {
-  if (inst is! ABCInstruction) return null;
+  if (inst is! ABCInstruction) {
+    return null;
+  }
   return switch (inst.opcode) {
     LualikeIrOpcode.setField ||
     LualikeIrOpcode.setI ||
@@ -77,61 +91,139 @@ int? _writeValueRegister(LualikeIrInstruction inst) {
   };
 }
 
-/// Check if instruction causes the value in [reg] to "escape".
-bool _causesEscape(LualikeIrInstruction inst, int reg) {
-  final op = inst.opcode;
-  // CALL/TAILCALL/RETURN with this reg as argument → escapes
-  if (op == LualikeIrOpcode.call ||
-      op == LualikeIrOpcode.tailCall ||
-      op == LualikeIrOpcode.ret ||
-      op == LualikeIrOpcode.return1) {
-    return _readsReg(inst, reg);
+/// True when [inst] uses the table in a way SROA cannot rewrite.
+bool _blocksScalarReplacement(LualikeIrInstruction inst, int tableReg) {
+  if (inst is! ABCInstruction) {
+    return false;
   }
-  // SETTABUP/SETUPVAL with this reg as value → escapes
-  if (op == LualikeIrOpcode.setTabUp || op == LualikeIrOpcode.setUpval) {
-    return _readsReg(inst, reg);
+  final op = inst.opcode;
+  // Array batch fill — not rewritten into per-slot MOVEs.
+  if (op == LualikeIrOpcode.setList && inst.a == tableReg) {
+    return true;
+  }
+  // Dynamic key get/set — SROA only handles constant field/int keys.
+  if (op == LualikeIrOpcode.getTable && inst.b == tableReg) {
+    return true;
+  }
+  if (op == LualikeIrOpcode.setTable && inst.a == tableReg) {
+    return true;
+  }
+  // Table used as a dynamic key of another store.
+  if (op == LualikeIrOpcode.setTable && inst.b == tableReg) {
+    return true;
+  }
+  if (op == LualikeIrOpcode.getTable && inst.c == tableReg) {
+    return true;
   }
   return false;
 }
 
-bool _readsReg(LualikeIrInstruction inst, int reg) {
+/// Whether [reg] is read by a multi-reg CALL/RETURN window (or single RETURN1).
+bool _registerInCallOrReturnWindow(
+  LualikeIrInstruction inst,
+  int reg,
+  int registerCount,
+) {
+  if (inst is! ABCInstruction) {
+    return false;
+  }
+  final a = inst.a;
+  final b = inst.b;
+  final op = inst.opcode;
+  switch (op) {
+    case LualikeIrOpcode.call:
+    case LualikeIrOpcode.tailCall:
+      // R(A) is the callee; R(A+1).. are fixed args when B > 0.
+      // B == 0 → open arg list from A to top (conservative: A..end).
+      if (reg == a) {
+        return true;
+      }
+      if (b == 0) {
+        return reg > a && reg < registerCount;
+      }
+      // B is arg_count+1 (Lua encoding): args are A+1 .. A+B-1.
+      return reg > a && reg < a + b;
+    case LualikeIrOpcode.ret:
+      // B == 0 → open results from A; B == 1 → no values;
+      // B >= 2 → B-1 values starting at A.
+      if (b == 0) {
+        return reg >= a && reg < registerCount;
+      }
+      if (b == 1) {
+        return false;
+      }
+      return reg >= a && reg <= a + b - 2;
+    case LualikeIrOpcode.return1:
+      return reg == a;
+    case LualikeIrOpcode.return0:
+      return false;
+    default:
+      return false;
+  }
+}
+
+/// Check if instruction causes the value in [reg] to "escape".
+bool _causesEscape(
+  LualikeIrInstruction inst,
+  int reg, {
+  required int registerCount,
+}) {
+  final op = inst.opcode;
+  if (op == LualikeIrOpcode.call ||
+      op == LualikeIrOpcode.tailCall ||
+      op == LualikeIrOpcode.ret ||
+      op == LualikeIrOpcode.return1) {
+    return _registerInCallOrReturnWindow(inst, reg, registerCount);
+  }
+  // IR SETUPVAL stores value in C (lowering remaps to Lua A); SETTABUP C.
+  if (op == LualikeIrOpcode.setUpval || op == LualikeIrOpcode.setTabUp) {
+    return inst is ABCInstruction && inst.c == reg;
+  }
+  // CONCAT / CLOSE / TBC hold the value without "escaping" to another
+  // allocation — but CLOSE/TBC keep identity. Treat as escape for safety.
+  if (op == LualikeIrOpcode.close || op == LualikeIrOpcode.tbc) {
+    return inst is ABCInstruction && inst.a == reg;
+  }
+  return false;
+}
+
+int _destRegister(LualikeIrInstruction inst) {
   return inst.when(
-    abc: (i) => i.b == reg || i.c == reg,
-    abx: (_) => false,
-    asbx: (_) => false,
-    ax: (_) => false,
-    asj: (_) => false,
-    avbc: (_) => false,
+    abc: (i) => i.a,
+    avbc: (i) => i.a,
+    abx: (i) => i.a,
+    asbx: (i) => i.a,
+    ax: (_) => -1,
+    asj: (_) => -1,
   );
 }
 
 LualikeIrPrototype? _runOnce(LualikeIrPrototype prototype) {
   final instructions = prototype.instructions;
-  if (instructions.isEmpty) return null;
+  if (instructions.isEmpty) {
+    return null;
+  }
   final registerCount = prototype.registerCount;
 
   // Phase 1: Find non-escaping NEWTABLEs
   final escapes = <int, bool>{}; // register → escapes
-  final newTableRegs = <int>{}; // set of registers that are NEWTABLE results
+  final newTableRegs = <int>{};
 
   for (var pc = 0; pc < instructions.length; pc++) {
     final inst = instructions[pc];
-    if (inst.opcode != LualikeIrOpcode.newTable) continue;
-    final reg = inst.when(
-      abc: (i) => i.a,
-      avbc: (i) => i.a,
-      abx: (_) => -1,
-      asbx: (_) => -1,
-      ax: (_) => -1,
-      asj: (_) => -1,
-    );
+    if (inst.opcode != LualikeIrOpcode.newTable) {
+      continue;
+    }
+    final reg = _destRegister(inst);
     if (reg >= 0 && reg < registerCount) {
       newTableRegs.add(reg);
       escapes[reg] = false;
     }
   }
 
-  if (newTableRegs.isEmpty) return null;
+  if (newTableRegs.isEmpty) {
+    return null;
+  }
 
   // Fixed-point: propagate escape
   var changed = true;
@@ -139,8 +231,10 @@ LualikeIrPrototype? _runOnce(LualikeIrPrototype prototype) {
     changed = false;
     for (final inst in instructions) {
       for (final reg in newTableRegs) {
-        if (escapes[reg] == true) continue;
-        if (_causesEscape(inst, reg)) {
+        if (escapes[reg] == true) {
+          continue;
+        }
+        if (_causesEscape(inst, reg, registerCount: registerCount)) {
           escapes[reg] = true;
           changed = true;
         }
@@ -160,19 +254,27 @@ LualikeIrPrototype? _runOnce(LualikeIrPrototype prototype) {
     }
   }
 
-  final nonEscaping = <int>{}; // registers that don't escape
+  final nonEscaping = <int>{};
   for (final reg in newTableRegs) {
     if (escapes[reg] != true) {
       nonEscaping.add(reg);
     }
   }
 
-  if (nonEscaping.isEmpty) return null;
+  // Drop candidates that use ops SROA cannot rewrite (SETLIST / dynamic keys).
+  for (final inst in instructions) {
+    for (final reg in nonEscaping.toList()) {
+      if (_blocksScalarReplacement(inst, reg)) {
+        nonEscaping.remove(reg);
+      }
+    }
+  }
 
-  // Phase 2: Scalar replacement
-  // For each non-escaping table, collect its constant field accesses and
-  // pack them densely into a small register bank. This keeps the lowered
-  // bytecode under the 8-bit operand limit.
+  if (nonEscaping.isEmpty) {
+    return null;
+  }
+
+  // Phase 2: Scalar replacement for constant-key field tables only.
   final fieldKeysByTable = <int, Set<_TableFieldAccessKey>>{};
   for (final inst in instructions) {
     final tableReg = _tableRegisterForAccess(inst);
@@ -217,16 +319,11 @@ LualikeIrPrototype? _runOnce(LualikeIrPrototype prototype) {
   for (final inst in instructions) {
     final tableReg = _tableRegisterForAccess(inst);
     final key = _fieldAccessKey(inst);
-    final newTableReg = inst.when(
-      abc: (i) => i.a,
-      avbc: (i) => i.a,
-      abx: (_) => -1,
-      asbx: (_) => -1,
-      ax: (_) => -1,
-      asj: (_) => -1,
-    );
+    final newTableReg = _destRegister(inst);
     if (inst.opcode == LualikeIrOpcode.newTable &&
         scalarTables.containsKey(newTableReg)) {
+      // Allocation elided: field slots live in the dense bank above.
+      // Keep a LOADNIL so any residual read of the table reg is defined.
       newInstructions.add(
         ABCInstruction(
           opcode: LualikeIrOpcode.loadNil,
@@ -281,7 +378,9 @@ LualikeIrPrototype? _runOnce(LualikeIrPrototype prototype) {
     newInstructions.add(inst);
   }
 
-  if (!changedInst) return null;
+  if (!changedInst) {
+    return null;
+  }
 
   return LualikeIrPrototype(
     instructions: newInstructions,

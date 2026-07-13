@@ -58,6 +58,8 @@ Key optimizations include:
 - **Bundling** — static `require("path")` resolved at compile time
 
 See [doc/cli.md](pkgs/lualike/doc/cli.md) for the full CLI reference.
+For the optimization / disassembly / test workflow, see
+[doc/ir-bytecode-optimization-guide.md](pkgs/lualike/doc/ir-bytecode-optimization-guide.md).
 
 ### Cross-compatibility
 

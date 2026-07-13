@@ -137,26 +137,7 @@ final class LuaBytecodeFrame implements LuaBytecodeGCRootProvider {
     final nilConst = _nilConst;
     final parameterCount = closure.prototype.parameterCount;
     final argCount = arguments.length;
-
-    // Normalize arguments — Values pass through, other types get wrapped.
-    // Small arg counts use a growable list to avoid the fixed-size allocation.
-    late final List<Value> args;
-    if (argCount <= 4) {
-      final small = <Value>[];
-      for (var index = 0; index < argCount; index++) {
-        final arg = arguments[index];
-        small.add(arg is Value ? arg : runtimeValue(runtime, arg));
-      }
-      args = small;
-    } else {
-      final fixed = List<Value>.filled(argCount, nilConst, growable: false);
-      for (var index = 0; index < argCount; index++) {
-        final arg = arguments[index];
-        fixed[index] = arg is Value ? arg : runtimeValue(runtime, arg);
-      }
-      args = fixed;
-    }
-    callArgs = args;
+    final regLen = regs.length;
 
     pc = 0;
     top = parameterCount;
@@ -180,19 +161,54 @@ final class LuaBytecodeFrame implements LuaBytecodeGCRootProvider {
     _varargStart = 0;
     _varargCount = 0;
 
-    // Fast init: direct register assignment without setRegister overhead.
-    // setRegister does bounds checks, cloning, GC tracking, etc. which are
-    // all unnecessary during frame construction (registers are fresh).
-    for (var index = 0; index < regs.length; index++) {
-      regs[index] = nilConst;
+    // Hot path (nested BC CALL): args are already Values (FrameArgsView /
+    // List<Value>). Write params directly and nil the rest in one pass —
+    // no intermediate growable list (profiler: call entry).
+    final needsArgList =
+        closure.prototype.isVararg || closure.prototype.needsVarargTable;
+    List<Value>? argsList;
+    if (needsArgList) {
+      if (argCount <= 4) {
+        final small = <Value>[];
+        for (var index = 0; index < argCount; index++) {
+          final arg = arguments[index];
+          small.add(arg is Value ? arg : runtimeValue(runtime, arg));
+        }
+        argsList = small;
+      } else {
+        final fixed = List<Value>.filled(argCount, nilConst, growable: false);
+        for (var index = 0; index < argCount; index++) {
+          final arg = arguments[index];
+          fixed[index] = arg is Value ? arg : runtimeValue(runtime, arg);
+        }
+        argsList = fixed;
+      }
+      callArgs = argsList;
+    } else {
+      callArgs = const <Value>[];
+    }
+
+    final fillTo = regLen;
+    for (var index = 0; index < fillTo; index++) {
+      if (index < parameterCount) {
+        final Value value;
+        if (argsList != null) {
+          value = index < argsList.length ? argsList[index] : nilConst;
+        } else if (index < argCount) {
+          final arg = arguments[index];
+          value = arg is Value ? arg : runtimeValue(runtime, arg);
+        } else {
+          value = nilConst;
+        }
+        value.interpreter ??= runtime;
+        regs[index] = value;
+      } else {
+        regs[index] = nilConst;
+      }
       _lastRegisterWritePc[index] = -1;
     }
-    for (var index = 0; index < parameterCount; index++) {
-      final value = index < args.length ? args[index] : nilConst;
-      value.interpreter ??= runtime;
-      regs[index] = value;
-    }
     if (closure.prototype.isVararg) {
+      final args = argsList!;
       _varargStart = parameterCount;
       _varargCount = args.length > parameterCount
           ? args.length - parameterCount
@@ -212,8 +228,8 @@ final class LuaBytecodeFrame implements LuaBytecodeGCRootProvider {
     }
   }
 
-  // Wipe transient references before a frame re-enters the pool so GC doesn't
-  // retain arguments, locals, or coroutine state from the previous call.
+  // Drop transient refs before pooling. Register wipe is left to the next
+  // [reset] so we only nil registers once per call (was clear + reset).
   void clearForPool() {
     functionValue = null;
     callName = null;
@@ -242,11 +258,6 @@ final class LuaBytecodeFrame implements LuaBytecodeGCRootProvider {
     forceNextLineHook = false;
     _varargStart = 0;
     _varargCount = 0;
-    final nilConst = _nilConst;
-    for (var index = 0; index < registers.length; index++) {
-      registers[index] = nilConst;
-      _lastRegisterWritePc[index] = -1;
-    }
   }
 
   int get effectiveTop => openTop ?? top;

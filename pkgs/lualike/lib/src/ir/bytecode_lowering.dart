@@ -3,6 +3,7 @@ import 'dart:math' as math;
 import 'package:lualike/src/ir/instruction.dart';
 import 'package:lualike/src/ir/opcode.dart';
 import 'package:lualike/src/ir/prototype.dart';
+import 'package:lualike/src/ir/register_budget.dart';
 import 'package:lualike/src/lua_bytecode/chunk.dart';
 import 'package:lualike/src/lua_bytecode/instruction.dart';
 import 'package:lualike/src/lua_bytecode/opcode.dart';
@@ -126,7 +127,15 @@ LuaBytecodePrototype lowerIrPrototypeToLuaBytecodePrototype(
     lastLineDefined: prototype.lastLineDefined,
     parameterCount: prototype.paramCount,
     flags: _prototypeFlags(prototype, isMainPrototype: isMainPrototype),
-    maxStackSize: math.max(2, prototype.registerCount + 2),
+    // IR registerCount is the SSA/local allocation; mechanical lowering may
+    // write scratch at tempBase = registerCount and tempBase+1 (high Kst /
+    // SHLI materialization). Reserve those slots only — do not scan ABC C
+    // fields as registers (ADDI/MMBINI immediates look like reg 128+).
+    maxStackSize: math.max(
+      2,
+      prototype.registerCount +
+          IrBytecodeRegisterBudget.tempSlotsReservedForLowering,
+    ),
     code: List<LuaBytecodeInstructionWord>.unmodifiable(instructions),
     constants: constants,
     upvalues: upvalues,

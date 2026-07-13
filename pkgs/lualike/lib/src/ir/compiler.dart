@@ -657,15 +657,36 @@ class _PrototypeContext {
       valueRegs.add(reg);
     }
 
-    var returnBase = valueRegs.first;
+    // Open-result last expression (`f()` / `...`): fixed prefix values must
+    // sit in consecutive registers immediately before the open window so
+    // `RETURN A, 0` yields a contiguous multi-return list. Evaluating
+    // `return a, b, rawget(...)` into scattered regs and returning from the
+    // first reg was leaking holes (and leftover stack values) into results.
     if (capturesAll) {
+      final openBase = valueRegs.last;
       final fixedCount = valueRegs.length - 1;
-      emitter.emitABC(
-        opcode: LualikeIrOpcode.ret,
-        a: returnBase,
-        b: 0,
-        c: fixedCount,
-      );
+      final returnBase = openBase - fixedCount;
+      if (returnBase < 0) {
+        throw StateError(
+          'IR return packing: open base $openBase cannot hold '
+          '$fixedCount fixed results',
+        );
+      }
+      // Move high indices first so we do not clobber still-needed sources.
+      for (var i = fixedCount - 1; i >= 0; i--) {
+        final sourceReg = valueRegs[i];
+        final targetReg = returnBase + i;
+        if (sourceReg == targetReg) {
+          continue;
+        }
+        emitter.emitABC(
+          opcode: LualikeIrOpcode.move,
+          a: targetReg,
+          b: sourceReg,
+          c: 0,
+        );
+      }
+      emitter.emitABC(opcode: LualikeIrOpcode.ret, a: returnBase, b: 0, c: 0);
       return;
     }
 
@@ -687,10 +708,9 @@ class _PrototypeContext {
         c: 0,
       );
     }
-    returnBase = packedBase;
     emitter.emitABC(
       opcode: LualikeIrOpcode.ret,
-      a: returnBase,
+      a: packedBase,
       b: valueCount + 1,
       c: 0,
     );
