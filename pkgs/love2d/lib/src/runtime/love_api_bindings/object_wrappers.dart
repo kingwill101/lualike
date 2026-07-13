@@ -1218,6 +1218,7 @@ Value _wrapImageData(LibraryContext context, LoveImageData imageData) {
           LoveFilesystemFileData(
             bytes: encodedBytes,
             filename: encodedFilename,
+            copyBytes: false,
           ),
         );
       }),

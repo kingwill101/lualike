@@ -58,6 +58,7 @@ Future<LoveFilesystemFileData> _requireVideoFilesystemSource(
       return LoveFilesystemFileData(
         bytes: await file.readBytes(),
         filename: file.filename,
+        copyBytes: false,
       );
     } on StateError catch (error) {
       throw LuaError(error.message);

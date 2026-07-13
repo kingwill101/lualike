@@ -326,7 +326,11 @@ extension _LoveFilesystemModuleBindingMethods on _LoveFilesystemBindings {
         try {
           final bytes = await file.readBytes();
           return wrapFileData(
-            LoveFilesystemFileData(bytes: bytes, filename: file.filename),
+            LoveFilesystemFileData(
+              bytes: bytes,
+              filename: file.filename,
+              copyBytes: false,
+            ),
           );
         } on StateError catch (error) {
           return _ioError(error.message);
@@ -341,7 +345,11 @@ extension _LoveFilesystemModuleBindingMethods on _LoveFilesystemBindings {
       );
       final filename = _requireString(args, 1, 'love.filesystem.newFileData');
       return wrapFileData(
-        LoveFilesystemFileData(bytes: bytes, filename: filename),
+        LoveFilesystemFileData(
+          bytes: bytes,
+          filename: filename,
+          copyBytes: false,
+        ),
       );
     };
   }

@@ -344,7 +344,11 @@ extension _LoveFilesystemBindingWrappers on _LoveFilesystemBindings {
   }) {
     final data = switch (containerType) {
       _LoveFilesystemContainerType.data => wrapFileData(
-        LoveFilesystemFileData(bytes: bytes, filename: filename),
+        LoveFilesystemFileData(
+          bytes: bytes,
+          filename: filename,
+          copyBytes: false,
+        ),
       ),
       _LoveFilesystemContainerType.string => runtime.constantStringValue(bytes),
     };
