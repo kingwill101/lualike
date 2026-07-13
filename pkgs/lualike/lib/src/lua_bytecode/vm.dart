@@ -356,7 +356,7 @@ final class LuaBytecodeVm {
     final opcodesByPc = prototype.opcodesByPc;
     while (frame.pc < prototype.code.length) {
       frame.expireDeadLocals();
-      if (++frame.safePointCounter >= 512) {
+      if (++frame.safePointCounter >= 2048) {
         frame.safePointCounter = 0;
         runtime.runAutoGcAtSafePoint();
       }
@@ -366,7 +366,7 @@ final class LuaBytecodeVm {
       try {
         switch (opcode) {
           case Opcode.move:
-            frame.setRegister(word.a, frame.register(word.b));
+            frame.storeRegisterRaw(word.a, frame.register(word.b));
             break;
           case Opcode.loadI:
             frame.setRegister(word.a, framePrimitiveValue(runtime, word.sBx));
@@ -833,7 +833,7 @@ final class LuaBytecodeVm {
     while (frame.pc < prototype.code.length) {
       frame.expireDeadLocals();
       currentCoroutine = _syncCurrentCoroutine(mainThread, currentCoroutine);
-      if (++frame.safePointCounter >= 512) {
+      if (++frame.safePointCounter >= 2048) {
         frame.safePointCounter = 0;
         runtime.runAutoGcAtSafePoint();
       }
@@ -886,7 +886,7 @@ final class LuaBytecodeVm {
         switch (opcode) {
           case Opcode.move:
             {
-              frame.setRegister(word.a, frame.register(word.b));
+              frame.storeRegisterRaw(word.a, frame.register(word.b));
               break;
             }
           case Opcode.loadI:

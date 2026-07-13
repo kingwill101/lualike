@@ -220,11 +220,13 @@ extension type const LuaBytecodeInstructionWord(int value) {
   }
 
   int get rawValue => value & LuaBytecodeInstructionLayout.wordMask;
-  int get opcodeValue => _getBits(
-    rawValue,
-    LuaBytecodeInstructionLayout.posOp,
-    LuaBytecodeInstructionLayout.sizeOp,
-  );
+
+  /// Opcode field is at bit 0 ([LuaBytecodeInstructionLayout.posOp] == 0).
+  @pragma('vm:prefer-inline')
+  int get opcodeValue => value & LuaBytecodeInstructionLayout.maxOpcode;
+
+  /// Prefer [LuaBytecodePrototype.opcodesByPc] in hot loops.
+  @pragma('vm:prefer-inline')
   Opcode get opcode => Opcode.fromCode(opcodeValue);
   int get a => _getBits(
     rawValue,

@@ -388,6 +388,40 @@ final class LuaBytecodeFrame implements LuaBytecodeGCRootProvider {
     }
   }
 
+  /// Direct register store when [value] is already frame-safe (no clone).
+  @pragma('vm:prefer-inline')
+  void storeRegisterRaw(int index, Value value) {
+    final registers = this.registers;
+    final lastRegisterWritePc = _lastRegisterWritePc;
+    final trackedRegisterWriteFlags = _trackedRegisterWriteFlags;
+    if (index >= registers.length) {
+      final fillCount = index - registers.length + 1;
+      registers.addAll(
+        List<Value>.generate(fillCount, (_) => _nilConst, growable: false),
+      );
+      lastRegisterWritePc.addAll(
+        List<int>.filled(index - lastRegisterWritePc.length + 1, -1),
+      );
+      trackedRegisterWriteFlags.addAll(
+        List<bool>.filled(
+          index - trackedRegisterWriteFlags.length + 1,
+          false,
+          growable: false,
+        ),
+      );
+    }
+    value.interpreter ??= runtime;
+    registers[index] = value;
+    debugStateVersion++;
+    if (index < trackedRegisterWriteFlags.length &&
+        trackedRegisterWriteFlags[index]) {
+      lastRegisterWritePc[index] = pc;
+    }
+    if (index + 1 > top) {
+      top = index + 1;
+    }
+  }
+
   List<Value> resultsFrom(int start, int count) {
     if (count <= 0) {
       return const <Value>[];
