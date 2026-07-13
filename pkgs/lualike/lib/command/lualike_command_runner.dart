@@ -171,9 +171,12 @@ class LuaLikeCommandRunner extends CommandRunner {
     final useIr = argResults['ir'] as bool;
     final useLuaBytecode = argResults['lua-bytecode'] as bool;
     final useAst = argResults['ast'] as bool;
+    // Precompiled .lub (by extension or header) must use the bytecode VM so
+    // ScriptCommand can load+run without IR/SSA. Also honor --lua-bytecode.
     final autoUseLuaBytecode =
         restArgs.isNotEmpty &&
-        _looksLikeTrackedLuaBytecodeScript(restArgs.first);
+        (_looksLikeLuaBytecodePath(restArgs.first) ||
+            _looksLikeTrackedLuaBytecodeScript(restArgs.first));
     if (useLuaBytecode || autoUseLuaBytecode) {
       config.defaultEngineMode = EngineMode.luaBytecode;
     } else if (useIr || !useAst) {
@@ -382,6 +385,11 @@ void _writeDartEmbed(List<int> bytes, String outputPath, String scriptPath) {
   buf.writeln('];');
   File(outputPath).writeAsStringSync(buf.toString());
   stderr.writeln('Dart embed → $outputPath');
+}
+
+bool _looksLikeLuaBytecodePath(String scriptPath) {
+  final lower = scriptPath.toLowerCase();
+  return lower.endsWith('.lub') || lower.endsWith('.luac');
 }
 
 bool _looksLikeTrackedLuaBytecodeScript(String scriptPath) {
