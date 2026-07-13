@@ -700,59 +700,110 @@ class _LoveFlameHarnessController extends ChangeNotifier {
   }
 
   Future<void> _runFrame(double dt) async {
-    final frameTraceStopwatch = _loveTraceFrameThresholdMilliseconds > 0
-        ? (Stopwatch()..start())
-        : null;
-    final frameTracePhases = frameTraceStopwatch == null
-        ? null
-        : <String, int>{};
+    final traceEnabled = _loveTraceFrameThresholdMilliseconds > 0;
 
-    Future<T> tracePhase<T>(String name, Future<T> Function() body) async {
-      if (frameTraceStopwatch == null || frameTracePhases == null) {
-        return body();
+    if (traceEnabled) {
+      final frameTraceStopwatch = Stopwatch()..start();
+      final frameTracePhases = <String, int>{};
+
+      Future<T> tracePhase<T>(String name, Future<T> Function() body) async {
+        final phaseStopwatch = Stopwatch()..start();
+        try {
+          return await body();
+        } finally {
+          phaseStopwatch.stop();
+          frameTracePhases[name] = phaseStopwatch.elapsedMicroseconds;
+        }
       }
 
-      final phaseStopwatch = Stopwatch()..start();
       try {
-        return await body();
+        await tracePhase('resize', _dispatchResizeIfNeeded);
+        final runtime = _runtime;
+        if (runtime == null) {
+          return;
+        }
+
+        await tracePhase('profileStart', _startMainLoopProfileRegionIfNeeded);
+        await tracePhase('signals', () => _flushPendingRuntimeSignals(runtime));
+        final exitAfterEvents = await tracePhase(
+          'events',
+          runtime.processMainLoopEvents,
+        );
+        if (await tracePhase(
+          'exitEvents',
+          () => _handleMainLoopExitStatus(exitAfterEvents),
+        )) {
+          await _restartIfRequested();
+          return;
+        }
+        final steppedDt = runtime.context.stepExternal(dt);
+        if (steppedDt > 0) {
+          await tracePhase(
+            'update',
+            () => runtime.callUpdateIfDefined(steppedDt),
+          );
+        }
+        runtime.context.beginDrawFrame();
+        runtime.context.graphics.origin();
+        await tracePhase('draw', runtime.callDrawIfDefined);
+        await tracePhase('commit', () => _commitPresentedFrame(runtime));
+        if (await tracePhase('restart', _restartIfRequested)) {
+          return;
+        }
+      } catch (error, stackTrace) {
+        _recordError(
+          error,
+          phase: 'while running love.update/love.draw',
+          stackTrace: stackTrace,
+        );
       } finally {
-        phaseStopwatch.stop();
-        frameTracePhases[name] = phaseStopwatch.elapsedMicroseconds;
+        await tracePhase('profileAdvance', _advanceMainLoopProfileRegion);
+        frameTraceStopwatch.stop();
+        if (frameTraceStopwatch.elapsedMilliseconds >=
+            _loveTraceFrameThresholdMilliseconds) {
+          _frameTraceIndex += 1;
+          final phases = frameTracePhases.entries
+              .map(
+                (entry) =>
+                    '${entry.key}=${(entry.value / 1000).toStringAsFixed(2)}ms',
+              )
+              .join(' ');
+          debugPrint(
+            'love2d-frame-trace '
+            'frame=$_frameTraceIndex '
+            'dtMs=${(dt * 1000).toStringAsFixed(2)} '
+            'totalMs=${frameTraceStopwatch.elapsedMicroseconds / 1000} '
+            '$phases',
+          );
+        }
+        _updateInFlight = false;
       }
+      return;
     }
 
     try {
-      await tracePhase('resize', _dispatchResizeIfNeeded);
+      await _dispatchResizeIfNeeded();
       final runtime = _runtime;
       if (runtime == null) {
         return;
       }
 
-      await tracePhase('profileStart', _startMainLoopProfileRegionIfNeeded);
-      await tracePhase('signals', () => _flushPendingRuntimeSignals(runtime));
-      final exitAfterEvents = await tracePhase(
-        'events',
-        runtime.processMainLoopEvents,
-      );
-      if (await tracePhase(
-        'exitEvents',
-        () => _handleMainLoopExitStatus(exitAfterEvents),
-      )) {
+      await _startMainLoopProfileRegionIfNeeded();
+      await _flushPendingRuntimeSignals(runtime);
+      final exitAfterEvents = await runtime.processMainLoopEvents();
+      if (await _handleMainLoopExitStatus(exitAfterEvents)) {
         await _restartIfRequested();
         return;
       }
       final steppedDt = runtime.context.stepExternal(dt);
       if (steppedDt > 0) {
-        await tracePhase(
-          'update',
-          () => runtime.callUpdateIfDefined(steppedDt),
-        );
+        await runtime.callUpdateIfDefined(steppedDt);
       }
       runtime.context.beginDrawFrame();
       runtime.context.graphics.origin();
-      await tracePhase('draw', runtime.callDrawIfDefined);
-      await tracePhase('commit', () => _commitPresentedFrame(runtime));
-      if (await tracePhase('restart', _restartIfRequested)) {
+      await runtime.callDrawIfDefined();
+      await _commitPresentedFrame(runtime);
+      if (await _restartIfRequested()) {
         return;
       }
     } catch (error, stackTrace) {
@@ -762,27 +813,7 @@ class _LoveFlameHarnessController extends ChangeNotifier {
         stackTrace: stackTrace,
       );
     } finally {
-      await tracePhase('profileAdvance', _advanceMainLoopProfileRegion);
-      frameTraceStopwatch?.stop();
-      if (frameTraceStopwatch != null &&
-          frameTracePhases != null &&
-          frameTraceStopwatch.elapsedMilliseconds >=
-              _loveTraceFrameThresholdMilliseconds) {
-        _frameTraceIndex += 1;
-        final phases = frameTracePhases.entries
-            .map(
-              (entry) =>
-                  '${entry.key}=${(entry.value / 1000).toStringAsFixed(2)}ms',
-            )
-            .join(' ');
-        debugPrint(
-          'love2d-frame-trace '
-          'frame=$_frameTraceIndex '
-          'dtMs=${(dt * 1000).toStringAsFixed(2)} '
-          'totalMs=${frameTraceStopwatch.elapsedMicroseconds / 1000} '
-          '$phases',
-        );
-      }
+      await _advanceMainLoopProfileRegion();
       _updateInFlight = false;
     }
   }
