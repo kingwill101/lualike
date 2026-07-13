@@ -691,22 +691,38 @@ class _PrototypeContext {
     }
 
     final valueCount = valueRegs.length;
-    final packedBase = _allocateRegister();
-    if (valueCount > 1) {
-      _ensureRegister(packedBase + valueCount - 1);
-    }
-    for (var i = 0; i < valueCount; i++) {
-      final sourceReg = valueRegs[i];
-      final targetReg = packedBase + i;
-      if (sourceReg == targetReg) {
-        continue;
+
+    // Fast path: values already in a contiguous block — use the lowest
+    // register as the return base and skip the MOVEs.
+    bool isContiguous(List<int> regs) {
+      if (regs.isEmpty) return false;
+      for (var i = 1; i < regs.length; i++) {
+        if (regs[i] != regs[i - 1] + 1) return false;
       }
-      emitter.emitABC(
-        opcode: LualikeIrOpcode.move,
-        a: targetReg,
-        b: sourceReg,
-        c: 0,
-      );
+      return true;
+    }
+
+    final packedBase = isContiguous(valueRegs)
+        ? valueRegs.first
+        : _allocateRegister();
+
+    if (!isContiguous(valueRegs)) {
+      if (valueCount > 1) {
+        _ensureRegister(packedBase + valueCount - 1);
+      }
+      for (var i = 0; i < valueCount; i++) {
+        final sourceReg = valueRegs[i];
+        final targetReg = packedBase + i;
+        if (sourceReg == targetReg) {
+          continue;
+        }
+        emitter.emitABC(
+          opcode: LualikeIrOpcode.move,
+          a: targetReg,
+          b: sourceReg,
+          c: 0,
+        );
+      }
     }
     emitter.emitABC(
       opcode: LualikeIrOpcode.ret,
