@@ -12,8 +12,9 @@ import 'base_command.dart';
 
 /// Command to execute script files.
 ///
-/// Precompiled Lua bytecode (`.lub` / official chunk header) is loaded and
-/// run **directly on the bytecode VM**. It never enters
+/// Precompiled Lua bytecode is detected by the **official chunk header**
+/// (`\x1bLua` + version/format/luac data), not by file extension. Those
+/// files load and run **directly on the bytecode VM** and never enter
 /// `executeCode` / `CompilePipeline` / IR / SSA.
 class ScriptCommand extends BaseCommand {
   @override
@@ -51,18 +52,8 @@ class ScriptCommand extends BaseCommand {
       final absolutePath = file.absolute.path;
       _updateScriptMetadata(absolutePath);
 
-      final looksBytecode = looksLikeTrackedLuaBytecodeBytes(bytes);
-      final lubExtension = path.extension(scriptPath).toLowerCase() == '.lub';
-
-      if (lubExtension && !looksBytecode) {
-        throw Exception(
-          'File "$scriptPath" has a .lub extension but is not a valid '
-          'Lua bytecode chunk (bad or missing header). Recompile with '
-          '`--compile -o file.lub`.',
-        );
-      }
-
-      if (looksBytecode) {
+      // Header sniff only — no reserved extension (.lub/.luac/etc.).
+      if (looksLikeTrackedLuaBytecodeBytes(bytes)) {
         // Direct binary path: parse chunk → invoke VM. No IR/SSA/pipeline.
         await _runPrecompiledBytecode(bytes, absolutePath);
         return;
@@ -115,8 +106,8 @@ class ScriptCommand extends BaseCommand {
     }
     throw StateError(
       'Precompiled bytecode requires the lua_bytecode engine, but the '
-      'runtime is ${vm.runtimeType}. Pass --lua-bytecode or open a .lub '
-      'file (auto-selected).',
+      'runtime is ${vm.runtimeType}. Pass --lua-bytecode, or run a file '
+      'with an official Lua chunk header (auto-selected).',
     );
   }
 

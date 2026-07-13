@@ -70,14 +70,16 @@ class LuaLikeCommandRunner extends CommandRunner {
       ..addFlag(
         'compile',
         help:
-            'Compile script to bytecode and write to --output (do not execute)',
+            'Compile script to binary chunk; requires --output (do not execute)',
         negatable: false,
         defaultsTo: false,
       )
       ..addOption(
         'output',
         abbr: 'o',
-        help: 'Output path for --compile bytecode file',
+        help:
+            'Output path for --compile (required; any path — binary is '
+            'detected by chunk header, not extension)',
         valueHelp: 'file',
       )
       ..addOption(
@@ -171,12 +173,11 @@ class LuaLikeCommandRunner extends CommandRunner {
     final useIr = argResults['ir'] as bool;
     final useLuaBytecode = argResults['lua-bytecode'] as bool;
     final useAst = argResults['ast'] as bool;
-    // Precompiled .lub (by extension or header) must use the bytecode VM so
-    // ScriptCommand can load+run without IR/SSA. Also honor --lua-bytecode.
+    // Precompiled chunks (detected by official Lua header bytes, not extension)
+    // must use the bytecode VM so ScriptCommand can load+run without IR/SSA.
     final autoUseLuaBytecode =
         restArgs.isNotEmpty &&
-        (_looksLikeLuaBytecodePath(restArgs.first) ||
-            _looksLikeTrackedLuaBytecodeScript(restArgs.first));
+        _looksLikeTrackedLuaBytecodeScript(restArgs.first);
     if (useLuaBytecode || autoUseLuaBytecode) {
       config.defaultEngineMode = EngineMode.luaBytecode;
     } else if (useIr || !useAst) {
@@ -194,7 +195,15 @@ class LuaLikeCommandRunner extends CommandRunner {
         exit(1);
       }
       final scriptPath = restArgs.first;
-      final outputPath = argResults['output'] as String? ?? '$scriptPath.lub';
+      // No standard extension for binary chunks — caller must name the file.
+      final outputPath = argResults['output'] as String?;
+      if (outputPath == null || outputPath.isEmpty) {
+        stderr.writeln(
+          'Error: --compile requires --output / -o <path> '
+          '(no default extension; binary is detected by header).',
+        );
+        exit(1);
+      }
       _compileToBytecode(
         scriptPath,
         outputPath,
@@ -385,11 +394,6 @@ void _writeDartEmbed(List<int> bytes, String outputPath, String scriptPath) {
   buf.writeln('];');
   File(outputPath).writeAsStringSync(buf.toString());
   stderr.writeln('Dart embed → $outputPath');
-}
-
-bool _looksLikeLuaBytecodePath(String scriptPath) {
-  final lower = scriptPath.toLowerCase();
-  return lower.endsWith('.lub') || lower.endsWith('.luac');
 }
 
 bool _looksLikeTrackedLuaBytecodeScript(String scriptPath) {

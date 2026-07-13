@@ -95,23 +95,33 @@ for ad-hoc optimization during development.
 | `LOGGING_BACKEND=contextual|basic` | Select logging backend |
 | `LOGGING_PRETTY=true|false` | Pretty formatting for contextual backend |
 
+## Binary chunks
+
+There is **no reserved file extension** for compiled output. You choose any
+path with `--output` / `-o`. At run time, lualike sniffs the official Lua
+chunk header (`\x1bLua…`) and, when present, loads and runs the file on the
+bytecode VM only (no IR/SSA pipeline). Source files are anything that is
+not a valid chunk header.
+
 ## Examples
 
 ```sh
 # Run a script
 lualike myscript.lua
 
-# Compile to bytecode (all optimizations enabled)
-lualike --compile myscript.lua -o myscript.lub
+# Compile to a binary chunk (--output is required; any path is fine)
+lualike --compile myscript.lua -o myscript.out
 
-# Run compiled bytecode
-lualike --lua-bytecode myscript.lub
+# Run that binary (header-detected; --lua-bytecode optional)
+lualike myscript.out
+# or:
+lualike --lua-bytecode myscript.out
 
 # Compile with debug info preserved
-lualike --compile myscript.lua -o myscript.lub --preserve-debug
+lualike --compile myscript.lua -o myscript.out --preserve-debug
 
 # Compile and generate Dart embed file
-lualike --compile myscript.lua -o myscript.lub --dart-output myscript_precompiled.dart
+lualike --compile myscript.lua -o myscript.out --dart-output myscript_precompiled.dart
 
 # Run with constant folding (development)
 lualike --fold myscript.lua
