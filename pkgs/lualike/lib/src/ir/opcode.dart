@@ -44,6 +44,7 @@ class LualikeIrOpcode {
   static const LualikeIrOpcode newTable = LualikeIrOpcode._('NEWTABLE');
   static const LualikeIrOpcode selfOp = LualikeIrOpcode._('SELF');
   static const LualikeIrOpcode addI = LualikeIrOpcode._('ADDI');
+  static const LualikeIrOpcode subI = LualikeIrOpcode._('SUBI');
   static const LualikeIrOpcode addK = LualikeIrOpcode._('ADDK');
   static const LualikeIrOpcode subK = LualikeIrOpcode._('SUBK');
   static const LualikeIrOpcode mulK = LualikeIrOpcode._('MULK');
@@ -131,6 +132,7 @@ class LualikeIrOpcode {
     newTable,
     selfOp,
     addI,
+    subI,
     addK,
     subK,
     mulK,

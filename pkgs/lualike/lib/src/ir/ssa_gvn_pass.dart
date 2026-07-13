@@ -40,6 +40,7 @@ const _gvnPureOpcodes = <LualikeIrOpcode>{
   LualikeIrOpcode.getField,
   LualikeIrOpcode.selfOp,
   LualikeIrOpcode.addI,
+  LualikeIrOpcode.subI,
   LualikeIrOpcode.addK,
   LualikeIrOpcode.subK,
   LualikeIrOpcode.mulK,

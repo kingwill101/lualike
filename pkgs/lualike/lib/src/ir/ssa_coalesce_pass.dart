@@ -198,6 +198,7 @@ Set<int> _reads(LualikeIrInstruction inst, int registerCount) {
           // IR: A=result, B=left reg, C=immediate or Kst index.
           add(i.b);
         case LualikeIrOpcode.addI:
+        case LualikeIrOpcode.subI:
         case LualikeIrOpcode.shlI:
         case LualikeIrOpcode.shrI:
         case LualikeIrOpcode.addK:
@@ -261,6 +262,7 @@ bool _bIsRegister(LualikeIrOpcode opcode) {
     LualikeIrOpcode.geI ||
     LualikeIrOpcode.eqK ||
     LualikeIrOpcode.addI ||
+    LualikeIrOpcode.subI ||
     LualikeIrOpcode.shlI ||
     LualikeIrOpcode.shrI ||
     LualikeIrOpcode.addK ||

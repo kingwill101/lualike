@@ -45,6 +45,7 @@ final _pureOpcodes = <LualikeIrOpcode>{
   LualikeIrOpcode.getField,
   LualikeIrOpcode.selfOp,
   LualikeIrOpcode.addI,
+  LualikeIrOpcode.subI,
   LualikeIrOpcode.addK,
   LualikeIrOpcode.subK,
   LualikeIrOpcode.mulK,

@@ -172,7 +172,11 @@ class PeepholePass {
       // Algebraic simplification: identity ops on K/I — C is a constant
       // *index* for *K opcodes, not the numeric value (ADDK c=0 means
       // constants[0], which may be 1, not "add zero").
-      if (inst is ABCInstruction && _isIdentityArithmetic(inst, constants)) {
+      // Only when k=false — MOVE has no metamethod path, so the original
+      // MMBIN/MMBINK would be lost for metatable-bearing values.
+      if (inst is ABCInstruction &&
+          !inst.k &&
+          _isIdentityArithmetic(inst, constants)) {
         result[i] = ABCInstruction(
           opcode: LualikeIrOpcode.move,
           a: inst.a,
@@ -184,9 +188,11 @@ class PeepholePass {
         continue;
       }
 
-      // POW r, x, K where K is 0 → LOADI r, 1
+      // POW r, x, K where K is 0 → LOADI r, 1  (x^0 = 1).
+      // Only when k=false — LOADI has no metamethod path.
       if (inst is ABCInstruction &&
           inst.opcode == LualikeIrOpcode.powK &&
+          !inst.k &&
           _constantNumericValue(constants, inst.c) == 0) {
         result[i] = AsBxInstruction(
           opcode: LualikeIrOpcode.loadI,
@@ -198,9 +204,12 @@ class PeepholePass {
         continue;
       }
 
-      // MUL r, x, K where K is 2 → ADD r, x, x  (strength reduction)
+      // MUL r, x, K where K is 2 → ADD r, x, x  (strength reduction).
+      // Only when k=false (no metamethod path) — otherwise MMBIN would
+      // fire __add instead of __mul, breaking metatable semantics.
       if (inst is ABCInstruction &&
           inst.opcode == LualikeIrOpcode.mulK &&
+          !inst.k &&
           _constantNumericValue(constants, inst.c) == 2) {
         result[i] = ABCInstruction(
           opcode: LualikeIrOpcode.add,

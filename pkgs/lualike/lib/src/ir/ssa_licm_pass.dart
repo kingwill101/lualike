@@ -31,6 +31,7 @@ const _licmPureOpcodes = <LualikeIrOpcode>{
   LualikeIrOpcode.loadNil,
   LualikeIrOpcode.getUpval,
   LualikeIrOpcode.addI,
+  LualikeIrOpcode.subI,
   LualikeIrOpcode.addK,
   LualikeIrOpcode.subK,
   LualikeIrOpcode.mulK,

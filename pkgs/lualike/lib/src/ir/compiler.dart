@@ -3114,14 +3114,14 @@ class _PrototypeContext {
         return finalReg;
       }
     }
-    // `x - n` as ADDI with -n when it fits (luac55 does this too).
+    // `x - n` as SUBI with n when it fits (lowered to ADDI + __sub event).
     if (literalInfo.isLiteral && literalValue is int && node.op == '-') {
-      final imm = -literalValue;
+      final imm = literalValue;
       const offsetSc = 127;
       const maxSc = 255 - offsetSc;
       if (imm >= -offsetSc && imm <= maxSc) {
         emitter.emitABC(
-          opcode: LualikeIrOpcode.addI,
+          opcode: LualikeIrOpcode.subI,
           a: leftReg,
           b: leftReg,
           c: imm,

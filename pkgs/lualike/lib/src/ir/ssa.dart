@@ -848,6 +848,7 @@ Set<int> _usedRegistersForInstruction(
           : {...single(a), ...range(a + 1, b)},
     ABCInstruction(opcode: LualikeIrOpcode.selfOp, b: final b) => single(b),
     ABCInstruction(opcode: LualikeIrOpcode.addI, b: final b) => single(b),
+    ABCInstruction(opcode: LualikeIrOpcode.subI, b: final b) => single(b),
     ABCInstruction(opcode: LualikeIrOpcode.addK, b: final b) => single(b),
     ABCInstruction(opcode: LualikeIrOpcode.subK, b: final b) => single(b),
     ABCInstruction(opcode: LualikeIrOpcode.mulK, b: final b) => single(b),
@@ -1007,6 +1008,7 @@ Set<int> _definedRegistersForInstruction(
     ABCInstruction(opcode: LualikeIrOpcode.selfOp, a: final a) => range(a, 2),
     ABCInstruction(
       opcode: LualikeIrOpcode.addI ||
+          LualikeIrOpcode.subI ||
           LualikeIrOpcode.addK ||
           LualikeIrOpcode.subK ||
           LualikeIrOpcode.mulK ||

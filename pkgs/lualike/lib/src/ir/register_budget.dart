@@ -202,6 +202,7 @@ Set<int> _registersReferenced(LualikeIrInstruction inst) {
           // IR: B is the compared register; C is immediate / Kst.
           add(i.b);
         case LualikeIrOpcode.addI:
+        case LualikeIrOpcode.subI:
         case LualikeIrOpcode.shlI:
         case LualikeIrOpcode.shrI:
         case LualikeIrOpcode.addK:

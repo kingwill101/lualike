@@ -192,7 +192,12 @@ LuaBytecodeUpvalueDescriptor _lowerUpvalueDescriptor(
 }
 
 LuaBytecodeInstructionWord _lowerInstruction(LualikeIrInstruction instruction) {
-  final opcode = LuaBytecodeOpcodes.byName(instruction.opcode.name);
+  // SUBI lowers to ADDI with negated immediate: R[a] = R[b] + (-c).
+  // The __sub event is carried by the MMBINI followup instead of __add.
+  final bcOpcodeName = instruction.opcode == LualikeIrOpcode.subI
+      ? 'ADDI'
+      : instruction.opcode.name;
+  final opcode = LuaBytecodeOpcodes.byName(bcOpcodeName);
   return instruction.when(
     abc: (instr) => _lowerAbcInstruction(instr, opcode.code),
     abx: (instr) => LuaBytecodeInstructionWord.abx(
@@ -241,6 +246,18 @@ LuaBytecodeInstructionWord _lowerAbcInstruction(
       k: instruction.k,
     );
   }
+  // SUBI → ADDI with negated C: bytecode ADDI does R[a]=R[b]+C_signed,
+  // but SUBI means R[a]=R[b]-c. Emit ADDI with C = -c.
+  if (instruction.opcode == LualikeIrOpcode.subI) {
+    final negC = -instruction.c;
+    return LuaBytecodeInstructionWord.abc(
+      opcode: opcode,
+      a: instruction.a,
+      b: _encodeBOperand(instruction.opcode, instruction.b),
+      c: _encodeCOperand(instruction.opcode, negC),
+      k: instruction.k,
+    );
+  }
   return LuaBytecodeInstructionWord.abc(
     opcode: opcode,
     a: instruction.a,
@@ -279,6 +296,7 @@ bool _usesSignedBImmediate(LualikeIrOpcode opcode) {
 bool _usesSignedCImmediate(LualikeIrOpcode opcode) {
   return switch (opcode) {
     LualikeIrOpcode.addI ||
+    LualikeIrOpcode.subI ||
     LualikeIrOpcode.shlI ||
     LualikeIrOpcode.shrI => true,
     _ => false,
@@ -504,7 +522,21 @@ List<LuaBytecodeInstructionWord>? _lowerArithmeticMetamethodSequence(
   // destination. Destination is recovered from the previous instruction's A
   // when the metamethod path runs (see Opcode.mmBin* handlers).
   final followup = switch (instruction.opcode) {
-    LualikeIrOpcode.addI ||
+    LualikeIrOpcode.addI => LuaBytecodeInstructionWord.abc(
+      opcode: LuaBytecodeOpcodes.byName('MMBINI').code,
+      a: instruction.b,
+      b: _encodeCOperand(instruction.opcode, instruction.c),
+      c: event,
+      k: instruction.k,
+    ),
+    // SUBI negates the immediate (ADDI does R[b]+C, SUBI is R[b]-c).
+    LualikeIrOpcode.subI => LuaBytecodeInstructionWord.abc(
+      opcode: LuaBytecodeOpcodes.byName('MMBINI').code,
+      a: instruction.b,
+      b: _encodeCOperand(instruction.opcode, -instruction.c),
+      c: event,
+      k: instruction.k,
+    ),
     LualikeIrOpcode.shlI ||
     LualikeIrOpcode.shrI => LuaBytecodeInstructionWord.abc(
       opcode: LuaBytecodeOpcodes.byName('MMBINI').code,
@@ -559,7 +591,7 @@ String? _registerArithmeticOpcode(LualikeIrOpcode opcode) {
 int? _binaryMetamethodEvent(LualikeIrOpcode opcode) {
   return switch (opcode) {
     LualikeIrOpcode.add || LualikeIrOpcode.addI || LualikeIrOpcode.addK => 6,
-    LualikeIrOpcode.sub || LualikeIrOpcode.subK => 7,
+    LualikeIrOpcode.sub || LualikeIrOpcode.subI || LualikeIrOpcode.subK => 7,
     LualikeIrOpcode.mul || LualikeIrOpcode.mulK => 8,
     LualikeIrOpcode.mod || LualikeIrOpcode.modK => 9,
     LualikeIrOpcode.pow || LualikeIrOpcode.powK => 10,
