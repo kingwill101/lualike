@@ -1,5 +1,9 @@
 ## Unreleased
 
+- Bytecode VM hot-path tweaks: cheaper opcode decode, coarser GC loop
+  safepoints, and `MOVE` via `storeRegisterRaw` (avoids re-cloning values
+  that are already frame-safe). Keeps load/store isolation for
+  `debug.setlocal`.
 - Default `--lua-bytecode` source path: IR + SSA + mechanical lower
   (`CompilePipelineConfig.luaBytecodeOptimized`), with suite-hardening for
   jump compact, TEST/EQI use-def, folded tables, fold inlining isolation,
