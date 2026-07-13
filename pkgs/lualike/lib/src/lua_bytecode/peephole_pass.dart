@@ -130,10 +130,14 @@ class LuaBytecodePeepholePass {
         }
 
         // LOAD* tmp ; MOVE dest, tmp → LOAD* dest  (luac55-style)
+        // BUT only when `tmp` is not used as a SOURCE register by any
+        // later instruction — otherwise redirecting the load leaves `tmp`
+        // undefined (e.g. `ADDI tmp,src` would read nil from `tmp`).
         if (_isSimpleLoad(inst) &&
             _isMove(next) &&
             next.b == inst.a &&
-            next.a != inst.a) {
+            next.a != inst.a &&
+            !_registerUsedLaterAsSource(nextIndex + 1, inst.a, result, removePcs)) {
           result[i] = _rewriteLoadDest(inst, next.a);
           removePcs.add(nextIndex);
           i++;
@@ -321,6 +325,111 @@ class LuaBytecodePeepholePass {
       c: arith.c,
       k: arith.kFlag,
     );
+  }
+
+  /// Check if [reg] is used as a source register by any instruction at or
+  /// after [startIndex] (before the next write to [reg]).
+  bool _registerUsedLaterAsSource(
+    int startIndex,
+    int reg,
+    List<LuaBytecodeInstructionWord> code,
+    Set<int> removePcs,
+  ) {
+    for (var j = startIndex; j < code.length; j++) {
+      if (removePcs.contains(j)) continue;
+      final later = code[j];
+      // If this instruction writes to reg, the use is dead — stop.
+      if (later.a == reg) break;
+      // Only ABC-format instructions use B/C as register operands.
+      // ASBx/ABx/Ax instructions encode immediates in those fields.
+      if (_abcFormatWithRegisterB(later)) {
+        if (later.b == reg) return true;
+      }
+      if (_abcFormatWithRegisterC(later)) {
+        if (later.c == reg) return true;
+      }
+    }
+    return false;
+  }
+
+  /// True for iABC opcodes where the B field is a register or Kst.
+  bool _abcFormatWithRegisterB(LuaBytecodeInstructionWord inst) {
+    return switch (inst.opcode) {
+      Opcode.move ||
+      Opcode.loadFalse ||
+      Opcode.lFalseSkip ||
+      Opcode.loadTrue ||
+      Opcode.loadNil ||
+      Opcode.getUpval ||
+      Opcode.setUpval ||
+      Opcode.getTabUp ||
+      Opcode.getTable ||
+      Opcode.getI ||
+      Opcode.getField ||
+      Opcode.setTabUp ||
+      Opcode.setTable ||
+      Opcode.setI ||
+      Opcode.setField ||
+      Opcode.self ||
+      Opcode.add ||
+      Opcode.sub ||
+      Opcode.mul ||
+      Opcode.mod ||
+      Opcode.pow ||
+      Opcode.div ||
+      Opcode.idiv ||
+      Opcode.band ||
+      Opcode.bor ||
+      Opcode.bxor ||
+      Opcode.shl ||
+      Opcode.shr ||
+      Opcode.unm ||
+      Opcode.bnot ||
+      Opcode.notOp ||
+      Opcode.len ||
+      Opcode.concat ||
+      Opcode.eq ||
+      Opcode.lt ||
+      Opcode.le ||
+      Opcode.addK ||
+      Opcode.subK ||
+      Opcode.mulK ||
+      Opcode.modK ||
+      Opcode.powK ||
+      Opcode.divK ||
+      Opcode.idivK ||
+      Opcode.bandK ||
+      Opcode.borK ||
+      Opcode.bxorK ||
+      Opcode.call ||
+      Opcode.tailCall ||
+      Opcode.return1 ||
+      Opcode.return0 ||
+      Opcode.test ||
+      Opcode.testSet ||
+      Opcode.varArgPrep ||
+      Opcode.varArg ||
+      Opcode.close ||
+      Opcode.tbc ||
+      Opcode.mmBin ||
+      Opcode.mmBinI ||
+      Opcode.mmBinK => true,
+      _ => false,
+    };
+  }
+
+  /// True for iABC opcodes where the C field is a register or Kst.
+  bool _abcFormatWithRegisterC(LuaBytecodeInstructionWord inst) {
+    return _abcFormatWithRegisterB(inst) &&
+        switch (inst.opcode) {
+          // These use C as an immediate (count/arity), not a register.
+          Opcode.call ||
+          Opcode.tailCall ||
+          Opcode.mmBin ||
+          Opcode.mmBinI ||
+          Opcode.mmBinK => false,
+          _ => true,
+        };
   }
 
   /// Opcodes whose VM handler may `pc += 1` to skip the following JMP.
