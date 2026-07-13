@@ -1140,7 +1140,11 @@ class _PrototypeContext {
       final register = _allocateRegister();
       targets.add((name: identifier.name, register: register));
     }
-    final result = _emitAssignmentValues(node.exprs, nameCount);
+    final targetRegs = [for (final t in targets) t.register];
+    final result = _emitAssignmentValues(
+      node.exprs, nameCount,
+      targetRegisters: targetRegs,
+    );
     for (var i = 0; i < nameCount; i++) {
       final target = targets[i];
       _declareLocal(target.name, target.register);
@@ -2859,8 +2863,9 @@ class _PrototypeContext {
 
   _ExpressionListResult _emitAssignmentValues(
     List<AstNode> exprs,
-    int targetCount,
-  ) {
+    int targetCount, {
+    List<int>? targetRegisters,
+  }) {
     final registers = <int>[];
     final temporaries = <int>[];
 
@@ -2869,6 +2874,10 @@ class _PrototypeContext {
       final isLast = i == exprs.length - 1;
       final needValue = registers.length < targetCount;
       final remainingTargets = targetCount - registers.length;
+      final preferredReg =
+          targetRegisters != null && i < targetRegisters.length
+              ? targetRegisters[i]
+              : null;
 
       if (!needValue) {
         _emitExpressionAndDiscard(expr);
@@ -2913,7 +2922,7 @@ class _PrototypeContext {
         continue;
       }
 
-      final reg = _emitExpression(expr);
+      final reg = _emitExpression(expr, target: preferredReg);
       registers.add(reg);
       temporaries.add(reg);
     }
