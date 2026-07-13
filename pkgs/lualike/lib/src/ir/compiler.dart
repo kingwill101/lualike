@@ -614,7 +614,12 @@ class _PrototypeContext {
         return;
       }
 
-      final reg = _emitExpression(expression, target: 0);
+      // Emit the expression into its natural register, then return from it.
+      // Passing target: 0 here is counterproductive when reg0 is occupied
+      // by a local (e.g. `return a + b` inside function(a,b)) — the extra
+      // MOVE adds an instruction that the bytecode peephole can't always
+      // eliminate safely.
+      final reg = _emitExpression(expression);
       emitter.emitABC(opcode: LualikeIrOpcode.return1, a: reg, b: 0, c: 0);
       return;
     }
