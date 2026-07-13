@@ -1,5 +1,6 @@
 -- Global variable access and assignment
 global x
+global y
 x = 100
 y = 200
 global function f(a, b)

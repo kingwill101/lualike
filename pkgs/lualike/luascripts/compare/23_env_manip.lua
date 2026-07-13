@@ -1,7 +1,9 @@
 -- _ENV manipulation
+global _G
 local mt = {_G = _G}
 local old = _ENV
 _ENV = mt
+global A
 global function foo (x)
   A = x
   do local _ENV = _G; A = 1000 end
