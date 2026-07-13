@@ -1710,7 +1710,11 @@ class _PrototypeContext {
     }
 
     if (localReg != null) {
-      final valueReg = _emitExpression(valueNode);
+      // Pass the local register as target so _emitBinaryExpression (and
+      // other expression forms) can write directly into it.  For a simple
+      // `sum = sum + i` this eliminates three MOVEs that would otherwise
+      // copy operands to temps and copy the result back.
+      final valueReg = _emitExpression(valueNode, target: localReg);
       if (valueReg != localReg) {
         emitter.emitABC(
           opcode: LualikeIrOpcode.move,
@@ -2992,8 +2996,14 @@ class _PrototypeContext {
       '<=',
       '>=',
     }.contains(node.op);
+    // Target register is safe to use as output: the bytecode VM reads B
+        // and C operands before writing to A, so ADD 0,0,1 is always correct
+        // even when A overlaps a source register.  The Identifier expression
+        // handler still creates temp copies for multi-expression sequences
+        // (return a+b, a-1) so expression evaluation won't trample shared
+        // variable registers.
     final canWriteDirectlyToTarget =
-        !isComparison && target != null && !_isRegisterOccupiedByLocal(target);
+        !isComparison && target != null;
 
     final leftReg = isComparison
         ? _emitExpression(node.left)
