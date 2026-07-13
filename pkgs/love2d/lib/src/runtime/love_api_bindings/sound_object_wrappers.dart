@@ -2,6 +2,11 @@ part of '../love_api_bindings.dart';
 
 const String _loveDecoderReleasedWrapperKey = '__love2d_decoder_released__';
 
+/// Reuses one shared Decoder method table per Lua runtime.
+final Expando<Value> _loveDecoderMethodsCache = Expando<Value>(
+  'love2dDecoderMethods',
+);
+
 /// Returns the Lua wrapper table for a `Decoder`, including released wrappers.
 Map<dynamic, dynamic>? _decoderWrapperTableIfPresent(Object? value) {
   final table = _tableIdentityIfPresent(value);
@@ -209,10 +214,32 @@ Value _wrapDecoder(
     return cached;
   }
 
-  final builder = BuiltinFunctionBuilder(context);
-  const hierarchy = <String>{'Decoder', 'Object'};
+  final methods = _decoderMethodsForContext(context);
+  final methodsMap = methods.raw as Map<Object?, Object?>;
   final table = ValueClass.table(<Object?, Object?>{
     _loveDecoderObjectKey: decoder,
+    ...methodsMap,
+  })..interpreter = context.interpreter;
+  table.setMetatable(<String, dynamic>{'__index': methods});
+  _loveDecoderWrapperCache[decoder] = table;
+  return table;
+}
+
+/// Reuses one shared Decoder method table per Lua runtime.
+Value _decoderMethodsForContext(LibraryRegistrationContext context) {
+  final interpreter = context.interpreter;
+  if (interpreter == null) {
+    throw StateError('No Lua runtime available for Decoder methods');
+  }
+
+  final cached = _loveDecoderMethodsCache[interpreter];
+  if (cached != null) {
+    return cached;
+  }
+
+  final builder = BuiltinFunctionBuilder(context);
+  const hierarchy = <String>{'Decoder', 'Object'};
+  final methods = ValueClass.table(<Object?, Object?>{
     'clone': Value(
       builder.create(
         (args) => _wrapDecoder(
@@ -296,7 +323,7 @@ Value _wrapDecoder(
         final decoder = _requireDecoder(args, 0, 'Decoder:seek');
         final offset = _requireNumber(args, 1, 'Decoder:seek');
         if (offset < 0) {
-          throw LuaError('Decoder:seek can\'t seek to a negative position');
+          throw LuaError("Decoder:seek can't seek to a negative position");
         }
         if (offset == 0) {
           decoder.rewind();
@@ -338,9 +365,9 @@ Value _wrapDecoder(
       }),
       functionName: 'typeOf',
     ),
-  });
-  _loveDecoderWrapperCache[decoder] = table;
-  return table;
+  })..interpreter = interpreter;
+  _loveDecoderMethodsCache[interpreter] = methods;
+  return methods;
 }
 
 /// Converts a Lua sample index argument to the integer form used internally.
