@@ -55,6 +55,7 @@ bool _writesReg(LualikeIrInstruction inst, int reg) {
         case LualikeIrOpcode.close:
         case LualikeIrOpcode.tbc:
         case LualikeIrOpcode.ret:
+        case LualikeIrOpcode.return1:
         case LualikeIrOpcode.return0:
         case LualikeIrOpcode.setTabUp:
         case LualikeIrOpcode.setTable:
@@ -147,6 +148,9 @@ Set<int> _reads(LualikeIrInstruction inst, int registerCount) {
         case LualikeIrOpcode.setUpval:
           // IR: C=value (B=upval index)
           add(i.c);
+        case LualikeIrOpcode.return1:
+        case LualikeIrOpcode.return0:
+          add(i.a);
         case LualikeIrOpcode.move:
         case LualikeIrOpcode.unm:
         case LualikeIrOpcode.bnot:
