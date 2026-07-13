@@ -5,6 +5,7 @@ library;
 
 import 'dart:async' show FutureOr;
 import 'dart:math' as math;
+import 'dart:typed_data' show Uint8List;
 
 import 'package:lualike/library_builder.dart';
 import 'package:lualike/lualike.dart'

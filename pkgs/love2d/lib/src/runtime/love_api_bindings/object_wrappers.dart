@@ -1,16 +1,25 @@
 part of '../love_api_bindings.dart';
 
+/// Reuses one shared Font method table per Lua runtime.
+final Expando<Value> _loveFontMethodsCache = Expando<Value>(
+  'love2dFontMethods',
+);
+
 /// Wraps a [LoveFont] as a Lua-facing `Font` object table.
-Value _wrapFont(LibraryRegistrationContext context, LoveFont font) {
-  final cached = _loveFontWrapperCache[font];
+Value _fontMethodsForContext(LibraryRegistrationContext context) {
+  final interpreter = context.interpreter;
+  if (interpreter == null) {
+    throw StateError('No Lua runtime available for Font methods');
+  }
+
+  final cached = _loveFontMethodsCache[interpreter];
   if (cached != null) {
     return cached;
   }
 
   final builder = BuiltinFunctionBuilder(context);
   const hierarchy = <String>{'Font', 'Object'};
-  final table = ValueClass.table(<Object?, Object?>{
-    _loveFontObjectKey: font,
+  final methods = ValueClass.table(<Object?, Object?>{
     'getAscent': Value(
       builder.create((args) => _requireFont(args, 0, 'Font:getAscent').ascent),
       functionName: 'getAscent',
@@ -196,7 +205,25 @@ Value _wrapFont(LibraryRegistrationContext context, LoveFont font) {
       }),
       functionName: 'typeOf',
     ),
-  });
+  })..interpreter = interpreter;
+  _loveFontMethodsCache[interpreter] = methods;
+  return methods;
+}
+
+/// Wraps a [LoveFont] as a Lua-facing `Font` object table.
+Value _wrapFont(LibraryRegistrationContext context, LoveFont font) {
+  final cached = _loveFontWrapperCache[font];
+  if (cached != null) {
+    return cached;
+  }
+
+  final methods = _fontMethodsForContext(context);
+  final methodsMap = methods.raw as Map<Object?, Object?>;
+  final table = ValueClass.table(<Object?, Object?>{
+    _loveFontObjectKey: font,
+    ...methodsMap,
+  })..interpreter = context.interpreter;
+  table.setMetatable(<String, dynamic>{'__index': methods});
   _loveFontWrapperCache[font] = table;
   return table;
 }

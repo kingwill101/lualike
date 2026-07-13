@@ -36,6 +36,18 @@ _loveTextPainterCache = LinkedHashMap<_LoveTextPainterCacheKey, TextPainter>();
 final LinkedHashMap<LoveCanvasSnapshot, ui.Picture>
 _loveCanvasSnapshotPictures = LinkedHashMap<LoveCanvasSnapshot, ui.Picture>();
 
+/// Reusable [Paint] instances for the single-threaded Canvas replay path.
+///
+/// Flutter consumes paint configuration during draw calls synchronously, so
+/// reusing these objects across consecutive commands avoids per-draw
+/// allocations in dense shape loops.
+final Paint _loveShapePaint = Paint();
+final Paint _lovePointsPaint = Paint()..style = PaintingStyle.fill;
+final Paint _loveClearPaint = Paint();
+final Paint _loveEmptyLayerPaint = Paint();
+final Paint _loveSrcLayerPaint = Paint()..blendMode = BlendMode.src;
+final Paint _loveDstInLayerPaint = Paint()..blendMode = BlendMode.dstIn;
+
 /// Per-frame counters for the LOVE-to-Flame renderer's major hot paths.
 class LoveFlameRenderStats {
   const LoveFlameRenderStats({
@@ -760,7 +772,7 @@ void _renderRecordedCommand(
   }
   if (radialGradientMaskPaint != null) {
     stats?.commandRadialMaskLayers++;
-    canvas.saveLayer(null, Paint());
+    canvas.saveLayer(null, _loveEmptyLayerPaint);
   }
   canvas.save();
   canvas.transform(command.transform.storage);
@@ -769,26 +781,28 @@ void _renderRecordedCommand(
     case final LoveColorClearCommand clear:
       canvas.drawRect(
         Rect.fromLTWH(-1000000, -1000000, 2000000, 2000000),
-        Paint()..color = _toFlutterColor(clear.color),
+        _loveClearPaint..color = _toFlutterColor(clear.color),
       );
     case LoveStencilClearCommand():
       break;
     case final LoveParticleSystemCommand particleSystem:
       _renderParticleSystemCommand(canvas, particleSystem, stats: stats);
     case final LoveRectangleCommand rectangle:
-      final paint = Paint()
-        ..color = _toFlutterColor(rectangle.color)
-        ..style = _shapeStyle(rectangle.mode, rectangle.wireframe)
-        ..strokeWidth = rectangle.lineWidth
-        ..strokeJoin = _strokeJoinForLove(rectangle.lineJoin)
-        ..isAntiAlias = _isAntiAliasForLove(rectangle.lineStyle);
+      final paint = _configureShapePaint(
+        _loveShapePaint,
+        color: rectangle.color,
+        style: _shapeStyle(rectangle.mode, rectangle.wireframe),
+        lineWidth: rectangle.lineWidth,
+        lineJoin: rectangle.lineJoin,
+        lineStyle: rectangle.lineStyle,
+        command: rectangle,
+      );
       final rect = Rect.fromLTWH(
         rectangle.x,
         rectangle.y,
         rectangle.width,
         rectangle.height,
       );
-      _configureShaderPaint(paint, rectangle);
 
       if (rectangle.cornerRadiusX > 0 || rectangle.cornerRadiusY > 0) {
         final rrect = RRect.fromRectAndRadius(
@@ -800,70 +814,77 @@ void _renderRecordedCommand(
         canvas.drawRect(rect, paint);
       }
     case final LoveCircleCommand circle:
-      final paint = Paint()
-        ..color = _toFlutterColor(circle.color)
-        ..style = _shapeStyle(circle.mode, circle.wireframe)
-        ..strokeWidth = circle.lineWidth
-        ..strokeJoin = _strokeJoinForLove(circle.lineJoin)
-        ..isAntiAlias = _isAntiAliasForLove(circle.lineStyle);
-      _configureShaderPaint(paint, circle);
+      final paint = _configureShapePaint(
+        _loveShapePaint,
+        color: circle.color,
+        style: _shapeStyle(circle.mode, circle.wireframe),
+        lineWidth: circle.lineWidth,
+        lineJoin: circle.lineJoin,
+        lineStyle: circle.lineStyle,
+        command: circle,
+      );
       canvas.drawCircle(Offset(circle.x, circle.y), circle.radius, paint);
     case final LoveLineCommand line:
-      final paint = Paint()
-        ..color = _toFlutterColor(line.color)
-        ..style = PaintingStyle.stroke
-        ..strokeWidth = line.lineWidth
-        ..strokeCap = StrokeCap.round
-        ..strokeJoin = _strokeJoinForLove(line.lineJoin)
-        ..isAntiAlias = _isAntiAliasForLove(line.lineStyle);
+      final paint = _configureShapePaint(
+        _loveShapePaint,
+        color: line.color,
+        style: PaintingStyle.stroke,
+        lineWidth: line.lineWidth,
+        lineJoin: line.lineJoin,
+        lineStyle: line.lineStyle,
+        strokeCap: StrokeCap.round,
+      );
       final path = Path()..moveTo(line.points.first.x, line.points.first.y);
-      for (final point in line.points.skip(1)) {
+      for (var i = 1; i < line.points.length; i++) {
+        final point = line.points[i];
         path.lineTo(point.x, point.y);
       }
       canvas.drawPath(path, paint);
     case final LovePolygonCommand polygon:
-      final paint = Paint()
-        ..color = _toFlutterColor(polygon.color)
-        ..style = _shapeStyle(polygon.mode, polygon.wireframe)
-        ..strokeWidth = polygon.lineWidth
-        ..strokeJoin = _strokeJoinForLove(polygon.lineJoin)
-        ..isAntiAlias = _isAntiAliasForLove(polygon.lineStyle);
+      final paint = _configureShapePaint(
+        _loveShapePaint,
+        color: polygon.color,
+        style: _shapeStyle(polygon.mode, polygon.wireframe),
+        lineWidth: polygon.lineWidth,
+        lineJoin: polygon.lineJoin,
+        lineStyle: polygon.lineStyle,
+        command: polygon,
+      );
       final path = Path()
         ..moveTo(polygon.points.first.x, polygon.points.first.y);
-      for (final point in polygon.points.skip(1)) {
+      for (var i = 1; i < polygon.points.length; i++) {
+        final point = polygon.points[i];
         path.lineTo(point.x, point.y);
       }
       path.close();
-      _configureShaderPaint(paint, polygon);
       canvas.drawPath(path, paint);
     case final LovePointsCommand points:
-      final basePaint = Paint()
-        ..style = PaintingStyle.fill
+      final paint = _lovePointsPaint
         ..isAntiAlias = _isAntiAliasForLove(points.lineStyle);
+      final halfSize = points.pointSize / 2;
+      final pointSize = points.pointSize;
       for (final point in points.points) {
-        final paint = Paint()
-          ..color = _toFlutterColor(point.color ?? points.color)
-          ..style = basePaint.style
-          ..isAntiAlias = basePaint.isAntiAlias;
-        final halfSize = points.pointSize / 2;
+        paint.color = _toFlutterColor(point.color ?? points.color);
         canvas.drawRect(
           Rect.fromLTWH(
             point.x - halfSize,
             point.y - halfSize,
-            points.pointSize,
-            points.pointSize,
+            pointSize,
+            pointSize,
           ),
           paint,
         );
       }
     case final LoveEllipseCommand ellipse:
-      final paint = Paint()
-        ..color = _toFlutterColor(ellipse.color)
-        ..style = _shapeStyle(ellipse.mode, ellipse.wireframe)
-        ..strokeWidth = ellipse.lineWidth
-        ..strokeJoin = _strokeJoinForLove(ellipse.lineJoin)
-        ..isAntiAlias = _isAntiAliasForLove(ellipse.lineStyle);
-      _configureShaderPaint(paint, ellipse);
+      final paint = _configureShapePaint(
+        _loveShapePaint,
+        color: ellipse.color,
+        style: _shapeStyle(ellipse.mode, ellipse.wireframe),
+        lineWidth: ellipse.lineWidth,
+        lineJoin: ellipse.lineJoin,
+        lineStyle: ellipse.lineStyle,
+        command: ellipse,
+      );
       canvas.drawOval(
         Rect.fromCenter(
           center: Offset(ellipse.x, ellipse.y),
@@ -873,12 +894,15 @@ void _renderRecordedCommand(
         paint,
       );
     case final LoveArcCommand arc:
-      final paint = Paint()
-        ..color = _toFlutterColor(arc.color)
-        ..style = _shapeStyle(arc.drawMode, arc.wireframe)
-        ..strokeWidth = arc.lineWidth
-        ..strokeJoin = _strokeJoinForLove(arc.lineJoin)
-        ..isAntiAlias = _isAntiAliasForLove(arc.lineStyle);
+      final paint = _configureShapePaint(
+        _loveShapePaint,
+        color: arc.color,
+        style: _shapeStyle(arc.drawMode, arc.wireframe),
+        lineWidth: arc.lineWidth,
+        lineJoin: arc.lineJoin,
+        lineStyle: arc.lineStyle,
+        command: arc,
+      );
       final rect = Rect.fromCircle(
         center: Offset(arc.x, arc.y),
         radius: arc.radius,
@@ -898,7 +922,6 @@ void _renderRecordedCommand(
           path.close();
       }
 
-      _configureShaderPaint(paint, arc);
       canvas.drawPath(path, paint);
     case final LoveTextCommand text:
       final wrapWidth = text.limit != null && text.limit! > 0
@@ -1459,7 +1482,7 @@ void _renderResolvedImage(
   );
   if (radialGradientOverlayPaint != null) {
     stats?.imageRadialOverlayLayers++;
-    canvas.saveLayer(destinationRect, Paint());
+    canvas.saveLayer(destinationRect, _loveEmptyLayerPaint);
   }
   if (registeredShaderPaint != null) {
     canvas.drawRect(destinationRect, registeredShaderPaint);
@@ -1706,7 +1729,7 @@ void _renderMeshCommand(
       meshBounds != null) {
     for (var instance = 0; instance < mesh.instanceCount; instance++) {
       stats?.meshCompositeLayers++;
-      canvas.saveLayer(meshBounds, Paint());
+      canvas.saveLayer(meshBounds, _loveEmptyLayerPaint);
       canvas.drawVertices(uiVertices, ui.BlendMode.srcOver, paint);
       if (texturedRgbTintOverlayPaint != null) {
         canvas.drawRect(meshBounds, texturedRgbTintOverlayPaint);
@@ -1725,7 +1748,7 @@ void _renderMeshCommand(
       if (texturedVertexAlphaTintOverlayPaint != null &&
           texturedAlphaTintVertices != null) {
         stats?.meshAlphaMaskLayers++;
-        canvas.saveLayer(meshBounds, Paint()..blendMode = BlendMode.dstIn);
+        canvas.saveLayer(meshBounds, _loveDstInLayerPaint);
         canvas.drawVertices(
           texturedAlphaTintVertices,
           ui.BlendMode.srcOver,
@@ -2050,6 +2073,30 @@ LoveColor _modulateLoveColor(LoveColor color, LoveColor tint) {
     color.b * tint.b,
     color.a * tint.a,
   ).clamped();
+}
+
+Paint _configureShapePaint(
+  Paint paint, {
+  required LoveColor color,
+  required PaintingStyle style,
+  required double lineWidth,
+  required LoveGraphicsLineJoin lineJoin,
+  required LoveGraphicsLineStyle lineStyle,
+  StrokeCap strokeCap = StrokeCap.butt,
+  LoveDrawCommand? command,
+}) {
+  paint
+    ..shader = null
+    ..color = _toFlutterColor(color)
+    ..style = style
+    ..strokeWidth = lineWidth
+    ..strokeCap = strokeCap
+    ..strokeJoin = _strokeJoinForLove(lineJoin)
+    ..isAntiAlias = _isAntiAliasForLove(lineStyle);
+  if (command != null) {
+    _configureShaderPaint(paint, command);
+  }
+  return paint;
 }
 
 void _configureShaderPaint(Paint paint, LoveDrawCommand command) {
@@ -2710,7 +2757,7 @@ void _renderSoftwarePatchSurface(
     format: 'rgba8',
     snapshot: surface,
   );
-  canvas.saveLayer(patchBounds, Paint()..blendMode = ui.BlendMode.src);
+  canvas.saveLayer(patchBounds, _loveSrcLayerPaint);
   canvas.translate(patchBounds.left, patchBounds.top);
   _renderImageData(canvas, imageData);
   canvas.restore();

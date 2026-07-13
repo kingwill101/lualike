@@ -885,8 +885,8 @@ LoveApiImplementation _bindGraphicsDrawLayer(
         colorMask: runtime.graphics.colorMask,
         wireframe: runtime.graphics.wireframe,
         scissor: runtime.graphics.scissor,
-        shader: runtime.graphics.currentShader,
-        transform: runtime.graphics.transform,
+        shader: runtime.graphics.shader,
+        transform: runtime.graphics.copyTransform(),
         drawTransform: _matrixFromTransformArgumentOrStandardTransform(
           args,
           startIndex,

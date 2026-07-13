@@ -756,10 +756,11 @@ LoveSoundData _queueLightUserdata(
 
   try {
     return LoveSoundData.fromPcmBytes(
-      bytes: bytes.sublist(offset, offset + length),
+      bytes: Uint8List.sublistView(bytes, offset, offset + length),
       sampleRate: sampleRate,
       bitDepth: bitDepth,
       channels: channels,
+      copyBytes: false,
     );
   } on ArgumentError catch (error) {
     throw LuaError(error.message.toString());

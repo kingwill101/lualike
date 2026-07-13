@@ -59,6 +59,7 @@ final class LoveSoundData extends LoveDataObject {
     required int sampleRate,
     required int bitDepth,
     required int channels,
+    bool copyBytes = true,
   }) {
     _validateSoundMetadata(
       sampleRate: sampleRate,
@@ -66,7 +67,9 @@ final class LoveSoundData extends LoveDataObject {
       channels: channels,
     );
 
-    final copied = Uint8List.fromList(bytes);
+    final copied = copyBytes
+        ? Uint8List.fromList(bytes)
+        : (bytes is Uint8List ? bytes : Uint8List.fromList(bytes));
     final frameByteSize = _soundFrameByteSize(
       bitDepth: bitDepth,
       channels: channels,
@@ -164,6 +167,7 @@ final class LoveSoundData extends LoveDataObject {
       sampleRate: sampleRate,
       bitDepth: bitDepth,
       channels: channels,
+      copyBytes: false,
     );
   }
 
@@ -347,7 +351,7 @@ LoveSoundData loveDecodeSoundFile({
 
 /// Decodes WAV data from [bytes].
 LoveSoundData _decodeWaveSoundData(List<int> bytes, {required String source}) {
-  final data = Uint8List.fromList(bytes);
+  final data = bytes is Uint8List ? bytes : Uint8List.fromList(bytes);
   if (!_looksLikeWave(data)) {
     throw ArgumentError('Invalid WAV file.');
   }
@@ -387,7 +391,7 @@ LoveSoundData _decodeWaveSoundData(List<int> bytes, {required String source}) {
           extensibleSubformatTag = _readUint16Le(data, dataOffset + 24);
         }
       case 'data':
-        pcmData = Uint8List.fromList(data.sublist(dataOffset, dataEnd));
+        pcmData = Uint8List.sublistView(data, dataOffset, dataEnd);
     }
 
     offset = dataEnd + (chunkSize.isOdd ? 1 : 0);
@@ -461,6 +465,7 @@ LoveSoundData _decodeWavePcmSoundData(
         sampleRate: sampleRate,
         bitDepth: bitDepth,
         channels: channels,
+        copyBytes: false,
       );
     case 24:
     case 32:
@@ -551,6 +556,7 @@ LoveSoundData _convertWaveSamplesTo16Bit(
     sampleRate: sampleRate,
     bitDepth: 16,
     channels: channels,
+    copyBytes: false,
   );
 }
 

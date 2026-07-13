@@ -3,18 +3,18 @@ part of '../love_api_bindings.dart';
 /// Whether verbose keyboard trace logging is enabled for debugging.
 const bool _loveTraceKeyboardLeak = bool.fromEnvironment(
   'LOVE2D_TRACE_TOUCH_LEAK',
-  defaultValue: true,
 );
 
 /// Emits a structured keyboard-binding trace when tracing is enabled.
 void _loveTraceKeyboard(
   String stage, {
-  Map<String, Object?> details = const {},
+  Map<String, Object?> Function()? detailsBuilder,
 }) {
   if (!_loveTraceKeyboardLeak) {
     return;
   }
 
+  final details = detailsBuilder?.call() ?? const <String, Object?>{};
   final message = details.entries
       .map((entry) => '${entry.key}=${entry.value}')
       .join(' ');
@@ -100,7 +100,7 @@ LoveApiImplementation _bindKeyboardIsDown(LibraryRegistrationContext context) {
       final result = runtime.keyboard.isDown(keys);
       _loveTraceKeyboard(
         'isDown',
-        details: <String, Object?>{
+        detailsBuilder: () => <String, Object?>{
           'rawArgs': rawArgs,
           'keys': keys,
           'touches': runtime.touch.getTouches(),
@@ -114,7 +114,7 @@ LoveApiImplementation _bindKeyboardIsDown(LibraryRegistrationContext context) {
     } catch (error) {
       _loveTraceKeyboard(
         'isDown.error',
-        details: <String, Object?>{
+        detailsBuilder: () => <String, Object?>{
           'rawArgs': rawArgs,
           'touches': runtime.touch.getTouches(),
           'scancodes': runtime.keyboard.pressedScancodes.toList(
@@ -236,7 +236,7 @@ List<String> _keyboardKeySequenceWithTouchState(
   final values = _stringSequence(args, symbol: symbol, coerceNumbers: true);
   _loveTraceKeyboard(
     'keySequence.begin',
-    details: <String, Object?>{
+    detailsBuilder: () => <String, Object?>{
       'symbol': symbol,
       'rawArgs': _loveDescribeKeyboardArgs(args),
       'values': values,
@@ -252,7 +252,7 @@ List<String> _keyboardKeySequenceWithTouchState(
     if (_isLeakedActiveTouchId(value, touch: touch)) {
       _loveTraceKeyboard(
         'keySequence.dropTouchId',
-        details: <String, Object?>{
+        detailsBuilder: () => <String, Object?>{
           'symbol': symbol,
           'value': value,
           'touches': touch?.getTouches(),
@@ -262,7 +262,7 @@ List<String> _keyboardKeySequenceWithTouchState(
     }
     _loveTraceKeyboard(
       'keySequence.invalid',
-      details: <String, Object?>{
+      detailsBuilder: () => <String, Object?>{
         'symbol': symbol,
         'value': value,
         'rawArgs': _loveDescribeKeyboardArgs(args),
@@ -273,7 +273,7 @@ List<String> _keyboardKeySequenceWithTouchState(
   }
   _loveTraceKeyboard(
     'keySequence.end',
-    details: <String, Object?>{'symbol': symbol, 'keys': keys},
+    detailsBuilder: () => <String, Object?>{'symbol': symbol, 'keys': keys},
   );
   return keys;
 }

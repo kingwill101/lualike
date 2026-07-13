@@ -2549,17 +2549,13 @@ sealed class LoveDrawCommand {
     required this.colorMask,
     required this.wireframe,
     required this.scissor,
-    LoveShader? shader,
-    required Matrix4 transform,
+    this.shader,
+    required this.transform,
     LoveGraphicsCompareMode? stencilCompare,
     int? stencilValue,
     this.stencilAction,
     int? stencilWriteValue,
-  }) : // Freeze live graphics state once here. Callers must pass the live
-       // transform/shader (not pre-copied/pre-snapshotted values).
-       shader = shader?.snapshot(),
-       transform = Matrix4.copy(transform),
-       stencilCompare = stencilCompare ?? LoveGraphicsCompareMode.always,
+  }) : stencilCompare = stencilCompare ?? LoveGraphicsCompareMode.always,
        stencilValue = stencilValue ?? 0,
        stencilWriteValue = stencilWriteValue ?? 1;
 
@@ -2735,8 +2731,8 @@ class LoveSpriteBatchCommand extends LoveDrawCommand {
     required super.transform,
     // Caller passes an owned matrix from transform helpers.
     required this.drawTransform,
-    required LoveSpriteBatch spriteBatch,
-  }) : spriteBatch = spriteBatch.copyForDraw();
+    required this.spriteBatch,
+  });
 
   final Matrix4 drawTransform;
   final LoveSpriteBatch spriteBatch;
@@ -2757,8 +2753,8 @@ class LoveParticleSystemCommand extends LoveDrawCommand {
     required super.transform,
     // Caller passes an owned matrix from transform helpers.
     required this.drawTransform,
-    required LoveParticleSystemSnapshot particleSystem,
-  }) : particleSystem = particleSystem.copy();
+    required this.particleSystem,
+  });
 
   final Matrix4 drawTransform;
   final LoveParticleSystemSnapshot particleSystem;
@@ -2779,12 +2775,12 @@ class LoveMeshCommand extends LoveDrawCommand {
     required super.transform,
     // Caller passes an owned matrix from transform helpers.
     required this.drawTransform,
-    required LoveMesh mesh,
+    required this.mesh,
     this.instanceCount = 1,
     this.pointSize = 1.0,
     required this.frontFaceWinding,
     required this.cullMode,
-  }) : mesh = mesh.copyForDraw();
+  });
 
   final LoveMesh mesh;
   final Matrix4 drawTransform;

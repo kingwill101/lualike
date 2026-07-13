@@ -153,8 +153,25 @@ final class LovePhysicsWorld {
     _bodies.where((body) => !body.isDestroyed),
   );
 
+  /// Iterates non-destroyed bodies without allocating a filtered list.
+  Iterable<LovePhysicsBody> get activeBodies sync* {
+    for (final body in _bodies) {
+      if (!body.isDestroyed) {
+        yield body;
+      }
+    }
+  }
+
   /// The number of active bodies in this world.
-  int get bodyCount => bodies.length;
+  int get bodyCount {
+    var count = 0;
+    for (final body in _bodies) {
+      if (!body.isDestroyed) {
+        count++;
+      }
+    }
+    return count;
+  }
 
   /// The number of active contacts currently tracked by forge2d.
   int get contactCount =>
@@ -207,10 +224,7 @@ final class LovePhysicsWorld {
   void translateOrigin(double x, double y) {
     _checkActive('world');
     final delta = state.scaleDownVectorXY(x, y);
-    for (final body in List<LovePhysicsBody>.from(_bodies)) {
-      if (body.isDestroyed) {
-        continue;
-      }
+    for (final body in activeBodies) {
       final position = body._body.position.clone()..sub(delta);
       body._body.setTransform(position, body._body.angle);
     }

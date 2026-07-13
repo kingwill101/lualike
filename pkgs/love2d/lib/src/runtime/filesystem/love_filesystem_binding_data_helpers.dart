@@ -12,7 +12,9 @@ Future<_LoveFilesystemMountedData?> _mountedDataIfPresent(
   if (fileData != null) {
     return _LoveFilesystemMountedData(
       sourceIdentity: fileData,
-      bytes: List<int>.from(fileData.bytes),
+      bytes: fileData.bytes is Uint8List
+          ? fileData.bytes as Uint8List
+          : Uint8List.fromList(fileData.bytes),
       archiveName: fileData.filename,
     );
   }
@@ -93,18 +95,16 @@ Future<List<int>> _dataBytes(
   String expectedTypeDescription = 'string or Data',
 }) async {
   final raw = value is Value ? value.raw : value;
+  final fileData = value != null ? _fileDataIfPresent(value) : null;
   final bytes = switch (raw) {
-    final LuaString stringValue => List<int>.from(stringValue.bytes),
-    final String stringValue => List<int>.from(
-      LuaString.fromDartString(stringValue).bytes,
-    ),
-    final num numberValue => List<int>.from(
-      LuaString.fromDartString(numberValue.toString()).bytes,
-    ),
-    final List<int> bytes => List<int>.from(bytes),
-    _ when value != null && _fileDataIfPresent(value) != null => List<int>.from(
-      _fileDataIfPresent(value)!.bytes,
-    ),
+    final LuaString stringValue => stringValue.bytes,
+    final String stringValue => LuaString.fromDartString(stringValue).bytes,
+    final num numberValue => LuaString.fromDartString(numberValue.toString()).bytes,
+    final Uint8List bytes => bytes,
+    final List<int> bytes => Uint8List.fromList(bytes),
+    _ when fileData != null => fileData.bytes is Uint8List
+      ? fileData.bytes as Uint8List
+      : Uint8List.fromList(fileData.bytes),
     _ => null,
   };
 
@@ -149,10 +149,8 @@ Value? _callableValue(Object? value) {
 List<int>? _stringBytes(Object? value) {
   final raw = value is Value ? value.raw : value;
   return switch (raw) {
-    final LuaString stringValue => List<int>.from(stringValue.bytes),
-    final String stringValue => List<int>.from(
-      LuaString.fromDartString(stringValue).bytes,
-    ),
+    final LuaString stringValue => stringValue.bytes,
+    final String stringValue => LuaString.fromDartString(stringValue).bytes,
     _ => null,
   };
 }

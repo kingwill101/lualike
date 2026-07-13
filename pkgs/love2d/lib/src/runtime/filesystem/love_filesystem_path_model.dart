@@ -403,10 +403,11 @@ List<String> _splitPathTemplates(String rawPath) {
 List<int> _bytesFromIODeviceValue(Object? value) {
   return switch (value) {
     null => const <int>[],
-    LuaString(:final bytes) => List<int>.from(bytes),
-    final String text => utf8.encode(text),
-    final List<int> bytes => List<int>.from(bytes),
-    _ => utf8.encode(value.toString()),
+    LuaString(:final bytes) => bytes,
+    final String text => Uint8List.fromList(utf8.encode(text)),
+    final Uint8List bytes => bytes,
+    final List<int> bytes => Uint8List.fromList(bytes),
+    _ => Uint8List.fromList(utf8.encode(value.toString())),
   };
 }
 
