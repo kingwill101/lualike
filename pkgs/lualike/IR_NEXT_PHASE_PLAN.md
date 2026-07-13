@@ -2,90 +2,75 @@
 
 ## Context
 
-We want the IR layer to be the optimization boundary and the bytecode VM to stay thin. The current codebase already has SSA scaffolding and several IR passes, but the contract is still fuzzy: some decisions happen in AST passes, some in the IR compiler, and some remain in bytecode lowering / VM helpers. That makes it hard to reason about performance and makes it easy for runtime work to leak back into the VM.
+We want the IR layer to be the optimization boundary and the bytecode VM to stay
+thin. SSA and the fold pipeline exist; the remaining work is making the
+IR→bytecode **contract** register-safe and debug-correct so `--lua-bytecode
+--fold` / `--compile` can stay on the full pipeline by default.
+
+Authoritative decisions: `doc/decisions.md` (IR contract + official bytecode
+locals + SSA safety notes).
 
 ## Approach
 
-1. Make the IR pipeline the single place where optimizations and shape decisions happen.
-2. Treat bytecode lowering as mechanical serialization of already-decided IR.
-3. Expand SSA coverage so the existing passes can actually remove redundant work before bytecode emission.
-4. Keep the VM focused on fast dispatch, register access, and explicit slow paths only.
+1. IR/SSA own optimization and shape decisions.
+2. Bytecode lowering only serializes finalized IR.
+3. VM stays thin: dispatch, registers, explicit slow paths.
+4. Debug metadata must survive serialize → parse → execute.
 
-## Files to modify
+## Done (2026-07-12)
 
-- `pkgs/lualike/lib/src/compile/pipeline.dart`
-- `pkgs/lualike/lib/src/ir/compiler.dart`
-- `pkgs/lualike/lib/src/ir/bytecode_lowering.dart`
-- `pkgs/lualike/lib/src/ir/opcode.dart`
-- `pkgs/lualike/lib/src/ir/ssa.dart`
-- `pkgs/lualike/lib/src/ir/ssa_dead_code_pass.dart`
-- `pkgs/lualike/lib/src/ir/ssa_gvn_pass.dart`
-- `pkgs/lualike/lib/src/ir/ssa_sccp_pass.dart`
-- `pkgs/lualike/lib/src/ir/ssa_licm_pass.dart`
-- `pkgs/lualike/lib/src/ir/ssa_coalesce_pass.dart`
-- `pkgs/lualike/lib/src/ir/ssa_escape_pass.dart`
-- `pkgs/lualike/lib/src/ir/inline_pass.dart`
-- `pkgs/lualike/lib/src/ir/peephole_pass.dart`
-- `pkgs/lualike/lib/src/lua_bytecode/vm.dart`
-- `pkgs/lualike/lib/src/lua_bytecode/vm_call.dart`
-- `pkgs/lualike/lib/src/lua_bytecode/vm_frame.dart`
-- `pkgs/lualike/lib/src/lua_bytecode/vm_tables.dart`
-- `pkgs/lualike/test/compiler_passes_test.dart`
-- `pkgs/lualike/test/constant_folding_test.dart`
-- `pkgs/lualike/test/ir/*`
-- `pkgs/lualike/test/lua_bytecode/source_engine_test.dart`
+- [x] Document IR contract (optimize → lower mechanically → execute thinly).
+- [x] Infer local registers after parse (`inferLocalRegisters`).
+- [x] Force main `lineDefined = 0` in IR→bytecode lowering.
+- [x] Coalesce: multi-reg CALL/RETURN reads + interference on MOVE.
+- [x] GVN: invalidate value numbers when registers are redefined.
+- [x] DCE: pin named debug-local registers.
+- [x] SCCP: only rewrite foldable ops; kill constants on redef.
+- [x] Regression tests: `test/lua_bytecode/local_register_inference_test.dart`.
+- [x] Dartdoc / comments on the above so we do not re-break them.
 
-## Reuse
+## Remaining work
 
-- SSA builder/formatter: `lib/src/ir/ssa.dart`, `lib/ir.dart`
-- Existing SSA passes: `ssa_dead_code_pass.dart`, `ssa_gvn_pass.dart`, `ssa_sccp_pass.dart`, `ssa_licm_pass.dart`, `ssa_coalesce_pass.dart`, `ssa_escape_pass.dart`
-- Function inlining: `lib/src/ir/inline_pass.dart`
-- Current mechanical lowering: `lib/src/ir/bytecode_lowering.dart`
-- Current IR compiler emitters: `lib/src/ir/compiler.dart`
-- Existing bytecode peephole: `lib/src/lua_bytecode/peephole_pass.dart`
+### 1. Keep SSA safe for bytecode limits
 
-## Steps
+- No virtual temp explosion past 8-bit operand/register limits.
+- Escape / coalesce / LICM / GVN / DCE must not produce unlowerable shapes.
+- Prefer loud diagnostics at the SSA→lower boundary over bad chunks.
 
-- [ ] Step 1: Define the IR contract
-  - Decide and document what must be finalized before lowering: register assignment, call shape, closure capture, jump targets, and opcode specialization.
-  - Keep this in docs/decisions or the IR README so the compiler and VM stay aligned.
+### 2. Make lowering fully mechanical
 
-- [ ] Step 2: Make SSA the optimization boundary
-  - Ensure the existing SSA passes run in a consistent, intentional order on every prototype.
-  - Make sure recursive prototypes are handled uniformly.
-  - Verify trivial phi removal, DCE, GVN, SCCP, LICM, coalescing, escape analysis, and inlining all feed into the same lowered output.
+- Audit for remaining bytecode-only “fixups”/heuristics.
+- Prefer specialized opcodes decided in IR over VM inference.
 
-- [ ] Step 3: Move any remaining shape decisions upstream
-  - Audit `LualikeIrCompiler` for places where it still emits high-level behavior that should be resolved earlier.
-  - Prefer specialized opcodes and explicit slow-path instructions over VM inference.
-  - Keep `bytecode_lowering.dart` purely translational.
+### 3. Preserve full debug metadata
 
-- [ ] Step 4: Thin the VM hot path
-  - Remove or reduce helper-layer work in `vm.dart`, `vm_call.dart`, and `vm_frame.dart` where the IR can already provide the answer.
-  - Focus on raw register access, explicit fast opcodes, and minimizing allocation/async work in dispatch.
+- `debug.getinfo`, upvalue names, source/line tables, active lines.
+- Drive remaining gaps with focused cases from `locals.lua` / `db.lua`.
+- Consider private trailing register extension on serialize if stack
+  inference is insufficient for non-stack local layouts.
 
-- [ ] Step 5: Add contract tests
-  - Add tests proving the IR output changes before lowering.
-  - Add tests proving bytecode lowering preserves the IR’s decisions.
-  - Add regression tests for closure/calls/sort/heavy workloads and for nested prototypes.
+### 4. Re-enable full pipeline for bytecode by default
 
-- [ ] Step 6: Benchmark and profile
-  - Compare AST, IR, and bytecode modes on `closure.lua`, `calls.lua`, `sort.lua`, and `heavy.lua`.
-  - Check both compiled and direct `.lub` execution.
-  - Use profiling to confirm the hotspot moves from compiler/VM helpers into the expected thin dispatch loop.
+- Once (1–3) hold, `--lua-bytecode` / `--compile` / `LuaLike.compile` can
+  always trust IR-generated bytecode with SSA on.
+- Today: fold path uses full pipeline; non-fold direct emitter remains the
+  fast/stable path for interactive runs.
+
+## Key files
+
+| Area | Path |
+|------|------|
+| Pipeline | `lib/src/compile/pipeline.dart`, `lib/src/executor.dart` |
+| IR compiler / lower | `lib/src/ir/compiler.dart`, `lib/src/ir/bytecode_lowering.dart` |
+| SSA | `lib/src/ir/ssa*.dart` |
+| Parse / locals | `lib/src/lua_bytecode/parser.dart`, `debug_local_caches.dart` |
+| Decisions | `doc/decisions.md` |
 
 ## Verification
 
-- `dart analyze`
-- `dart test`
-- `./lualike luascripts/test/closure.lua`
-- `./lualike luascripts/test/calls.lua`
-- `./lualike luascripts/test/sort.lua`
-- `./lualike luascripts/test/heavy.lua`
-- `./lualike --compile -o /tmp/out.lub luascripts/test/closure.lua`
-- `./lualike /tmp/out.lub --lua-bytecode`
-- Profile before/after with the existing DevTools workflow and compare hot spots in the bytecode VM versus IR compilation.
-
-## Notes
-
-This plan intentionally prioritizes the IR contract before any deeper VM rewrite. If the IR stays high-level, a thinner VM won’t help much. If the IR becomes sufficiently explicit, the VM can stay simple and fast.
+```sh
+dart analyze
+dart test test/lua_bytecode/local_register_inference_test.dart
+# Optional broader:
+dart run bin/main.dart --lua-bytecode --fold -e 'local a=10; print(debug.getlocal(1,1))'
+```

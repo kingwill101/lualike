@@ -123,7 +123,12 @@ class LualikeIrDebugInfo {
   final String preferredNameWhat;
 }
 
-/// Local variable debug entry.
+/// Local variable debug entry attached to an IR prototype.
+///
+/// [register] must stay accurate through SSA: DCE pins pure stores into these
+/// registers so `debug.getlocal` still sees values. Lowering copies this into
+/// [LuaBytecodeLocalVariableDebugInfo]; serialize drops register, parse
+/// re-infers (see `debug_local_caches.dart`).
 class LocalDebugEntry {
   const LocalDebugEntry({
     required this.name,
@@ -135,6 +140,8 @@ class LocalDebugEntry {
   final String name;
   final int startPc;
   final int endPc;
+
+  /// Stack slot for this local, or null if not yet assigned.
   final int? register;
 }
 

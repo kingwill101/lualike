@@ -1,3 +1,13 @@
+/// Regression coverage for debug locals across serialize/load and the fold SSA
+/// pipeline.
+///
+/// Guards:
+/// * [inferLocalRegisters] stack discipline
+/// * parse-time register recovery after serialize
+/// * main `lineDefined == 0`
+/// * full SSA fold path still usable for `debug.getlocal`
+///
+/// See `doc/decisions.md` and `IR_NEXT_PHASE_PLAN.md`.
 @TestOn('!browser')
 @Tags(['lua_bytecode'])
 library;

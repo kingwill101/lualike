@@ -56,18 +56,28 @@ final class CompilePipelineConfig {
   final bool enablePeephole;
 
   /// Whether to run SSA-based dead code elimination on the IR.
+  ///
+  /// Keeps pure stores into named debug-local registers (see
+  /// `ssa_dead_code_pass.dart`).
   final bool enableSsaDeadCodeElimination;
 
   /// Whether to run SSA Global Value Numbering on the IR.
+  ///
+  /// Must invalidate value-number sources on register redefs (CALL, etc.).
   final bool enableSsaGlobalValueNumbering;
 
   /// Whether to run Sparse Conditional Constant Propagation on the IR.
+  ///
+  /// Apply phase must only rewrite foldable ops, not every write to a reg
+  /// that once held a constant (see `ssa_sccp_pass.dart`).
   final bool enableSsaSccp;
 
   /// Whether to run Loop Invariant Code Motion on the IR.
   final bool enableSsaLicm;
 
   /// Whether to run Register Coalescing on the IR.
+  ///
+  /// Must model CALL/RETURN multi-register reads or call args break.
   final bool enableSsaCoalesce;
 
   /// Whether to run Escape Analysis + Scalar Replacement on the IR.

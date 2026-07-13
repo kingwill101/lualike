@@ -1,24 +1,22 @@
 /// Sparse Conditional Constant Propagation (SCCP) pass for the lualike IR.
 ///
-/// Propagates known constants through the SSA graph using a lattice-based
-/// worklist algorithm. When all operands of an instruction are known constants,
-/// the instruction is folded to its result. Dead branches whose conditions
-/// are constant are eliminated.
+/// Propagates integer constants through pure ops and rewrites foldable
+/// instructions to `LOADI` when safe.
 ///
-/// The lattice for each SSA value has three states:
-///   ⊤ (unknown)  →  constant(value)  →  ⊥ (non-constant / varying)
+/// ## Critical safety rules (do not regress)
 ///
-/// ## Algorithm
+/// 1. **Lattice is register-keyed (not full SSA value identity).** Process
+///    instructions in program order and **kill** constants when a register is
+///    redefined by a non-foldable op (`GETTABUP`, `CALL`, etc.).
+/// 2. **Apply only rewrites that fold the instruction itself.** Never replace
+///    every write to a register that "currently holds a constant" — that turned
+///    `GETTABUP print` / `CALL print` into `LOADI 10` after R1 was reused for
+///    `local a = 10`.
 ///
-/// 1. Initialize all SSA values at ⊤
-/// 2. Process instructions via a worklist:
-///    - If all operands are constant, fold to constant
-///    - If any operand is ⊥, mark result as ⊥
-///    - Propagate to users of the result
-/// 3. Process phi nodes: merge incoming values
-/// 4. Process branches: when condition is constant, mark dead successors
-/// 5. Replace known-constant instructions with LOADK/LOADI
-/// 6. Remove dead blocks
+/// A fuller SSA-value lattice + dead-branch elimination is still future work;
+/// this pass must stay correct on the register-reuse patterns the IR emits.
+///
+/// Lattice states: ⊤ (unknown) → constant(int) → killed back to ⊤ on redef.
 library;
 
 import 'instruction.dart';
@@ -147,7 +145,9 @@ int _resultReg(LualikeIrInstruction inst, int registerCount) {
   return (r >= 0 && r < registerCount) ? r : -1;
 }
 
-/// Runs SCCP on an IR prototype.
+/// Runs SCCP on [prototype] and nested prototypes.
+///
+/// Bounded iterations; returns the last stable form.
 LualikeIrPrototype runSccp(LualikeIrPrototype prototype) {
   var current = prototype;
   for (var iter = 0; iter < 5; iter++) {

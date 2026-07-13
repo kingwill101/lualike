@@ -1,26 +1,24 @@
 /// SSA-based dead code elimination pass for the lualike IR.
 ///
-/// Uses the SSA form's `unusedDefinitions` to identify instructions whose
-/// result register is never consumed, and removes them when safe.
-///
-/// This pass runs on `LualikeIrPrototype` (post-emission) and works by:
-///   1. Building SSA form for the prototype
-///   2. Scanning for pure instructions whose output is never used
-///   3. Removing those instructions from the instruction list
-///   4. Iterating until no more dead code is found
+/// Uses SSA `unusedDefinitions` to drop pure instructions whose results are
+/// never consumed. Iterates until a fixed point.
 ///
 /// ## Safety
 ///
-/// Only instructions with no side effects are eliminated:
-///   - Loads (LOADI, LOADF, LOADK, LOADKX, LOADNIL, LOADTRUE, LOADFALSE, LFALSESKIP)
-///   - Moves (MOVE)
-///   - Arithmetic (ADD, SUB, MUL, DIV, MOD, POW, IDIV, etc. + K/I variants)
-///   - Unary (UNM, BNOT, NOT)
-///   - Length (LEN) — generally pure; metamethod fallback ok to drop
-///   - Concat (CONCAT) — pure string concat
+/// Only pure opcodes in [_pureOpcodes] are removed. Calls, stores, jumps, etc.
+/// are never eliminated.
 ///
-/// Side-effecting instructions (calls, table stores, upvalue writes, jumps, etc.)
-/// are never removed.
+/// ## Debug locals (do not regress)
+///
+/// `debug.getlocal` observes named locals even when the Lua program never
+/// *reads* them. Example:
+/// ```lua
+/// local a = 10
+/// print(debug.getlocal(1, 1))  -- needs the store of 10
+/// ```
+/// Treating that store as dead leaves the name visible but the value nil.
+/// [_debugLiveRegisters] therefore pins registers listed in IR debug
+/// [LocalDebugEntry]s so their defining pure stores survive DCE.
 library;
 
 import 'instruction.dart';

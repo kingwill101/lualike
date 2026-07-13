@@ -9,10 +9,17 @@ import 'package:lualike/src/lua_bytecode/opcode.dart';
 
 /// Mechanically lowers finalized lualike IR into Lua 5.4 bytecode.
 ///
-/// This function is intentionally not an optimization pass. By the time a
-/// chunk reaches this layer, all register allocation, call-shape decisions,
-/// closure capture decisions, and control-flow shaping should already be
-/// encoded in the IR.
+/// This is **not** an optimization pass. By the time a chunk reaches this
+/// layer, register allocation, call shape, closure capture, and control flow
+/// must already be decided in IR/SSA (see `doc/decisions.md` IR contract).
+///
+/// Debug obligations at this boundary:
+/// * Copy IR [LocalDebugEntry] ranges through [pcMap] remapping.
+/// * Preserve [LocalDebugEntry.register] so in-memory prototypes work before
+///   serialize; after load, [inferLocalRegisters] recovers them again.
+/// * Force main [LuaBytecodePrototype.lineDefined] to `0` (Lua main chunk
+///   convention) so the VM does not treat main as a regular function and inject
+///   a synthetic `(vararg table)` local for `debug.getlocal`.
 LuaBytecodeBinaryChunk lowerIrChunkToLuaBytecodeChunk(
   LualikeIrChunk chunk, {
   String? chunkName,
@@ -34,8 +41,11 @@ LuaBytecodeBinaryChunk lowerIrChunkToLuaBytecodeChunk(
 
 /// Lowers one finalized IR prototype to a Lua bytecode prototype.
 ///
-/// The lowering step only remaps finalized IR instructions and metadata into
-/// bytecode fields; it should not choose new semantics or perform new analysis.
+/// Only remaps finalized IR instructions and metadata into bytecode fields.
+/// Do not add new analyses or heuristics here — put them in IR/SSA instead.
+///
+/// When [isMainPrototype] is true, [lineDefined] is forced to `0` regardless
+/// of IR source lines (required for correct main-chunk debug behavior).
 LuaBytecodePrototype lowerIrPrototypeToLuaBytecodePrototype(
   LualikeIrPrototype prototype, {
   required String sourceName,
@@ -95,6 +105,7 @@ LuaBytecodePrototype lowerIrPrototypeToLuaBytecodePrototype(
     instructions.length,
     pcMap,
   );
+  // Keep register + remapped PCs. Serialize drops register; parse re-infers.
   final locals = List<LuaBytecodeLocalVariableDebugInfo>.unmodifiable(
     (debugInfo?.localNames ?? const <LocalDebugEntry>[]).map(
       (entry) => LuaBytecodeLocalVariableDebugInfo(

@@ -198,6 +198,13 @@ final class LuaBytecodeAbsLineInfo {
   final int line;
 }
 
+/// Debug metadata for one local variable in a prototype.
+///
+/// Official Lua chunks serialize only name / startPc / endPc.
+/// [register] is lualike-only in-memory state: the direct emitter and IR
+/// lowering set it, but parse starts with `null` until
+/// `inferLocalRegisters` (in `debug_local_caches.dart`) fills it.
+/// Debug tables skip null-register entries — always infer after load.
 final class LuaBytecodeLocalVariableDebugInfo {
   const LuaBytecodeLocalVariableDebugInfo({
     required this.name,
@@ -206,9 +213,18 @@ final class LuaBytecodeLocalVariableDebugInfo {
     this.register,
   });
 
+  /// Source name, or a synthetic name like `(temporary)`.
   final String? name;
+
+  /// First PC where this local is active (inclusive).
   final int startPc;
+
+  /// First PC where this local is dead (exclusive), matching Lua LocVar.endpc.
   final int endPc;
+
+  /// Stack slot holding the local, or `null` until inferred/assigned.
+  ///
+  /// Not present in the official binary format.
   final int? register;
 }
 
@@ -294,9 +310,7 @@ final class LuaBytecodePrototype {
   }
 
   List<Opcode> _buildOpcodesByPc() {
-    return List<Opcode>.unmodifiable(
-      [for (final word in code) word.opcode],
-    );
+    return List<Opcode>.unmodifiable([for (final word in code) word.opcode]);
   }
 }
 

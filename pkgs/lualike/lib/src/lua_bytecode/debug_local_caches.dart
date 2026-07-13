@@ -1,7 +1,23 @@
+/// Debug-local caches and register inference for Lua bytecode prototypes.
+///
+/// Official Lua 5.x chunks store locals as `(name, startPc, endPc)` only.
+/// This VM needs a stack **register** for each local so
+/// `debug.getlocal` / `debug.setlocal` can read frame slots.
+///
+/// After [LuaBytecodeReader.readChunk] parses a chunk, call
+/// [prototypeWithInferredLocalRegisters] (done automatically in the reader)
+/// so reloaded pipeline/`--fold` chunks keep working.
+///
+/// See also: `doc/decisions.md` ("Official bytecode omits local registers").
+library;
+
 import 'package:lualike/src/lua_bytecode/chunk.dart';
 import 'package:lualike/src/lua_bytecode/opcode.dart';
 
 /// Active debug local window at a given PC.
+///
+/// [locals] are named entries live at that PC; [registers] is the set of
+/// stack slots they occupy (used to hide those slots from temporary listing).
 typedef LuaBytecodeDebugLocalWindow = ({
   List<LuaBytecodeLocalVariableDebugInfo> locals,
   Set<int> registers,
@@ -429,12 +445,24 @@ List<Set<int>> environmentRegistersByPcFor(LuaBytecodePrototype prototype) {
   return snapshots;
 }
 
-/// Recover per-local registers missing from official Lua debug sections.
+/// Recovers per-local stack registers missing from official Lua debug sections.
 ///
 /// Official chunks only store `(name, startPc, endPc)`. Lua locals form a
-/// stack of active slots, so the n-th active local at any PC lives in
-/// register `n - 1`. Simulating that stack over each local's birth recovers
-/// the register the compiler assigned when the local entered scope.
+/// **stack** of active slots (PUC-Rio `actvar`): the n-th active local at any
+/// PC lives in register `n - 1`. This simulates that stack at each local's
+/// birth so [LuaBytecodeLocalVariableDebugInfo.register] is filled.
+///
+/// **Why this exists:** serialize → parse strips registers (not in the binary
+/// format). Without inference, `debug_local_caches` skips `register == null`
+/// entries and `debug.getlocal` returns nothing after `--fold` / pipeline load.
+///
+/// **Invariant assumed:** lifetimes nest like a stack (block-scoped locals).
+/// That matches both the direct emitter and the IR compiler's local allocator.
+/// If a future pass assigns non-stack local registers, prefer emitting an
+/// explicit register extension on serialize instead of relying only on this.
+///
+/// Locals that already have [LuaBytecodeLocalVariableDebugInfo.register] set
+/// are left unchanged; only `null` slots are filled.
 List<LuaBytecodeLocalVariableDebugInfo> inferLocalRegisters(
   List<LuaBytecodeLocalVariableDebugInfo> locals,
 ) {
@@ -445,6 +473,7 @@ List<LuaBytecodeLocalVariableDebugInfo> inferLocalRegisters(
     return locals;
   }
 
+  // Process births in startPc order (stable by original index on ties).
   final order = List<int>.generate(locals.length, (index) => index)
     ..sort((left, right) {
       final startOrder = locals[left].startPc.compareTo(locals[right].startPc);
@@ -455,16 +484,18 @@ List<LuaBytecodeLocalVariableDebugInfo> inferLocalRegisters(
     });
 
   final registers = <int?>[for (final local in locals) local.register];
-  // Stack of currently live locals (Lua actvar): only the top dies first.
+  // Indices of currently live locals; only the top of the stack dies first.
   final active = <int>[];
 
   for (final index in order) {
     final local = locals[index];
+    // endPc is the first PC where the local is dead (Lua LocVar convention).
     while (active.isNotEmpty && locals[active.last].endPc <= local.startPc) {
       active.removeLast();
     }
 
     if (registers[index] == null) {
+      // Depth on the actvar stack == register index under stack discipline.
       registers[index] = active.length;
     }
     active.add(index);
@@ -481,7 +512,10 @@ List<LuaBytecodeLocalVariableDebugInfo> inferLocalRegisters(
   ];
 }
 
-/// Returns [prototype] with inferred local registers on this node and children.
+/// Returns [prototype] with [inferLocalRegisters] applied recursively.
+///
+/// Prefer calling this once at chunk-load time (see [LuaBytecodeReader.readChunk])
+/// rather than ad hoc in the VM, so all debug caches see consistent registers.
 LuaBytecodePrototype prototypeWithInferredLocalRegisters(
   LuaBytecodePrototype prototype,
 ) {

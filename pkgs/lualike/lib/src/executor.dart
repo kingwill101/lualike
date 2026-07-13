@@ -59,8 +59,13 @@ Future<Object?> executeCode(
       throw Exception(semanticError);
     }
 
-    // When constant folding is enabled for bytecode engines, compile through
-    // the multi-pass pipeline instead of the runtime's built-in runAst.
+    // --fold / foldEnabled: compile through CompilePipeline (IR + SSA) then
+    // load serialized bytecode. That path depends on:
+    //   * SSA passes staying register-safe (CALL multi-reg, GVN kills, etc.)
+    //   * parse-time local register inference after serialize
+    //   * main lineDefined == 0 from IR lowering
+    // See doc/decisions.md (IR contract + official bytecode locals).
+    // Direct --lua-bytecode without fold uses the emitter via runAst instead.
     final folding = foldEnabled ?? LuaLikeConfig().foldEnabled;
     if (folding && selectedMode != EngineMode.ast) {
       final backend = switch (selectedMode) {
@@ -68,6 +73,8 @@ Future<Object?> executeCode(
         EngineMode.ir => CompileBackend.lualikeIR,
         _ => CompileBackend.luaBytecode,
       };
+      // SSA is only enabled for the lua-bytecode backend today: the pure IR
+      // VM cannot execute some post-SSA instruction shapes.
       final enableSsa = backend == CompileBackend.luaBytecode;
       final pipeline = CompilePipeline(
         config: CompilePipelineConfig(
@@ -76,9 +83,12 @@ Future<Object?> executeCode(
           enableSsaDeadCodeElimination: enableSsa,
           enableSsaGlobalValueNumbering: enableSsa,
           enableSsaSccp: enableSsa,
-          enableSsaLicm: true,
-          enableSsaCoalesce: true,
-          enableSsaEscape: true,
+          // LICM/coalesce/escape currently follow the fold path for bytecode
+          // even when enableSsa is false for IR — keep them tied to enableSsa
+          // if the IR backend is ever given a different pipeline.
+          enableSsaLicm: enableSsa,
+          enableSsaCoalesce: enableSsa,
+          enableSsaEscape: enableSsa,
           dumpIr: LuaLikeConfig().dumpIr,
           target: backend,
         ),

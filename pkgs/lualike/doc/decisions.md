@@ -256,6 +256,8 @@ and coroutine-resume paths that still use it.
 - math.lua: 2.76s → 2.28s (−17%)
 - Combined absolute improvement vs baseline: calls.lua −71%, math.lua −76%
 
+---
+
 ## Official bytecode omits local registers; recover on parse
 
 **Date:** 2026‑07‑12  
@@ -266,17 +268,37 @@ Our VM debug tables require `register`. Pipeline compile → serialize → load
 therefore dropped registers and `debug.getlocal` returned nil after fold.
 
 **Decision:** After parsing a chunk, infer registers with Lua's stack discipline
-(`inferLocalRegisters` / `prototypeWithInferredLocalRegisters`): active locals
-form consecutive slots, and a local's register is its depth on that stack at
-birth. Also force main prototype `lineDefined = 0` on IR→bytecode lowering so
-main chunks are not treated as regular Lua functions (which inject a synthetic
-`(vararg table)` local).
+(`inferLocalRegisters` / `prototypeWithInferredLocalRegisters` in
+`lib/src/lua_bytecode/debug_local_caches.dart`): active locals form consecutive
+slots, and a local's register is its depth on that stack at birth. Also force
+main prototype `lineDefined = 0` on IR→bytecode lowering so main chunks are not
+treated as regular Lua functions (which inject a synthetic `(vararg table)`
+local for `debug.getlocal`).
 
-**Related SSA safety fixes (same change):**
-- Coalesce must treat CALL/RETURN/CONCAT multi-register windows as reads and
-  refuse to coalesce interfering arg slots.
-- GVN must invalidate value-number sources when registers are redefined.
-- DCE must keep stores into named debug local registers.
-- SCCP must only rewrite instructions that themselves fold, never every write
-  to a register that once held a constant.
+**Where this is wired:**
+- Parse: `LuaBytecodeReader.readChunk` always runs inference on the main tree.
+- Lowering: `lowerIrPrototypeToLuaBytecodePrototype` forces main `lineDefined=0`
+  and copies IR local registers/PCs (PCs remapped through the lowerer's pcMap).
+- Fold path: `executeCode` with `foldEnabled` uses `CompilePipeline` then
+  `loadBytecode(serializedBytes)` — inference is mandatory for that path.
+
+**Related SSA safety fixes (same change set):**
+- **Coalesce:** treat CALL/RETURN/CONCAT multi-register windows as reads;
+  refuse to coalesce when src and dst both live as distinct call args
+  (`ssa_coalesce_pass.dart`).
+- **GVN:** invalidate value-number sources when registers are redefined
+  (`ssa_gvn_pass.dart`) — otherwise a second `GETTABUP debug` reuses a register
+  that CALL already overwrote with a string.
+- **DCE:** keep pure stores into named debug-local registers
+  (`ssa_dead_code_pass.dart`) so `local a = 10` is not dropped when only
+  observed via `debug.getlocal`.
+- **SCCP:** only rewrite instructions that themselves fold; never every write
+  to a register that once held a constant (`ssa_sccp_pass.dart`).
+
+**Regression tests:**
+`test/lua_bytecode/local_register_inference_test.dart`
+
+**Still open:** full `locals.lua` / `db.lua` under fold; 8-bit register budget
+for SSA temps; optional private serialize extension if stack inference is ever
+insufficient.
 

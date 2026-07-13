@@ -1,15 +1,21 @@
 /// Global Value Numbering (GVN) pass for the lualike IR.
 ///
-/// Eliminates redundant computations by detecting when two instructions
-/// compute the same operation on the same SSA values. The later instruction
-/// is replaced with a MOVE from the earlier result.
+/// Eliminates redundant pure computations: when two instructions compute the
+/// same operation on the same operand values, the later one becomes
+/// `MOVE dest, earlierResult`.
 ///
-/// Walks instructions in program order through the SSA function. For each
-/// instruction computes a "value key" from (opcode, operand SSA values).
-/// When a key repeats, the instruction is redundant — replace it with a
-/// MOVE referencing the original result register.
+/// ## Critical safety rule (do not regress)
 ///
-/// Only pure instructions (no side effects) are considered.
+/// Value numbers are keyed by pure expression shape and map to a **source
+/// register**. After `CALL` (or any def) clobbers that register, the map entry
+/// is stale. Without invalidation, a second `GETTABUP _ENV,"debug"` was
+/// rewritten to reuse a register that now held a getlocal *result string*,
+/// producing `attempt to call field 'getlocal' (a nil value)`.
+///
+/// Always drop value-number map entries whose source register is redefined
+/// before reusing a value number.
+///
+/// Only pure opcodes in the pure-opcode set are considered.
 library;
 
 import 'instruction.dart';
@@ -166,12 +172,12 @@ LualikeIrPrototype? _runOnce(LualikeIrPrototype prototype) {
   // Build SSA form to get value labels
   final ssa = LualikeIrSsaFunction.fromPrototype(prototype);
 
-  // Map value keys -> source register that holds the result
+  // Pure-expression key → register currently holding that value.
+  // Must be invalidated when any of those registers is redefined.
   final valueToSourceReg = <String, int>{};
 
-  // Walk all instruction PCs in order, tracking SSA labels per register
+  // Walk PCs in order, tracking SSA labels per register.
   final ssaLabels = <int, String>{}; // register -> label
-  // Initialize from entry values
   for (final block in ssa.blocks) {
     if (block.block.index == 0) {
       for (final entry in block.entryValues.entries) {
@@ -180,11 +186,10 @@ LualikeIrPrototype? _runOnce(LualikeIrPrototype prototype) {
     }
   }
 
-  // Replacement map: pc -> source register to MOVE from
+  // Replacement map: pc -> source register to MOVE from.
   final replacements = <int, int>{};
 
   for (final block in ssa.blocks) {
-    // Update SSA labels from block entry
     for (final entry in block.entryValues.entries) {
       ssaLabels[entry.key] = entry.value.label;
     }
@@ -198,28 +203,26 @@ LualikeIrPrototype? _runOnce(LualikeIrPrototype prototype) {
 
         if (existingReg != null) {
           final targetReg = _resultReg(inst, registerCount);
-          // Only reuse if the source register still holds that value.
+          // Reuse only while the source register still holds that value.
           final existingLabel = ssaLabels[existingReg];
           if (targetReg >= 0 &&
               existingLabel != null &&
               valueToSourceReg[key] == existingReg) {
             replacements[pc] = existingReg;
-            // Update labels: targetReg now holds the same value as existingReg
             ssaLabels[targetReg] = existingLabel;
-            continue; // skip operand tracking — replaced
+            continue;
           }
         }
 
-        // Record the result register for this key
         final targetReg = _resultReg(inst, registerCount);
         if (targetReg >= 0) {
           valueToSourceReg[key] = targetReg;
         }
       }
 
-      // Update SSA labels: defined registers get new labels.
-      // Also drop value-number entries whose source register was clobbered
-      // (CALL/LOAD/etc. must invalidate prior pure results in those regs).
+      // Apply defs for this PC: new SSA labels + kill stale value numbers.
+      // Example failure without kill: GETTABUP debug → CALL overwrites R4 →
+      // later GETTABUP debug reuses R4 which now holds the string "a".
       final instLabels = <int, String>{};
       final definedRegs = <int>{};
       for (final value in block.definedValues) {

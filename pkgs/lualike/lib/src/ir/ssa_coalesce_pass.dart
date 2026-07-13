@@ -1,19 +1,37 @@
-/// Register Coalescing pass for the lualike IR.
+/// Register coalescing pass for the lualike IR.
 ///
-/// Eliminates MOVE instructions by forwarding uses of the destination register
-/// to the source register when the source isn't modified in between.
-/// Reduces instruction count and register pressure.
+/// Eliminates `MOVE dst, src` by renaming later uses of `dst` to `src` when
+/// safe, then deleting dead moves. Reduces instruction count and pressure.
+///
+/// ## Critical safety rule (do not regress)
+///
+/// Lua `CALL` / `RETURN` / `CONCAT` / `SETLIST` use **register ranges**, not
+/// just the B/C fields. Example: `CALL A B C` with `B == 3` reads
+/// `R(A)`, `R(A+1)`, `R(A+2)` as callee + two args.
+///
+/// GVN often turns a second identical `LOADI 1` into `MOVE R4, R3` so both
+/// call args hold the same constant. Coalesce **must not** delete that MOVE
+/// just because field-level B/C don't mention R4 — otherwise
+/// `debug.getlocal(1, 1)` loses its second argument and returns nil.
+///
+/// [_reads] therefore expands multi-register windows, and coalescing aborts
+/// when src and dst are both live as distinct operands of the same later op.
 library;
 
 import 'instruction.dart';
 import 'opcode.dart';
 import 'prototype.dart';
 
+/// Coalesces register-to-register MOVEs in [prototype] and nested protos.
+///
+/// Runs a bounded number of iterations until a fixed point.
 LualikeIrPrototype coalesceRegisters(LualikeIrPrototype prototype) {
   var current = prototype;
   for (var iter = 0; iter < 10; iter++) {
     final result = _runCoalesceOnce(current);
-    if (result == null) return current;
+    if (result == null) {
+      return current;
+    }
     current = result;
   }
   return current;
@@ -229,7 +247,8 @@ LualikeIrPrototype? _runCoalesceOnce(LualikeIrPrototype prototype) {
         break;
       }
       final reads = _reads(later, registerCount);
-      // Both src and dst live as distinct operands (e.g. CALL args) — keep MOVE.
+      // Interference: e.g. CALL needs R3 and R4 both live as consecutive args.
+      // Deleting MOVE R4,R3 would leave R4 uninitialized. Keep the MOVE.
       if (reads.contains(dst) && reads.contains(src)) {
         interferes = true;
         break;
