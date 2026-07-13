@@ -697,8 +697,10 @@ class _PrototypeContext {
 
     final valueCount = valueRegs.length;
 
-    // Fast path: values already in a contiguous block — use the lowest
-    // register as the return base and skip the MOVEs.
+    // Fast path: when all result values sit in a contiguous block of
+    // registers (e.g. computed by sequential arithmetic ops), return
+    // directly from that block instead of MOVing everything to a fresh
+    // base.  luac55 always uses this form.
     bool isContiguous(List<int> regs) {
       if (regs.isEmpty) return false;
       for (var i = 1; i < regs.length; i++) {
@@ -2866,6 +2868,12 @@ class _PrototypeContext {
     }
   }
 
+  /// Emit expressions for an assignment or local declaration.
+  ///
+  /// If [targetRegisters] is provided, each expression tries to write
+  /// directly into its slot, avoiding a followup MOVE.  Simple literals
+  /// (LOADI, LOADK, etc.) honor this directly; complex expressions may
+  /// fall back to a temp and rely on the caller's MOVE that follows.
   _ExpressionListResult _emitAssignmentValues(
     List<AstNode> exprs,
     int targetCount, {

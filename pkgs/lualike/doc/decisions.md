@@ -146,6 +146,37 @@ immutable register storage.
 
 ---
 
+## IR compiler register allocation: temp-heavy binary expressions
+
+**Date:** 2026‑07‑13  
+**Status:** Known inefficiency; accepted for now  
+
+**Context:** The IR compiler's `_emitBinaryExpression` always copies
+both operands to temporary registers before computing, even for simple
+`local a, b; return a + b`. This produces extra MOVE instructions that
+the SSA coalescer can eliminate for straight-line code but not across
+loop-carried register redefinitions.
+
+**Impact:** The `06_loops.lua` benchmark (`sum = sum + i`) emits:
+```
+MOVE tmp1, sum     ; copy left  operand
+MOVE tmp2, i       ; copy right operand
+ADD  tmp1, tmp1, tmp2
+MOVE sum, tmp1     ; copy result back
+```
+vs luac55's:
+```
+ADD sum, sum, i
+```
+
+A fix would require the binary emitter to read directly from the
+source registers when they are simple locals and no intervening write
+clobbers them. This is a register-allocation/coalescing improvement
+that should be done at the SSA level rather than by special-casing in
+the IR compiler.
+
+---
+
 ### GC marking sets use identity hashing
 
 **Date:** 2026‑07‑11  

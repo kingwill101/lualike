@@ -14,6 +14,21 @@ import 'package:lualike/src/lua_bytecode/opcode.dart';
 /// layer, register allocation, call shape, closure capture, and control flow
 /// must already be decided in IR/SSA (see `doc/decisions.md` IR contract).
 ///
+/// ## Opcode expansion
+///
+/// Several IR opcodes have no direct bytecode equivalent and are expanded
+/// here into 2-3 instruction sequences:
+///
+/// | IR opcode | Expansion | Reason |
+/// |-----------|-----------|--------|
+/// | `SHLI a,b,c` | `LOADI tmp,c; SHL a,b,tmp; MMBIN b,tmp,__shl` | No SHLI in Lua BC |
+/// | `SUBI a,b,c` | `ADDI a,b,-c; MMBINI b,-c,__sub` | ADDI always does `+`; SUBI negates and uses __sub |
+/// | `*K` with high C | `LOADK/KX tmp,C; * a,b,tmp; MMBIN …` | C field too small for large constant indices |
+/// | `GETFIELD/etc` with high C | `LOADK tmp,C; GETTABLE … tmp` | C field too small |
+///
+/// These expansions are purely mechanical — they do not introduce new
+/// policy decisions. All shape choices are finalized in IR/SSA.
+///
 /// Debug obligations at this boundary:
 /// * Copy IR [LocalDebugEntry] ranges through [pcMap] remapping.
 /// * Preserve [LocalDebugEntry.register] so in-memory prototypes work before
