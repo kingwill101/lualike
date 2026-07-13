@@ -1,5 +1,10 @@
 ## Unreleased
 
+- IR emits **ADDI** (luac55-style) for small integer `+`/`-` immediates
+  instead of always using ADDK + constant pool.
+- Sync nested BC calls push a real call-stack frame and close TBC locals
+  so full programs can stay on the sync path when possible.
+
 - Fix IR peephole treating `ADDK`/`MULK`/… `c` as the immediate value
   instead of a **constant-table index** (e.g. `return x + 1` became
   `return x`). Align `MMBINI`/`MMBINK` A with luac55 (left operand).

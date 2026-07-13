@@ -293,8 +293,8 @@ class LuaBytecodePeepholePass {
     };
   }
 
-  /// MMBIN* A/B match the arithmetic sources (left / right), not the temp
-  /// destination — matching [lowerIrChunkToLuaBytecodeChunk] emission.
+  /// MMBIN* A is the left **source** register (luac55 / current lowering).
+  /// B is right reg, const index, or immediate encoding matching arith C.
   bool _mmBinMatchesArithmetic(
     LuaBytecodeInstructionWord arith,
     LuaBytecodeInstructionWord mm,
@@ -302,7 +302,6 @@ class LuaBytecodePeepholePass {
     return switch (mm.opcode) {
       Opcode.mmBin => mm.a == arith.b && mm.b == arith.c,
       Opcode.mmBinK => mm.a == arith.b && mm.b == arith.c,
-      // MMBINI: A = left reg, sB = immediate (same field as arith C).
       Opcode.mmBinI => mm.a == arith.b && mm.b == arith.c,
       _ => false,
     };

@@ -374,6 +374,93 @@ final class LuaBytecodeVm {
     frame.pc -= 1;
   }
 
+  /// Sync nested BC call with a real call-stack frame and TBC close.
+  ///
+  /// Returns [List<Value>] on full success, or null to force the caller's
+  /// CALL opcode to fall back to async (PC should be rewound by caller).
+  Object? _trySyncNestedCall(
+    LuaBytecodeClosure closure,
+    List<Object?> args, {
+    Value? functionValue,
+    bool isTailCall = false,
+  }) {
+    if (runtime.getCurrentCoroutine() != null) {
+      return null;
+    }
+    if (_debugInterpreter?.debugHookFunction != null) {
+      return null;
+    }
+    final nested = _acquireBytecodeFrame(
+      closure,
+      functionValue: functionValue,
+      arguments: args,
+      isEntryFrame: false,
+      isTailCall: isTailCall,
+    );
+    final previousEnv = runtime.getCurrentEnv();
+    final parentFrame = runtime.callStack.top;
+    final parentFrameEnv = parentFrame?.env;
+    runtime.setCurrentEnv(closure.environment);
+    final callableValue = switch (functionValue) {
+      final Value v when rawLuaSlot(v) is LuaBytecodeClosure =>
+        closure.callableValue,
+      final Value v => v,
+      _ => closure.callableValue,
+    };
+    runtime.callStack.push(
+      functionValue?.functionName ?? closure.debugInfo.shortSource,
+      env: closure.environment,
+      debugName: functionValue?.functionName,
+      debugNameWhat: '',
+      callable: callableValue,
+    );
+    if (parentFrame != null) {
+      parentFrame.env = parentFrameEnv;
+    }
+    final activeCallFrame = runtime.callStack.top!;
+    bindBytecodeCallFrame(activeCallFrame, nested);
+    try {
+      final r = _trySyncExecute(nested);
+      if (r is List<Value>) {
+        if (!nested.closed) {
+          if (!_closeFrameForCoroutineSync(nested)) {
+            // Async close needed — cannot stay on sync path.
+            return null;
+          }
+        }
+        return r;
+      }
+      if (r is _TailCallResult) {
+        // One level of tail re-dispatch on the sync path.
+        if (!nested.closed) {
+          _closeFrameForCoroutineSync(nested);
+        }
+        final tail = r;
+        final tailValue = tail.functionValue is Value
+            ? tail.functionValue as Value
+            : null;
+        final tailRaw = tailValue != null ? rawLuaSlot(tailValue) : null;
+        if (tailRaw is! LuaBytecodeClosure) {
+          return null;
+        }
+        return _trySyncNestedCall(
+          tailRaw,
+          tail.args,
+          functionValue: tailValue,
+          isTailCall: true,
+        );
+      }
+      return null;
+    } finally {
+      runtime.callStack.pop();
+      runtime.setCurrentEnv(previousEnv);
+      if (parentFrame != null) {
+        parentFrame.env = parentFrameEnv;
+      }
+      _releaseBytecodeFrameIfReusable(nested);
+    }
+  }
+
   Object? _trySyncExecute(LuaBytecodeFrame frame) {
     if (runtime.getCurrentCoroutine() != null) return null;
     if (_debugInterpreter?.debugHookFunction != null) return null;
@@ -569,14 +656,7 @@ final class LuaBytecodeVm {
                     ? frame.effectiveTop - (word.a + 1)
                     : word.b - 1,
               );
-              final newFrame = _acquireBytecodeFrame(
-                raw,
-                functionValue: callee,
-                arguments: args,
-                isEntryFrame: false,
-              );
-              final r = _trySyncExecute(newFrame);
-              _releaseBytecodeFrameIfReusable(newFrame);
+              final r = _trySyncNestedCall(raw, args, functionValue: callee);
               if (r is List<Value>) {
                 final results = r;
                 if (word.c == 1) {
@@ -584,40 +664,6 @@ final class LuaBytecodeVm {
                 }
                 nextOpenTop = _storeCallResults(frame, word.a, word.c, results);
                 break;
-              }
-              if (r is _TailCallResult) {
-                final tail = r;
-                final tailRaw = rawLuaSlot(
-                  tail.functionValue is Value
-                      ? tail.functionValue as Value
-                      : callee,
-                );
-                if (tailRaw is LuaBytecodeClosure) {
-                  final nextFrame = _acquireBytecodeFrame(
-                    tailRaw,
-                    functionValue: tail.functionValue is Value
-                        ? tail.functionValue as Value
-                        : null,
-                    arguments: tail.args,
-                    isEntryFrame: false,
-                    isTailCall: true,
-                  );
-                  final nextR = _trySyncExecute(nextFrame);
-                  _releaseBytecodeFrameIfReusable(nextFrame);
-                  if (nextR is List<Value>) {
-                    final results2 = nextR;
-                    if (word.c == 1) {
-                      _closeDiscardedCallResults(frame, results2);
-                    }
-                    nextOpenTop = _storeCallResults(
-                      frame,
-                      word.a,
-                      word.c,
-                      results2,
-                    );
-                    break;
-                  }
-                }
               }
               // Nested could not finish sync: re-run this CALL async.
               _rewindSyncPc(frame);
@@ -668,9 +714,7 @@ final class LuaBytecodeVm {
               // GC safe-point handled by the counter above; skip async drain.
             }
             break;
-          case Opcode.mmBin ||
-              Opcode.mmBinI ||
-              Opcode.mmBinK:
+          case Opcode.mmBin || Opcode.mmBinI || Opcode.mmBinK:
             // Fast-path arith already skipped these; if we land here, need MM.
             _rewindSyncPc(frame);
             return null;

@@ -3071,6 +3071,52 @@ class _PrototypeContext {
       }
     }
 
+    // Prefer ADDI (luac55) for small integer + immediates before ADDK.
+    // sC is signed 8-bit: [-offsetSC, maxArgC - offsetSC].
+    if (literalInfo.isLiteral && literalValue is int && node.op == '+') {
+      final imm = literalValue;
+      const offsetSc = 127; // mirrors LuaBytecodeInstructionLayout.offsetSC
+      const maxSc = 255 - offsetSc; // 128
+      if (imm >= -offsetSc && imm <= maxSc) {
+        emitter.emitABC(
+          opcode: LualikeIrOpcode.addI,
+          a: leftReg,
+          b: leftReg,
+          c: imm,
+          k: true,
+        );
+        final finalReg = _finalizeBinaryResult(
+          leftReg,
+          target: target,
+          canWriteDirectlyToTarget: canWriteDirectlyToTarget,
+        );
+        _releaseDownTo(_releaseFloorForResult(finalReg));
+        return finalReg;
+      }
+    }
+    // `x - n` as ADDI with -n when it fits (luac55 does this too).
+    if (literalInfo.isLiteral && literalValue is int && node.op == '-') {
+      final imm = -literalValue;
+      const offsetSc = 127;
+      const maxSc = 255 - offsetSc;
+      if (imm >= -offsetSc && imm <= maxSc) {
+        emitter.emitABC(
+          opcode: LualikeIrOpcode.addI,
+          a: leftReg,
+          b: leftReg,
+          c: imm,
+          k: true,
+        );
+        final finalReg = _finalizeBinaryResult(
+          leftReg,
+          target: target,
+          canWriteDirectlyToTarget: canWriteDirectlyToTarget,
+        );
+        _releaseDownTo(_releaseFloorForResult(finalReg));
+        return finalReg;
+      }
+    }
+
     if (literalInfo.isLiteral && literalValue is num) {
       final numericValue = literalValue;
       final opcode = _opcodeForBinaryConstant(node.op);
