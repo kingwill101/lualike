@@ -66,7 +66,7 @@ class LoveSpriteBatch {
     required int drawRangeCount,
   }) : _texture = texture,
        _bufferSize = bufferSize,
-       _sprites = List<LoveSpriteBatchSprite>.from(sprites),
+       _sprites = sprites,
        _color = color,
        _drawRangeStart = drawRangeStart,
        _drawRangeCount = drawRangeCount {
@@ -258,7 +258,9 @@ class LoveSpriteBatch {
       texture: texture,
       bufferSize: _bufferSize,
       usage: usage,
-      sprites: _sprites.map((sprite) => sprite.copy()).toList(growable: true),
+      sprites: _sprites.map((sprite) => sprite.copy()).toList(
+        growable: false,
+      ),
       attachedAttributes: _attachedAttributes.map(
         (name, mesh) => MapEntry(name, mesh.copyForDraw()),
       ),

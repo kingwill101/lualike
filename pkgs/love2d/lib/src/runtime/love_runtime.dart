@@ -523,6 +523,7 @@ class LoveGraphicsSurface {
   int _revision = 0;
   int? _cachedSnapshotRevision;
   LoveGraphicsSurfaceSnapshot? _cachedSnapshot;
+  UnmodifiableListView<LoveDrawCommand>? _cachedCommandsView;
   LoveColor _clearColor;
   LoveGraphicsColorMask _clearColorMask;
   int _clearStencil;
@@ -545,7 +546,8 @@ class LoveGraphicsSurface {
 
   /// The recorded draw commands for this surface.
   List<LoveDrawCommand> get commands =>
-      UnmodifiableListView<LoveDrawCommand>(_commands);
+      _cachedCommandsView ??=
+          UnmodifiableListView<LoveDrawCommand>(_commands);
 
   /// Monotonically increasing revision for this surface's recorded contents.
   int get revision => _revision;
@@ -559,6 +561,7 @@ class LoveGraphicsSurface {
   }) {
     _commands = <LoveDrawCommand>[];
     _commandsShared = false;
+    _cachedCommandsView = null;
     _revision++;
     _clearColor = clearColor.clamped();
     _clearColorMask = clearColorMask;
@@ -638,6 +641,7 @@ class LoveGraphicsSurface {
 
     _commands = List<LoveDrawCommand>.of(_commands, growable: true);
     _commandsShared = false;
+    _cachedCommandsView = null;
   }
 }
 

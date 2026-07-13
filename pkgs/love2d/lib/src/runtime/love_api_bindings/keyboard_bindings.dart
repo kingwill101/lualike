@@ -90,39 +90,46 @@ LoveApiImplementation _bindKeyboardHasTextInput(
 LoveApiImplementation _bindKeyboardIsDown(LibraryRegistrationContext context) {
   final runtime = _runtimeContext(context);
   return (args) {
-    final rawArgs = _loveDescribeKeyboardArgs(args);
     try {
-      final keys = _keyboardKeySequence(
+      final result = _keyboardAnyKeyDown(
         args,
         'love.keyboard.isDown',
+        keyboard: runtime.keyboard,
         touch: runtime.touch,
       );
-      final result = runtime.keyboard.isDown(keys);
-      _loveTraceKeyboard(
-        'isDown',
-        detailsBuilder: () => <String, Object?>{
-          'rawArgs': rawArgs,
-          'keys': keys,
-          'touches': runtime.touch.getTouches(),
-          'scancodes': runtime.keyboard.pressedScancodes.toList(
-            growable: false,
-          ),
-          'result': result,
-        },
-      );
+      if (_loveTraceKeyboardLeak) {
+        _loveTraceKeyboard(
+          'isDown',
+          detailsBuilder: () => <String, Object?>{
+            'rawArgs': _loveDescribeKeyboardArgs(args),
+            'keys': _keyboardKeySequence(
+              args,
+              'love.keyboard.isDown',
+              touch: runtime.touch,
+            ),
+            'touches': runtime.touch.getTouches(),
+            'scancodes': runtime.keyboard.pressedScancodes.toList(
+              growable: false,
+            ),
+            'result': result,
+          },
+        );
+      }
       return result;
     } catch (error) {
-      _loveTraceKeyboard(
-        'isDown.error',
-        detailsBuilder: () => <String, Object?>{
-          'rawArgs': rawArgs,
-          'touches': runtime.touch.getTouches(),
-          'scancodes': runtime.keyboard.pressedScancodes.toList(
-            growable: false,
-          ),
-          'error': error,
-        },
-      );
+      if (_loveTraceKeyboardLeak) {
+        _loveTraceKeyboard(
+          'isDown.error',
+          detailsBuilder: () => <String, Object?>{
+            'rawArgs': _loveDescribeKeyboardArgs(args),
+            'touches': runtime.touch.getTouches(),
+            'scancodes': runtime.keyboard.pressedScancodes.toList(
+              growable: false,
+            ),
+            'error': error,
+          },
+        );
+      }
       rethrow;
     }
   };
@@ -133,8 +140,10 @@ LoveApiImplementation _bindKeyboardIsScancodeDown(
   LibraryRegistrationContext context,
 ) {
   final runtime = _runtimeContext(context);
-  return (args) => runtime.keyboard.isScancodeDown(
-    _keyboardScancodeSequence(args, 'love.keyboard.isScancodeDown'),
+  return (args) => _keyboardAnyScancodeDown(
+    args,
+    'love.keyboard.isScancodeDown',
+    keyboard: runtime.keyboard,
   );
 }
 
@@ -221,6 +230,113 @@ List<String> _keyboardScancodeSequence(List<Object?> args, String symbol) {
         return value;
       })
       .toList(growable: false);
+}
+
+/// Returns whether any validated LOVE key constant in [args] is pressed.
+bool _keyboardAnyKeyDown(
+  List<Object?> args,
+  String symbol, {
+  required LoveKeyboardState keyboard,
+  LoveTouchState? touch,
+}) {
+  if (args.isEmpty) {
+    return false;
+  }
+
+  final table = args.length == 1 ? _tableIfPresent(args.first) : null;
+  if (table != null) {
+    for (var index = 1; ; index++) {
+      final entry = _tableIndexedEntry(table, index);
+      if (entry == null) {
+        return false;
+      }
+
+      final value = _sequenceStringLike(entry, coerceNumbers: true);
+      if (value == null) {
+        throw LuaError('$symbol expected strings in table argument');
+      }
+      if (!loveIsValidKeyConstant(value)) {
+        if (_isLeakedActiveTouchId(value, touch: touch)) {
+          continue;
+        }
+        throw LuaError('$symbol invalid key constant "$value"');
+      }
+      if (keyboard.isKeyDown(value)) {
+        return true;
+      }
+    }
+  }
+
+  for (var index = 0; index < args.length; index++) {
+    final value = _sequenceStringLike(
+      _valueAt(args, index),
+      coerceNumbers: true,
+    );
+    if (value == null) {
+      throw LuaError('$symbol expected a string at argument ${index + 1}');
+    }
+    if (_isLeakedActiveTouchId(value, touch: touch)) {
+      continue;
+    }
+    if (!loveIsValidKeyConstant(value)) {
+      throw LuaError('$symbol invalid key constant "$value"');
+    }
+    if (keyboard.isKeyDown(value)) {
+      return true;
+    }
+  }
+
+  return false;
+}
+
+/// Returns whether any validated LOVE scancode in [args] is pressed.
+bool _keyboardAnyScancodeDown(
+  List<Object?> args,
+  String symbol, {
+  required LoveKeyboardState keyboard,
+}) {
+  if (args.isEmpty) {
+    return false;
+  }
+
+  final table = args.length == 1 ? _tableIfPresent(args.first) : null;
+  if (table != null) {
+    for (var index = 1; ; index++) {
+      final entry = _tableIndexedEntry(table, index);
+      if (entry == null) {
+        return false;
+      }
+
+      final value = _sequenceStringLike(entry, coerceNumbers: true);
+      if (value == null) {
+        throw LuaError('$symbol expected strings in table argument');
+      }
+      if (!loveIsValidScancode(value)) {
+        throw LuaError('$symbol invalid scancode "$value"');
+      }
+      if (keyboard.isScancodePressed(value)) {
+        return true;
+      }
+    }
+  }
+
+  for (var index = 0; index < args.length; index++) {
+    final value = _sequenceStringLike(
+      _valueAt(args, index),
+      coerceNumbers: true,
+    );
+    if (value == null) {
+      throw LuaError('$symbol expected a string at argument ${index + 1}');
+    }
+    if (!loveIsValidScancode(value)) {
+      throw LuaError('$symbol invalid scancode "$value"');
+    }
+    if (keyboard.isScancodePressed(value)) {
+      return true;
+    }
+  }
+
+  return false;
 }
 
 /// Normalizes keyboard key arguments while filtering leaked active touch IDs.
