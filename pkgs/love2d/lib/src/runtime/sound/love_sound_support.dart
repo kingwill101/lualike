@@ -477,8 +477,7 @@ LoveSoundData _decodeWavePcmSoundData(
         bytesPerSample: bitDepth ~/ 8,
         sampleReader: (byteData, offset) {
           return switch (bitDepth) {
-            24 =>
-              _readInt24Le(byteData.buffer.asUint8List(), offset) / 8388607.0,
+            24 => _readInt24Le(pcmData, offset) / 8388607.0,
             32 => byteData.getInt32(offset, Endian.little) / 2147483647.0,
             _ => 0.0,
           };
