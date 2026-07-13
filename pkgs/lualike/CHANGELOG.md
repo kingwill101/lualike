@@ -1,3 +1,13 @@
+## Unreleased
+
+- Default `--lua-bytecode` source path: IR + SSA + mechanical lower
+  (`CompilePipelineConfig.luaBytecodeOptimized`), with suite-hardening for
+  jump compact, TEST/EQI use-def, folded tables, fold inlining isolation,
+  and signed immediate compares.
+- Precompiled binary chunks are detected by official Lua header only (no
+  reserved extension). They load and run on the bytecode VM without
+  re-entering the IR/SSA pipeline. `--compile` requires explicit `--output`.
+
 ## 0.3.0
 
 - Add `ValueDoc`, `DocDescriptor`, `AccessScope`, `GenericParam`, `OverloadDoc`,

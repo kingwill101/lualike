@@ -3,7 +3,11 @@
 /// SSA DCE / coalesce remove instructions. JMP `sJ` and FORPREP/FORLOOP `sBx`
 /// are relative to the instruction stream; leaving them unchanged after
 /// deletions makes lowering's pcMap look past the end of the list
-/// (`RangeError` in `_lowerInstructions`).
+/// (`RangeError` in `_lowerInstructions`) or sends control to the wrong
+/// successor (e.g. skipping a `GETTABUP` after an empty if-end jump).
+///
+/// Always use [compactIrInstructions] (and [remapDebugInfoAfterCompact])
+/// when dropping PCs from a prototype's code list.
 library;
 
 import 'package:lualike/src/ir/instruction.dart';

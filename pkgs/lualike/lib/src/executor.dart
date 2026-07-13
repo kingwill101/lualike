@@ -18,17 +18,28 @@ import 'value.dart';
 
 typedef RuntimeSetupCallback = void Function(LuaRuntime);
 
-/// Executes source code using the specified execution mode.
+/// Executes **source** text using the selected engine.
 ///
-/// [sourceCode] - The source code to execute
-/// [mode] - Whether to use AST interpretation or IR compilation
-/// [environment] - Optional environment for variable scope
-/// [fileManager] - Optional file manager for I/O operations
-/// [url] - Optional chunk source name or file path used for parser context
-/// [foldEnabled] - Whether to enable constant folding (bytecode modes only).
-///   Defaults to [LuaLikeConfig.foldEnabled].
+/// This is the text path only. Precompiled binary chunks are handled by the
+/// CLI or [LuaRuntime.loadChunk] after a header sniff
+/// (`looksLikeTrackedLuaBytecodeBytes`); those paths invoke the bytecode VM
+/// directly and must not call this function.
 ///
-/// Returns the result of executing the code.
+/// Engine routing for [mode]:
+/// * [EngineMode.luaBytecode] — always IR + SSA + mechanical lower, then
+///   the bytecode VM (shared with `--compile` via
+///   `CompilePipelineConfig.luaBytecodeOptimized`).
+/// * [EngineMode.ir] with [foldEnabled] — IR pipeline without SSA.
+/// * [EngineMode.ast] — AST interpreter.
+///
+/// Top-level bytecode pipeline results share the live global environment so
+/// stdlib and prior `-e` mutations remain visible.
+///
+/// [url] is the chunk source name or file path used for parser context.
+/// [foldEnabled] defaults to [LuaLikeConfig.foldEnabled] and only affects
+/// IR-mode folding; lua-bytecode always uses the full optimized pipeline.
+///
+/// Returns the public execution result (scalars unwrapped where applicable).
 Future<Object?> executeCode(
   String sourceCode, {
   FileManager? fileManager,

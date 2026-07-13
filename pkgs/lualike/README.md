@@ -21,21 +21,27 @@ or compile them to optimized bytecode.
 # Run a Lua script
 lualike myscript.lua
 
-# Compile to bytecode (all optimizations enabled)
-lualike --compile myscript.lua -o myscript.lub
+# Compile to a binary chunk (--output is required; any path is fine)
+lualike --compile myscript.lua -o myscript.out
 
-# Run compiled bytecode
-lualike --lua-bytecode myscript.lub
+# Run that binary (detected by official chunk header — not by extension)
+lualike myscript.out
+# same path with an explicit engine flag:
+lualike --lua-bytecode myscript.out
 ```
+
+There is no reserved file extension for compiled output. At run time,
+lualike sniffs the Lua 5.5 chunk header and, when present, **loads and
+runs on the bytecode VM only** (no IR/SSA recompile).
 
 ### Multi-pass optimizing compiler
 
-When `--compile` is used, lualike runs a 10-pass optimization pipeline:
+When `--compile` or `--lua-bytecode` is used on **source**, lualike runs
+the production IR+SSA pipeline:
 
 ```
-Source → [Bundler] → [Analyzer] → [ConstPropagation] → [TypeNarrowing]
-  → [MetatableFolding] → [InliningHeuristics] → [ConstantFolding]
-  → [Simplifier] → [DeadCodeElimination] → [Peephole] → Bytecode
+Source → AST passes → IR emit → SSA opts → register budget
+  → mechanical lower → (bytecode peephole) → binary chunk
 ```
 
 Key optimizations include:
@@ -58,13 +64,13 @@ See [doc/cli.md](pkgs/lualike/doc/cli.md) for the full CLI reference.
 The bytecode format is fully compatible with Lua 5.5:
 
 ```sh
-# lualike bytecode → official Lua 5.5
-lualike --compile script.lua -o script.lub
-lua55 script.lub
+# lualike binary chunk → official Lua 5.5
+lualike --compile script.lua -o script.out
+lua55 script.out
 
-# official luac55 bytecode → lualike VM
-luac55 -o script.lub script.lua
-lualike --lua-bytecode script.lub
+# official luac55 chunk → lualike VM (header-detected)
+luac55 -o script.out script.lua
+lualike script.out
 ```
 
 ## What this package exposes

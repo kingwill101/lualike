@@ -32,6 +32,16 @@ locals + SSA safety notes).
 - [x] `--lua-bytecode` / `--compile` / `runAst` share
       `CompilePipelineConfig.luaBytecodeOptimized` (IR+SSA by default).
 - [x] Upstream suite: `locals.lua` / `db.lua` pass under `--lua-bytecode`.
+- [x] Jump compact after IR/bytecode deletes (`instruction_compact` +
+      peephole keeps `JMP 0` after TEST/comparisons).
+- [x] SSA/coalesce: TEST reads A; EQI/eqK/*I read B; no folded Map→LOADNIL.
+- [x] Const-arg inlining snapshots fold results so function bodies stay
+      unspecialized.
+- [x] VM sync path uses `signedB` for EQI/LTI/… immediates.
+- [x] Live global env for top-level pipeline chunks.
+- [x] Full soft-mode suite green under default IR+SSA `--lua-bytecode`.
+- [x] Precompiled binary: header sniff only (no extension); direct VM path
+      in CLI; `--compile` requires `-o`.
 
 ## Remaining work
 

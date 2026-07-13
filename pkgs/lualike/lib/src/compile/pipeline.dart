@@ -101,10 +101,19 @@ final class CompilePipelineConfig {
   /// Target backend for bytecode emission.
   final CompileBackend target;
 
-  /// Config for the production lua-bytecode path: IR + SSA + mechanical lower.
+  /// Production configuration for compiling **source** to real Lua bytecode.
   ///
-  /// Used by `--lua-bytecode`, `--compile`, and fold-enabled execution so the
-  /// same optimization contract applies everywhere we claim real bytecode.
+  /// Enables AST analysis/folding, the full SSA suite, peephole on IR and
+  /// bytecode, and [CompileBackend.luaBytecode]. Shared by:
+  /// * CLI `--lua-bytecode` on source files
+  /// * CLI `--compile -o <path>`
+  /// * [executeCode] when [EngineMode.luaBytecode] is selected
+  ///
+  /// Precompiled binary files do **not** use this config; they are parsed
+  /// and run on the bytecode VM without re-entering the pipeline.
+  ///
+  /// Set [stripDebug] to omit line/local debug info from the serialized
+  /// chunk (smaller output). [dumpIr] prints IR/SSA text during compile.
   factory CompilePipelineConfig.luaBytecodeOptimized({
     bool stripDebug = false,
     bool dumpIr = false,
