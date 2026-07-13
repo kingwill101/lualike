@@ -213,85 +213,6 @@ extension LoveFilesystemRuntimeReadWrite on LoveFilesystemState {
     return false;
   }
 
-  /// Returns the first readable file candidate for [logicalPath], if one
-  /// exists.
-  Future<_LoveResolvedPath?> _readableFileCandidate(String logicalPath) async {
-    final normalized = _normalizeLogicalPath(logicalPath);
-    for (final candidate in await _readCandidates(normalized)) {
-      if (candidate.root.isVirtual) {
-        final node = candidate.root.virtualNodeFor(candidate.relativePath);
-        if (node != null && node.type == LoveFilesystemNodeType.file) {
-          return candidate;
-        }
-        continue;
-      }
-
-      final candidatePath = candidate.physicalPath;
-      if (candidatePath != null && await adapter.fileExists(candidatePath)) {
-        return candidate;
-      }
-    }
-
-    return null;
-  }
-
-  /// Reads bytes from [candidate] and throws LOVE-style errors when the read
-  /// fails.
-  Future<List<int>> _readCandidateBytesOrThrow(
-    _LoveResolvedPath candidate, {
-    required String logicalPath,
-    required int size,
-  }) async {
-    if (candidate.root.isVirtual) {
-      final node = candidate.root.virtualNodeFor(candidate.relativePath);
-      if (node == null || node.type != LoveFilesystemNodeType.file) {
-        throw StateError('Could not open file $logicalPath. Does not exist.');
-      }
-
-      // Virtual mount nodes already store unmodifiable bytes; share them.
-      final bytes = node.bytes!;
-      if (size >= 0 && bytes.length > size) {
-        return bytes.sublist(0, size);
-      }
-      return bytes;
-    }
-
-    final candidatePath = candidate.physicalPath;
-    if (candidatePath == null) {
-      throw StateError('Could not open file $logicalPath. Does not exist.');
-    }
-
-    try {
-      final bytes = await adapter.readFileBytes(candidatePath);
-      if (bytes != null) {
-        if (size >= 0 && bytes.length > size) {
-          return bytes.sublist(0, size);
-        }
-        return bytes;
-      }
-    } catch (_) {
-      // Fall through to the IODevice path below so we can surface a LOVE-style
-      // open/read error instead of a raw adapter exception.
-    }
-
-    final device = await _openFilesystemDeviceOrThrow(
-      adapter,
-      candidatePath,
-      'r',
-      logicalPath: logicalPath,
-    );
-    try {
-      final result = await device.read(size < 0 ? 'a' : '$size');
-      if (!result.isSuccess) {
-        throw StateError(result.error ?? 'Could not read from file.');
-      }
-
-      return _bytesFromIODeviceValue(result.value);
-    } finally {
-      await device.close();
-    }
-  }
-
   /// Reads all bytes from [physicalPath] when the host path exists and is
   /// readable.
   Future<List<int>?> _readPhysicalBytesIfPresent(String physicalPath) async {
@@ -335,16 +256,30 @@ extension LoveFilesystemRuntimeReadWrite on LoveFilesystemState {
     String logicalPath, {
     int size = -1,
   }) async {
-    final candidate = await _readableFileCandidate(logicalPath);
-    if (candidate == null) {
-      return null;
+    final normalized = _normalizeLogicalPath(logicalPath);
+    for (final candidate in await _readCandidates(normalized)) {
+      final readable = await candidate.openReadable(adapter);
+      if (readable == null) {
+        continue;
+      }
+
+      try {
+        final result = await readable.device.read(size < 0 ? 'a' : '$size');
+        if (!result.isSuccess) {
+          throw StateError(result.error ?? 'Could not read from file.');
+        }
+
+        final bytes = _bytesFromIODeviceValue(result.value);
+        if (size >= 0 && bytes.length > size) {
+          return bytes.sublist(0, size);
+        }
+        return bytes;
+      } finally {
+        await readable.device.close();
+      }
     }
 
-    return _readCandidateBytesOrThrow(
-      candidate,
-      logicalPath: logicalPath,
-      size: size,
-    );
+    return null;
   }
 
   /// Reads up to [size] bytes from [logicalPath].
