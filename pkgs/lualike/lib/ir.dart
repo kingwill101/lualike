@@ -20,6 +20,7 @@ export 'src/ir/instruction.dart';
 export 'src/ir/opcode.dart';
 export 'src/ir/peephole_pass.dart';
 export 'src/ir/prototype.dart';
+export 'src/ir/register_budget.dart';
 export 'src/ir/runtime.dart';
 export 'src/ir/serialization.dart';
 export 'src/ir/ssa.dart';

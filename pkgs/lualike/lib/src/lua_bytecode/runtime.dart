@@ -4,6 +4,7 @@ import 'dart:typed_data';
 import 'package:lualike/src/ast.dart';
 import 'package:lualike/src/builtin_function.dart';
 import 'package:lualike/src/call_stack.dart';
+import 'package:lualike/src/compile/pipeline.dart';
 import 'package:lualike/src/coroutine.dart';
 import 'package:lualike/src/environment.dart';
 import 'package:lualike/src/file_manager.dart';
@@ -336,10 +337,13 @@ class LuaBytecodeRuntime implements LuaRuntime {
     if (semanticError != null) {
       throw Exception(semanticError);
     }
-    final artifact = const LuaBytecodeEmitter().compileProgram(
-      ast,
-      chunkName: chunkName,
+    // Prefer IR pipeline (same as executeCode / --lua-bytecode). Keep the
+    // direct emitter as a private escape hatch only if the pipeline throws
+    // IrRegisterBudgetExceeded during development of new SSA features.
+    final pipeline = CompilePipeline(
+      config: CompilePipelineConfig.luaBytecodeOptimized(),
     );
+    final artifact = pipeline.compile(ast) as LuaBytecodeArtifact;
     final env = getCurrentEnv();
     _ensureEnvironmentBinding(env);
     final closure = LuaBytecodeClosure.main(
@@ -439,11 +443,13 @@ class LuaBytecodeRuntime implements LuaRuntime {
     List<int> bytes, {
     required String moduleName,
   }) async {
-    final result = await loadChunk(LuaChunkLoadRequest(
-      source: Value.primitive(bytes),
-      chunkName: moduleName,
-      mode: 'b',
-    ));
+    final result = await loadChunk(
+      LuaChunkLoadRequest(
+        source: Value.primitive(bytes),
+        chunkName: moduleName,
+        mode: 'b',
+      ),
+    );
     if (!result.isSuccess) {
       throw Exception(
         'Failed to load bytecode module \'$moduleName\': '

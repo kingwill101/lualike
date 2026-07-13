@@ -264,11 +264,13 @@ class LuaLike {
     final program = parse(source, url: moduleName ?? '=(compile)');
 
     final pipeline = CompilePipeline(
-      config: CompilePipelineConfig(
-        target: CompileBackend.luaBytecode,
-        enableConstantFolding: enableConstantFolding,
-        enablePeephole: enablePeephole,
-      ),
+      config: enablePeephole
+          ? CompilePipelineConfig.luaBytecodeOptimized()
+          : CompilePipelineConfig(
+              target: CompileBackend.luaBytecode,
+              enableConstantFolding: enableConstantFolding,
+              enablePeephole: false,
+            ),
     );
 
     final artifact = pipeline.compile(program) as LuaBytecodeArtifact;

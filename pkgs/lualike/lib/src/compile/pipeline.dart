@@ -101,13 +101,47 @@ final class CompilePipelineConfig {
   /// Target backend for bytecode emission.
   final CompileBackend target;
 
+  /// Config for the production lua-bytecode path: IR + SSA + mechanical lower.
+  ///
+  /// Used by `--lua-bytecode`, `--compile`, and fold-enabled execution so the
+  /// same optimization contract applies everywhere we claim real bytecode.
+  factory CompilePipelineConfig.luaBytecodeOptimized({
+    bool stripDebug = false,
+    bool dumpIr = false,
+    bool enableLoopUnrolling = false,
+    bool enableBundling = false,
+    List<String> bundleSearchPaths = const ['.'],
+  }) {
+    return CompilePipelineConfig(
+      stripDebug: stripDebug,
+      dumpIr: dumpIr,
+      enableAnalyzer: true,
+      enableConstantFolding: true,
+      enableConstPropagation: true,
+      enableTypeNarrowing: true,
+      enableMetatableFolding: false,
+      enablePeephole: true,
+      enableSsaDeadCodeElimination: true,
+      enableSsaGlobalValueNumbering: true,
+      enableSsaSccp: true,
+      enableSsaLicm: true,
+      enableSsaCoalesce: true,
+      enableSsaEscape: true,
+      enableFunctionInlining: false,
+      enableLoopUnrolling: enableLoopUnrolling,
+      enableBundling: enableBundling,
+      bundleSearchPaths: bundleSearchPaths,
+      enableDeadCodeElimination: true,
+      target: CompileBackend.luaBytecode,
+    );
+  }
+
   const CompilePipelineConfig({
     this.stripDebug = false,
     this.dumpIr = false,
-    // All optimizations are OFF by default.  Only enabled during
-    // --compile which produces a bytecode binary for distribution.
-    // For interactive/script mode, startup speed matters more than
-    // the marginal runtime gain from these passes.
+    // All optimizations are OFF by default.  Interactive AST mode does not
+    // pay compile cost; lua-bytecode / --compile use
+    // [CompilePipelineConfig.luaBytecodeOptimized].
     this.enableAnalyzer = false,
     this.enableConstantFolding = false,
     this.enableConstPropagation = false,
@@ -272,6 +306,13 @@ final class CompilePipeline {
     );
     final irChunk = _optimizeIrChunk(irCompiler.compile(foldedProgram));
 
+    // Phase 2b: Reject unlowerable register shapes before mechanical lowering.
+    // SSA/escape may allocate temps; fail here with a clear budget error
+    // instead of emitting illegal maxstack / ABC operands.
+    if (config.target == CompileBackend.luaBytecode) {
+      validateIrChunkRegisterBudget(irChunk);
+    }
+
     final irBytes = serializeLualikeIrChunk(irChunk);
 
     String? disassembly;
@@ -282,7 +323,8 @@ final class CompilePipeline {
       ssaDisassembly = formatLualikeIrSsaFunction(ssa);
     }
 
-    // Phase 3: Lower the optimized IR to Lua 5.4 bytecode when requested.
+    // Phase 3: Mechanical lower of finalized IR → Lua 5.4 bytecode.
+    // No new optimization decisions belong here (see doc/decisions.md).
     if (config.target == CompileBackend.luaBytecode) {
       var luaChunk = lowerIrChunkToLuaBytecodeChunk(irChunk);
 

@@ -14,6 +14,7 @@ library;
 import 'instruction.dart';
 import 'opcode.dart';
 import 'prototype.dart';
+import 'register_budget.dart';
 
 /// Run scalar replacement on an IR prototype.
 LualikeIrPrototype replaceScalars(LualikeIrPrototype prototype) {
@@ -194,7 +195,9 @@ LualikeIrPrototype? _runOnce(LualikeIrPrototype prototype) {
         final kindCmp = a.kind.compareTo(b.kind);
         return kindCmp != 0 ? kindCmp : a.value.compareTo(b.value);
       });
-    if (nextReg + orderedKeys.length > 256) {
+    // Stay within Lua u8 maxstack / ABC register fields.
+    if (nextReg + orderedKeys.length >
+        IrBytecodeRegisterBudget.maxRegisterCount + 1) {
       continue;
     }
     fieldRegBase[tableReg] = nextReg;

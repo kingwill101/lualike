@@ -298,7 +298,27 @@ local for `debug.getlocal`).
 **Regression tests:**
 `test/lua_bytecode/local_register_inference_test.dart`
 
-**Still open:** full `locals.lua` / `db.lua` under fold; 8-bit register budget
-for SSA temps; optional private serialize extension if stack inference is ever
-insufficient.
+**Still open:** optional private serialize extension if stack inference is ever
+insufficient for non-stack local layouts.
+
+---
+
+## Lua-bytecode always uses the IR+SSA pipeline
+
+**Date:** 2026‑07‑12  
+**Status:** Active  
+
+**Context:** `--lua-bytecode` used to lower via the direct AST→bytecode emitter
+unless `--fold` was set. That split made debug/register bugs invisible on the
+default suite path while optimizations only ran on the fold path.
+
+**Decision:** `EngineMode.luaBytecode` always compiles through
+`CompilePipelineConfig.luaBytecodeOptimized` (AST passes + IR + SSA + register
+budget check + mechanical lower + serialize). `--compile` and
+`LuaBytecodeRuntime.runAst` share that config. The pure IR engine still keeps
+SSA off (post-SSA shapes are not IR-VM ready).
+
+**Register budget:** After SSA, `validateIrChunkRegisterBudget` rejects
+prototypes that cannot fit in 8-bit ABC fields / u8 maxstack (see
+`lib/src/ir/register_budget.dart`).
 

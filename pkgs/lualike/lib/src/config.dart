@@ -31,11 +31,10 @@ class LuaLikeConfig {
   /// When true, the IR runtime will print compiled instructions.
   bool dumpIr = false;
 
-  /// Whether to enable optimization passes before bytecode emission.
+  /// Whether to enable extra optimization for the experimental IR engine.
   ///
-  /// Only applies when the engine mode is [EngineMode.ir] or
-  /// [EngineMode.luaBytecode].  Defaults to `false`; optimizations are
-  /// automatically enabled during `--compile`.  Set to `true` with `--fold`
-  /// for ad-hoc optimization during development.
+  /// [EngineMode.luaBytecode] always runs the IR+SSA pipeline
+  /// ([CompilePipelineConfig.luaBytecodeOptimized]); this flag only gates
+  /// the pure IR backend path. Use `--fold` for IR-mode experiments.
   bool foldEnabled = false;
 }

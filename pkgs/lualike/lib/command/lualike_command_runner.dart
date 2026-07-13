@@ -69,7 +69,8 @@ class LuaLikeCommandRunner extends CommandRunner {
       )
       ..addFlag(
         'compile',
-        help: 'Compile script to bytecode and write to --output (do not execute)',
+        help:
+            'Compile script to bytecode and write to --output (do not execute)',
         negatable: false,
         defaultsTo: false,
       )
@@ -123,7 +124,8 @@ class LuaLikeCommandRunner extends CommandRunner {
       )
       ..addOption(
         'lua-test',
-        help: 'Run a Lua test suite file with the standard test environment'
+        help:
+            'Run a Lua test suite file with the standard test environment'
             ' (sets _port, _soft, package.path). Example: --lua-test calls',
         valueHelp: 'test',
       )
@@ -189,8 +191,7 @@ class LuaLikeCommandRunner extends CommandRunner {
         exit(1);
       }
       final scriptPath = restArgs.first;
-      final outputPath = argResults['output'] as String? ??
-          '$scriptPath.lub';
+      final outputPath = argResults['output'] as String? ?? '$scriptPath.lub';
       _compileToBytecode(
         scriptPath,
         outputPath,
@@ -278,7 +279,8 @@ class LuaLikeCommandRunner extends CommandRunner {
     if (luaTest != null) {
       final testFile = luaTest.endsWith('.lua') ? luaTest : '$luaTest.lua';
       final testPath = 'luascripts/test/$testFile';
-      final initCode = '_port = true; _soft = true; '
+      final initCode =
+          '_port = true; _soft = true; '
           "package.path = 'luascripts/test/?.lua;luascripts/test/?/init.lua;?.lua;;'; "
           "dofile('$testPath')";
       final executeCmd = ExecuteCommand(initCode, args.toList());
@@ -332,24 +334,18 @@ class LuaLikeCommandRunner extends CommandRunner {
 
 /// Compiles [scriptPath] to bytecode and writes to [outputPath], then exits.
 void _compileToBytecode(
-  String scriptPath, String outputPath, {
+  String scriptPath,
+  String outputPath, {
   String? dartOutputPath,
   bool preserveDebug = false,
 }) {
   final source = File(scriptPath).readAsStringSync();
-  // --compile enables all optimizations for maximum bytecode quality.
+  // --compile uses the same IR+SSA pipeline as --lua-bytecode execution.
   // stripDebug is the OPPOSITE of preserveDebug (strip = remove debug).
   final pipeline = CompilePipeline(
-    config: CompilePipelineConfig(
-      enableAnalyzer: true,
-      enableConstantFolding: true,
-      enableConstPropagation: true,
-      enableTypeNarrowing: true,
-      enablePeephole: true,
-      enableDeadCodeElimination: true,
-      enableLoopUnrolling: false,
+    config: CompilePipelineConfig.luaBytecodeOptimized(
       stripDebug: !preserveDebug,
-      target: CompileBackend.luaBytecode,
+      enableLoopUnrolling: false,
     ),
   );
   final artifact = pipeline.compileSource(source, chunkName: scriptPath);
