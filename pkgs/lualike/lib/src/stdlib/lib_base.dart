@@ -2789,7 +2789,8 @@ class RequireFunction extends BuiltinFunction {
     // require must error out (attrib.lua test expects this).
     {
       final searchersEntry = rawPackageTable['searchers'];
-      if (searchersEntry is! Value || rawLuaSlot(searchersEntry) is! List) {
+      final searchersRaw = searchersEntry is Value ? rawLuaSlot(searchersEntry) : null;
+      if (searchersRaw is! List && searchersRaw is! Map) {
         throw LuaError("package.searchers must be a table");
       }
     }
@@ -2883,18 +2884,27 @@ class RequireFunction extends BuiltinFunction {
       throw LuaError("package.searchers must be a table");
     }
     final searchersRaw = rawLuaSlot(searchersEntry);
-    if (searchersRaw is! List) {
+
+    // Searchers can be a Dart List (legacy) or a proper Lua TableStorage.
+    Iterable<Object?> searcherValues;
+    if (searchersRaw is List) {
+      searcherValues = searchersRaw;
+    } else if (searchersRaw is Map) {
+      searcherValues = searchersRaw.values;
+    } else {
       throw LuaError("package.searchers must be a table");
     }
 
-    for (var index = 0; index < searchersRaw.length; index++) {
-      final searcher = searchersRaw[index];
+    var searcherIndex = 0;
+    for (final searcher in searcherValues) {
+      searcherIndex++;
       if (searcher is! Value || !searcher.isCallable()) {
         continue;
       }
 
       Logger.debugLazy(
-        () => "RequireFunction: Trying searcher #$index for '$moduleName'",
+        () =>
+            "RequireFunction: Trying searcher #$searcherIndex for '$moduleName'",
         category: 'Require',
       );
 
@@ -2914,7 +2924,7 @@ class RequireFunction extends BuiltinFunction {
           ]);
         }
       } catch (error) {
-        errors.add("searcher #$index error: $error");
+        errors.add("searcher #$searcherIndex error: $error");
         continue;
       }
 

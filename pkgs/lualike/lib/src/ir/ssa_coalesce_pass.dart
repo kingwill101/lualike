@@ -65,6 +65,10 @@ bool _writesReg(LualikeIrInstruction inst, int reg) {
         case LualikeIrOpcode.test:
           // TEST only inspects R(A); it does not write.
           return false;
+        case LualikeIrOpcode.tForCall:
+          // TFORCALL writes loop vars to A+3 and beyond.
+          // C encodes the number of loop variables.
+          return reg >= i.a + 3;
         case LualikeIrOpcode.call:
         case LualikeIrOpcode.tailCall:
           // Results land at A..(A+C-2) when C > 1; open results when C == 0.
@@ -82,7 +86,11 @@ bool _writesReg(LualikeIrInstruction inst, int reg) {
       }
     },
     abx: (i) => i.a == reg,
-    asbx: (i) => i.a == reg,
+    asbx: (i) =>
+        i.opcode == LualikeIrOpcode.tForPrep ||
+                i.opcode == LualikeIrOpcode.tForLoop
+            ? false
+            : i.a == reg,
     ax: (_) => false,
     asj: (_) => false,
     avbc: (i) => i.a == reg,
@@ -106,6 +114,10 @@ Set<int> _reads(LualikeIrInstruction inst, int registerCount) {
   inst.when(
     abc: (i) {
       switch (i.opcode) {
+        case LualikeIrOpcode.tForCall:
+          add(i.a);
+          add(i.a + 1);
+          add(i.a + 2);
         case LualikeIrOpcode.call:
         case LualikeIrOpcode.tailCall:
           add(i.a);
@@ -222,7 +234,18 @@ Set<int> _reads(LualikeIrInstruction inst, int registerCount) {
       }
     },
     abx: (_) {},
-    asbx: (_) {},
+    asbx: (i) {
+      // TFORPREP reads R(A..A+2) for iterator state.
+      if (i.opcode == LualikeIrOpcode.tForPrep) {
+        add(i.a);
+        add(i.a + 1);
+        add(i.a + 2);
+      }
+      // TFORLOOP reads R(A+2) to check loop variable termination.
+      if (i.opcode == LualikeIrOpcode.tForLoop) {
+        add(i.a + 2);
+      }
+    },
     ax: (_) {},
     asj: (_) {},
     avbc: (_) {},
