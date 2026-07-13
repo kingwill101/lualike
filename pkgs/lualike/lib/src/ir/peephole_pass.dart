@@ -33,7 +33,11 @@ class PeepholePass {
   LualikeIrPrototype _optimizePrototype(LualikeIrPrototype proto) {
     final oldLen = proto.instructions.length;
     final removePcs = <int>{};
-    final instructions = _peephole(proto.instructions, removePcs);
+    final instructions = _peephole(
+      proto.instructions,
+      removePcs,
+      proto.constants,
+    );
     final optimizedProtos = proto.prototypes.map(_optimizePrototype).toList();
     final debugInfo = removePcs.isEmpty
         ? proto.debugInfo
@@ -58,6 +62,7 @@ class PeepholePass {
   List<LualikeIrInstruction> _peephole(
     List<LualikeIrInstruction> code,
     Set<int> removePcsOut,
+    List<LualikeIrConstant> constants,
   ) {
     if (code.length < 2) {
       return code;
@@ -164,8 +169,10 @@ class PeepholePass {
         continue;
       }
 
-      // Algebraic simplification: identity operations on K/I opcodes
-      if (inst is ABCInstruction && _isIdentityArithmetic(inst)) {
+      // Algebraic simplification: identity ops on K/I — C is a constant
+      // *index* for *K opcodes, not the numeric value (ADDK c=0 means
+      // constants[0], which may be 1, not "add zero").
+      if (inst is ABCInstruction && _isIdentityArithmetic(inst, constants)) {
         result[i] = ABCInstruction(
           opcode: LualikeIrOpcode.move,
           a: inst.a,
@@ -177,9 +184,10 @@ class PeepholePass {
         continue;
       }
 
-      // POW r, x, 0 → LOADI r, 1
+      // POW r, x, K where K is 0 → LOADI r, 1
       if (inst is ABCInstruction &&
-          (inst.opcode == LualikeIrOpcode.powK && inst.c == 0)) {
+          inst.opcode == LualikeIrOpcode.powK &&
+          _constantNumericValue(constants, inst.c) == 0) {
         result[i] = AsBxInstruction(
           opcode: LualikeIrOpcode.loadI,
           a: inst.a,
@@ -190,10 +198,10 @@ class PeepholePass {
         continue;
       }
 
-      // MUL r, x, 2 → ADD r, x, x  (strength reduction)
+      // MUL r, x, K where K is 2 → ADD r, x, x  (strength reduction)
       if (inst is ABCInstruction &&
           inst.opcode == LualikeIrOpcode.mulK &&
-          inst.c == 2) {
+          _constantNumericValue(constants, inst.c) == 2) {
         result[i] = ABCInstruction(
           opcode: LualikeIrOpcode.add,
           a: inst.a,
@@ -327,15 +335,42 @@ class PeepholePass {
     };
   }
 
-  /// ADDx+0, SUBx-0, MULx*1, DIVx/1 → MOVE
-  bool _isIdentityArithmetic(ABCInstruction inst) {
-    return inst.opcode == LualikeIrOpcode.addI && inst.c == 0 ||
-        inst.opcode == LualikeIrOpcode.addK && inst.c == 0 ||
-        inst.opcode == LualikeIrOpcode.subK && inst.c == 0 ||
-        inst.opcode == LualikeIrOpcode.mulK && inst.c == 1 ||
-        inst.opcode == LualikeIrOpcode.divK && inst.c == 1 ||
-        inst.opcode == LualikeIrOpcode.idivK && inst.c == 1 ||
-        inst.opcode == LualikeIrOpcode.powK && inst.c == 1;
+  /// ADDI +0, ADDK/SUBK ±0, MULK/DIVK/IDIVK/POWK ±1 → MOVE.
+  ///
+  /// For *K opcodes, [ABCInstruction.c] is a **constant table index**, not
+  /// the immediate value. Look up [constants] before treating it as identity.
+  bool _isIdentityArithmetic(
+    ABCInstruction inst,
+    List<LualikeIrConstant> constants,
+  ) {
+    if (inst.opcode == LualikeIrOpcode.addI) {
+      return inst.c == 0;
+    }
+    final kv = _constantNumericValue(constants, inst.c);
+    if (kv == null) {
+      return false;
+    }
+    return switch (inst.opcode) {
+      LualikeIrOpcode.addK || LualikeIrOpcode.subK => kv == 0,
+      LualikeIrOpcode.mulK ||
+      LualikeIrOpcode.divK ||
+      LualikeIrOpcode.idivK ||
+      LualikeIrOpcode.powK => kv == 1,
+      _ => false,
+    };
+  }
+
+  /// Numeric payload of [constants][index], or null if missing/non-numeric.
+  num? _constantNumericValue(List<LualikeIrConstant> constants, int index) {
+    if (index < 0 || index >= constants.length) {
+      return null;
+    }
+    final c = constants[index];
+    return switch (c) {
+      IntegerConstant(:final value) => value,
+      NumberConstant(:final value) => value,
+      _ => null,
+    };
   }
 
   bool _isLoad(LualikeIrInstruction inst) {

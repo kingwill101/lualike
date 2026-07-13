@@ -1,5 +1,10 @@
 ## Unreleased
 
+- Fix IR peephole treating `ADDK`/`MULK`/… `c` as the immediate value
+  instead of a **constant-table index** (e.g. `return x + 1` became
+  `return x`). Align `MMBINI`/`MMBINK` A with luac55 (left operand).
+- Bytecode VM: try sync dispatch for hook-free frames after the call
+  stack is set up (leaf BC calls + numeric for when possible).
 - Bytecode density (Lua **5.5** / `luac55` baseline): peephole folds
   `ARITH tmp; MMBIN*; MOVE dest,tmp` into in-place `ARITH dest` and
   `LOAD* tmp; MOVE dest,tmp` into `LOAD* dest`. Integer `FORLOOP` and

@@ -197,6 +197,25 @@ final class LuaBytecodeVm {
     var poppedCallFrame = false;
     List<Value> returnTransferValues = const <Value>[];
     try {
+      // Sync fast path for leaf-ish bodies: call stack is already live
+      // (debug.getinfo sees us), but we skip the async instruction loop
+      // when every opcode can run without await/yield. Nested BC CALL
+      // may recurse into trySync; any bail rewinds PC for async resume.
+      if (entryDebugInterpreter?.debugHookFunction == null &&
+          runtime.getCurrentCoroutine() == null &&
+          frame.pc == 0) {
+        final sync = _trySyncExecute(frame);
+        if (sync is List<Value>) {
+          returnTransferValues = sync;
+          return sync;
+        }
+        if (sync is _TailCallResult) {
+          runtime.callStack.pop();
+          poppedCallFrame = true;
+          return sync;
+        }
+        // null: PC rewound to the failing instruction (or still 0).
+      }
       final result = await _executeFrame(frame, callFrame: activeCallFrame);
       if (result is _TailCallResult) {
         // Tail call via normal return (no TailCallException).
@@ -349,6 +368,12 @@ final class LuaBytecodeVm {
     }
   }
 
+  /// Rewind after `pc++` so async [_executeFrame] can re-run the same insn.
+  @pragma('vm:prefer-inline')
+  static void _rewindSyncPc(LuaBytecodeFrame frame) {
+    frame.pc -= 1;
+  }
+
   Object? _trySyncExecute(LuaBytecodeFrame frame) {
     if (runtime.getCurrentCoroutine() != null) return null;
     if (_debugInterpreter?.debugHookFunction != null) return null;
@@ -474,8 +499,15 @@ final class LuaBytecodeVm {
             break;
           case Opcode.len:
             {
-              final fastLen = canFastPathLength(frame.register(word.b));
-              frame.setRegister(word.a, framePrimitiveValue(runtime, fastLen));
+              final operand = frame.register(word.b);
+              if (!canFastPathLength(operand)) {
+                _rewindSyncPc(frame);
+                return null;
+              }
+              frame.storeRegisterRaw(
+                word.a,
+                framePrimitiveValue(runtime, lengthOf(operand)),
+              );
               break;
             }
           case Opcode.jmp:
@@ -490,7 +522,10 @@ final class LuaBytecodeVm {
           case Opcode.leI:
           case Opcode.gtI:
           case Opcode.geI:
-            if (!_syncCompare(frame, word, opcode)) return null;
+            if (!_syncCompare(frame, word, opcode)) {
+              _rewindSyncPc(frame);
+              return null;
+            }
             break;
           case Opcode.test:
             _docondjump(frame, word, isLuaTruthy(frame.register(word.a)));
@@ -523,7 +558,10 @@ final class LuaBytecodeVm {
                   break;
                 }
               }
-              if (raw is! LuaBytecodeClosure) return null;
+              if (raw is! LuaBytecodeClosure) {
+                _rewindSyncPc(frame);
+                return null;
+              }
               final args = LuaBytecodeFrameArgsView(
                 frame,
                 start: word.a + 1,
@@ -539,13 +577,22 @@ final class LuaBytecodeVm {
               );
               final r = _trySyncExecute(newFrame);
               _releaseBytecodeFrameIfReusable(newFrame);
-              if (r == null) return null;
+              if (r is List<Value>) {
+                final results = r;
+                if (word.c == 1) {
+                  _closeDiscardedCallResults(frame, results);
+                }
+                nextOpenTop = _storeCallResults(frame, word.a, word.c, results);
+                break;
+              }
               if (r is _TailCallResult) {
-                // Handle tail call from sync path
                 final tail = r;
-                final tailRaw = rawLuaSlot(tail.functionValue);
+                final tailRaw = rawLuaSlot(
+                  tail.functionValue is Value
+                      ? tail.functionValue as Value
+                      : callee,
+                );
                 if (tailRaw is LuaBytecodeClosure) {
-                  // Re-dispatch
                   final nextFrame = _acquireBytecodeFrame(
                     tailRaw,
                     functionValue: tail.functionValue is Value
@@ -557,24 +604,24 @@ final class LuaBytecodeVm {
                   );
                   final nextR = _trySyncExecute(nextFrame);
                   _releaseBytecodeFrameIfReusable(nextFrame);
-                  if (nextR == null) return null;
-                  if (nextR is _TailCallResult) return null;
-                  final results2 = nextR as List<Value>;
-                  if (word.c == 1) _closeDiscardedCallResults(frame, results2);
-                  nextOpenTop = _storeCallResults(
-                    frame,
-                    word.a,
-                    word.c,
-                    results2,
-                  );
-                  break;
+                  if (nextR is List<Value>) {
+                    final results2 = nextR;
+                    if (word.c == 1) {
+                      _closeDiscardedCallResults(frame, results2);
+                    }
+                    nextOpenTop = _storeCallResults(
+                      frame,
+                      word.a,
+                      word.c,
+                      results2,
+                    );
+                    break;
+                  }
                 }
-                return null;
               }
-              final results = r as List<Value>;
-              if (word.c == 1) _closeDiscardedCallResults(frame, results);
-              nextOpenTop = _storeCallResults(frame, word.a, word.c, results);
-              break;
+              // Nested could not finish sync: re-run this CALL async.
+              _rewindSyncPc(frame);
+              return null;
             }
           case Opcode.tailCall:
             {
@@ -582,9 +629,13 @@ final class LuaBytecodeVm {
               final raw = rawLuaSlot(callee);
               if (raw is! LuaBytecodeClosure ||
                   _debugInterpreter?.debugHookFunction != null) {
+                _rewindSyncPc(frame);
                 return null;
               }
-              if (!_closeFrameForCoroutineSync(frame)) return null;
+              if (!_closeFrameForCoroutineSync(frame)) {
+                _rewindSyncPc(frame);
+                return null;
+              }
               return _TailCallResult(callee, _resolveCall(frame, word).args);
             }
           case Opcode.return_:
@@ -592,7 +643,7 @@ final class LuaBytecodeVm {
           case Opcode.return1:
             return _syncReturn(frame, word);
           case Opcode.getUpval:
-            frame.setRegister(word.a, frame.closure.readUpvalue(word.b));
+            frame.storeRegisterRaw(word.a, frame.closure.readUpvalue(word.b));
             break;
           case Opcode.setUpval:
             frame.closure.writeUpvalue(word.b, frame.register(word.a));
@@ -606,14 +657,57 @@ final class LuaBytecodeVm {
           case Opcode.setList:
             _setList(frame, word);
             break;
-          case Opcode.close:
+          case Opcode.forPrep:
+            if (_forPrep(frame, word.a)) {
+              frame.pc += word.bx + 1;
+            }
+            break;
+          case Opcode.forLoop:
+            if (_forLoop(frame, word.a)) {
+              frame.pc -= word.bx;
+              // GC safe-point handled by the counter above; skip async drain.
+            }
+            break;
+          case Opcode.mmBin ||
+              Opcode.mmBinI ||
+              Opcode.mmBinK:
+            // Fast-path arith already skipped these; if we land here, need MM.
+            _rewindSyncPc(frame);
+            return null;
           case Opcode.varArgPrep:
+            // Without hooks this is a no-op (async path only fires call hook).
+            break;
+          case Opcode.closure:
+            {
+              final child = prototype.prototypes[word.bx];
+              frame.setRegister(
+                word.a,
+                wrapClosure(_createClosure(frame, child)),
+              );
+              break;
+            }
+          case Opcode.getTabUp:
+            {
+              final receiver = frame.closure.readUpvalue(word.b);
+              final rawKey = stringConstantRaw(prototype, word.c);
+              final fast = _tryFastTableGetStringKey(receiver, rawKey);
+              if (fast == null) {
+                _rewindSyncPc(frame);
+                return null;
+              }
+              frame.setRegister(word.a, fast);
+              break;
+            }
+          case Opcode.close:
           case Opcode.extraArg:
+            _rewindSyncPc(frame);
             return null; // complex opcode — needs async
           default:
+            _rewindSyncPc(frame);
             return null;
         }
       } on YieldException {
+        _rewindSyncPc(frame);
         return null;
       }
       if (nextOpenTop != null) {

@@ -491,12 +491,15 @@ List<LuaBytecodeInstructionWord>? _lowerArithmeticMetamethodSequence(
   }
 
   final primary = _lowerInstruction(instruction);
+  // MMBIN* A is the **left operand register** (luac55), not the arithmetic
+  // destination. Destination is recovered from the previous instruction's A
+  // when the metamethod path runs (see Opcode.mmBin* handlers).
   final followup = switch (instruction.opcode) {
     LualikeIrOpcode.addI ||
     LualikeIrOpcode.shlI ||
     LualikeIrOpcode.shrI => LuaBytecodeInstructionWord.abc(
       opcode: LuaBytecodeOpcodes.byName('MMBINI').code,
-      a: instruction.a,
+      a: instruction.b,
       b: _encodeCOperand(instruction.opcode, instruction.c),
       c: event,
       k: instruction.k,
@@ -512,7 +515,7 @@ List<LuaBytecodeInstructionWord>? _lowerArithmeticMetamethodSequence(
     LualikeIrOpcode.borK ||
     LualikeIrOpcode.bxorK => LuaBytecodeInstructionWord.abc(
       opcode: LuaBytecodeOpcodes.byName('MMBINK').code,
-      a: instruction.a,
+      a: instruction.b,
       b: instruction.c,
       c: event,
       k: instruction.k,
