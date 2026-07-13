@@ -43,6 +43,9 @@ _loveCanvasSnapshotPictures = LinkedHashMap<LoveCanvasSnapshot, ui.Picture>();
 /// allocations in dense shape loops.
 final Paint _loveShapePaint = Paint();
 final Paint _lovePointsPaint = Paint()..style = PaintingStyle.fill;
+final Paint _loveImagePaint = Paint();
+final Paint _loveImageDataPaint = Paint();
+final Path _lovePath = Path();
 final Paint _loveClearPaint = Paint();
 final Paint _loveEmptyLayerPaint = Paint();
 final Paint _loveSrcLayerPaint = Paint()..blendMode = BlendMode.src;
@@ -834,7 +837,9 @@ void _renderRecordedCommand(
         lineStyle: line.lineStyle,
         strokeCap: StrokeCap.round,
       );
-      final path = Path()..moveTo(line.points.first.x, line.points.first.y);
+      final path = _lovePath
+        ..reset()
+        ..moveTo(line.points.first.x, line.points.first.y);
       for (var i = 1; i < line.points.length; i++) {
         final point = line.points[i];
         path.lineTo(point.x, point.y);
@@ -850,7 +855,8 @@ void _renderRecordedCommand(
         lineStyle: polygon.lineStyle,
         command: polygon,
       );
-      final path = Path()
+      final path = _lovePath
+        ..reset()
         ..moveTo(polygon.points.first.x, polygon.points.first.y);
       for (var i = 1; i < polygon.points.length; i++) {
         final point = polygon.points[i];
@@ -908,7 +914,7 @@ void _renderRecordedCommand(
         radius: arc.radius,
       );
       final sweepAngle = arc.angle2 - arc.angle1;
-      final path = Path();
+      final path = _lovePath..reset();
 
       switch (arc.arcMode) {
         case LoveGraphicsArcMode.open:
@@ -1436,7 +1442,10 @@ void _renderFlameAtlasBatch(
   stats?.atlasBatchItems += batch.items.length;
   spriteBatch.render(
     canvas,
-    paint: Paint()..filterQuality = batch.filterQuality,
+    paint: _loveImagePaint
+      ..shader = null
+      ..colorFilter = null
+      ..filterQuality = batch.filterQuality,
   );
   spriteBatch.clear();
 }
@@ -1502,7 +1511,9 @@ void _renderResolvedImage(
       if (tint != LoveColor.white) {
         canvas.saveLayer(
           destinationRect,
-          Paint()
+          _loveImagePaint
+            ..shader = null
+            ..filterQuality = FilterQuality.low
             ..colorFilter = ColorFilter.mode(
               _toFlutterColor(tint),
               BlendMode.modulate,
@@ -1530,7 +1541,10 @@ void _renderResolvedImage(
         for (var y = 0; y < height; y++) {
           for (var x = 0; x < width; x++) {
             final color = resolvedImageData.getPixel(left + x, top + y);
-            final paint = Paint()
+            final paint = _loveImageDataPaint
+              ..shader = null
+              ..colorFilter = null
+              ..filterQuality = FilterQuality.none
               ..color = _toFlutterColor(_modulateLoveColor(color, tint));
             canvas.drawRect(
               Rect.fromLTWH(x.toDouble(), y.toDouble(), 1, 1),
@@ -1539,14 +1553,12 @@ void _renderResolvedImage(
           }
         }
       } else if (rawImage is ui.Image) {
-        final paint = Paint()
-          ..filterQuality = _filterQualityForLove(resolvedImage.filter);
-        if (tint != LoveColor.white) {
-          paint.colorFilter = ColorFilter.mode(
-            _toFlutterColor(tint),
-            BlendMode.modulate,
-          );
-        }
+        final paint = _loveImagePaint
+          ..shader = null
+          ..filterQuality = _filterQualityForLove(resolvedImage.filter)
+          ..colorFilter = tint == LoveColor.white
+              ? null
+              : ColorFilter.mode(_toFlutterColor(tint), BlendMode.modulate);
         canvas.drawImageRect(rawImage, sourceRect, destinationRect, paint);
       }
   }
@@ -2163,7 +2175,10 @@ Paint? _registeredFragmentPaintForCommand(
     return null;
   }
 
-  final paint = Paint()..isAntiAlias = false;
+  final paint = _loveImagePaint
+    ..shader = null
+    ..colorFilter = null
+    ..isAntiAlias = false;
   _assignRegisteredFragmentShaderToPaint(paint, shader, binding!);
   return paint;
 }
@@ -3038,7 +3053,10 @@ Paint? _shaderLayerPaintForCommand(LoveDrawCommand command) {
     LoveShaderKind.desaturationTint => switch (_desaturationTintColorFilter(
       shader,
     )) {
-      final ui.ColorFilter filter => Paint()..colorFilter = filter,
+      final ui.ColorFilter filter => _loveImagePaint
+        ..shader = null
+        ..filterQuality = FilterQuality.low
+        ..colorFilter = filter,
       null => null,
     },
     _ => null,
@@ -3055,7 +3073,9 @@ Paint? _layerPaintForBlendAndMask({
     return null;
   }
 
-  return Paint()
+  return _loveImagePaint
+    ..shader = null
+    ..filterQuality = FilterQuality.low
     ..blendMode = resolvedBlendMode
     ..colorFilter = colorFilter;
 }
