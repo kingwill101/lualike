@@ -257,7 +257,7 @@ extension LoveFilesystemRuntimeReadWrite on LoveFilesystemState {
     }
 
     final candidatePath = candidate.physicalPath;
-    if (candidatePath == null || !await adapter.fileExists(candidatePath)) {
+    if (candidatePath == null) {
       throw StateError('Could not open file $logicalPath. Does not exist.');
     }
 
