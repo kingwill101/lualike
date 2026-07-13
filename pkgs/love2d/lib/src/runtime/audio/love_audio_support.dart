@@ -123,14 +123,14 @@ class LoveAudioSource {
     this.coneOuterHighGain = 1.0,
     LoveAudioSourceBackend? backend,
     LoveAudioSourceEffectState? effectState,
-    Uint8List? bytes,
+    // Caller transfers ownership of the buffer; do not re-copy.
+    this.bytes,
     this.mimeType,
     Vector3? position,
     Vector3? velocity,
     Vector3? direction,
   }) : _backend = backend ?? const LoveNoopAudioSourceBackend(),
        effectState = effectState ?? LoveAudioSourceEffectState(),
-       bytes = bytes == null ? null : Uint8List.fromList(bytes),
        position = position ?? Vector3.zero(),
        velocity = velocity ?? Vector3.zero(),
        direction = direction ?? Vector3.zero();

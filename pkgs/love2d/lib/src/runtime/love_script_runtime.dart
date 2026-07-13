@@ -165,8 +165,18 @@ end
     return true;
   }
 
+  /// Cached user callbacks for the main-loop hot path (`update` / `draw`).
+  ///
+  /// Entries store the raw `love[name]` slot identity so reassignment
+  /// invalidates automatically without a full table walk on every frame.
+  final Map<String, (Object? slot, Value? callback)> _hotUserCallbackCache =
+      <String, (Object? slot, Value? callback)>{};
+
   /// Returns the user-defined LOVE callback named [name], if one exists.
   Value? userLoveCallback(String name) {
+    if (name == 'update' || name == 'draw') {
+      return _cachedHotUserCallback(name);
+    }
     return loveCallback(name);
   }
 
@@ -185,6 +195,30 @@ end
     }
 
     return callback;
+  }
+
+  /// Resolves `love.update` / `love.draw` with slot-identity caching.
+  Value? _cachedHotUserCallback(String name) {
+    final love = _value(runtime.globals.get('love'));
+    final loveTable = love?.raw;
+    if (loveTable is! Map) {
+      _hotUserCallbackCache.remove(name);
+      return null;
+    }
+
+    final slot = loveTable[name];
+    final cached = _hotUserCallbackCache[name];
+    if (cached != null && identical(cached.$1, slot)) {
+      return cached.$2;
+    }
+
+    final callback = _value(slot);
+    final resolved =
+        callback != null && !_isGeneratedLoveCallbackStub(callback)
+        ? callback
+        : null;
+    _hotUserCallbackCache[name] = (slot, resolved);
+    return resolved;
   }
 
   /// Calls the LOVE callback named [name] if the user defined it.

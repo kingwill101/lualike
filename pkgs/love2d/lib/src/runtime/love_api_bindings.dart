@@ -171,6 +171,27 @@ const String _loveChannelObjectKey = '__love2d_channel__';
 const String _loveThreadObjectKey = '__love2d_thread__';
 const String _loveVideoObjectKey = '__love2d_video__';
 const String _loveVideoStreamObjectKey = '__love2d_video_stream__';
+
+/// Table slot storing a [int] drawable kind for O(1) `love.graphics.draw`.
+const String _loveDrawableKindKey = '__love2d_drawable_kind__';
+
+/// Drawable kind for [LoveImage] / [LoveCanvas] wrappers.
+const int _loveDrawableKindImage = 1;
+
+/// Drawable kind for [LoveTextDrawable] wrappers.
+const int _loveDrawableKindText = 2;
+
+/// Drawable kind for [LoveMesh] wrappers.
+const int _loveDrawableKindMesh = 3;
+
+/// Drawable kind for [LoveSpriteBatch] wrappers.
+const int _loveDrawableKindSpriteBatch = 4;
+
+/// Drawable kind for [LoveParticleSystem] wrappers.
+const int _loveDrawableKindParticleSystem = 5;
+
+/// Drawable kind for [LoveVideo] wrappers.
+const int _loveDrawableKindVideo = 6;
 const String _lovePhysicsWorldObjectKey = '__love2d_physics_world__';
 const String _lovePhysicsBodyObjectKey = '__love2d_physics_body__';
 const String _lovePhysicsFixtureObjectKey = '__love2d_physics_fixture__';

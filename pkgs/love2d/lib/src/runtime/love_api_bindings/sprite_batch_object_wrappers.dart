@@ -44,6 +44,7 @@ Value _wrapSpriteBatch(
   const hierarchy = <String>{'SpriteBatch', 'Drawable', 'Object'};
 
   final table = ValueClass.table(<Object?, Object?>{
+    _loveDrawableKindKey: _loveDrawableKindSpriteBatch,
     _loveSpriteBatchObjectKey: spriteBatch,
     'add': Value(
       builder.create((args) {

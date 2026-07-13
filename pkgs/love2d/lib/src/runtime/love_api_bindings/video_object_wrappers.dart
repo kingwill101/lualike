@@ -78,6 +78,7 @@ Value _wrapVideo(LibraryRegistrationContext context, LoveVideo video) {
   );
   const hierarchy = <String>{'Video', 'Drawable', 'Object'};
   final table = ValueClass.table(<Object?, Object?>{
+    _loveDrawableKindKey: _loveDrawableKindVideo,
     _loveVideoObjectKey: video,
     'getDimensions': Value(
       builder.create((args) {

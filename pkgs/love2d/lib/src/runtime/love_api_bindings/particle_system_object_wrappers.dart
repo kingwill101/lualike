@@ -45,6 +45,7 @@ Value _wrapParticleSystem(
   final runtime = _runtimeContext(context);
   const hierarchy = <String>{'ParticleSystem', 'Drawable', 'Object'};
   final table = ValueClass.table(<Object?, Object?>{
+    _loveDrawableKindKey: _loveDrawableKindParticleSystem,
     _loveParticleSystemObjectKey: particleSystem,
     'clone': Value(
       builder.create(

@@ -10,8 +10,11 @@ import '../love_runtime.dart';
 /// `audioplayers`-backed audio source backend for Flutter runtimes.
 class LoveFlutterAudioSourceBackend implements LoveAudioSourceBackend {
   /// Creates a backend that plays in-memory audio [bytes].
+  ///
+  /// Takes ownership of [bytes]; callers must not mutate the buffer after
+  /// construction.
   LoveFlutterAudioSourceBackend({required Uint8List bytes, String? mimeType})
-    : _bytes = Uint8List.fromList(bytes),
+    : _bytes = bytes,
       _mimeType = mimeType;
 
   /// The copied source bytes used to initialize the player.

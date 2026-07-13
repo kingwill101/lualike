@@ -247,6 +247,7 @@ Value _wrapTextDrawable(
   final builder = BuiltinFunctionBuilder(context);
   const hierarchy = <String>{'Text', 'Drawable', 'Object'};
   final table = ValueClass.table(<Object?, Object?>{
+    _loveDrawableKindKey: _loveDrawableKindText,
     _loveTextObjectKey: text,
     'add': Value(
       builder.create((args) {
@@ -508,6 +509,7 @@ Value _wrapImage(LibraryRegistrationContext context, LoveImage image) {
   final builder = BuiltinFunctionBuilder(context);
   const hierarchy = <String>{'Image', 'Texture', 'Drawable', 'Object'};
   final table = ValueClass.table(<Object?, Object?>{
+    _loveDrawableKindKey: _loveDrawableKindImage,
     _loveImageObjectKey: image,
     ..._textureEntries(
       builder,
@@ -775,6 +777,7 @@ Value _wrapCanvas(LibraryRegistrationContext context, LoveCanvas canvas) {
   final runtime = _runtimeContext(context);
 
   final table = ValueClass.table(<Object?, Object?>{
+    _loveDrawableKindKey: _loveDrawableKindImage,
     _loveImageObjectKey: canvas,
     _loveCanvasObjectKey: canvas,
     ..._textureEntries(

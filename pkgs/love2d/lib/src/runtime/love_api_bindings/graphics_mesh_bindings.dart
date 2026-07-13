@@ -46,6 +46,7 @@ Value _wrapMesh(LibraryRegistrationContext context, LoveMesh mesh) {
 
   final builder = BuiltinFunctionBuilder(context);
   final table = ValueClass.table(<Object?, Object?>{
+    _loveDrawableKindKey: _loveDrawableKindMesh,
     _loveMeshObjectKey: mesh,
     'release': Value(
       builder.create((args) {

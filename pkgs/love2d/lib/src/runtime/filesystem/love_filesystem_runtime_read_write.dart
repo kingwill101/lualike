@@ -82,6 +82,8 @@ extension LoveFilesystemRuntimeReadWrite on LoveFilesystemState {
     return LoveFilesystemFileData(
       bytes: bytes,
       filename: filename ?? logicalPath,
+      // Read path owns the buffer; avoid a second freeze copy.
+      copyBytes: false,
     );
   }
 
@@ -100,6 +102,7 @@ extension LoveFilesystemRuntimeReadWrite on LoveFilesystemState {
     return LoveFilesystemFileData(
       bytes: bytes,
       filename: filename ?? logicalPath,
+      copyBytes: false,
     );
   }
 
@@ -115,6 +118,7 @@ extension LoveFilesystemRuntimeReadWrite on LoveFilesystemState {
     return LoveFilesystemFileData(
       bytes: bytes,
       filename: filename ?? logicalPath,
+      copyBytes: false,
     );
   }
 
@@ -244,7 +248,8 @@ extension LoveFilesystemRuntimeReadWrite on LoveFilesystemState {
         throw StateError('Could not open file $logicalPath. Does not exist.');
       }
 
-      final bytes = List<int>.from(node.bytes!);
+      // Virtual mount nodes already store unmodifiable bytes; share them.
+      final bytes = node.bytes!;
       if (size >= 0 && bytes.length > size) {
         return bytes.sublist(0, size);
       }
