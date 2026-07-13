@@ -108,7 +108,10 @@ LuaBytecodePrototype lowerIrPrototypeToLuaBytecodePrototype(
   final upvalueNames = List<String?>.unmodifiable(loweredUpvalueNames);
 
   return LuaBytecodePrototype(
-    lineDefined: prototype.lineDefined,
+    // Official Lua main chunks always report linedefined=0. The debug VM
+    // uses that to distinguish main from regular Lua functions (e.g. so
+    // debug.getlocal does not inject a synthetic "(vararg table)" entry).
+    lineDefined: isMainPrototype ? 0 : prototype.lineDefined,
     lastLineDefined: prototype.lastLineDefined,
     parameterCount: prototype.paramCount,
     flags: _prototypeFlags(prototype, isMainPrototype: isMainPrototype),

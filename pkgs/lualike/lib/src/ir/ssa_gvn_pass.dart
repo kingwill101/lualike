@@ -82,7 +82,8 @@ const _gvnPureOpcodes = <LualikeIrOpcode>{
 /// Find which register an instruction writes to (-1 if none).
 int _resultReg(LualikeIrInstruction inst, int registerCount) {
   final r = inst.when(
-    abc: (i) => i.opcode == LualikeIrOpcode.jmp ||
+    abc: (i) =>
+        i.opcode == LualikeIrOpcode.jmp ||
             i.opcode == LualikeIrOpcode.close ||
             i.opcode == LualikeIrOpcode.tbc ||
             i.opcode == LualikeIrOpcode.ret ||
@@ -100,10 +101,7 @@ int _resultReg(LualikeIrInstruction inst, int registerCount) {
 }
 
 /// Build a canonical string key for (opcode, operand SSA labels).
-String _computeKey(
-  LualikeIrInstruction inst,
-  Map<int, String> ssaLabels,
-) {
+String _computeKey(LualikeIrInstruction inst, Map<int, String> ssaLabels) {
   final opName = inst.opcode.name;
   final buf = StringBuffer(opName);
   inst.when(
@@ -120,7 +118,6 @@ String _computeKey(
       buf.write('|vB=${i.vB}|vC=${i.vC}');
       if (i.k) buf.write('|k=1');
     },
-
   );
   return buf.toString();
 }
@@ -134,8 +131,7 @@ LualikeIrPrototype eliminateRedundantComputations(
 ) {
   // First recurse into sub-prototypes
   final processedSubs = <LualikeIrPrototype>[
-    for (final sub in prototype.prototypes)
-      eliminateRedundantComputations(sub),
+    for (final sub in prototype.prototypes) eliminateRedundantComputations(sub),
   ];
 
   var current = LualikeIrPrototype(
@@ -202,13 +198,14 @@ LualikeIrPrototype? _runOnce(LualikeIrPrototype prototype) {
 
         if (existingReg != null) {
           final targetReg = _resultReg(inst, registerCount);
-          if (targetReg >= 0) {
+          // Only reuse if the source register still holds that value.
+          final existingLabel = ssaLabels[existingReg];
+          if (targetReg >= 0 &&
+              existingLabel != null &&
+              valueToSourceReg[key] == existingReg) {
             replacements[pc] = existingReg;
             // Update labels: targetReg now holds the same value as existingReg
-            final existingLabel = ssaLabels[existingReg];
-            if (existingLabel != null) {
-              ssaLabels[targetReg] = existingLabel;
-            }
+            ssaLabels[targetReg] = existingLabel;
             continue; // skip operand tracking — replaced
           }
         }
@@ -220,12 +217,21 @@ LualikeIrPrototype? _runOnce(LualikeIrPrototype prototype) {
         }
       }
 
-      // Update SSA labels: defined registers get new labels
+      // Update SSA labels: defined registers get new labels.
+      // Also drop value-number entries whose source register was clobbered
+      // (CALL/LOAD/etc. must invalidate prior pure results in those regs).
       final instLabels = <int, String>{};
+      final definedRegs = <int>{};
       for (final value in block.definedValues) {
         if (value.definingPc == pc) {
           instLabels[value.register] = value.label;
+          definedRegs.add(value.register);
         }
+      }
+      if (definedRegs.isNotEmpty) {
+        valueToSourceReg.removeWhere(
+          (key, sourceReg) => definedRegs.contains(sourceReg),
+        );
       }
       for (final entry in instLabels.entries) {
         ssaLabels[entry.key] = entry.value;
@@ -242,12 +248,14 @@ LualikeIrPrototype? _runOnce(LualikeIrPrototype prototype) {
     if (replacementReg != null) {
       final inst = instructions[pc];
       final targetReg = _resultReg(inst, registerCount);
-      newInstructions.add(ABCInstruction(
-        opcode: LualikeIrOpcode.move,
-        a: targetReg,
-        b: replacementReg,
-        c: 0,
-      ));
+      newInstructions.add(
+        ABCInstruction(
+          opcode: LualikeIrOpcode.move,
+          a: targetReg,
+          b: replacementReg,
+          c: 0,
+        ),
+      );
     } else {
       newInstructions.add(instructions[pc]);
     }

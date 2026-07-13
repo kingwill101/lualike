@@ -24,7 +24,6 @@ library;
 import 'instruction.dart';
 import 'opcode.dart';
 import 'prototype.dart';
-import 'ssa.dart';
 
 /// Lattice value for SCCP analysis.
 sealed class _LatticeValue {
@@ -41,12 +40,10 @@ class _LatticeConstant extends _LatticeValue {
 }
 
 const _top = _LatticeTop();
+
 /// Check if an opcode produces a known constant from constant inputs.
 /// Returns the constant int value, or null if not foldable.
-int? _foldConstant(
-  LualikeIrInstruction inst,
-  Map<int, _LatticeValue> lattice,
-) {
+int? _foldConstant(LualikeIrInstruction inst, Map<int, _LatticeValue> lattice) {
   int? getConst(int reg) {
     final v = lattice[reg];
     if (v is _LatticeConstant) return v.value;
@@ -56,11 +53,21 @@ int? _foldConstant(
   return inst.when(
     abc: (i) {
       final op = i.opcode;
-      if (op == LualikeIrOpcode.loadI) return i.b; // sBx encoded in b for ABC LOADI? No...
-      if (op == LualikeIrOpcode.loadK) return null; // constant pool, not int
-      if (op == LualikeIrOpcode.loadTrue) return 1;
-      if (op == LualikeIrOpcode.loadFalse) return 0;
-      if (op == LualikeIrOpcode.loadNil) return null;
+      if (op == LualikeIrOpcode.loadI) {
+        return i.b; // sBx encoded in b for ABC LOADI? No...
+      }
+      if (op == LualikeIrOpcode.loadK) {
+        return null; // constant pool, not int
+      }
+      if (op == LualikeIrOpcode.loadTrue) {
+        return 1;
+      }
+      if (op == LualikeIrOpcode.loadFalse) {
+        return 0;
+      }
+      if (op == LualikeIrOpcode.loadNil) {
+        return null;
+      }
       final b = getConst(i.b);
       final c = getConst(i.c);
       if (b == null || c == null) return null;
@@ -122,7 +129,8 @@ bool _isSideEffecting(LualikeIrOpcode op) {
 
 int _resultReg(LualikeIrInstruction inst, int registerCount) {
   final r = inst.when(
-    abc: (i) => i.opcode == LualikeIrOpcode.jmp ||
+    abc: (i) =>
+        i.opcode == LualikeIrOpcode.jmp ||
             i.opcode == LualikeIrOpcode.close ||
             i.opcode == LualikeIrOpcode.tbc ||
             i.opcode == LualikeIrOpcode.ret ||
@@ -150,15 +158,35 @@ LualikeIrPrototype runSccp(LualikeIrPrototype prototype) {
   return current;
 }
 
+Set<int> _definedRegisters(LualikeIrInstruction inst, int registerCount) {
+  final primary = _resultReg(inst, registerCount);
+  if (inst case ABCInstruction(
+    :final opcode,
+    :final a,
+    :final c,
+  ) when opcode == LualikeIrOpcode.call || opcode == LualikeIrOpcode.tailCall) {
+    if (c == 0) {
+      return <int>{for (var reg = a; reg < registerCount; reg++) reg};
+    }
+    if (c >= 2) {
+      return <int>{
+        for (var reg = a; reg <= a + c - 2 && reg < registerCount; reg++) reg,
+      };
+    }
+    return const <int>{};
+  }
+  if (primary < 0) {
+    return const <int>{};
+  }
+  return <int>{primary};
+}
+
 LualikeIrPrototype? _runSccpOnce(LualikeIrPrototype prototype) {
   final instructions = prototype.instructions;
   if (instructions.isEmpty) return null;
   final registerCount = prototype.registerCount;
 
-  final ssa = LualikeIrSsaFunction.fromPrototype(prototype);
   final lattice = <int, _LatticeValue>{};
-  final worklist = <int>[]; // PC worklist
-  final visited = <int>{};
 
   // Initialize: mark constant loads
   for (var pc = 0; pc < instructions.length; pc++) {
@@ -168,76 +196,86 @@ LualikeIrPrototype? _runSccpOnce(LualikeIrPrototype prototype) {
 
     if (inst.opcode == LualikeIrOpcode.loadI && inst is AsBxInstruction) {
       lattice[reg] = _LatticeConstant(inst.sBx);
-      worklist.add(pc);
     } else if (inst.opcode == LualikeIrOpcode.loadTrue) {
       lattice[reg] = const _LatticeConstant(1);
-      worklist.add(pc);
     } else if (inst.opcode == LualikeIrOpcode.loadFalse) {
       lattice[reg] = const _LatticeConstant(0);
-      worklist.add(pc);
     } else {
       lattice[reg] = _top;
     }
   }
 
-  // Process worklist
+  // Process instructions in order so later defs kill earlier constants on the
+  // same register. (Full SSA-value lattice is future work; this keeps the
+  // pass from treating GETTABUP/CALL results as prior LOADI constants.)
   var changed = false;
-  while (worklist.isNotEmpty) {
-    final pc = worklist.removeAt(0);
-    if (!visited.add(pc)) continue;
-
+  for (var pc = 0; pc < instructions.length; pc++) {
     final inst = instructions[pc];
-    final resultReg = _resultReg(inst, registerCount);
-    if (resultReg < 0) continue;
+    final defined = _definedRegisters(inst, registerCount);
+    if (defined.isEmpty) {
+      continue;
+    }
 
     if (_isPure(inst.opcode)) {
-      final folded = _foldConstant(inst, lattice);
-      if (folded != null) {
+      final resultReg = _resultReg(inst, registerCount);
+      final folded = resultReg >= 0 ? _foldConstant(inst, lattice) : null;
+      if (folded != null && resultReg >= 0) {
         final current = lattice[resultReg];
         if (current is! _LatticeConstant || current.value != folded) {
           lattice[resultReg] = _LatticeConstant(folded);
           changed = true;
-          // Add users of this register to worklist
-          for (final user in ssa.unusedDefinitions) {
-            if (user.register == resultReg) continue;
-            // Find instructions that use this register
-            for (final block in ssa.blocks) {
-              for (final value in block.definedValues) {
-                for (final use in value.uses) {
-                  if (use.operandRegister == resultReg &&
-                      use.pc != null &&
-                      use.pc! < instructions.length) {
-                    worklist.add(use.pc!);
-                  }
-                }
-              }
-            }
+        }
+      } else {
+        for (final reg in defined) {
+          if (lattice[reg] is _LatticeConstant) {
+            lattice[reg] = _top;
+            changed = true;
           }
+        }
+      }
+    } else {
+      for (final reg in defined) {
+        if (lattice[reg] is _LatticeConstant) {
+          lattice[reg] = _top;
+          changed = true;
         }
       }
     }
   }
 
-  if (!changed) return null;
+  if (!changed) {
+    return null;
+  }
 
-  // Apply constants: replace known-constant instructions with LOADI/LOADK
+  // Apply constants: only rewrite pure ops that themselves fold to a constant.
+  // Never rewrite every write to a register that currently holds a constant —
+  // that would turn GETTABUP/CALL into LOADI after register reuse.
   final newInstructions = <LualikeIrInstruction>[];
+  var applied = false;
   for (var pc = 0; pc < instructions.length; pc++) {
     final inst = instructions[pc];
     final reg = _resultReg(inst, registerCount);
-    if (reg >= 0) {
-      final val = lattice[reg];
-      if (val is _LatticeConstant) {
-        // Replace with LOADI
-        newInstructions.add(AsBxInstruction(
-          opcode: LualikeIrOpcode.loadI,
-          a: reg,
-          sBx: val.value,
-        ));
-        continue;
+    if (reg >= 0 && _isPure(inst.opcode)) {
+      final folded = _foldConstant(inst, lattice);
+      if (folded != null) {
+        final alreadyLoadI =
+            inst is AsBxInstruction &&
+            inst.opcode == LualikeIrOpcode.loadI &&
+            inst.sBx == folded;
+        if (!alreadyLoadI) {
+          newInstructions.add(
+            AsBxInstruction(opcode: LualikeIrOpcode.loadI, a: reg, sBx: folded),
+          );
+          applied = true;
+          continue;
+        }
       }
     }
     newInstructions.add(inst);
+  }
+
+  if (!applied) {
+    return null;
   }
 
   return LualikeIrPrototype(
@@ -259,7 +297,5 @@ LualikeIrPrototype? _runSccpOnce(LualikeIrPrototype prototype) {
 List<LualikeIrPrototype> _processSubPrototypes(
   List<LualikeIrPrototype> protos,
 ) {
-  return [
-    for (final sub in protos) runSccp(sub),
-  ];
+  return [for (final sub in protos) runSccp(sub)];
 }

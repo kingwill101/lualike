@@ -1,6 +1,7 @@
 import 'dart:typed_data';
 
 import 'chunk.dart';
+import 'debug_local_caches.dart';
 import 'instruction.dart';
 import '../number_limits.dart';
 import '../number_utils.dart';
@@ -37,7 +38,11 @@ final class LuaBytecodeReader {
   LuaBytecodeBinaryChunk readChunk() {
     final header = _readHeader();
     final rootUpvalueCount = _readByte();
-    final mainPrototype = _readPrototype(header);
+    // Official debug sections omit per-local registers; recover them so
+    // debug.getlocal / setlocal can resolve stack slots after reload.
+    final mainPrototype = prototypeWithInferredLocalRegisters(
+      _readPrototype(header),
+    );
     if (_offset != _bytes.length) {
       throw _formatError('Trailing bytes after Lua chunk payload');
     }
@@ -410,4 +415,3 @@ final class LuaBytecodeReader {
     return true;
   }
 }
-

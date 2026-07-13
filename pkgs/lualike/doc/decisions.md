@@ -255,3 +255,28 @@ and coroutine-resume paths that still use it.
 - calls.lua: 4.50s → 1.42s (−68%)
 - math.lua: 2.76s → 2.28s (−17%)
 - Combined absolute improvement vs baseline: calls.lua −71%, math.lua −76%
+
+## Official bytecode omits local registers; recover on parse
+
+**Date:** 2026‑07‑12  
+**Status:** Active  
+
+**Context:** Official Lua chunks store locals as `(name, startPc, endPc)` only.
+Our VM debug tables require `register`. Pipeline compile → serialize → load
+therefore dropped registers and `debug.getlocal` returned nil after fold.
+
+**Decision:** After parsing a chunk, infer registers with Lua's stack discipline
+(`inferLocalRegisters` / `prototypeWithInferredLocalRegisters`): active locals
+form consecutive slots, and a local's register is its depth on that stack at
+birth. Also force main prototype `lineDefined = 0` on IR→bytecode lowering so
+main chunks are not treated as regular Lua functions (which inject a synthetic
+`(vararg table)` local).
+
+**Related SSA safety fixes (same change):**
+- Coalesce must treat CALL/RETURN/CONCAT multi-register windows as reads and
+  refuse to coalesce interfering arg slots.
+- GVN must invalidate value-number sources when registers are redefined.
+- DCE must keep stores into named debug local registers.
+- SCCP must only rewrite instructions that themselves fold, never every write
+  to a register that once held a constant.
+

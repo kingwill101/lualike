@@ -13,7 +13,7 @@ const emptyLuaBytecodeDebugLocalWindow = (
 );
 
 final Expando<List<({int start, int? end})?>>
-    prototypeWrittenRegisterRangesByPc = Expando<List<({int start, int? end})?>>( 
+prototypeWrittenRegisterRangesByPc = Expando<List<({int start, int? end})?>>(
   'luaBytecodePrototypeWrittenRegisterRangesByPc',
 );
 
@@ -64,8 +64,8 @@ List<({int start, int? end})?> writtenRegisterRangesByPcFor(
 
 final Expando<List<Map<int, String>>> prototypeActiveNamedLocalsByPc =
     Expando<List<Map<int, String>>>(
-  'luaBytecodePrototypeActiveNamedLocalsByPc',
-);
+      'luaBytecodePrototypeActiveNamedLocalsByPc',
+    );
 
 List<Map<int, String>> activeNamedLocalsByPcFor(
   LuaBytecodePrototype prototype,
@@ -100,7 +100,8 @@ List<Map<int, String>> activeNamedLocalsByPcFor(
     }
   }
 
-  final activeLocalsByRegister = <int, List<LuaBytecodeLocalVariableDebugInfo>>{};
+  final activeLocalsByRegister =
+      <int, List<LuaBytecodeLocalVariableDebugInfo>>{};
   var currentNamedLocals = const <int, String>{};
   final snapshots = List<Map<int, String>>.filled(
     codeLength,
@@ -158,14 +159,14 @@ List<Map<int, String>> activeNamedLocalsByPcFor(
 }
 
 final Expando<List<LuaBytecodeDebugLocalWindow>>
-    prototypeActiveDebugLocalsByPc = Expando<List<LuaBytecodeDebugLocalWindow>>(
+prototypeActiveDebugLocalsByPc = Expando<List<LuaBytecodeDebugLocalWindow>>(
   'luaBytecodePrototypeActiveDebugLocalsByPc',
 );
 
-final Expando<List<Map<int, String>>>
-    prototypeVisibleNamedLocalsByPc = Expando<List<Map<int, String>>>(
-  'luaBytecodePrototypeVisibleNamedLocalsByPc',
-);
+final Expando<List<Map<int, String>>> prototypeVisibleNamedLocalsByPc =
+    Expando<List<Map<int, String>>>(
+      'luaBytecodePrototypeVisibleNamedLocalsByPc',
+    );
 
 List<LuaBytecodeDebugLocalWindow> activeDebugLocalsByPcFor(
   LuaBytecodePrototype prototype,
@@ -302,7 +303,7 @@ LuaBytecodeDebugLocalWindow debugLocalWindowForPc(
 }
 
 final Expando<List<LuaBytecodeLocalVariableDebugInfo>>
-    prototypeSortedDebugLocals = Expando<List<LuaBytecodeLocalVariableDebugInfo>>(
+prototypeSortedDebugLocals = Expando<List<LuaBytecodeLocalVariableDebugInfo>>(
   'luaBytecodePrototypeSortedDebugLocals',
 );
 
@@ -426,4 +427,123 @@ List<Set<int>> environmentRegistersByPcFor(LuaBytecodePrototype prototype) {
 
   prototypeEnvironmentRegistersByPc[prototype] = snapshots;
   return snapshots;
+}
+
+/// Recover per-local registers missing from official Lua debug sections.
+///
+/// Official chunks only store `(name, startPc, endPc)`. Lua locals form a
+/// stack of active slots, so the n-th active local at any PC lives in
+/// register `n - 1`. Simulating that stack over each local's birth recovers
+/// the register the compiler assigned when the local entered scope.
+List<LuaBytecodeLocalVariableDebugInfo> inferLocalRegisters(
+  List<LuaBytecodeLocalVariableDebugInfo> locals,
+) {
+  if (locals.isEmpty) {
+    return locals;
+  }
+  if (locals.every((local) => local.register != null)) {
+    return locals;
+  }
+
+  final order = List<int>.generate(locals.length, (index) => index)
+    ..sort((left, right) {
+      final startOrder = locals[left].startPc.compareTo(locals[right].startPc);
+      if (startOrder != 0) {
+        return startOrder;
+      }
+      return left.compareTo(right);
+    });
+
+  final registers = <int?>[for (final local in locals) local.register];
+  // Stack of currently live locals (Lua actvar): only the top dies first.
+  final active = <int>[];
+
+  for (final index in order) {
+    final local = locals[index];
+    while (active.isNotEmpty && locals[active.last].endPc <= local.startPc) {
+      active.removeLast();
+    }
+
+    if (registers[index] == null) {
+      registers[index] = active.length;
+    }
+    active.add(index);
+  }
+
+  return <LuaBytecodeLocalVariableDebugInfo>[
+    for (var index = 0; index < locals.length; index++)
+      LuaBytecodeLocalVariableDebugInfo(
+        name: locals[index].name,
+        startPc: locals[index].startPc,
+        endPc: locals[index].endPc,
+        register: registers[index],
+      ),
+  ];
+}
+
+/// Returns [prototype] with inferred local registers on this node and children.
+LuaBytecodePrototype prototypeWithInferredLocalRegisters(
+  LuaBytecodePrototype prototype,
+) {
+  final localVariables = inferLocalRegisters(prototype.localVariables);
+  final children = <LuaBytecodePrototype>[
+    for (final child in prototype.prototypes)
+      prototypeWithInferredLocalRegisters(child),
+  ];
+
+  final localsUnchanged =
+      identical(localVariables, prototype.localVariables) ||
+      _localListsEqual(localVariables, prototype.localVariables);
+  var childrenUnchanged = children.length == prototype.prototypes.length;
+  if (childrenUnchanged) {
+    for (var index = 0; index < children.length; index++) {
+      if (!identical(children[index], prototype.prototypes[index])) {
+        childrenUnchanged = false;
+        break;
+      }
+    }
+  }
+
+  if (localsUnchanged && childrenUnchanged) {
+    return prototype;
+  }
+
+  return LuaBytecodePrototype(
+    lineDefined: prototype.lineDefined,
+    lastLineDefined: prototype.lastLineDefined,
+    parameterCount: prototype.parameterCount,
+    flags: prototype.flags,
+    maxStackSize: prototype.maxStackSize,
+    code: prototype.code,
+    constants: prototype.constants,
+    upvalues: prototype.upvalues,
+    prototypes: List<LuaBytecodePrototype>.unmodifiable(children),
+    source: prototype.source,
+    lineInfo: prototype.lineInfo,
+    absoluteLineInfo: prototype.absoluteLineInfo,
+    localVariables: List<LuaBytecodeLocalVariableDebugInfo>.unmodifiable(
+      localVariables,
+    ),
+    upvalueNames: prototype.upvalueNames,
+  );
+}
+
+bool _localListsEqual(
+  List<LuaBytecodeLocalVariableDebugInfo> left,
+  List<LuaBytecodeLocalVariableDebugInfo> right,
+) {
+  if (left.length != right.length) {
+    return false;
+  }
+  for (var index = 0; index < left.length; index++) {
+    final a = left[index];
+    final b = right[index];
+    if (a.name != b.name ||
+        a.startPc != b.startPc ||
+        a.endPc != b.endPc ||
+        a.register != b.register) {
+      return false;
+    }
+  }
+  return true;
 }

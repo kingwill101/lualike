@@ -106,16 +106,38 @@ LualikeIrPrototype eliminateDeadCode(LualikeIrPrototype prototype) {
   }
 }
 
+/// Registers that hold named locals for debug.getlocal visibility.
+///
+/// Even if the program never reads them, debug metadata can observe their
+/// values, so pure stores into these registers must not be DCE'd away.
+Set<int> _debugLiveRegisters(LualikeIrPrototype prototype) {
+  final locals = prototype.debugInfo?.localNames;
+  if (locals == null || locals.isEmpty) {
+    return const <int>{};
+  }
+  return <int>{
+    for (final local in locals)
+      if (local.register case final register? when register >= 0) register,
+  };
+}
+
 /// Try to eliminate dead instructions once. Returns `null` if no change.
 LualikeIrPrototype? _eliminateOnce(LualikeIrPrototype prototype) {
   if (prototype.instructions.isEmpty) return null;
 
-  final ssa = LualikeIrSsaFunction.fromPrototype(prototype).simplifyTrivialPhis();
+  final ssa = LualikeIrSsaFunction.fromPrototype(
+    prototype,
+  ).simplifyTrivialPhis();
   final unusedByPc = <int, Set<int>>{};
+  final debugLiveRegisters = _debugLiveRegisters(prototype);
 
   for (final value in ssa.unusedDefinitions) {
     final pc = value.definingPc;
     if (pc == null) continue;
+    // Keep definitions of named locals so debug.getlocal still sees values.
+    if (debugLiveRegisters.contains(value.register)) {
+      continue;
+    }
     unusedByPc.putIfAbsent(pc, () => <int>{}).add(value.register);
   }
 
