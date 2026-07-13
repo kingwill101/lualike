@@ -176,9 +176,7 @@ LualikeIrPrototype? _runOnce(LualikeIrPrototype prototype) {
   for (final inst in instructions) {
     final tableReg = _tableRegisterForAccess(inst);
     final key = _fieldAccessKey(inst);
-    if (tableReg != null &&
-        key != null &&
-        nonEscaping.contains(tableReg)) {
+    if (tableReg != null && key != null && nonEscaping.contains(tableReg)) {
       (fieldKeysByTable[tableReg] ??= <_TableFieldAccessKey>{}).add(key);
     }
   }

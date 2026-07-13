@@ -65,7 +65,8 @@ const _licmPureOpcodes = <LualikeIrOpcode>{
 
 int _resultReg(LualikeIrInstruction inst, int registerCount) {
   final r = inst.when(
-    abc: (i) => i.opcode == LualikeIrOpcode.jmp ||
+    abc: (i) =>
+        i.opcode == LualikeIrOpcode.jmp ||
             i.opcode == LualikeIrOpcode.close ||
             i.opcode == LualikeIrOpcode.tbc ||
             i.opcode == LualikeIrOpcode.ret ||
@@ -140,18 +141,14 @@ LualikeIrPrototype? _runLicmOnce(LualikeIrPrototype prototype) {
   if (ssa.blocks.length < 2) return null;
 
   // 1. Find natural loops via back edges
-  final loops = <({int header, int backEdgeFrom, Set<int> body,
-  int preheader})>[];
+  final loops =
+      <({int header, int backEdgeFrom, Set<int> body, int preheader})>[];
 
   for (final block in ssa.blocks) {
     for (final succ in block.block.successors) {
       if (ssa.cfg.dominates(succ, block.block.index)) {
         // Back edge: block.index -> succ where succ dominates block.index
-        final body = _collectLoopBody(
-          ssa.blocks,
-          succ,
-          block.block.index,
-        );
+        final body = _collectLoopBody(ssa.blocks, succ, block.block.index);
         // Find preheader: the predecessor of the header that's NOT in the loop
         var preheader = -1;
         for (final pred in ssa.blocks[succ].block.predecessors) {
@@ -276,8 +273,6 @@ LualikeIrPrototype? _runLicmOnce(LualikeIrPrototype prototype) {
   );
 }
 
-List<LualikeIrPrototype> _licmSubPrototypes(
-  List<LualikeIrPrototype> protos,
-) {
+List<LualikeIrPrototype> _licmSubPrototypes(List<LualikeIrPrototype> protos) {
   return [for (final sub in protos) hoistLoopInvariants(sub)];
 }
