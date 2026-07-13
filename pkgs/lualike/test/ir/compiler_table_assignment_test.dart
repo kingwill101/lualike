@@ -30,10 +30,10 @@ void main() {
       final loadValue =
           instructions.firstWhere(
                 (instr) =>
-                    instr is ABxInstruction &&
-                    instr.opcode == LualikeIrOpcode.loadK,
+                    instr is AsBxInstruction &&
+                    instr.opcode == LualikeIrOpcode.loadI,
               )
-              as ABxInstruction;
+              as AsBxInstruction;
       expect(setField.c, equals(loadValue.a));
     });
 
@@ -46,10 +46,10 @@ void main() {
       final loadValue =
           instructions.firstWhere(
                 (instr) =>
-                    instr is ABxInstruction &&
-                    instr.opcode == LualikeIrOpcode.loadK,
+                    instr is AsBxInstruction &&
+                    instr.opcode == LualikeIrOpcode.loadI,
               )
-              as ABxInstruction;
+              as AsBxInstruction;
       final setI = instructions.whereType<ABCInstruction>().firstWhere(
         (instr) => instr.opcode == LualikeIrOpcode.setI,
       );

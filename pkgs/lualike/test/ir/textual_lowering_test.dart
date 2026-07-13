@@ -1,8 +1,6 @@
 @Tags(['ir'])
 library;
 
-import 'package:lualike/src/ir/bytecode_lowering.dart';
-import 'package:lualike/src/ir/runtime.dart';
 import 'package:lualike/lualike.dart';
 import 'package:lualike/src/lua_bytecode/vm_value_helpers.dart';
 import 'package:test/test.dart';
@@ -54,6 +52,58 @@ void main() {
       };
       expect(unwrapped, equals(42));
       expect(lowered.mainPrototype.localVariables.single.register, equals(0));
+      expect(lowered.mainPrototype.lineInfo, isNotEmpty);
+    });
+
+    test('lowering tolerates extra debug line entries', () async {
+      final chunk = LualikeIrChunk(
+        flags: const LualikeIrChunkFlags(hasDebugInfo: true),
+        mainPrototype: LualikeIrPrototype(
+          registerCount: 1,
+          paramCount: 0,
+          isVararg: true,
+          upvalueDescriptors: const [],
+          instructions: const <LualikeIrInstruction>[
+            ABCInstruction(
+              opcode: LualikeIrOpcode.varArgPrep,
+              a: 0,
+              b: 0,
+              c: 0,
+            ),
+            ABxInstruction(opcode: LualikeIrOpcode.loadK, a: 0, bx: 0),
+            ABCInstruction(opcode: LualikeIrOpcode.return1, a: 0, b: 0, c: 0),
+          ],
+          constants: const [IntegerConstant(42)],
+          prototypes: const [],
+          lineDefined: 1,
+          lastLineDefined: 3,
+          debugInfo: const LualikeIrDebugInfo(
+            lineInfo: [1, 2, 3, 4],
+            absoluteSourcePath: '=(text-ir-extra-lines)',
+            preferredName: 'main',
+            preferredNameWhat: 'global',
+          ),
+          registerConstFlags: const [false],
+          constSealPoints: const {},
+        ),
+      );
+
+      final lowered = lowerIrChunkToLuaBytecodeChunk(chunk);
+      final runtime = LualikeIrRuntime();
+      final closure = LuaBytecodeClosure.main(
+        runtime: runtime,
+        chunk: lowered,
+        chunkName: '=(text-ir-extra-lines)',
+        environment: runtime.globals,
+      );
+
+      final result = await closure.call(const <Object?>[]);
+      final unwrapped = switch (result) {
+        Value(:final raw) => raw is LuaString ? raw.toString() : raw,
+        LuaString() => result.toString(),
+        _ => result,
+      };
+      expect(unwrapped, equals(42));
       expect(lowered.mainPrototype.lineInfo, isNotEmpty);
     });
   });

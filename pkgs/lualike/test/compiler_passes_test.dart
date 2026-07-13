@@ -3,7 +3,6 @@ library;
 
 import 'package:lualike/src/compile/pipeline.dart';
 import 'package:lualike/src/ir/peephole_pass.dart';
-import 'package:lualike/src/ir/ssa.dart';
 import 'package:lualike/src/ir/prototype.dart';
 import 'package:lualike/src/ir/instruction.dart';
 import 'package:lualike/src/ir/opcode.dart';

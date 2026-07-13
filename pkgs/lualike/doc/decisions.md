@@ -5,6 +5,28 @@ aren't rediscovered the hard way.
 
 ---
 
+## IR contract: optimize before lowering, lower mechanically, execute thinly
+
+**Date:** 2026‑07‑12  
+**Status:** Active
+
+**Context:** The current pipeline already emits IR and then lowers to Lua bytecode, but the exact boundary is easy to blur: some decisions are still made in AST passes, some in IR compilation, and some in bytecode helpers. That makes the VM larger than it should be and makes it unclear where future optimizations belong.
+
+**Decision:** The IR layer is the optimization boundary. All shape decisions that affect runtime cost must be finalized before bytecode lowering. The bytecode lowering step is a mechanical translation of finalized IR into compact executable form, and the VM is only responsible for dispatching those finalized instructions.
+
+**Contract:**
+- AST passes may annotate or simplify source, but they must not be the final place where runtime shape is decided.
+- SSA and IR passes own value numbering, constant propagation, dead-code elimination, inlining, loop motion, coalescing, and escape analysis.
+- Bytecode lowering must not discover new semantics; it should only encode the already-decided IR shape.
+- The VM should execute the emitted bytecode without re-inferring call shape, closure shape, or optimization opportunities.
+
+**Implications:**
+- New performance work should start in IR/SSA, not in the VM.
+- If the VM needs to infer something repeatedly, that decision likely belongs upstream.
+- The lowering layer should stay boring and auditable.
+
+---
+
 ## Builtin results use transient (non‑cached) primitive Values
 
 **Date:** 2026‑07‑11  

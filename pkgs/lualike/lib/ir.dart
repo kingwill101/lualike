@@ -1,4 +1,11 @@
 /// Public entrypoint for the lualike IR toolset.
+///
+/// The exported IR surface is intentionally split into two layers:
+/// - [LualikeIrPrototype] / [LualikeIrChunk] for finalized executable IR
+/// - [LualikeIrSsaFunction] for optimization and analysis
+///
+/// The intended contract is that optimizations happen before lowering, while
+/// lowering itself stays mechanical and keeps the VM thin.
 library;
 
 import 'src/ir/prototype.dart';
@@ -21,7 +28,7 @@ export 'src/ir/textual_formatter.dart';
 /// Builds a simplified SSA view for a compiled IR prototype.
 ///
 /// Trivial phis are removed and use metadata is rebuilt so the result is ready
-/// for dumps, tests, and future SSA tooling.
+/// for dumps, tests, and SSA optimization passes.
 LualikeIrSsaFunction buildLualikeIrSsaFunction(LualikeIrPrototype prototype) {
   return LualikeIrSsaFunction.fromPrototype(prototype).simplifyTrivialPhis();
 }

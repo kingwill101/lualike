@@ -26,18 +26,54 @@ LualikeIrPrototype replaceScalars(LualikeIrPrototype prototype) {
   return current;
 }
 
-/// Check if an opcode is a SET that writes to a table's field.
-bool _isTableFieldWrite(LualikeIrInstruction inst) {
-  return inst.opcode == LualikeIrOpcode.setField ||
-      inst.opcode == LualikeIrOpcode.setI ||
-      inst.opcode == LualikeIrOpcode.setTable;
+final class _TableFieldAccessKey {
+  const _TableFieldAccessKey(this.kind, this.value);
+
+  final String kind;
+  final int value;
+
+  @override
+  bool operator ==(Object other) =>
+      other is _TableFieldAccessKey &&
+      other.kind == kind &&
+      other.value == value;
+
+  @override
+  int get hashCode => Object.hash(kind, value);
 }
 
-/// Check if an opcode is a GET that reads a table's field.
-bool _isTableFieldRead(LualikeIrInstruction inst) {
-  return inst.opcode == LualikeIrOpcode.getField ||
-      inst.opcode == LualikeIrOpcode.getI ||
-      inst.opcode == LualikeIrOpcode.getTable;
+int? _tableRegisterForAccess(LualikeIrInstruction inst) {
+  if (inst is! ABCInstruction) return null;
+  return switch (inst.opcode) {
+    LualikeIrOpcode.getField ||
+    LualikeIrOpcode.getI ||
+    LualikeIrOpcode.getTable => inst.b,
+    LualikeIrOpcode.setField ||
+    LualikeIrOpcode.setI ||
+    LualikeIrOpcode.setTable => inst.a,
+    _ => null,
+  };
+}
+
+_TableFieldAccessKey? _fieldAccessKey(LualikeIrInstruction inst) {
+  if (inst is! ABCInstruction) return null;
+  return switch (inst.opcode) {
+    LualikeIrOpcode.getField => _TableFieldAccessKey('field', inst.c),
+    LualikeIrOpcode.getI => _TableFieldAccessKey('int', inst.c),
+    LualikeIrOpcode.setField => _TableFieldAccessKey('field', inst.b),
+    LualikeIrOpcode.setI => _TableFieldAccessKey('int', inst.b),
+    _ => null,
+  };
+}
+
+int? _writeValueRegister(LualikeIrInstruction inst) {
+  if (inst is! ABCInstruction) return null;
+  return switch (inst.opcode) {
+    LualikeIrOpcode.setField ||
+    LualikeIrOpcode.setI ||
+    LualikeIrOpcode.setTable => inst.c,
+    _ => null,
+  };
 }
 
 /// Check if instruction causes the value in [reg] to "escape".
@@ -75,7 +111,6 @@ LualikeIrPrototype? _runOnce(LualikeIrPrototype prototype) {
 
   // Phase 1: Find non-escaping NEWTABLEs
   final escapes = <int, bool>{}; // register → escapes
-  final newTablePc = <int, int>{}; // register → defining PC
   final newTableRegs = <int>{}; // set of registers that are NEWTABLE results
 
   for (var pc = 0; pc < instructions.length; pc++) {
@@ -91,7 +126,6 @@ LualikeIrPrototype? _runOnce(LualikeIrPrototype prototype) {
     );
     if (reg >= 0 && reg < registerCount) {
       newTableRegs.add(reg);
-      newTablePc[reg] = pc;
       escapes[reg] = false;
     }
   }
@@ -102,26 +136,25 @@ LualikeIrPrototype? _runOnce(LualikeIrPrototype prototype) {
   var changed = true;
   while (changed) {
     changed = false;
-    for (var pc = 0; pc < instructions.length; pc++) {
-      final inst = instructions[pc];
+    for (final inst in instructions) {
       for (final reg in newTableRegs) {
         if (escapes[reg] == true) continue;
         if (_causesEscape(inst, reg)) {
           escapes[reg] = true;
           changed = true;
         }
-        // Storing an escaping table into this table => this table also escapes
-        if (_isTableFieldWrite(inst) && inst is ABCInstruction) {
-          final tableReg = inst.b;
-          if (tableReg == reg) {
-            final valueReg = (inst as ABCInstruction).c;
-            if (newTableRegs.contains(valueReg) &&
-                escapes[valueReg] == true) {
-              escapes[reg] = true;
-              changed = true;
-            }
-          }
-        }
+      }
+
+      final tableReg = _tableRegisterForAccess(inst);
+      final valueReg = _writeValueRegister(inst);
+      if (tableReg != null &&
+          valueReg != null &&
+          newTableRegs.contains(tableReg) &&
+          newTableRegs.contains(valueReg) &&
+          escapes[tableReg] == true &&
+          escapes[valueReg] != true) {
+        escapes[valueReg] = true;
+        changed = true;
       }
     }
   }
@@ -136,95 +169,112 @@ LualikeIrPrototype? _runOnce(LualikeIrPrototype prototype) {
   if (nonEscaping.isEmpty) return null;
 
   // Phase 2: Scalar replacement
-  // For each non-escaping table, find all SETFIELD/GETFIELD accesses
-  // and replace them with register operations.
+  // For each non-escaping table, collect its constant field accesses and
+  // pack them densely into a small register bank. This keeps the lowered
+  // bytecode under the 8-bit operand limit.
+  final fieldKeysByTable = <int, Set<_TableFieldAccessKey>>{};
+  for (final inst in instructions) {
+    final tableReg = _tableRegisterForAccess(inst);
+    final key = _fieldAccessKey(inst);
+    if (tableReg != null &&
+        key != null &&
+        nonEscaping.contains(tableReg)) {
+      (fieldKeysByTable[tableReg] ??= <_TableFieldAccessKey>{}).add(key);
+    }
+  }
 
-  // Assign a "field register" for each (tableReg, fieldIndex) pair
-  // fieldRegBase[tableReg] = starting register for fields
+  final scalarTables = <int, Map<_TableFieldAccessKey, int>>{};
   final fieldRegBase = <int, int>{};
   var nextReg = registerCount;
-  for (final tableReg in nonEscaping) {
+  for (final tableReg in nonEscaping.toList()..sort()) {
+    final keys = fieldKeysByTable[tableReg];
+    if (keys == null || keys.isEmpty) {
+      continue;
+    }
+    final orderedKeys = keys.toList()
+      ..sort((a, b) {
+        final kindCmp = a.kind.compareTo(b.kind);
+        return kindCmp != 0 ? kindCmp : a.value.compareTo(b.value);
+      });
+    if (nextReg + orderedKeys.length > 256) {
+      continue;
+    }
     fieldRegBase[tableReg] = nextReg;
-    nextReg += 64; // Reserve 64 per table (should be enough)
+    scalarTables[tableReg] = <_TableFieldAccessKey, int>{
+      for (var i = 0; i < orderedKeys.length; i++) orderedKeys[i]: i,
+    };
+    nextReg += orderedKeys.length;
+  }
+
+  if (scalarTables.isEmpty) {
+    return null;
   }
 
   final newInstructions = <LualikeIrInstruction>[];
   var changedInst = false;
 
-  for (var pc = 0; pc < instructions.length; pc++) {
-    final inst = instructions[pc];
-    final tableReg = inst is ABCInstruction &&
-            (_isTableFieldRead(inst) || _isTableFieldWrite(inst))
-        ? inst.b
-        : -1;
-
+  for (final inst in instructions) {
+    final tableReg = _tableRegisterForAccess(inst);
+    final key = _fieldAccessKey(inst);
+    final newTableReg = inst.when(
+      abc: (i) => i.a,
+      avbc: (i) => i.a,
+      abx: (_) => -1,
+      asbx: (_) => -1,
+      ax: (_) => -1,
+      asj: (_) => -1,
+    );
     if (inst.opcode == LualikeIrOpcode.newTable &&
-        nonEscaping.contains(inst.when(
-          abc: (i) => i.a,
-          avbc: (i) => i.a,
-          abx: (_) => -1,
-          asbx: (_) => -1,
-          ax: (_) => -1,
-          asj: (_) => -1,
-        ))) {
-      // Replace NEWTABLE with LOADNIL for all fields
-      final reg = fieldRegBase[
-          inst.when(
-            abc: (i) => i.a,
-            avbc: (i) => i.a,
-            abx: (_) => -1,
-            asbx: (_) => -1,
-            ax: (_) => -1,
-            asj: (_) => -1,
-          )]!;
-      // Nil out first 8 fields (common case)
-      newInstructions.add(ABCInstruction(
-        opcode: LualikeIrOpcode.loadNil,
-        a: reg,
-        b: reg + 7 < registerCount
-            ? reg + 7 - reg
-            : registerCount - 1 - reg,
-        c: 0,
-      ));
+        scalarTables.containsKey(newTableReg)) {
+      newInstructions.add(
+        ABCInstruction(
+          opcode: LualikeIrOpcode.loadNil,
+          a: newTableReg,
+          b: 0,
+          c: 0,
+        ),
+      );
       changedInst = true;
       continue;
     }
 
-    if (nonEscaping.contains(tableReg)) {
-      if (inst.opcode == LualikeIrOpcode.getField) {
-        final key = (inst as ABCInstruction).c;
-        final dstReg = inst.a;
-        final srcFieldReg = fieldRegBase[tableReg]! + key;
-        // Replace GETFIELD with MOVE from the field register
-        if (srcFieldReg < registerCount && srcFieldReg < nextReg) {
-          newInstructions.add(ABCInstruction(
-            opcode: LualikeIrOpcode.move,
-            a: dstReg,
-            b: srcFieldReg,
-            c: 0,
-          ));
-          changedInst = true;
-          continue;
+    if (tableReg != null) {
+      final slotMap = scalarTables[tableReg];
+      if (slotMap != null && key != null) {
+        final int? slot = slotMap[key];
+        if (slot != null) {
+          final base = fieldRegBase[tableReg]!;
+          final abc = inst as ABCInstruction;
+          switch (inst.opcode) {
+            case LualikeIrOpcode.getField:
+            case LualikeIrOpcode.getI:
+              newInstructions.add(
+                ABCInstruction(
+                  opcode: LualikeIrOpcode.move,
+                  a: abc.a,
+                  b: base + slot,
+                  c: 0,
+                ),
+              );
+              changedInst = true;
+              continue;
+            case LualikeIrOpcode.setField:
+            case LualikeIrOpcode.setI:
+              newInstructions.add(
+                ABCInstruction(
+                  opcode: LualikeIrOpcode.move,
+                  a: base + slot,
+                  b: abc.c,
+                  c: 0,
+                ),
+              );
+              changedInst = true;
+              continue;
+            default:
+              break;
+          }
         }
       }
-      if (inst.opcode == LualikeIrOpcode.setField) {
-        final key = (inst as ABCInstruction).c;
-        final srcReg = inst.c;
-        final dstFieldReg = fieldRegBase[tableReg]! + key;
-        // Replace SETFIELD with MOVE to the field register
-        if (dstFieldReg < registerCount && dstFieldReg < nextReg) {
-          newInstructions.add(ABCInstruction(
-            opcode: LualikeIrOpcode.move,
-            a: dstFieldReg,
-            b: srcReg,
-            c: 0,
-          ));
-          changedInst = true;
-          continue;
-        }
-      }
-      // If we can't scalar-replace this access, the table escapes
-      // (conservatively keep it)
     }
 
     newInstructions.add(inst);

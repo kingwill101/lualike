@@ -1,8 +1,8 @@
 /// Smoke tests for the constant folding pass.
 ///
 /// These tests verify that the multi-pass compiler pipeline correctly folds
-/// constant expressions and that the IR compiler emits loadK instead of
-/// full expression lowering for folded nodes.
+/// constant expressions and that the IR compiler emits immediate loads instead
+/// of full expression lowering for folded nodes.
 
 library;
 
@@ -12,6 +12,7 @@ import 'package:lualike/src/ast.dart';
 import 'package:lualike/src/compile/constant_folding_pass.dart';
 import 'package:lualike/src/compile/fold_result.dart';
 import 'package:lualike/src/compile/pipeline.dart';
+import 'package:lualike/src/ir/opcode.dart';
 import 'package:lualike/src/parse.dart';
 import 'package:test/test.dart';
 
@@ -467,7 +468,7 @@ void main() {
     });
 
     test('folding reduces instructions for constant arithmetic', () {
-      // With folding: 2 + 3 → loadK 5 (1 instruction)
+      // With folding: 2 + 3 → one immediate load (1 instruction)
       // Without folding: loadK 2, loadK 3, add (3 instructions)
       final foldedPipeline = CompilePipeline(
         config: const CompilePipelineConfig(
@@ -493,6 +494,22 @@ void main() {
         foldedIr.chunk.mainPrototype.instructions.length,
         lessThan(unfoldedIr.chunk.mainPrototype.instructions.length),
       );
+    });
+
+    test('folded integer constants use LOADI in IR', () {
+      final artifact =
+          CompilePipeline(
+                config: const CompilePipelineConfig(
+                  enableConstantFolding: true,
+                  target: CompileBackend.lualikeIR,
+                ),
+              ).compileSource('return 42')
+              as LualikeIrArtifact;
+
+      final numericLoad = artifact.chunk.mainPrototype.instructions.firstWhere(
+        (instruction) => instruction.opcode == LualikeIrOpcode.loadI,
+      );
+      expect(numericLoad.opcode, equals(LualikeIrOpcode.loadI));
     });
 
     test('loop unrolling changes compiled bytecode output', () {

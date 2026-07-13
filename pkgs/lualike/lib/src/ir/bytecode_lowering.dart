@@ -7,6 +7,12 @@ import 'package:lualike/src/lua_bytecode/chunk.dart';
 import 'package:lualike/src/lua_bytecode/instruction.dart';
 import 'package:lualike/src/lua_bytecode/opcode.dart';
 
+/// Mechanically lowers finalized lualike IR into Lua 5.4 bytecode.
+///
+/// This function is intentionally not an optimization pass. By the time a
+/// chunk reaches this layer, all register allocation, call-shape decisions,
+/// closure capture decisions, and control-flow shaping should already be
+/// encoded in the IR.
 LuaBytecodeBinaryChunk lowerIrChunkToLuaBytecodeChunk(
   LualikeIrChunk chunk, {
   String? chunkName,
@@ -26,6 +32,10 @@ LuaBytecodeBinaryChunk lowerIrChunkToLuaBytecodeChunk(
   );
 }
 
+/// Lowers one finalized IR prototype to a Lua bytecode prototype.
+///
+/// The lowering step only remaps finalized IR instructions and metadata into
+/// bytecode fields; it should not choose new semantics or perform new analysis.
 LuaBytecodePrototype lowerIrPrototypeToLuaBytecodePrototype(
   LualikeIrPrototype prototype, {
   required String sourceName,
@@ -955,7 +965,8 @@ _lowerDebugLines(List<int>? lines, int instructionCount, List<int> pcMap) {
   }
 
   final normalized = List<int>.filled(instructionCount, 0, growable: false);
-  for (var oldPc = 0; oldPc < lines.length; oldPc++) {
+  final lineCount = math.min(lines.length, pcMap.length - 1);
+  for (var oldPc = 0; oldPc < lineCount; oldPc++) {
     if (lines[oldPc] == 0) continue;
     final start = pcMap[oldPc];
     final end = (oldPc + 1 < pcMap.length)

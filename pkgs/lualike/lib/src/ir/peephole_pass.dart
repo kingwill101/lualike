@@ -57,17 +57,17 @@ class PeepholePass {
       final inst = result[i];
       final next = i + 1 < result.length ? result[i + 1] : null;
 
-      // JMP 0 → no-op, remove
-      if (inst.opcode == LualikeIrOpcode.jmp && inst is AsJInstruction && inst.sJ == 0) {
-        result.removeAt(i);
-        changed = true;
-        continue;
-      }
+      // Keep `JMP 0` in place so later jump targets remain stable.
+      // (It is already a no-op.)
 
       // LOADK r, k; MOVE r, r → remove MOVE (copy to self)
-      if (next != null && _isLoad(inst) && next is ABCInstruction &&
-          next.opcode == LualikeIrOpcode.move && next.a == _loadReg(inst) &&
-          next.b == _loadReg(inst) && next.c == 0) {
+      if (next != null &&
+          _isLoad(inst) &&
+          next is ABCInstruction &&
+          next.opcode == LualikeIrOpcode.move &&
+          next.a == _loadReg(inst) &&
+          next.b == _loadReg(inst) &&
+          next.c == 0) {
         result.removeAt(i + 1);
         changed = true;
         i++;
@@ -75,8 +75,10 @@ class PeepholePass {
       }
 
       // Merge consecutive LOADNILs: LOADNIL r, b; LOADNIL r+b+1, b' → LOADNIL r, b+b'+1
-      if (inst is ABCInstruction && inst.opcode == LualikeIrOpcode.loadNil &&
-          next is ABCInstruction && next.opcode == LualikeIrOpcode.loadNil &&
+      if (inst is ABCInstruction &&
+          inst.opcode == LualikeIrOpcode.loadNil &&
+          next is ABCInstruction &&
+          next.opcode == LualikeIrOpcode.loadNil &&
           next.a == inst.a + inst.b + 1) {
         result[i] = ABCInstruction(
           opcode: LualikeIrOpcode.loadNil,
@@ -90,17 +92,23 @@ class PeepholePass {
       }
 
       // LOADNIL r; LOADK r, v → remove LOADNIL (dead store)
-      if (inst is ABCInstruction && inst.opcode == LualikeIrOpcode.loadNil &&
-          next != null && _isLoad(next) && _loadReg(next) == inst.a) {
+      if (inst is ABCInstruction &&
+          inst.opcode == LualikeIrOpcode.loadNil &&
+          next != null &&
+          _isLoad(next) &&
+          _loadReg(next) == inst.a) {
         result.removeAt(i);
         changed = true;
         continue;
       }
 
       // MOVE r1, r2; MOVE r2, r1 → only keep first (swap of same value)
-      if (inst is ABCInstruction && inst.opcode == LualikeIrOpcode.move &&
-          next is ABCInstruction && next.opcode == LualikeIrOpcode.move &&
-          inst.a == next.b && inst.b == next.a) {
+      if (inst is ABCInstruction &&
+          inst.opcode == LualikeIrOpcode.move &&
+          next is ABCInstruction &&
+          next.opcode == LualikeIrOpcode.move &&
+          inst.a == next.b &&
+          inst.b == next.a) {
         result.removeAt(i + 1);
         changed = true;
         i++;
@@ -133,7 +141,8 @@ class PeepholePass {
 
       // MUL r, x, 2 → ADD r, x, x  (strength reduction)
       if (inst is ABCInstruction &&
-          inst.opcode == LualikeIrOpcode.mulK && inst.c == 2) {
+          inst.opcode == LualikeIrOpcode.mulK &&
+          inst.c == 2) {
         result[i] = ABCInstruction(
           opcode: LualikeIrOpcode.add,
           a: inst.a,
@@ -145,7 +154,8 @@ class PeepholePass {
       }
 
       // Jump threading: JMP +1 → remove (fall-through is next instruction)
-      if (inst is AsJInstruction && inst.opcode == LualikeIrOpcode.jmp &&
+      if (inst is AsJInstruction &&
+          inst.opcode == LualikeIrOpcode.jmp &&
           inst.sJ == 1) {
         result.removeAt(i);
         changed = true;
@@ -190,7 +200,8 @@ class PeepholePass {
       // Track other definitions that invalidate our knowledge
       if (inst is ABCInstruction) {
         // For ADD/SUB with known constant in C register
-        if (inst.opcode == LualikeIrOpcode.add && loadiValues.containsKey(inst.c)) {
+        if (inst.opcode == LualikeIrOpcode.add &&
+            loadiValues.containsKey(inst.c)) {
           final val = loadiValues[inst.c]!;
           result[i] = ABCInstruction(
             opcode: LualikeIrOpcode.addI,
@@ -212,19 +223,24 @@ class PeepholePass {
     // → replace GETFIELD with MOVE from value
     for (var i = 0; i < result.length; i++) {
       final inst = result[i];
-      if (inst is! ABCInstruction || inst.opcode != LualikeIrOpcode.setField) continue;
+      if (inst is! ABCInstruction || inst.opcode != LualikeIrOpcode.setField)
+        continue;
       final tableReg = inst.a;
       final fieldConst = inst.b;
 
       for (var j = i + 1; j < result.length; j++) {
         final later = result[j];
         // Stop scan if table register is redefined
-        if (later is ABCInstruction && later.a == tableReg &&
-            later.opcode != LualikeIrOpcode.getField) break;
+        if (later is ABCInstruction &&
+            later.a == tableReg &&
+            later.opcode != LualikeIrOpcode.getField) {
+          break;
+        }
 
         if (later is ABCInstruction &&
             later.opcode == LualikeIrOpcode.getField &&
-            later.b == tableReg && later.c == fieldConst) {
+            later.b == tableReg &&
+            later.c == fieldConst) {
           // Forward the stored value
           result[j] = ABCInstruction(
             opcode: LualikeIrOpcode.move,

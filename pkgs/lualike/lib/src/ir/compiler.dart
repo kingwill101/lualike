@@ -716,11 +716,7 @@ class _PrototypeContext {
     switch (node) {
       case NumberLiteral(:final value):
         final reg = _materializeRegister(target);
-        final constant = value is int
-            ? IntegerConstant(value)
-            : NumberConstant(value.toDouble());
-        final index = builder.addConstant(constant);
-        emitter.emitABx(opcode: LualikeIrOpcode.loadK, a: reg, bx: index);
+        _emitNumericConstant(reg, value);
         return reg;
       case BooleanLiteral(:final value):
         final reg = _materializeRegister(target);
@@ -1266,23 +1262,34 @@ class _PrototypeContext {
     }
 
     if (value is int) {
-      // Use loadK for general integers.
-      final constant = IntegerConstant(value);
-      final index = builder.addConstant(constant);
-      emitter.emitABx(opcode: LualikeIrOpcode.loadK, a: reg, bx: index);
+      _emitNumericConstant(reg, value);
       return reg;
     }
 
     if (value is double) {
-      final constant = NumberConstant(value);
+      _emitNumericConstant(reg, value);
+      return reg;
+    }
+
+    if (value is BigInt) {
+      final intValue = value.toInt();
+      if (_fitsSignedImmediate(intValue)) {
+        emitter.emitAsBx(opcode: LualikeIrOpcode.loadI, a: reg, sBx: intValue);
+        return reg;
+      }
+      final constant = IntegerConstant(intValue);
       final index = builder.addConstant(constant);
       emitter.emitABx(opcode: LualikeIrOpcode.loadK, a: reg, bx: index);
       return reg;
     }
 
     if (value is num) {
-      // BigInt or other numeric.
-      final constant = IntegerConstant(value.toInt());
+      final intValue = value.toInt();
+      if (_fitsSignedImmediate(intValue)) {
+        emitter.emitAsBx(opcode: LualikeIrOpcode.loadI, a: reg, sBx: intValue);
+        return reg;
+      }
+      final constant = NumberConstant(value.toDouble());
       final index = builder.addConstant(constant);
       emitter.emitABx(opcode: LualikeIrOpcode.loadK, a: reg, bx: index);
       return reg;
@@ -2036,17 +2043,34 @@ class _PrototypeContext {
     }
   }
 
-  /// Emit a LOADK for a numeric constant value into a specific register.
+  /// Emit a numeric load into a specific register.
   void _emitLoadConstantTo(int reg, num value) {
-    if (value == value.toInt()) {
-      final constant = IntegerConstant(value.toInt());
-      final index = builder.addConstant(constant);
-      emitter.emitABx(opcode: LualikeIrOpcode.loadK, a: reg, bx: index);
-    } else {
-      final constant = NumberConstant(value.toDouble());
-      final index = builder.addConstant(constant);
-      emitter.emitABx(opcode: LualikeIrOpcode.loadK, a: reg, bx: index);
+    _emitNumericConstant(reg, value);
+  }
+
+  bool _fitsSignedImmediate(int value) {
+    final limit = LuaBytecodeInstructionLayout.offsetSBx;
+    return value >= -limit && value <= limit;
+  }
+
+  void _emitNumericConstant(int reg, num value) {
+    if (value is int && _fitsSignedImmediate(value)) {
+      emitter.emitAsBx(opcode: LualikeIrOpcode.loadI, a: reg, sBx: value);
+      return;
     }
+    if (value is double) {
+      final intValue = value.toInt();
+      if (value == intValue.toDouble() && _fitsSignedImmediate(intValue)) {
+        emitter.emitAsBx(opcode: LualikeIrOpcode.loadF, a: reg, sBx: intValue);
+        return;
+      }
+    }
+
+    final constant = value is int
+        ? IntegerConstant(value)
+        : NumberConstant(value.toDouble());
+    final index = builder.addConstant(constant);
+    emitter.emitABx(opcode: LualikeIrOpcode.loadK, a: reg, bx: index);
   }
 
   /// Extract a numeric value from a folded value, or null if not numeric.

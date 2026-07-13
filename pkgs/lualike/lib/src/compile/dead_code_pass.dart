@@ -75,7 +75,9 @@ class DeadCodeEliminationPass extends CompilerPass {
         if (inner is LocalDeclaration &&
             inner.exprs.length == 1 &&
             inner.exprs.first is TableConstructor) {
-          for (final n in inner.names) tableLocals.add(n.name);
+          for (final n in inner.names) {
+            tableLocals.add(n.name);
+          }
         }
         if (inner is Assignment &&
             inner.targets.length == 1 &&
@@ -152,23 +154,37 @@ class DeadCodeEliminationPass extends CompilerPass {
     }
     // Recurse — pass aliases through so nested scopes inherit them
     if (node is DoBlock) {
-      for (final s in node.body) _readNode(s, used, vars, aliases);
+      for (final s in node.body) {
+        _readNode(s, used, vars, aliases);
+      }
     }
     if (node is FunctionDef) {
-      for (final s in node.body.body) _readNode(s, used, vars, aliases);
+      for (final s in node.body.body) {
+        _readNode(s, used, vars, aliases);
+      }
     }
     if (node is FunctionBody) {
-      for (final s in node.body) _readNode(s, used, vars, aliases);
+      for (final s in node.body) {
+        _readNode(s, used, vars, aliases);
+      }
     }
     if (node is LocalFunctionDef) {
-      for (final s in node.funcBody.body) _readNode(s, used, vars, aliases);
+      for (final s in node.funcBody.body) {
+        _readNode(s, used, vars, aliases);
+      }
     }
     if (node is ReturnStatement) {
-      for (final e in node.expr) _readNode(e, used, vars, aliases);
+      for (final e in node.expr) {
+        _readNode(e, used, vars, aliases);
+      }
     }
     if (node is Assignment) {
-      for (final t in node.targets) _readNode(t, used, vars, aliases);
-      for (final e in node.exprs) _readNode(e, used, vars, aliases);
+      for (final t in node.targets) {
+        _readNode(t, used, vars, aliases);
+      }
+      for (final e in node.exprs) {
+        _readNode(e, used, vars, aliases);
+      }
     }
     if (node is ExpressionStatement) _readNode(node.expr, used, vars, aliases);
   }

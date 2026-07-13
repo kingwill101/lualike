@@ -5,7 +5,6 @@ library;
 import 'dart:io';
 import 'dart:typed_data';
 
-import 'package:lualike/src/interpreter/interpreter.dart';
 import 'package:lualike/src/lua_bytecode/disassembler.dart';
 import 'package:lualike/src/lua_bytecode/emitter.dart';
 import 'package:lualike/src/lua_bytecode/parser.dart';

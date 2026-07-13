@@ -410,3 +410,4 @@ final class LuaBytecodeReader {
     return true;
   }
 }
+

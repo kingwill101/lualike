@@ -188,9 +188,7 @@ final class LuaBytecodeFrame implements LuaBytecodeGCRootProvider {
       _lastRegisterWritePc[index] = -1;
     }
     for (var index = 0; index < parameterCount; index++) {
-      final value = index < args.length
-          ? args[index]
-          : nilConst;
+      final value = index < args.length ? args[index] : nilConst;
       value.interpreter ??= runtime;
       regs[index] = value;
     }
@@ -328,7 +326,7 @@ final class LuaBytecodeFrame implements LuaBytecodeGCRootProvider {
     if (index < registers.length) {
       return registers[index];
     }
-    return runtime.constantPrimitiveValue(null);
+    return _nilConst;
   }
 
   void setRegister(int index, Value value) {
@@ -338,11 +336,7 @@ final class LuaBytecodeFrame implements LuaBytecodeGCRootProvider {
     if (index >= registers.length) {
       final fillCount = index - registers.length + 1;
       registers.addAll(
-        List<Value>.generate(
-          fillCount,
-          (_) => runtime.constantPrimitiveValue(null),
-          growable: false,
-        ),
+        List<Value>.generate(fillCount, (_) => _nilConst, growable: false),
       );
       lastRegisterWritePc.addAll(
         List<int>.filled(index - lastRegisterWritePc.length + 1, -1),

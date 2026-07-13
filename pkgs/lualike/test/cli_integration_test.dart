@@ -4,7 +4,6 @@
 /// --preserve-debug, --dump-ir, and cross-compatibility with luac55.
 library;
 
-import 'dart:convert';
 import 'dart:io';
 
 import 'package:archive/archive.dart';
@@ -22,13 +21,9 @@ String get _bin =>
 /// Whether to use `dart run` or direct binary.
 bool get _useDartRun => _bin.endsWith('.dart');
 
-Future<ProcessResult> _lualike(List<String> args, {String? stdin}) async {
+Future<ProcessResult> _lualike(List<String> args) async {
   if (_useDartRun) {
-    return Process.run(
-      'dart',
-      ['run', _bin, ...args],
-      runInShell: true,
-    );
+    return Process.run('dart', ['run', _bin, ...args], runInShell: true);
   }
   return Process.run(_bin, args, runInShell: true);
 }
@@ -50,10 +45,7 @@ void main() {
         ..writeAsStringSync('print("hello")');
       final lub = File(p.join(tmpDir.path, 'test.lub'));
 
-      final result = await _lualike([
-        '--compile', lua.path,
-        '-o', lub.path,
-      ]);
+      final result = await _lualike(['--compile', lua.path, '-o', lub.path]);
       expect(result.exitCode, equals(0));
       expect(lub.existsSync(), isTrue);
       expect(lub.lengthSync(), greaterThan(0));
@@ -120,12 +112,18 @@ void main() {
 
       await _lualike(['--compile', lua.path, '-o', stripped.path]);
       await _lualike([
-        '--compile', lua.path, '-o', preserved.path,
+        '--compile',
+        lua.path,
+        '-o',
+        preserved.path,
         '--preserve-debug',
       ]);
 
       // Preserved should be same size or larger.
-      expect(preserved.lengthSync(), greaterThanOrEqualTo(stripped.lengthSync()));
+      expect(
+        preserved.lengthSync(),
+        greaterThanOrEqualTo(stripped.lengthSync()),
+      );
     }, timeout: Timeout.factor(4));
 
     test('both produce same output', () async {
@@ -137,7 +135,10 @@ void main() {
 
       await _lualike(['--compile', lua.path, '-o', stripped.path]);
       await _lualike([
-        '--compile', lua.path, '-o', preserved.path,
+        '--compile',
+        lua.path,
+        '-o',
+        preserved.path,
         '--preserve-debug',
       ]);
 
@@ -154,7 +155,7 @@ void main() {
 
       final result = await _lualike(['--ir', '--dump-ir', lua.path]);
       expect(result.exitCode, equals(0));
-      expect(result.stderr, contains('LOADK'));
+      expect(result.stderr, contains('LOADI'));
       expect(result.stderr, contains('RETURN'));
     }, timeout: Timeout.factor(4));
   });
@@ -191,7 +192,11 @@ void main() {
       final lub = File(p.join(tmpDir.path, 'test.lub'));
 
       // Compile with official luac55
-      final compileResult = await Process.run(luac55, ['-o', lub.path, lua.path]);
+      final compileResult = await Process.run(luac55, [
+        '-o',
+        lub.path,
+        lua.path,
+      ]);
       expect(compileResult.exitCode, equals(0));
 
       // Run with lualike VM
@@ -260,8 +265,10 @@ Future<void> _downloadLuac55Binary() async {
 void _extractArchive(Archive archive, Directory destination) {
   for (final entry in archive) {
     final relativePath = p.posix.normalize(entry.name);
-    final outputPath =
-        p.joinAll(<String>[destination.path, ...p.posix.split(relativePath)]);
+    final outputPath = p.joinAll(<String>[
+      destination.path,
+      ...p.posix.split(relativePath),
+    ]);
     if (entry.isFile) {
       final outputFile = File(outputPath);
       outputFile.parent.createSync(recursive: true);
@@ -280,12 +287,7 @@ String? _findLuacBinary(Directory root) {
     return null;
   }
 
-  final candidates = <String>[
-    'luac55',
-    'luac',
-    'luac55.exe',
-    'luac.exe',
-  ];
+  final candidates = <String>['luac55', 'luac', 'luac55.exe', 'luac.exe'];
 
   for (final entity in root.listSync(recursive: true)) {
     if (entity is! File) continue;

@@ -97,7 +97,9 @@ LualikeIrPrototype? _runCoalesceOnce(LualikeIrPrototype prototype) {
     if (dst < 0 ||
         src < 0 ||
         dst >= registerCount ||
-        src >= registerCount) continue;
+        src >= registerCount) {
+      continue;
+    }
     if (dst == src) {
       changed = true;
       continue;

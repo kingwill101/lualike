@@ -1794,6 +1794,7 @@ class Interpreter extends AstVisitor<Object?>
     return result.chunk!;
   }
 
+  @override
   Future<Object?> callFunction(
     Value function,
     List<Object?> args, {

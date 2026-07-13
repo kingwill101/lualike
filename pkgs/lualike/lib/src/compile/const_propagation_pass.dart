@@ -63,7 +63,9 @@ class ConstPropagationPass extends CompilerPass {
           map[stmt.varName.name]?.count++;
         }
         if (stmt is ForInLoop) {
-          for (final n in stmt.names) map[n.name]?.count++;
+          for (final n in stmt.names) {
+            map[n.name]?.count++;
+          }
         }
         // Recurse — scoping is approximate but safe (over-counting is fine).
         if (stmt is DoBlock) walk(stmt.body);
@@ -106,7 +108,7 @@ class ConstPropagationPass extends CompilerPass {
     // Other nodes: recurse.
     return switch (node) {
       DoBlock(:final body) => _wrapDo(body, ctx),
-      FunctionDef(:final name, :final body) => _wrapFunc(name, body, ctx, (node as FunctionDef).implicitSelf),
+      FunctionDef(:final name, :final body) => _wrapFunc(name, body, ctx, (node).implicitSelf),
       LocalFunctionDef(:final name, :final funcBody) => _wrapLocalFunc(name, funcBody, ctx),
       ReturnStatement(:final expr) => _wrapReturn(expr, ctx),
       Assignment(:final targets, :final exprs) => _wrapAssign(targets, exprs, ctx),

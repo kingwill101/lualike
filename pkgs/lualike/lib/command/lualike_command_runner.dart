@@ -65,7 +65,7 @@ class LuaLikeCommandRunner extends CommandRunner {
         'fold',
         help: 'Enable constant folding pass for bytecode engines',
         negatable: true,
-        defaultsTo: true,
+        defaultsTo: false,
       )
       ..addFlag(
         'compile',
