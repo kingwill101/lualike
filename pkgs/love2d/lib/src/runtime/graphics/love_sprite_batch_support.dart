@@ -13,8 +13,10 @@ class LoveSpriteBatchSprite {
     LoveQuad? quad,
     this.color,
     this.layer = 0,
-  }) : transform = Matrix4.copy(transform),
-       quad = quad?.copy();
+    bool copyTransform = true,
+    bool copyQuad = true,
+  }) : transform = copyTransform ? Matrix4.copy(transform) : transform,
+       quad = copyQuad && quad != null ? quad.copy() : quad;
 
   /// The transform applied when this sprite is drawn.
   final Matrix4 transform;
@@ -31,10 +33,12 @@ class LoveSpriteBatchSprite {
   /// Returns a deep copy of this sprite batch entry.
   LoveSpriteBatchSprite copy() {
     return LoveSpriteBatchSprite(
-      transform: transform,
-      quad: quad,
+      transform: Matrix4.copy(transform),
+      quad: quad?.copy(),
       color: color,
       layer: layer,
+      copyTransform: false,
+      copyQuad: false,
     );
   }
 }
@@ -62,13 +66,11 @@ class LoveSpriteBatch {
     required int drawRangeCount,
   }) : _texture = texture,
        _bufferSize = bufferSize,
-       _sprites = sprites.map((sprite) => sprite.copy()).toList(growable: true),
+       _sprites = List<LoveSpriteBatchSprite>.from(sprites),
        _color = color,
        _drawRangeStart = drawRangeStart,
        _drawRangeCount = drawRangeCount {
-    _attachedAttributes.addAll(
-      attachedAttributes.map((name, mesh) => MapEntry(name, mesh.copy())),
-    );
+    _attachedAttributes.addAll(attachedAttributes);
   }
 
   /// The source texture used by sprites in this batch.
@@ -256,8 +258,10 @@ class LoveSpriteBatch {
       texture: texture,
       bufferSize: _bufferSize,
       usage: usage,
-      sprites: _sprites,
-      attachedAttributes: _attachedAttributes,
+      sprites: _sprites.map((sprite) => sprite.copy()).toList(growable: true),
+      attachedAttributes: _attachedAttributes.map(
+        (name, mesh) => MapEntry(name, mesh.copyForDraw()),
+      ),
       color: _color,
       drawRangeStart: _drawRangeStart,
       drawRangeCount: _drawRangeCount,

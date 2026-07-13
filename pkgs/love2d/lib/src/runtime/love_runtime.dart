@@ -2331,8 +2331,9 @@ class LoveTextEntry {
     Matrix4? transform,
     this.wrapLimit,
     this.align = 'left',
+    bool copySpans = true,
   }) : spans = List<LoveTextSpan>.unmodifiable(
-         spans.map((segment) => segment.copy()),
+         copySpans ? spans.map((segment) => segment.copy()) : spans,
        ),
        transform = transform == null
            ? Matrix4.identity()
@@ -2376,16 +2377,22 @@ class LoveTextEntry {
       transform: transform,
       wrapLimit: wrapLimit,
       align: align,
+      copySpans: false,
     );
   }
 }
 
 /// A batched text object matching the behavior of LÖVE's `Text` type.
 class LoveTextDrawable {
-  LoveTextDrawable({required this.font, List<LoveTextEntry>? entries})
-    : _entries = entries == null
+  LoveTextDrawable({
+    required this.font,
+    List<LoveTextEntry>? entries,
+    bool copyEntries = true,
+  }) : _entries = entries == null
           ? <LoveTextEntry>[]
-          : List<LoveTextEntry>.from(entries.map((entry) => entry.copy()));
+          : List<LoveTextEntry>.from(
+              copyEntries ? entries.map((entry) => entry.copy()) : entries,
+            );
 
   // Mirrors the high-level LOVE Text object flow from wrap_Text.cpp/Text.cpp:
   // set* replaces the batch, add* appends, and width/height default to the
@@ -2469,7 +2476,11 @@ class LoveTextDrawable {
 
   /// Returns a copy of this text batch and its entries.
   LoveTextDrawable copy() {
-    return LoveTextDrawable(font: font.copy(), entries: _entries);
+    return LoveTextDrawable(
+      font: font.copy(),
+      entries: _entries.map((entry) => entry.copy()).toList(growable: true),
+      copyEntries: false,
+    );
   }
 
   LoveTextEntry? _entryAt(int index) {
