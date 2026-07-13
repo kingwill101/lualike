@@ -1509,23 +1509,37 @@ class _PrototypeContext {
           } else {
             keyReg = _emitExpression(key);
           }
-          final valueReg = _emitExpression(entry.value);
-          if (fieldIndex != null) {
+          // Check if value is a literal that can be inlined as Kst.
+          final constantIndex = _tryLiteralConstant(entry.value);
+          if (fieldIndex != null && constantIndex != null) {
+            // SETFIELD with k=true: C is a Kst constant index.
             emitter.emitABC(
               opcode: LualikeIrOpcode.setField,
               a: tableReg,
               b: fieldIndex,
-              c: valueReg,
+              c: constantIndex,
+              k: true,
             );
             _releaseDownTo(tableReg + 1);
           } else {
-            emitter.emitABC(
-              opcode: LualikeIrOpcode.setTable,
-              a: tableReg,
-              b: keyReg!,
-              c: valueReg,
-            );
-            _releaseDownTo(tableReg + 1);
+            final valueReg = _emitExpression(entry.value);
+            if (fieldIndex != null) {
+              emitter.emitABC(
+                opcode: LualikeIrOpcode.setField,
+                a: tableReg,
+                b: fieldIndex,
+                c: valueReg,
+              );
+              _releaseDownTo(tableReg + 1);
+            } else {
+              emitter.emitABC(
+                opcode: LualikeIrOpcode.setTable,
+                a: tableReg,
+                b: keyReg!,
+                c: valueReg,
+              );
+              _releaseDownTo(tableReg + 1);
+            }
           }
           break;
         case IndexedTableEntry():
@@ -3574,6 +3588,22 @@ class _PrototypeContext {
       expr = TableFieldAccess(expr, Identifier(path[i].name));
     }
     return expr;
+  }
+
+  /// If [node] is a literal (number, string, bool, nil) return its
+  /// constant pool index.  Used by SETFIELD to inline the value as a
+  /// Kst instead of emitting a LOADI + register reference.
+  int? _tryLiteralConstant(AstNode node) {
+    return switch (node) {
+      NumberLiteral(:final value) when value is int =>
+        _ensureConstantIndex(value),
+      NumberLiteral(:final value) => _ensureConstantIndex(value.toDouble()),
+      StringLiteral(:final bytes) =>
+        _ensureConstantIndex(String.fromCharCodes(bytes)),
+      BooleanLiteral(:final value) => _ensureConstantIndex(value),
+      NilValue() => _ensureConstantIndex(null),
+      _ => null,
+    };
   }
 
   int _ensureConstantIndex(Object? value) {
