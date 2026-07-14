@@ -1169,7 +1169,8 @@ class _PrototypeContext {
     }
     final targetRegs = [for (final t in targets) t.register];
     final result = _emitAssignmentValues(
-      node.exprs, nameCount,
+      node.exprs,
+      nameCount,
       targetRegisters: targetRegs,
     );
     for (var i = 0; i < nameCount; i++) {
@@ -2925,10 +2926,9 @@ class _PrototypeContext {
       final isLast = i == exprs.length - 1;
       final needValue = registers.length < targetCount;
       final remainingTargets = targetCount - registers.length;
-      final preferredReg =
-          targetRegisters != null && i < targetRegisters.length
-              ? targetRegisters[i]
-              : null;
+      final preferredReg = targetRegisters != null && i < targetRegisters.length
+          ? targetRegisters[i]
+          : null;
 
       if (!needValue) {
         _emitExpressionAndDiscard(expr);
@@ -3017,13 +3017,12 @@ class _PrototypeContext {
       '>=',
     }.contains(node.op);
     // Target register is safe to use as output: the bytecode VM reads B
-        // and C operands before writing to A, so ADD 0,0,1 is always correct
-        // even when A overlaps a source register.  The Identifier expression
-        // handler still creates temp copies for multi-expression sequences
-        // (return a+b, a-1) so expression evaluation won't trample shared
-        // variable registers.
-    final canWriteDirectlyToTarget =
-        !isComparison && target != null;
+    // and C operands before writing to A, so ADD 0,0,1 is always correct
+    // even when A overlaps a source register.  The Identifier expression
+    // handler still creates temp copies for multi-expression sequences
+    // (return a+b, a-1) so expression evaluation won't trample shared
+    // variable registers.
+    final canWriteDirectlyToTarget = !isComparison && target != null;
 
     final leftReg = isComparison
         ? _emitExpression(node.left)
@@ -3612,11 +3611,13 @@ class _PrototypeContext {
   /// Kst instead of emitting a LOADI + register reference.
   int? _tryLiteralConstant(AstNode node) {
     return switch (node) {
-      NumberLiteral(:final value) when value is int =>
-        _ensureConstantIndex(value),
+      NumberLiteral(:final value) when value is int => _ensureConstantIndex(
+        value,
+      ),
       NumberLiteral(:final value) => _ensureConstantIndex(value.toDouble()),
-      StringLiteral(:final bytes) =>
-        _ensureConstantIndex(String.fromCharCodes(bytes)),
+      StringLiteral(:final bytes) => _ensureConstantIndex(
+        String.fromCharCodes(bytes),
+      ),
       BooleanLiteral(:final value) => _ensureConstantIndex(value),
       NilValue() => _ensureConstantIndex(null),
       _ => null,
@@ -3803,14 +3804,32 @@ class _PrototypeContext {
       return;
     }
 
-    // Only emit an implicit CLOSE if there are active implicit TBC registers.
-    // The close instruction index is recorded so _resolveGoto can replace it
-    // with a no-op if the goto turns out to stay within the same TBC scope.
-    int? closeIndex;
+    // Snapshot closable registers before a forward target can pop their scopes.
+    // Resolution uses the snapshot to close only scopes crossed by the goto.
+    final closeRegisterByScopeId = <int, int>{};
+    for (var i = 0; i < _scopeIdStack.length; i++) {
+      if (_lowestToBeClosedRegisterForScope(i) case final closeFrom?) {
+        closeRegisterByScopeId[_scopeIdStack[i]] = closeFrom;
+      }
+    }
     if (_activeImplicitToBeClosedRegisters.isNotEmpty) {
+      final implicitCloseFrom = _activeImplicitToBeClosedRegisters.reduce(
+        math.min,
+      );
+      final scopeId = _scopeIdStack.last;
+      final explicitCloseFrom = closeRegisterByScopeId[scopeId];
+      closeRegisterByScopeId[scopeId] = explicitCloseFrom == null
+          ? implicitCloseFrom
+          : math.min(explicitCloseFrom, implicitCloseFrom);
+    }
+
+    int? closeIndex;
+    if (closeRegisterByScopeId.values case final closeRegisters
+        when closeRegisters.isNotEmpty) {
+      final closeFrom = closeRegisters.reduce(math.min);
       closeIndex = emitter.emitABC(
         opcode: LualikeIrOpcode.close,
-        a: _activeImplicitToBeClosedRegisters.reduce(math.min),
+        a: closeFrom,
         b: 0,
         c: 0,
       );
@@ -3821,6 +3840,9 @@ class _PrototypeContext {
         label: node.label.name,
         jumpIndex: jumpIndex,
         visibleScopeIds: List<int>.unmodifiable(List<int>.from(_scopeIdStack)),
+        closeRegisterByScopeId: Map<int, int>.unmodifiable(
+          closeRegisterByScopeId,
+        ),
         closeIndex: closeIndex,
       ),
     );
@@ -3841,7 +3863,6 @@ class _PrototypeContext {
   void _resolveGoto(String label, {int? targetScopeId}) {
     int? resolvedTarget;
     int? resolvedScopeId;
-    int? resolvedScopeIndex;
     if (targetScopeId != null) {
       final scopeIndex = _scopeIdStack.indexOf(targetScopeId);
       if (scopeIndex != -1) {
@@ -3849,7 +3870,6 @@ class _PrototypeContext {
         if (target != null) {
           resolvedTarget = target;
           resolvedScopeId = targetScopeId;
-          resolvedScopeIndex = scopeIndex;
         }
       }
     } else {
@@ -3858,7 +3878,6 @@ class _PrototypeContext {
         if (target != null) {
           resolvedTarget = target;
           resolvedScopeId = _scopeIdStack[i];
-          resolvedScopeIndex = i;
           break;
         }
       }
@@ -3874,19 +3893,39 @@ class _PrototypeContext {
         i += 1;
         continue;
       }
-      // If we emitted an implicit CLOSE before the JMP, check whether it was
-      // actually needed. When the goto stays within the same TBC scope (i.e.,
-      // no explicit close local is hidden), replace the CLOSE with a no-op JMP
-      // (sJ=0 = fall through to the next instruction).
+      // Resolve against the goto-site snapshot: exited scopes may no longer be
+      // present in the compiler's active scope stacks at this point.
       if (entry.closeIndex case final closeIdx?) {
-        final closeNeeded = _lowestLocalRegisterHiddenByGoto(
-          target,
-          resolvedScopeIndex!,
+        final targetScopeIndex = entry.visibleScopeIds.indexOf(
+          resolvedScopeId!,
         );
+        int? closeNeeded;
+        for (
+          var scopeIndex = targetScopeIndex + 1;
+          scopeIndex < entry.visibleScopeIds.length;
+          scopeIndex++
+        ) {
+          final register =
+              entry.closeRegisterByScopeId[entry.visibleScopeIds[scopeIndex]];
+          if (register != null &&
+              (closeNeeded == null || register < closeNeeded)) {
+            closeNeeded = register;
+          }
+        }
         if (closeNeeded == null) {
           builder.replaceInstruction(
             closeIdx,
             AsJInstruction(opcode: LualikeIrOpcode.jmp, sJ: 0),
+          );
+        } else {
+          builder.replaceInstruction(
+            closeIdx,
+            ABCInstruction(
+              opcode: LualikeIrOpcode.close,
+              a: closeNeeded,
+              b: 0,
+              c: 0,
+            ),
           );
         }
       }
@@ -4005,11 +4044,16 @@ class _ActiveLocalDebug {
   final int startPc;
 }
 
+/// A forward goto whose label position and exited scopes are not known yet.
+///
+/// Closable registers are captured at the goto site because scope stacks may
+/// be popped before the label is defined.
 class _PendingGoto {
   const _PendingGoto({
     required this.label,
     required this.jumpIndex,
     required this.visibleScopeIds,
+    required this.closeRegisterByScopeId,
     this.closeIndex,
   });
 
@@ -4017,8 +4061,10 @@ class _PendingGoto {
   final int jumpIndex;
   final List<int> visibleScopeIds;
 
-  /// Index of a CLOSE instruction emitted just before the JMP, or null if
-  /// no implicit-TBC close was emitted for this goto.
+  /// The lowest closable register owned by each visible lexical scope.
+  final Map<int, int> closeRegisterByScopeId;
+
+  /// Index of a provisional CLOSE immediately before the pending jump.
   final int? closeIndex;
 }
 
