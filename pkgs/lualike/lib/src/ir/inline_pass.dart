@@ -76,6 +76,7 @@ LualikeIrPrototype? _runOnce(LualikeIrPrototype prototype) {
     registerCount: prototype.registerCount,
     paramCount: prototype.paramCount,
     isVararg: prototype.isVararg,
+    namedVarargRegister: prototype.namedVarargRegister,
     upvalueDescriptors: prototype.upvalueDescriptors,
     prototypes: subProtos,
     lineDefined: prototype.lineDefined,

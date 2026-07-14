@@ -57,6 +57,15 @@ void main() {
       );
     });
 
+    test('SCCP preserves boolean value types', () async {
+      await executeCode(
+        'local yes, no = true, false\n'
+        'assert(type(yes) == "boolean")\n'
+        'assert(type(no) == "boolean")\n',
+        mode: EngineMode.luaBytecode,
+      );
+    });
+
     test('const-arg inlining does not specialize function body', () async {
       // Inlining toint("..") must not rewrite the shared definition AST.
       await executeCode(

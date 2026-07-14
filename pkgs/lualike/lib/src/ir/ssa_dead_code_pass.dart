@@ -171,6 +171,7 @@ LualikeIrPrototype? _eliminateOnce(LualikeIrPrototype prototype) {
     registerCount: prototype.registerCount,
     paramCount: prototype.paramCount,
     isVararg: prototype.isVararg,
+    namedVarargRegister: prototype.namedVarargRegister,
     upvalueDescriptors: prototype.upvalueDescriptors,
     prototypes: newPrototypes,
     lineDefined: prototype.lineDefined,

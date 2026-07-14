@@ -1,7 +1,8 @@
 /// Sparse Conditional Constant Propagation (SCCP) pass for the lualike IR.
 ///
-/// Propagates integer constants through pure ops and rewrites foldable
-/// instructions to `LOADI` when safe.
+/// Propagates integer constants through pure integer ops and rewrites foldable
+/// instructions to `LOADI` when safe. Boolean values are deliberately excluded:
+/// Lua booleans are not interchangeable with the integers zero and one.
 ///
 /// ## Critical safety rules (do not regress)
 ///
@@ -57,12 +58,6 @@ int? _foldConstant(LualikeIrInstruction inst, Map<int, _LatticeValue> lattice) {
       if (op == LualikeIrOpcode.loadK) {
         return null; // constant pool, not int
       }
-      if (op == LualikeIrOpcode.loadTrue) {
-        return 1;
-      }
-      if (op == LualikeIrOpcode.loadFalse) {
-        return 0;
-      }
       if (op == LualikeIrOpcode.loadNil) {
         return null;
       }
@@ -84,7 +79,6 @@ int? _foldConstant(LualikeIrInstruction inst, Map<int, _LatticeValue> lattice) {
           return null;
         }
       }
-      if (op == LualikeIrOpcode.eq) return b == c ? 1 : 0;
       return null;
     },
     asbx: (i) {
@@ -196,10 +190,6 @@ LualikeIrPrototype? _runSccpOnce(LualikeIrPrototype prototype) {
 
     if (inst.opcode == LualikeIrOpcode.loadI && inst is AsBxInstruction) {
       lattice[reg] = _LatticeConstant(inst.sBx);
-    } else if (inst.opcode == LualikeIrOpcode.loadTrue) {
-      lattice[reg] = const _LatticeConstant(1);
-    } else if (inst.opcode == LualikeIrOpcode.loadFalse) {
-      lattice[reg] = const _LatticeConstant(0);
     } else {
       lattice[reg] = _top;
     }
@@ -284,6 +274,7 @@ LualikeIrPrototype? _runSccpOnce(LualikeIrPrototype prototype) {
     registerCount: prototype.registerCount,
     paramCount: prototype.paramCount,
     isVararg: prototype.isVararg,
+    namedVarargRegister: prototype.namedVarargRegister,
     upvalueDescriptors: prototype.upvalueDescriptors,
     prototypes: _processSubPrototypes(prototype.prototypes),
     lineDefined: prototype.lineDefined,

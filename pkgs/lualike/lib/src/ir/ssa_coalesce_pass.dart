@@ -68,7 +68,7 @@ bool _writesReg(LualikeIrInstruction inst, int reg) {
         case LualikeIrOpcode.tForCall:
           // TFORCALL writes loop vars to A+3 and beyond.
           // C encodes the number of loop variables.
-          return reg >= i.a + 3;
+          return reg >= i.a + 3 && reg < i.a + 3 + i.c;
         case LualikeIrOpcode.call:
         case LualikeIrOpcode.tailCall:
           // Results land at A..(A+C-2) when C > 1; open results when C == 0.
@@ -86,11 +86,19 @@ bool _writesReg(LualikeIrInstruction inst, int reg) {
       }
     },
     abx: (i) => i.a == reg,
-    asbx: (i) =>
-        i.opcode == LualikeIrOpcode.tForPrep ||
-                i.opcode == LualikeIrOpcode.tForLoop
-            ? false
-            : i.a == reg,
+    asbx: (i) {
+      if (i.opcode == LualikeIrOpcode.forPrep ||
+          i.opcode == LualikeIrOpcode.forLoop) {
+        return reg >= i.a && reg <= i.a + 2;
+      }
+      if (i.opcode == LualikeIrOpcode.tForPrep) {
+        return reg == i.a + 2 || reg == i.a + 3;
+      }
+      if (i.opcode == LualikeIrOpcode.tForLoop) {
+        return false;
+      }
+      return i.a == reg;
+    },
     ax: (_) => false,
     asj: (_) => false,
     avbc: (i) => i.a == reg,
@@ -235,15 +243,23 @@ Set<int> _reads(LualikeIrInstruction inst, int registerCount) {
     },
     abx: (_) {},
     asbx: (i) {
+      if (i.opcode == LualikeIrOpcode.forPrep ||
+          i.opcode == LualikeIrOpcode.forLoop) {
+        for (var offset = 0; offset <= 2; offset++) {
+          add(i.a + offset);
+        }
+      }
       // TFORPREP reads R(A..A+2) for iterator state.
       if (i.opcode == LualikeIrOpcode.tForPrep) {
         add(i.a);
         add(i.a + 1);
         add(i.a + 2);
       }
-      // TFORLOOP reads R(A+2) to check loop variable termination.
+      // TFORLOOP checks R(A+3); R(A..A+2) remain live across its backedge.
       if (i.opcode == LualikeIrOpcode.tForLoop) {
-        add(i.a + 2);
+        for (var offset = 0; offset <= 3; offset++) {
+          add(i.a + offset);
+        }
       }
     },
     ax: (_) {},
@@ -538,6 +554,7 @@ LualikeIrPrototype? _runCoalesceOnce(LualikeIrPrototype prototype) {
     registerCount: prototype.registerCount,
     paramCount: prototype.paramCount,
     isVararg: prototype.isVararg,
+    namedVarargRegister: prototype.namedVarargRegister,
     upvalueDescriptors: prototype.upvalueDescriptors,
     prototypes: _coalesceSubProtos(prototype.prototypes),
     lineDefined: prototype.lineDefined,

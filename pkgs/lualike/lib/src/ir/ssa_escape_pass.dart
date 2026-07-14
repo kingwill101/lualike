@@ -415,6 +415,7 @@ LualikeIrPrototype? _runOnce(LualikeIrPrototype prototype) {
     registerCount: nextReg > registerCount ? nextReg : registerCount,
     paramCount: prototype.paramCount,
     isVararg: prototype.isVararg,
+    namedVarargRegister: prototype.namedVarargRegister,
     upvalueDescriptors: prototype.upvalueDescriptors,
     prototypes: _escapeSubProtos(prototype.prototypes),
     lineDefined: prototype.lineDefined,
