@@ -22,10 +22,14 @@
 /// ```
 library;
 
-
 import 'package:lualike/src/ast.dart';
 import 'package:lualike/src/compile/compiler_pass.dart';
 
+/// Removes bundled module exports that no reachable module reads.
+///
+/// Each bundled module has an isolated lexical block. Builder-table aliases
+/// are therefore resolved per block so conventional local names such as `M`
+/// can be reused safely across modules.
 class DeadCodeEliminationPass extends CompilerPass {
   @override
   String get name => 'dead_code_elimination';
@@ -35,16 +39,19 @@ class DeadCodeEliminationPass extends CompilerPass {
     // Phase 1: find which fields are read on each module variable.
     final usedFields = <String, Set<String>>{};
     final moduleVars = <String>{};
-    final builderVars = <String, String>{};
 
     _findModuleVars(program, moduleVars);
     if (moduleVars.isEmpty) return program;
 
     _collectReads(program.statements, usedFields, moduleVars);
-    _findBuilders(program.statements, moduleVars, builderVars);
 
     // Phase 2: remove unused writes.
-    final cleaned = _eliminate(program.statements, usedFields, moduleVars, builderVars);
+    final cleaned = _eliminate(
+      program.statements,
+      usedFields,
+      moduleVars,
+      const <String, String>{},
+    );
     return Program(cleaned);
   }
 
@@ -60,45 +67,48 @@ class DeadCodeEliminationPass extends CompilerPass {
         if (stmt is DoBlock) walk(stmt.body);
       }
     }
+
     walk(program.statements);
   }
 
-  /// Scan do-blocks for `local M = {}; ... __bundle_var = M` patterns.
-  void _findBuilders(
-    List<AstNode> stmts, Set<String> moduleVars, Map<String, String> builderVars,
+  /// Finds module-table builders belonging to one lexical bundle block.
+  ///
+  /// Builder names cannot be tracked globally because independent modules
+  /// conventionally reuse names such as `M` inside their isolated do-blocks.
+  Map<String, String> _findBlockBuilders(
+    DoBlock block,
+    Set<String> moduleVars,
   ) {
-    for (final stmt in stmts) {
-      if (stmt is! DoBlock) continue;
-      final tableLocals = <String>{};
-      String? bundleVar;
-      for (final inner in stmt.body) {
-        if (inner is LocalDeclaration &&
-            inner.exprs.length == 1 &&
-            inner.exprs.first is TableConstructor) {
-          for (final n in inner.names) {
-            tableLocals.add(n.name);
-          }
+    final tableLocals = <String>{};
+    final builderVars = <String, String>{};
+    for (final inner in block.body) {
+      if (inner is LocalDeclaration &&
+          inner.exprs.length == 1 &&
+          inner.exprs.first is TableConstructor) {
+        for (final name in inner.names) {
+          tableLocals.add(name.name);
         }
-        if (inner is Assignment &&
-            inner.targets.length == 1 &&
-            inner.targets.first is Identifier &&
-            moduleVars.contains((inner.targets.first as Identifier).name) &&
-            inner.exprs.length == 1) {
-          final src = inner.exprs.first is Identifier
-              ? (inner.exprs.first as Identifier).name
-              : null;
-          if (src != null && tableLocals.contains(src)) {
-            bundleVar = (inner.targets.first as Identifier).name;
-            builderVars[src] = bundleVar;
-          }
+      }
+      if (inner is Assignment &&
+          inner.targets.length == 1 &&
+          inner.targets.first is Identifier &&
+          moduleVars.contains((inner.targets.first as Identifier).name) &&
+          inner.exprs.length == 1 &&
+          inner.exprs.first is Identifier) {
+        final source = (inner.exprs.first as Identifier).name;
+        if (tableLocals.contains(source)) {
+          builderVars[source] = (inner.targets.first as Identifier).name;
         }
       }
     }
+    return builderVars;
   }
 
   /// Collect all field reads on module variables.
   void _collectReads(
-    List<AstNode> stmts, Map<String, Set<String>> used, Set<String> vars,
+    List<AstNode> stmts,
+    Map<String, Set<String>> used,
+    Set<String> vars,
   ) {
     // alias → module var name
     final aliases = <String, String>{};
@@ -108,7 +118,9 @@ class DeadCodeEliminationPass extends CompilerPass {
   }
 
   void _readNode(
-    AstNode node, Map<String, Set<String>> used, Set<String> vars,
+    AstNode node,
+    Map<String, Set<String>> used,
+    Set<String> vars,
     Map<String, String> aliases,
   ) {
     // Track local aliases: `local x = __bundle_foo` → x → __bundle_foo
@@ -119,8 +131,8 @@ class DeadCodeEliminationPass extends CompilerPass {
           final resolved = vars.contains(src)
               ? src
               : aliases.containsKey(src)
-                  ? aliases[src]
-                  : null;
+              ? aliases[src]
+              : null;
           if (resolved != null) {
             aliases[node.names[i].name] = resolved;
           }
@@ -191,8 +203,10 @@ class DeadCodeEliminationPass extends CompilerPass {
 
   /// Remove unused field writes from the AST.
   List<AstNode> _eliminate(
-    List<AstNode> stmts, Map<String, Set<String>> used,
-    Set<String> vars, Map<String, String> builders,
+    List<AstNode> stmts,
+    Map<String, Set<String>> used,
+    Set<String> vars,
+    Map<String, String> builders,
   ) {
     final result = <AstNode>[];
     for (final stmt in stmts) {
@@ -202,12 +216,16 @@ class DeadCodeEliminationPass extends CompilerPass {
   }
 
   void _keepStmt(
-    AstNode node, Map<String, Set<String>> used,
-    Set<String> vars, Map<String, String> builders,
+    AstNode node,
+    Map<String, Set<String>> used,
+    Set<String> vars,
+    Map<String, String> builders,
     List<AstNode> out,
   ) {
     // function M.foo(...) → remove if M is a builder and foo unused
-    if (node is FunctionDef && node.name.method != null && node.name.rest.isEmpty) {
+    if (node is FunctionDef &&
+        node.name.method != null &&
+        node.name.rest.isEmpty) {
       final builderName = node.name.first.name;
       if (builders.containsKey(builderName)) {
         final moduleVar = builders[builderName]!;
@@ -230,43 +248,61 @@ class DeadCodeEliminationPass extends CompilerPass {
     }
     // Recurse into blocks
     if (node is DoBlock) {
-      final cleaned = _eliminate(node.body, used, vars, builders);
+      final blockBuilders = _findBlockBuilders(node, vars);
+      final cleaned = _eliminate(node.body, used, vars, blockBuilders);
       out.add(identical(cleaned, node.body) ? node : DoBlock(cleaned));
       return;
     }
     if (node is FunctionDef) {
       final body = node.body;
       final cleaned = _eliminate(body.body, used, vars, builders);
-      out.add(identical(cleaned, body.body)
-          ? node
-          : FunctionDef(
-              node.name,
-              FunctionBody(body.parameters, cleaned, body.isVararg,
-                  varargName: body.varargName),
-              implicitSelf: node.implicitSelf,
-            ));
+      out.add(
+        identical(cleaned, body.body)
+            ? node
+            : FunctionDef(
+                node.name,
+                FunctionBody(
+                  body.parameters,
+                  cleaned,
+                  body.isVararg,
+                  varargName: body.varargName,
+                ),
+                implicitSelf: node.implicitSelf,
+              ),
+      );
       return;
     }
     out.add(node);
   }
 
-  bool _isFieldUsed(String field, String moduleVar, Map<String, Set<String>> used) {
+  bool _isFieldUsed(
+    String field,
+    String moduleVar,
+    Map<String, Set<String>> used,
+  ) {
     final fields = used[moduleVar];
     return fields != null && fields.contains(field);
   }
 
-  String? _varName(AstNode node) =>
-      node is Identifier ? node.name : null;
+  String? _varName(AstNode node) => node is Identifier ? node.name : null;
 
   /// Resolve [name] to its module variable, or null if not tracked.
-  String? _resolveAliasOrVar(String name, Set<String> vars, Map<String, String> aliases) {
+  String? _resolveAliasOrVar(
+    String name,
+    Set<String> vars,
+    Map<String, String> aliases,
+  ) {
     if (vars.contains(name)) return name;
     return aliases[name];
   }
 
   String? _constKey(AstNode node) {
-    if (node is StringLiteral) return node.value;
-    if (node is NumberLiteral && node.value is int) return node.value.toString();
+    if (node is StringLiteral) {
+      return node.value;
+    }
+    if (node is NumberLiteral && node.value is int) {
+      return node.value.toString();
+    }
     return null;
   }
 }
