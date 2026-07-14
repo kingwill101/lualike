@@ -1,6 +1,4 @@
-/// Compares IR instruction count across optimization levels.
-///
-/// Usage: dart run tool/compare_ir.dart [script.lua] [--all]
+/// IR comparison implementation used by `tool/compare.dart`.
 ///
 /// Shows instruction counts at three levels:
 ///   OFF  — no optimizations
@@ -10,24 +8,33 @@ library;
 
 import 'dart:io';
 
+import 'package:artisanal/artisanal.dart' show Console;
+import 'package:artisanal/style.dart';
 import 'package:lualike/ir.dart';
 import 'package:lualike/src/compile/pipeline.dart';
 
-void main(List<String> args) async {
-  if (args.isEmpty) {
+/// Compares optimization levels for one source file or directory.
+Future<void> compareIrPath(
+  String? path, {
+  required Console io,
+  required bool bundle,
+}) async {
+  if (path == null) {
     // Default: run on all demo scripts
     final candidates = [
-      '../luascripts/folding',
+      'luascripts/folding',
       '/run/media/kingwill101/disk2/code/code/dart_packages/lualike.worktrees/multipass-compiler/luascripts/folding',
     ];
     Directory? dir;
     for (final c in candidates) {
       final d = Directory(c);
-      if (await d.exists()) { dir = d; break; }
+      if (await d.exists()) {
+        dir = d;
+        break;
+      }
     }
     if (dir == null) {
-      stderr.writeln('Usage: dart run tool/compare_ir.dart <script.lua | dir>');
-      exit(1);
+      throw ArgumentError('Folding fixture directory not found.');
     }
     final files = await dir
         .list()
@@ -35,9 +42,8 @@ void main(List<String> args) async {
         .cast<File>()
         .toList();
     files.sort((a, b) => a.path.compareTo(b.path));
-    _runTable(files);
+    _runTable(files, io: io, bundle: bundle);
   } else {
-    final path = args.first;
     final dir = Directory(path);
     if (await dir.exists()) {
       final files = await dir
@@ -46,26 +52,34 @@ void main(List<String> args) async {
           .cast<File>()
           .toList();
       files.sort((a, b) => a.path.compareTo(b.path));
-      _runTable(files);
+      _runTable(files, io: io, bundle: bundle);
       return;
     }
     final file = File(path);
     if (!await file.exists()) {
-      stderr.writeln('File not found: $path');
-      exit(1);
+      throw ArgumentError('File not found: $path');
     }
-    _runSingle(file);
+    _runSingle(file, io: io, bundle: bundle);
   }
 }
 
-Future<void> _runTable(List<File> files) async {
-  print('╔══════════════════════════════════════════════════════════════════════════════════════════════╗');
-  print('║  IR instructions (Off / On / SSA)  and  serialized byte size                         ║');
-  print('╚══════════════════════════════════════════════════════════════════════════════════════════════╝');
-  print('');
-  print('  ${'Script'.padRight(20)} ${'Off'.padRight(5)} ${'On'.padRight(5)} ${'SSA'.padRight(5)}  ${'%On'.padRight(7)} ${'%SSA'.padRight(7)}  '
-        '${'OffSz'.padRight(9)} ${'OnSz'.padRight(9)} ${'SSASz'.padRight(9)}  ${'%OnSz'.padRight(7)} ${'%SSASz'}');
-  print('  ${''.padRight(110, '─')}');
+Future<void> _runTable(
+  List<File> files, {
+  required Console io,
+  required bool bundle,
+}) async {
+  io.writeln(
+    _titleStyle(
+      io,
+    ).render('IR instructions (Off / On / SSA) and serialized byte size'),
+  );
+  io.newLine();
+  io.writeln(
+    _tableHeaderStyle(io).render(
+      '${'Script'.padRight(20)} ${'Off'.padRight(5)} ${'On'.padRight(5)} ${'SSA'.padRight(5)}  ${'%On'.padRight(7)} ${'%SSA'.padRight(7)}  '
+      '${'OffSz'.padRight(9)} ${'OnSz'.padRight(9)} ${'SSASz'.padRight(9)}  ${'%OnSz'.padRight(7)} ${'%SSASz'}',
+    ),
+  );
 
   for (final file in files) {
     final name = file.path.split('/').last;
@@ -91,13 +105,15 @@ Future<void> _runTable(List<File> files) async {
 
     // All optimizations ON (AST folding + peephole)
     final on = CompilePipeline(
-      config: const CompilePipelineConfig(
+      config: CompilePipelineConfig(
         enableConstantFolding: true,
         enableConstPropagation: true,
         enableTypeNarrowing: true,
         enableMetatableFolding: true,
         enablePeephole: true,
         enableDeadCodeElimination: true,
+        enableBundling: bundle,
+        bundleSearchPaths: <String>[file.parent.path],
         target: CompileBackend.lualikeIR,
       ),
     );
@@ -108,7 +124,7 @@ Future<void> _runTable(List<File> files) async {
 
     // ON + all SSA passes
     final ssa = CompilePipeline(
-      config: const CompilePipelineConfig(
+      config: CompilePipelineConfig(
         enableConstantFolding: true,
         enableConstPropagation: true,
         enableTypeNarrowing: true,
@@ -122,6 +138,8 @@ Future<void> _runTable(List<File> files) async {
         enableSsaCoalesce: true,
         enableSsaEscape: true,
         enableFunctionInlining: true,
+        enableBundling: bundle,
+        bundleSearchPaths: <String>[file.parent.path],
         target: CompileBackend.lualikeIR,
       ),
     );
@@ -132,21 +150,35 @@ Future<void> _runTable(List<File> files) async {
 
     final delta = offCount - onCount;
     final ssaDelta = offCount - ssaCount;
-    final pct = offCount > 0 ? (delta / offCount * 100).toStringAsFixed(1) : '0.0';
-    final ssaPct = offCount > 0 ? (ssaDelta / offCount * 100).toStringAsFixed(1) : '0.0';
+    final pct = offCount > 0
+        ? (delta / offCount * 100).toStringAsFixed(1)
+        : '0.0';
+    final ssaPct = offCount > 0
+        ? (ssaDelta / offCount * 100).toStringAsFixed(1)
+        : '0.0';
     final bDelta = offBytes - onBytes;
     final bSsaDelta = offBytes - ssaBytes;
-    final bPct = offBytes > 0 ? (bDelta / offBytes * 100).toStringAsFixed(1) : '0.0';
-    final bSsaPct = offBytes > 0 ? (bSsaDelta / offBytes * 100).toStringAsFixed(1) : '0.0';
-    print('  ${name.padRight(20)} '
-        '${offCount.toString().padRight(5)} ${onCount.toString().padRight(5)} ${ssaCount.toString().padRight(5)} '
-        '${'$pct%'.padRight(7)} ${'$ssaPct%'.padRight(7)} '
-        '${'${offBytes}b'.padRight(9)} ${'${onBytes}b'.padRight(9)} ${'${ssaBytes}b'.padRight(9)} '
-        '${'$bPct%'.padRight(7)} ${'$bSsaPct%'}');
+    final bPct = offBytes > 0
+        ? (bDelta / offBytes * 100).toStringAsFixed(1)
+        : '0.0';
+    final bSsaPct = offBytes > 0
+        ? (bSsaDelta / offBytes * 100).toStringAsFixed(1)
+        : '0.0';
+    io.writeln(
+      '  ${name.padRight(20)} '
+      '${offCount.toString().padRight(5)} ${onCount.toString().padRight(5)} ${ssaCount.toString().padRight(5)} '
+      '${'$pct%'.padRight(7)} ${'$ssaPct%'.padRight(7)} '
+      '${'${offBytes}b'.padRight(9)} ${'${onBytes}b'.padRight(9)} ${'${ssaBytes}b'.padRight(9)} '
+      '${'$bPct%'.padRight(7)} ${'$bSsaPct%'}',
+    );
   }
 }
 
-Future<void> _runSingle(File file) async {
+Future<void> _runSingle(
+  File file, {
+  required Console io,
+  required bool bundle,
+}) async {
   final name = file.path.split('/').last;
   final source = await file.readAsString();
 
@@ -168,13 +200,15 @@ Future<void> _runSingle(File file) async {
 
   // On
   final onPipeline = CompilePipeline(
-    config: const CompilePipelineConfig(
+    config: CompilePipelineConfig(
       enableConstantFolding: true,
       enableConstPropagation: true,
       enableTypeNarrowing: true,
       enableMetatableFolding: true,
       enablePeephole: true,
       enableDeadCodeElimination: true,
+      enableBundling: bundle,
+      bundleSearchPaths: <String>[file.parent.path],
       target: CompileBackend.lualikeIR,
     ),
   );
@@ -183,7 +217,7 @@ Future<void> _runSingle(File file) async {
 
   // On + SSA
   final ssaPipeline = CompilePipeline(
-    config: const CompilePipelineConfig(
+    config: CompilePipelineConfig(
       enableConstantFolding: true,
       enableConstPropagation: true,
       enableTypeNarrowing: true,
@@ -196,6 +230,8 @@ Future<void> _runSingle(File file) async {
       enableSsaLicm: true,
       enableSsaCoalesce: true,
       enableSsaEscape: true,
+      enableBundling: bundle,
+      bundleSearchPaths: <String>[file.parent.path],
       target: CompileBackend.lualikeIR,
     ),
   );
@@ -214,19 +250,21 @@ Future<void> _runSingle(File file) async {
       ? (ssaDelta / offCount * 100).toStringAsFixed(1)
       : '0.0';
 
-  print('$name: off=$offCount on=$onCount ssa=$ssaCount '
-      '(Δ=$delta, $pct% from off; Δssa=$ssaDelta, $ssaPct% from off)');
-  print('');
+  io.writeln(
+    '$name: off=$offCount on=$onCount ssa=$ssaCount '
+    '(Δ=$delta, $pct% from off; Δssa=$ssaDelta, $ssaPct% from off)',
+  );
+  io.newLine();
 
   // Show IR disassembly
-  print('═══ IR (all passes OFF) ═══');
-  print(formatLualikeIrChunk(offIr.chunk));
-  print('');
-  print('═══ IR (all passes ON) ═══');
-  print(formatLualikeIrChunk(onIr.chunk));
-  print('');
-  print('═══ IR (ON + SSA) ═══');
-  print(formatLualikeIrChunk(ssaIr.chunk));
+  io.writeln(_sectionStyle(io).render('IR (all passes OFF)'));
+  io.writeln(formatLualikeIrChunk(offIr.chunk));
+  io.newLine();
+  io.writeln(_sectionStyle(io).render('IR (all passes ON)'));
+  io.writeln(formatLualikeIrChunk(onIr.chunk));
+  io.newLine();
+  io.writeln(_sectionStyle(io).render('IR (ON + SSA)'));
+  io.writeln(formatLualikeIrChunk(ssaIr.chunk));
 }
 
 int _totalInstrs(LualikeIrPrototype proto) {
@@ -236,3 +274,20 @@ int _totalInstrs(LualikeIrPrototype proto) {
   }
   return count;
 }
+
+Style _titleStyle(Console io) => io.style
+  ..bold()
+  ..foreground(Colors.cyan)
+  ..border(Border.rounded)
+  ..padding(0, 1);
+
+Style _sectionStyle(Console io) => io.style
+  ..bold()
+  ..foreground(Colors.blue)
+  ..border(Border.ascii)
+  ..padding(0, 1);
+
+Style _tableHeaderStyle(Console io) => io.style
+  ..bold()
+  ..border(Border.ascii)
+  ..padding(0, 1);

@@ -81,19 +81,30 @@ The test runner supports several environment variables that can be set in the Lu
 
 ## Compare Tool (`compare.dart`)
 
-Utility for comparing Lualike output with reference Lua interpreter.
+The Artisanal command suite for inspecting optimization output. It replaces the
+former shell wrappers and routes output through a shared `Console`.
 
 ### Usage
 
-```bash
-# Compare a Lua command
-dart run tool/compare.dart "print('hello world')"
+```console
+# Compare luac55 and lualike disassembly for one file.
+dart run tool/compare.dart disasm luascripts/compare/01_arith.lua
 
-# Compare a Lua file
-dart run tool/compare.dart script.lua
+# Compare a bundled entrypoint with each separate luac55 module chunk.
+dart run tool/compare.dart disasm --bundle \
+  luascripts/folding/21_bundle_main.lua
+
+# Compare optimized and unoptimized IR for a file or directory.
+dart run tool/compare.dart ir luascripts/folding
+
+# Validate every folding fixture; optionally include full disassembly.
+dart run tool/compare.dart folding
+dart run tool/compare.dart folding --disassemble
 ```
 
-This tool runs the same code in both Lualike and reference Lua, showing any differences in output.
+Directory disassembly automatically enables bundling for entrypoints with a
+static `require("module")`. `LUAC55` and `LUALIKE` override the reference
+compiler and lualike executable paths.
 
 ## Parser Profile Tool (`parser_profile.dart`)
 
