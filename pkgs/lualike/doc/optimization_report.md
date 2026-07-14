@@ -64,7 +64,10 @@ The lowering now produces bytecode of equal or better density than the official 
 - **`--disassemble`** — CLI flag to print bytecode disassembly and exit
 - **`--raw`** — disables bytecode peephole for debugging
 - **`tool/trace.dart`** — pipeline tracer showing IR after each pass (ir → peephole → dce → gvn → sccp → licm → coalesce → escape → bc)
-- **`tool/compare_disasm.dart`** — side-by-side disassembly of lualike vs luac55
+- **`tool/compare.dart disasm`** — compares lualike with luac55, including
+  separate reference chunks against one optimized static bundle
+- **`tool/compare.dart ir`** — compares unoptimized, optimized, and SSA IR
+- **`tool/compare.dart folding`** — validates the complete folding fixture set
 - **`tool/count_profile.dart`** — instruction/slot count summary across all compare scripts
 - **`test/fuzz_test.dart`** — property-based fuzz tests (many locals, deep expressions, large parameters, random trees)
 - **22 `luascripts/compare/*.lua` scripts** — targeted benchmarks for each language feature
@@ -279,6 +282,45 @@ frames are removed before error-time close handlers execute.
 state for one bounded slice. `--dump-ir` tests read stdout, which is the CLI's
 documented output stream; stderr remains reserved for failures.
 
+### 3.14 Bundled DCE resolves builders within lexical module blocks
+
+**Bug:** Bundled modules conventionally declare their export table as
+`local M = {}`. Dead-code elimination keyed those builder names globally, so a
+later module's `M` replaced an earlier module's mapping. Reads from the earlier
+module were then attributed to the wrong bundle variable and live exports could
+be removed.
+
+**Fix:** Builder discovery now runs independently for each bundler-generated
+`do` block. The elimination pass receives only that block's builder-to-module
+mapping, preserving same-named module locals without weakening export tree
+shaking.
+
+**Decision:** luac55 remains a structural reference, not a bundle reference:
+it compiles an entrypoint and each required source as separate chunks. The
+comparison tool therefore prints those chunks individually and compares their
+combined instruction count with lualike's single optimized bundle. Runtime
+equivalence is enforced separately by a regression test that executes the
+serialized bundle, checks transitive imports, and verifies repeated `require`
+identity.
+
+### 3.15 Peephole ADDI rewrites respect the signed immediate range
+
+**Bug:** The peephole pass rewrote `ADD` with a known `LOADI` operand to
+`ADDI` for any integer. Values outside bytecode's signed C range encoded above
+255 and failed during lowering. The complete folding corpus exposed this with
+the reassociated color sum in `99_speed.lua`.
+
+**Fix:** `LuaBytecodeInstructionLayout` now exposes the documented
+`minSignedArgC`, `maxSignedArgC`, and `fitsSignedArgC` encoding contract. Both
+the compiler and peephole pass use it, limiting immediate rewrites to
+`-127..128`. Larger values remain in registers. A pipeline regression compiles
+a folded table-field sum that previously produced the invalid immediate.
+
+**Validation tooling:** `tool/compare.dart` uses Artisanal `CommandRunner`,
+the runner-owned `Console`, and `Style.border`. Directory and folding commands
+aggregate subprocess failures and exit nonzero if either compiler fails, so a
+later fixture cannot hide an earlier failure.
+
 ---
 
 ## 4. Commit History (24 commits from 5b8800df)
@@ -327,13 +369,16 @@ runner's default `--skip-heavy` policy.
 
 The post-hardening validation run also passed:
 
-- `dart test`: 1,839 passed, 3 skipped, 0 failed.
+- `dart test`: 1,841 passed, 3 skipped, 0 failed.
 - `dart analyze`: no errors or warnings; 5 pre-existing informational lints in
   fuzz and trace tooling.
 - Affected-file regression set: 218 passed, including live `luac55` bytecode
   cross-compatibility.
 - Fresh `./test_runner --all-engines`: AST 30/30, IR 30/30, and lua-bytecode
   30/30. This run rebuilt the executable from the modified sources first.
+- `tool/compare.dart folding --disassemble`: all 22 top-level folding
+  fixtures passed, including the three-source transitive bundle; stderr was
+  empty.
 
 **Total:** 24 committed optimization changes plus the final compatibility
 fixes, 0 known integration regressions, and 15+ benchmarks at or below luac55
