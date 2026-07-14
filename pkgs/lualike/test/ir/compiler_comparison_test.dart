@@ -16,15 +16,11 @@ void main() {
       final proto = chunk.mainPrototype;
       final instructions = _stripVarArgPrep(proto);
 
-      expect(instructions, hasLength(4));
+      expect(instructions, hasLength(3));
       final eq = instructions[1] as ABCInstruction;
       expect(eq.opcode, LualikeIrOpcode.eqI);
       expect(eq.c, equals(1));
-
-      final notInstr = instructions[2] as ABCInstruction;
-      expect(notInstr.opcode, LualikeIrOpcode.notOp);
-      expect(notInstr.a, equals(0));
-      expect(notInstr.b, equals(0));
+      expect(eq.k, isFalse);
     });
 
     test('compiles equality with string literal', () {
@@ -65,6 +61,20 @@ void main() {
       final ltInstr = instructions[1] as ABCInstruction;
       expect(ltInstr.opcode, LualikeIrOpcode.ltI);
       expect(ltInstr.c, equals(10));
+      expect(ltInstr.k, isTrue);
+    });
+
+    test('keeps distinct register comparison operands', () {
+      final program = parse('local a = 1; local b = 2; return a == b');
+      final chunk = LualikeIrCompiler().compile(program);
+      final eqInstr = chunk.mainPrototype.instructions
+          .whereType<ABCInstruction>()
+          .firstWhere(
+            (instruction) => instruction.opcode == LualikeIrOpcode.eq,
+          );
+
+      expect(eqInstr.b, isNot(eqInstr.c));
+      expect(eqInstr.k, isTrue);
     });
   });
 }

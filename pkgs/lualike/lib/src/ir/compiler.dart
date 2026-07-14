@@ -3083,12 +3083,10 @@ class _PrototypeContext {
         }
       }
 
-      // For register-register comparisons, the right operand is read-only
-      // — no temp copy needed even if it aliases leftReg (EQ reads both
-      // operands before writing).  Identifier directly returns its register.
-      final rightReg = node.right is Identifier
-          ? _emitExpression(node.right, target: leftReg)
-          : _emitExpression(node.right);
+      // A local comparison operand is read-only, so use its binding directly.
+      // Materializing it into leftReg would overwrite the left operand before
+      // EQ/LT/LE reads it.
+      final rightReg = _emitReadOnlyComparisonOperand(node.right);
       switch (node.op) {
         case '==':
           emitter.emitABC(
@@ -3096,6 +3094,7 @@ class _PrototypeContext {
             a: resultReg,
             b: leftReg,
             c: rightReg,
+            k: true,
           );
           break;
         case '~=':
@@ -3114,6 +3113,7 @@ class _PrototypeContext {
             a: resultReg,
             b: leftReg,
             c: rightReg,
+            k: true,
           );
           break;
         case '>':
@@ -3122,6 +3122,7 @@ class _PrototypeContext {
             a: resultReg,
             b: rightReg,
             c: leftReg,
+            k: true,
           );
           break;
         case '<=':
@@ -3130,6 +3131,7 @@ class _PrototypeContext {
             a: resultReg,
             b: leftReg,
             c: rightReg,
+            k: true,
           );
           break;
         case '>=':
@@ -3138,6 +3140,7 @@ class _PrototypeContext {
             a: resultReg,
             b: rightReg,
             c: leftReg,
+            k: true,
           );
           break;
       }
@@ -3387,6 +3390,20 @@ class _PrototypeContext {
     return dest;
   }
 
+  /// Returns a comparison source without clobbering another live operand.
+  ///
+  /// Local identifiers can be read from their binding register. Other
+  /// expressions still need normal evaluation into a temporary register.
+  int _emitReadOnlyComparisonOperand(AstNode node) {
+    if (node case Identifier(:final name)) {
+      final localReg = _resolveCurrentFunctionBinding(name).register;
+      if (localReg != null) {
+        return localReg;
+      }
+    }
+    return _emitExpression(node);
+  }
+
   int _releaseFloorForResult(int resultReg) {
     final firstFree = _firstFreeRegister();
     final keepResultFloor = resultReg + 1;
@@ -3553,12 +3570,6 @@ class _PrototypeContext {
       );
     }
 
-    // negate is now handled by k=false — no NOT instruction needed.
-    // (Kept for backward compat in case callers rely on the NOT side effect.)
-    if (negate) {
-      // NOT was removed; k=false inverts the comparison.
-    }
-
     return true;
   }
 
@@ -3571,7 +3582,13 @@ class _PrototypeContext {
     if (value is! int || !_fitsInlineCompareInteger(value)) {
       return false;
     }
-    emitter.emitABC(opcode: opcode, a: resultReg, b: leftReg, c: value);
+    emitter.emitABC(
+      opcode: opcode,
+      a: resultReg,
+      b: leftReg,
+      c: value,
+      k: true,
+    );
     return true;
   }
 
