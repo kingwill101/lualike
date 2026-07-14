@@ -326,6 +326,7 @@ final class CompilePipeline {
       enableLoopUnrolling: config.target == CompileBackend.luaBytecode
           ? config.enableLoopUnrolling
           : false,
+      preserveDebug: !config.stripDebug,
     );
     final irChunk = _optimizeIrChunk(irCompiler.compile(foldedProgram));
 

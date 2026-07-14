@@ -538,6 +538,7 @@ void main() {
                   enableConstantFolding: true,
                   enableLoopUnrolling: true,
                   enablePeephole: false,
+                  stripDebug: true,
                   target: CompileBackend.luaBytecode,
                 ),
               ).compileSource(source)

@@ -27,7 +27,17 @@ class LualikeIrCompiler {
   /// but produces tighter bytecode for the bytecode VM.
   final bool enableLoopUnrolling;
 
-  LualikeIrCompiler({this.foldingResult, this.enableLoopUnrolling = false});
+  /// Whether compilation must preserve source-level debug frame semantics.
+  ///
+  /// Loop unrolling currently duplicates lexical scopes, so it is only safe
+  /// when debug metadata will be stripped from the final bytecode.
+  final bool preserveDebug;
+
+  LualikeIrCompiler({
+    this.foldingResult,
+    this.enableLoopUnrolling = false,
+    this.preserveDebug = true,
+  });
 
   LualikeIrChunk compile(Program program) {
     final chunkBuilder = LualikeIrChunkBuilder();
@@ -43,6 +53,7 @@ class LualikeIrCompiler {
       isVararg: true,
       foldingResult: foldingResult,
       enableLoopUnrolling: enableLoopUnrolling,
+      preserveDebug: preserveDebug,
     );
 
     context._emitBlock(program.statements, useNewScope: false);
@@ -142,6 +153,7 @@ class _PrototypeContext {
     this.isVararg = false,
     this.foldingResult,
     this.enableLoopUnrolling = false,
+    this.preserveDebug = true,
   }) : emitter = LualikeIrEmitter(builder),
        _localScopes = <Map<String, int>>[<String, int>{}],
        _globalBindingScopes = <Set<String>>[<String>{}],
@@ -172,6 +184,9 @@ class _PrototypeContext {
 
   /// Whether to unroll constant-bounded for-loops.
   final bool enableLoopUnrolling;
+
+  /// Whether source-level debug frame semantics must remain observable.
+  final bool preserveDebug;
 
   bool hasExplicitReturn = false;
 
@@ -2053,9 +2068,11 @@ class _PrototypeContext {
   void _emitForLoop(ForLoop node) {
     _trackSource(node);
 
-    // Loop unrolling: if start, end, and step are all compile-time constants
-    // and the iteration count is small, unroll the loop body directly.
+    // Keep this disabled for debug-preserving builds until duplicated lexical
+    // scopes can be represented without changing debug.getlocal/getinfo.
     if (enableLoopUnrolling &&
+        !preserveDebug &&
+        _canSafelyUnrollBlock(node.body) &&
         foldingResult != null &&
         foldingResult!.isConstant(node.start) &&
         foldingResult!.isConstant(node.endExpr) &&
@@ -2066,13 +2083,11 @@ class _PrototypeContext {
         foldingResult!.getValue(node.stepExpr),
       );
 
-      if (startVal != null &&
-          endVal != null &&
-          stepVal != null &&
-          stepVal != 0) {
-        // Compute iteration count in Lua semantics.
-        final iterCount = ((endVal - startVal) / stepVal).floor() + 1;
-        if (iterCount > 0 && iterCount <= _maxUnrollCount) {
+      if (startVal != null && endVal != null && stepVal != null) {
+        final iterCount = _constantForIterationCount(startVal, endVal, stepVal);
+        if (iterCount != null &&
+            iterCount > 0 &&
+            iterCount <= _maxUnrollCount) {
           _emitUnrolledForLoop(node, startVal, stepVal, iterCount);
           return;
         }
@@ -2150,7 +2165,85 @@ class _PrototypeContext {
       _emitLoadConstantTo(reg, iterValue);
       _emitBlock(node.body, useNewScope: false);
       _popLocalScope();
+      // The body may declare additional locals. Reclaim the complete copied
+      // scope so all iterations reuse the same slots instead of growing
+      // maxstack linearly with the iteration count.
+      _releaseDownTo(reg);
     }
+  }
+
+  int? _constantForIterationCount(num start, num end, num step) {
+    if (!start.isFinite || !end.isFinite || !step.isFinite || step == 0) {
+      return null;
+    }
+    if ((step > 0 && start > end) || (step < 0 && start < end)) {
+      return 0;
+    }
+    final span = (end - start) / step;
+    if (!span.isFinite || span < 0) {
+      return null;
+    }
+    return span.floor() + 1;
+  }
+
+  /// Returns whether duplicating [statements] preserves runtime semantics.
+  ///
+  /// Non-local control flow, declarations with identity, closures, nested
+  /// loops, and attributed locals stay on the normal loop path. This is
+  /// intentionally a whitelist: unsupported shapes cost an optimization, not
+  /// correctness.
+  bool _canSafelyUnrollBlock(List<AstNode> statements) {
+    for (final statement in statements) {
+      final safe = switch (statement) {
+        Assignment() ||
+        AssignmentIndexAccessExpr() ||
+        ExpressionStatement() => !_containsFunctionLiteral(statement),
+        LocalDeclaration(:final attributes) =>
+          attributes.every((attribute) => attribute.isEmpty) &&
+              !_containsFunctionLiteral(statement),
+        IfStatement(
+          :final cond,
+          :final thenBlock,
+          :final elseIfs,
+          :final elseBlock,
+        ) =>
+          !_containsFunctionLiteral(cond) &&
+              _canSafelyUnrollBlock(thenBlock) &&
+              elseIfs.every(
+                (clause) =>
+                    !_containsFunctionLiteral(clause.cond) &&
+                    _canSafelyUnrollBlock(clause.thenBlock),
+              ) &&
+              _canSafelyUnrollBlock(elseBlock),
+        DoBlock(:final body) => _canSafelyUnrollBlock(body),
+        _ => false,
+      };
+      if (!safe) {
+        return false;
+      }
+    }
+    return true;
+  }
+
+  bool _containsFunctionLiteral(AstNode node) {
+    if (node is FunctionLiteral || node is! Dumpable) {
+      return true;
+    }
+
+    bool inspect(Object? value) {
+      if (value is Map) {
+        if (value['type'] == 'FunctionLiteral' || value['type'] == 'Unknown') {
+          return true;
+        }
+        return value.values.any(inspect);
+      }
+      if (value is Iterable) {
+        return value.any(inspect);
+      }
+      return false;
+    }
+
+    return inspect((node as Dumpable).dump());
   }
 
   /// Emit a numeric load into a specific register.
@@ -2507,6 +2600,7 @@ class _PrototypeContext {
       isVararg: body.isVararg,
       foldingResult: foldingResult,
       enableLoopUnrolling: enableLoopUnrolling,
+      preserveDebug: preserveDebug,
     );
     for (final name in declaredGlobals) {
       childContext._declareGlobalBinding(name);
