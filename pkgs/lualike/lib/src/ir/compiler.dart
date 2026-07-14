@@ -32,6 +32,12 @@ class LualikeIrCompiler {
   LualikeIrChunk compile(Program program) {
     final chunkBuilder = LualikeIrChunkBuilder();
     final prototypeBuilder = chunkBuilder.mainPrototypeBuilder;
+    // Root _ENV is part of the finalized IR closure shape. Lowering must not
+    // synthesize captures that are absent from the IR prototype.
+    prototypeBuilder.upvalueDescriptors.add(
+      const LualikeIrUpvalueDescriptor(inStack: 1, index: 0),
+    );
+    prototypeBuilder.upvalueNames.add('_ENV');
     final context = _PrototypeContext(
       prototypeBuilder,
       isVararg: true,
@@ -429,6 +435,12 @@ class _PrototypeContext {
   }
 
   int? _resolveUpvalueIndex(String name) {
+    // The root environment is represented by prototype metadata and accessed
+    // directly by GETTABUP/SETTABUP. Treating it as a captured lookup here
+    // would materialize _ENV into a register for every global access.
+    if (name == '_ENV' && parent == null) {
+      return null;
+    }
     final existing = _upvalues[name];
     if (existing != null) {
       return existing;
@@ -1287,20 +1299,26 @@ class _PrototypeContext {
       return;
     }
 
-    // The lowered main prototype synthesizes `_ENV` as upvalue 0.
-    final envValueReg = _allocateRegister();
-    emitter.emitABC(
-      opcode: LualikeIrOpcode.getUpval,
-      a: envValueReg,
-      b: 0,
-      c: 0,
-    );
-    emitter.emitABx(
-      opcode: LualikeIrOpcode.checkGlobal,
-      a: envValueReg,
-      bx: constantIndex,
-    );
-    _releaseRegister(envValueReg);
+    if (parent == null &&
+        builder.upvalueDescriptors.isNotEmpty &&
+        builder.upvalueNames.first == '_ENV') {
+      final envValueReg = _allocateRegister();
+      emitter.emitABC(
+        opcode: LualikeIrOpcode.getUpval,
+        a: envValueReg,
+        b: 0,
+        c: 0,
+      );
+      emitter.emitABx(
+        opcode: LualikeIrOpcode.checkGlobal,
+        a: envValueReg,
+        bx: constantIndex,
+      );
+      _releaseRegister(envValueReg);
+      return;
+    }
+
+    throw StateError('global declaration check requires an _ENV binding');
   }
 
   bool _emitDoBlock(DoBlock node) {

@@ -11,6 +11,9 @@ void main() {
       const source = '''
       chunk has_debug_info=true {
         prototype main register_count=1 param_count=0 is_vararg=true {
+          upvalue_descriptors {
+            upvalue in_stack=1 index=0 kind=0;
+          }
           constants {
             int 42;
           }
@@ -24,6 +27,7 @@ void main() {
           }
           debug_info {
             line_info [1, 2, 2];
+            upvalue_names ["_ENV"];
             preferred_name "main";
             preferred_name_what "global";
             local_names {
@@ -62,7 +66,9 @@ void main() {
           registerCount: 1,
           paramCount: 0,
           isVararg: true,
-          upvalueDescriptors: const [],
+          upvalueDescriptors: const [
+            LualikeIrUpvalueDescriptor(inStack: 1, index: 0),
+          ],
           instructions: const <LualikeIrInstruction>[
             ABCInstruction(
               opcode: LualikeIrOpcode.varArgPrep,
@@ -79,6 +85,7 @@ void main() {
           lastLineDefined: 3,
           debugInfo: const LualikeIrDebugInfo(
             lineInfo: [1, 2, 3, 4],
+            upvalueNames: ['_ENV'],
             absoluteSourcePath: '=(text-ir-extra-lines)',
             preferredName: 'main',
             preferredNameWhat: 'global',

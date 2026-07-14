@@ -3,12 +3,11 @@ import 'dart:math' as math;
 import 'package:lualike/src/ir/instruction.dart';
 import 'package:lualike/src/ir/opcode.dart';
 import 'package:lualike/src/ir/prototype.dart';
-import 'package:lualike/src/ir/register_budget.dart';
 import 'package:lualike/src/lua_bytecode/chunk.dart';
 import 'package:lualike/src/lua_bytecode/instruction.dart';
 import 'package:lualike/src/lua_bytecode/opcode.dart';
 
-/// Mechanically lowers finalized lualike IR into Lua 5.4 bytecode.
+/// Mechanically lowers finalized lualike IR into Lua 5.5 bytecode.
 ///
 /// This is **not** an optimization pass. By the time a chunk reaches this
 /// layer, register allocation, call shape, closure capture, and control flow
@@ -21,7 +20,7 @@ import 'package:lualike/src/lua_bytecode/opcode.dart';
 ///
 /// | IR opcode | Expansion | Reason |
 /// |-----------|-----------|--------|
-/// | `SHLI a,b,c` | `LOADI tmp,c; SHL a,b,tmp; MMBIN b,tmp,__shl` | No SHLI in Lua BC |
+/// | `SHLI a,b,c` | `LOADI tmp,c; SHL a,b,tmp; MMBIN b,tmp,__shl` | IR means `R(b) << c`; Lua SHLI means `c << R(b)` |
 /// | `SUBI a,b,c` | `ADDI a,b,-c; MMBINI b,-c,__sub` | ADDI always does `+`; SUBI negates and uses __sub |
 /// | `*K` with high C | `LOADK/KX tmp,C; * a,b,tmp; MMBIN …` | C field too small for large constant indices |
 /// | `GETFIELD/etc` with high C | `LOADK tmp,C; GETTABLE … tmp` | C field too small |
@@ -62,7 +61,9 @@ LuaBytecodeBinaryChunk lowerIrChunkToLuaBytecodeChunk(
 ///
 /// When [isMainPrototype] is true, [LualikeIrPrototype.lineDefined] is forced
 /// to `0` regardless of IR source lines (required for correct main-chunk debug
-/// behavior).
+/// behavior). The main IR prototype must also declare `_ENV` as upvalue 0 with
+/// `inStack=1` and `index=0`; lowering validates this closure shape rather than
+/// inventing missing metadata.
 LuaBytecodePrototype lowerIrPrototypeToLuaBytecodePrototype(
   LualikeIrPrototype prototype, {
   required String sourceName,
@@ -93,18 +94,8 @@ LuaBytecodePrototype lowerIrPrototypeToLuaBytecodePrototype(
     ),
     growable: true,
   );
-  if (isMainPrototype && loweredUpvalues.isEmpty) {
-    loweredUpvalues.add(
-      const LuaBytecodeUpvalueDescriptor(
-        inStack: true,
-        index: 0,
-        kind: LuaBytecodeUpvalueKind.localRegister,
-        name: '_ENV',
-      ),
-    );
-    if (loweredUpvalueNames.isEmpty) {
-      loweredUpvalueNames.add('_ENV');
-    }
+  if (isMainPrototype) {
+    _validateRootEnvironmentUpvalue(prototype);
   }
   final upvalues = List<LuaBytecodeUpvalueDescriptor>.unmodifiable(
     loweredUpvalues,
@@ -143,14 +134,12 @@ LuaBytecodePrototype lowerIrPrototypeToLuaBytecodePrototype(
     lastLineDefined: prototype.lastLineDefined,
     parameterCount: prototype.paramCount,
     flags: _prototypeFlags(prototype, isMainPrototype: isMainPrototype),
-    // IR registerCount is the SSA/local allocation; mechanical lowering may
-    // write scratch at tempBase = registerCount and tempBase+1 (high Kst /
-    // SHLI materialization). Reserve those slots only — do not scan ABC C
-    // fields as registers (ADDI/MMBINI immediates look like reg 128+).
+    // Reserve only scratch slots actually used by mechanical expansions.
+    // Do not scan raw ABC fields as registers: immediate and constant fields
+    // can contain values that look like register indices.
     maxStackSize: math.max(
       2,
-      prototype.registerCount +
-          IrBytecodeRegisterBudget.tempSlotsReservedForLowering,
+      prototype.registerCount + loweredInstructions.tempSlots,
     ),
     code: List<LuaBytecodeInstructionWord>.unmodifiable(instructions),
     constants: constants,
@@ -162,6 +151,23 @@ LuaBytecodePrototype lowerIrPrototypeToLuaBytecodePrototype(
     localVariables: locals,
     upvalueNames: upvalueNames,
   );
+}
+
+void _validateRootEnvironmentUpvalue(LualikeIrPrototype prototype) {
+  if (prototype.upvalueDescriptors.isEmpty) {
+    throw StateError(
+      'main IR prototype must declare _ENV as root upvalue 0 before lowering',
+    );
+  }
+  final descriptor = prototype.upvalueDescriptors.first;
+  final names = prototype.debugInfo?.upvalueNames ?? const <String>[];
+  if (descriptor.inStack != 1 ||
+      descriptor.index != 0 ||
+      (names.isNotEmpty && names.first != '_ENV')) {
+    throw StateError(
+      'main IR prototype upvalue 0 must be _ENV with inStack=1 and index=0',
+    );
+  }
 }
 
 int _prototypeFlags(
@@ -319,20 +325,28 @@ bool _usesSignedCImmediate(LualikeIrOpcode opcode) {
   };
 }
 
-({List<LuaBytecodeInstructionWord> instructions, List<int> pcMap})
+({
+  List<LuaBytecodeInstructionWord> instructions,
+  List<int> pcMap,
+  int tempSlots,
+})
 _lowerInstructions(
   List<LualikeIrInstruction> instructions, {
   required int tempBase,
 }) {
   final lowered = <LuaBytecodeInstructionWord>[];
   final pcMap = List<int>.filled(instructions.length + 1, 0, growable: false);
+  var tempSlots = 0;
 
   for (var oldPc = 0; oldPc < instructions.length; oldPc++) {
     pcMap[oldPc] = lowered.length;
     try {
-      lowered.addAll(
-        _lowerInstructionSequence(instructions[oldPc], tempBase: tempBase),
+      final sequence = _lowerInstructionSequence(
+        instructions[oldPc],
+        tempBase: tempBase,
       );
+      lowered.addAll(sequence.instructions);
+      tempSlots = math.max(tempSlots, sequence.tempSlots);
     } catch (error, stackTrace) {
       Error.throwWithStackTrace(
         StateError(
@@ -352,7 +366,13 @@ _lowerInstructions(
     switch (instruction) {
       case AsJInstruction(opcode: LualikeIrOpcode.jmp, sJ: final sJ):
         final targetOldPc = oldPc + 1 + sJ;
-        final targetNewPc = pcMap[targetOldPc];
+        final targetNewPc =
+            pcMap[_checkedJumpTarget(
+              targetOldPc,
+              instructions.length,
+              oldPc: oldPc,
+              opcode: instruction.opcode,
+            )];
         lowered[newPc] = LuaBytecodeInstructionWord.sj(
           opcode: LuaBytecodeOpcodes.byName('JMP').code,
           sJ: targetNewPc - newPc - 1,
@@ -361,9 +381,16 @@ _lowerInstructions(
           when opcode == LualikeIrOpcode.forPrep ||
               opcode == LualikeIrOpcode.forLoop:
         final targetOldPc = oldPc + 1 + sBx;
-        final targetNewPc = opcode == LualikeIrOpcode.forPrep
-            ? pcMap[targetOldPc + 1]
-            : pcMap[targetOldPc];
+        final remappedTarget = opcode == LualikeIrOpcode.forPrep
+            ? targetOldPc + 1
+            : targetOldPc;
+        final targetNewPc =
+            pcMap[_checkedJumpTarget(
+              remappedTarget,
+              instructions.length,
+              oldPc: oldPc,
+              opcode: opcode,
+            )];
         final bx = opcode == LualikeIrOpcode.forPrep
             ? targetNewPc - newPc - 2
             : newPc + 1 - targetNewPc;
@@ -376,7 +403,13 @@ _lowerInstructions(
           when opcode == LualikeIrOpcode.tForPrep ||
               opcode == LualikeIrOpcode.tForLoop:
         final targetOldPc = oldPc + 1 + sBx;
-        final targetNewPc = pcMap[targetOldPc];
+        final targetNewPc =
+            pcMap[_checkedJumpTarget(
+              targetOldPc,
+              instructions.length,
+              oldPc: oldPc,
+              opcode: opcode,
+            )];
         final bx = opcode == LualikeIrOpcode.tForPrep
             ? targetNewPc - newPc - 1
             : newPc + 1 - targetNewPc;
@@ -393,10 +426,27 @@ _lowerInstructions(
   return (
     instructions: List<LuaBytecodeInstructionWord>.unmodifiable(lowered),
     pcMap: List<int>.unmodifiable(pcMap),
+    tempSlots: tempSlots,
   );
 }
 
-List<LuaBytecodeInstructionWord> _lowerInstructionSequence(
+int _checkedJumpTarget(
+  int target,
+  int instructionCount, {
+  required int oldPc,
+  required LualikeIrOpcode opcode,
+}) {
+  if (target < 0 || target > instructionCount) {
+    throw StateError(
+      'invalid ${opcode.name} target $target at IR pc=$oldPc '
+      '(instruction count $instructionCount)',
+    );
+  }
+  return target;
+}
+
+({List<LuaBytecodeInstructionWord> instructions, int tempSlots})
+_lowerInstructionSequence(
   LualikeIrInstruction instruction, {
   required int tempBase,
 }) {
@@ -406,7 +456,7 @@ List<LuaBytecodeInstructionWord> _lowerInstructionSequence(
       tempBase: tempBase,
     );
     if (leftShiftImmediate != null) {
-      return leftShiftImmediate;
+      return (instructions: leftShiftImmediate, tempSlots: 1);
     }
   }
 
@@ -415,26 +465,37 @@ List<LuaBytecodeInstructionWord> _lowerInstructionSequence(
     tempBase: tempBase,
   );
   if (arithmetic != null) {
-    return arithmetic;
+    final usesTemp =
+        instruction is ABCInstruction &&
+        _registerArithmeticOpcode(instruction.opcode) != null &&
+        instruction.c > LuaBytecodeInstructionLayout.maxArgC;
+    return (instructions: arithmetic, tempSlots: usesTemp ? 1 : 0);
   }
   final highConstant = _lowerHighConstantSequence(
     instruction,
     tempBase: tempBase,
   );
   if (highConstant != null) {
-    return highConstant;
+    final slots = instruction.opcode == LualikeIrOpcode.setTabUp ? 2 : 1;
+    return (instructions: highConstant, tempSlots: slots);
   }
   final table = _lowerTableInstructionSequence(instruction);
   if (table != null) {
-    return table;
+    return (instructions: table, tempSlots: 0);
   }
   if (instruction is ABCInstruction) {
     final compare = _lowerCompareSequence(instruction, tempBase: tempBase);
     if (compare != null) {
-      return compare;
+      return (
+        instructions: compare,
+        tempSlots: _compareUsesTemp(instruction) ? 1 : 0,
+      );
     }
   }
-  return <LuaBytecodeInstructionWord>[_lowerInstruction(instruction)];
+  return (
+    instructions: <LuaBytecodeInstructionWord>[_lowerInstruction(instruction)],
+    tempSlots: 0,
+  );
 }
 
 List<LuaBytecodeInstructionWord>? _lowerLeftShiftImmediateSequence(
@@ -445,7 +506,7 @@ List<LuaBytecodeInstructionWord>? _lowerLeftShiftImmediateSequence(
     return null;
   }
 
-  final immediate = _signExtend(instruction.c, 9);
+  final immediate = instruction.c;
   return <LuaBytecodeInstructionWord>[
     LuaBytecodeInstructionWord.asBx(
       opcode: LuaBytecodeOpcodes.byName('LOADI').code,
@@ -468,13 +529,6 @@ List<LuaBytecodeInstructionWord>? _lowerLeftShiftImmediateSequence(
   ];
 }
 
-int _signExtend(int value, int bits) {
-  final signBit = 1 << (bits - 1);
-  final mask = (1 << bits) - 1;
-  final masked = value & mask;
-  return (masked & signBit) == 0 ? masked : masked - (1 << bits);
-}
-
 List<LuaBytecodeInstructionWord>? _lowerArithmeticMetamethodSequence(
   LualikeIrInstruction instruction, {
   required int tempBase,
@@ -486,30 +540,6 @@ List<LuaBytecodeInstructionWord>? _lowerArithmeticMetamethodSequence(
   final event = _binaryMetamethodEvent(instruction.opcode);
   if (event == null) {
     return null;
-  }
-
-  if (instruction.opcode == LualikeIrOpcode.shlI) {
-    final immediate = _signExtend(instruction.c, 9);
-    return <LuaBytecodeInstructionWord>[
-      LuaBytecodeInstructionWord.asBx(
-        opcode: LuaBytecodeOpcodes.byName('LOADI').code,
-        a: tempBase,
-        sBx: immediate,
-      ),
-      LuaBytecodeInstructionWord.abc(
-        opcode: LuaBytecodeOpcodes.byName('SHL').code,
-        a: instruction.a,
-        b: instruction.b,
-        c: tempBase,
-      ),
-      LuaBytecodeInstructionWord.abc(
-        opcode: LuaBytecodeOpcodes.byName('MMBIN').code,
-        a: instruction.b,
-        b: tempBase,
-        c: event,
-        k: instruction.k,
-      ),
-    ];
   }
 
   final registerOpcode = _registerArithmeticOpcode(instruction.opcode);
@@ -654,6 +684,7 @@ List<LuaBytecodeInstructionWord>? _lowerHighConstantSequence(
           a: instruction.a,
           b: tempBase,
           c: instruction.c,
+          k: instruction.k,
         ),
       ],
     LualikeIrOpcode.getTabUp
@@ -688,6 +719,7 @@ List<LuaBytecodeInstructionWord>? _lowerHighConstantSequence(
           a: tempBase,
           b: tempBase + 1,
           c: instruction.c,
+          k: instruction.k,
         ),
       ],
     LualikeIrOpcode.selfOp
@@ -784,8 +816,7 @@ List<LuaBytecodeInstructionWord>? _lowerCompareSequence(
   }
 
   bool signedImmediateFits(int value) =>
-      value >= -LuaBytecodeInstructionLayout.offsetSB &&
-      value <= LuaBytecodeInstructionLayout.offsetSB;
+      LuaBytecodeInstructionLayout.fitsSignedArgC(value);
 
   LuaBytecodeInstructionWord registerCompare(
     String opcodeName, {
@@ -913,6 +944,21 @@ List<LuaBytecodeInstructionWord>? _lowerCompareSequence(
   return materializeBool(compare);
 }
 
+bool _compareUsesTemp(ABCInstruction instruction) {
+  final signedImmediateFits = LuaBytecodeInstructionLayout.fitsSignedArgC(
+    instruction.c,
+  );
+  return switch (instruction.opcode) {
+    LualikeIrOpcode.eqK => instruction.c > LuaBytecodeInstructionLayout.maxArgC,
+    LualikeIrOpcode.eqI ||
+    LualikeIrOpcode.ltI ||
+    LualikeIrOpcode.leI ||
+    LualikeIrOpcode.gtI ||
+    LualikeIrOpcode.geI => !signedImmediateFits,
+    _ => false,
+  };
+}
+
 List<LuaBytecodeInstructionWord>? _lowerTableInstructionSequence(
   LualikeIrInstruction instruction,
 ) {
@@ -941,10 +987,12 @@ List<LuaBytecodeInstructionWord> _lowerNewTableSequence({
   required int a,
   required int arraySize,
 }) {
-  final normalizedArraySize = math.max(0, arraySize);
+  if (arraySize < 0) {
+    throw ArgumentError.value(arraySize, 'arraySize', 'must be non-negative');
+  }
   final extraUnit = LuaBytecodeInstructionLayout.maxArgVC + 1;
-  final extraArg = normalizedArraySize ~/ extraUnit;
-  final inlineArraySize = normalizedArraySize % extraUnit;
+  final extraArg = arraySize ~/ extraUnit;
+  final inlineArraySize = arraySize % extraUnit;
   return <LuaBytecodeInstructionWord>[
     LuaBytecodeInstructionWord.vabc(
       opcode: LuaBytecodeOpcodes.byName('NEWTABLE').code,
@@ -966,9 +1014,13 @@ List<LuaBytecodeInstructionWord> _lowerConcatSequence({
   required int startRegister,
   required int endRegister,
 }) {
-  final operandCount = endRegister >= startRegister
-      ? endRegister - startRegister + 1
-      : 1;
+  if (endRegister < startRegister) {
+    throw ArgumentError(
+      'CONCAT end register $endRegister precedes start register '
+      '$startRegister',
+    );
+  }
+  final operandCount = endRegister - startRegister + 1;
   final words = <LuaBytecodeInstructionWord>[
     LuaBytecodeInstructionWord.abc(
       opcode: LuaBytecodeOpcodes.byName('CONCAT').code,
@@ -995,8 +1047,10 @@ List<LuaBytecodeInstructionWord> _lowerSetListSequence({
   required int count,
   required int startIndex,
 }) {
-  final normalizedStartIndex = math.max(1, startIndex);
-  final startMinusOne = normalizedStartIndex > 1 ? normalizedStartIndex - 1 : 0;
+  if (startIndex < 1) {
+    throw ArgumentError.value(startIndex, 'startIndex', 'must be at least 1');
+  }
+  final startMinusOne = startIndex - 1;
   final extraUnit = LuaBytecodeInstructionLayout.maxArgVC + 1;
   final extraArg = startMinusOne ~/ extraUnit;
   final inlineOffset = startMinusOne % extraUnit;
@@ -1033,7 +1087,10 @@ int _remapPc(int oldPc, List<int> pcMap) {
 
 ({List<int> lineInfo, List<LuaBytecodeAbsLineInfo> absoluteLineInfo})
 _lowerDebugLines(List<int>? lines, int instructionCount, List<int> pcMap) {
-  if (lines == null || lines.isEmpty || !lines.any((line) => line > 0)) {
+  if (instructionCount == 0 ||
+      lines == null ||
+      lines.isEmpty ||
+      !lines.any((line) => line > 0)) {
     return (
       lineInfo: const <int>[],
       absoluteLineInfo: const <LuaBytecodeAbsLineInfo>[],
