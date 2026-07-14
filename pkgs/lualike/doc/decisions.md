@@ -110,6 +110,104 @@ handle post‑SSA instruction patterns.
 
 ---
 
+## Optimizer rewrites preserve semantic type, metadata, and control flow
+
+**Date:** 2026-07-13
+**Status:** Active
+
+**Context:** The optimized bytecode path passed broad Lua programs while
+focused Dart tests still exposed values and metadata that were only
+approximately preserved. Integer truthiness hid boolean-to-integer rewrites,
+ordinary varargs hid lost named-vararg metadata, and straight-line execution
+hid folds that removed branch targets.
+
+**Decision:** An optimization is valid only when it preserves all observable
+prototype and control-flow semantics, not merely the common execution result.
+
+**Required invariants:**
+- SCCP's integer lattice contains integers only. Booleans are not represented
+  as `0` or `1`, and boolean-producing comparisons are not rewritten to
+  `LOADI`.
+- Every pass that rebuilds a prototype copies semantic metadata, including the
+  named-vararg register.
+- Peephole destination folding is rejected when the removed `MOVE` has an
+  incoming branch or loop edge, or when its source temporary remains live.
+- Register analysis models complete implicit windows for numeric and generic
+  loops, including loop-carried iterator state.
+- LICM does not transform reverse-layout numeric or generic loops until it can
+  construct a control-flow-aware preheader without moving the physical loop
+  body across its header.
+
+**Rationale:** These rules are intentionally conservative. A missed fold costs
+an instruction; an unsound fold silently changes language behavior or produces
+malformed control flow.
+
+---
+
+## Forward gotos snapshot close scopes at the jump site
+
+**Date:** 2026-07-13
+**Status:** Active
+
+**Context:** A forward `goto` can leave a scope containing `<close>` locals
+before its target label is defined. By resolution time, compiler scope stacks
+for the exited block have already been popped, so recomputing close state from
+the current scope incorrectly removes the required `CLOSE`.
+
+**Decision:** Pending gotos retain the lowest closable register for every
+visible lexical scope. Label resolution compares that snapshot with the target
+scope and emits `CLOSE` only for scopes crossed by the jump.
+
+**Rationale:** The jump-site snapshot is the only state that accurately
+describes resources owned by scopes that may no longer exist when a forward
+label is resolved. It also avoids closing resources in an outer scope when the
+jump remains inside that scope.
+
+---
+
+## Debug call names use pre-result CALL state
+
+**Date:** 2026-07-13
+**Status:** Active
+
+**Context:** After a `CALL` executes, its destination registers may become
+named locals. Inferring the callee name from that post-call program counter
+made `local ok = pcall(f)` appear as a call to `ok`. This was observable from
+`debug.getinfo` inside error-time `<close>` handlers.
+
+**Decision:** Call-site naming resolves active locals at the `CALL`
+instruction, before result-local lifetimes begin. Tail-call fast paths preserve
+the same inferred name while reusing bytecode frames.
+
+**Rationale:** Debug names describe the called expression, not the variable
+that receives its result. Error unwinding removes the failed frame before close
+handlers run, matching the reference stack shape.
+
+---
+
+## Manual GC step results are completion signals, not success constants
+
+**Date:** 2026-07-13
+**Status:** Active
+
+`collectgarbage("step", size)` returns a boolean indicating whether that
+bounded slice completed the current collection cycle. Either value is valid
+for one call; tests must assert the boolean result type and test pacing over a
+sequence of steps rather than requiring one call to return `true`.
+
+---
+
+## Diagnostic IR output is written to stdout
+
+**Date:** 2026-07-13
+**Status:** Active
+
+`--dump-ir` is requested program output and is written to stdout. Stderr is
+reserved for diagnostics and failures. CLI integration tests assert this
+stream contract.
+
+---
+
 ## State restoration only for entry frames / suspended coroutines / debug hooks
 
 **Date:** 2026‑06‑??  

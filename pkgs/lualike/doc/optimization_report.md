@@ -204,6 +204,81 @@ searcher loader data.
 `LuaResults([module, loaderData])`. Lua evaluation then selects one or both
 results according to context, and string loader paths remain normalized.
 
+### 3.6 Prototype reconstruction preserves named varargs
+
+**Bug:** SSA passes rebuilt prototypes without copying the named-vararg
+register. The ordinary vararg flag survived, so most vararg programs passed,
+but source that referenced a named vararg lost its binding after optimization.
+
+**Fix:** Every prototype-rebuilding pass now propagates the named-vararg
+register together with parameter, upvalue, debug, and child-prototype metadata.
+
+### 3.7 Loop register windows are modeled as loop-carried state
+
+**Bug:** Numeric and generic loop instructions were analyzed as if they read or
+wrote only their explicit `A` operand. Coalescing and debug-local expiry could
+therefore clear iterator state that a later `FORLOOP`, `TFORCALL`, or
+`TFORLOOP` consumed.
+
+**Fix:** IR coalescing and bytecode instruction analysis now model each
+opcode's complete state and result windows. Debug-local expiry also retains a
+register when the current instruction reads it, even if source debug metadata
+says the local lifetime has ended.
+
+### 3.8 Peephole folds preserve live temporaries and branch targets
+
+**Bug:** Destination folding could redirect arithmetic away from a temporary
+that was still read later. It could also remove a `MOVE` reached by a jump or
+loop edge, changing control-flow behavior despite a valid fallthrough pattern.
+
+**Fix:** Load and arithmetic folds require both source-register deadness and no
+incoming control-flow edge to the removed instruction. Jump offsets continue
+to be remapped only after the retained instruction set is final.
+
+### 3.9 LICM rejects reverse-layout loops
+
+**Bug:** Numeric and generic loop bytecode can place the physical body before
+the natural-loop header. LICM inserted hoisted instructions before that later
+header, duplicating body instructions and invalidating backedges.
+
+**Fix:** The current LICM pass transforms only forward-layout natural loops.
+Reverse-layout loops remain unchanged until preheader construction and program
+counter remapping are fully control-flow aware.
+
+### 3.10 SCCP preserves boolean types
+
+**Bug:** SCCP represented `false` and `true` as integer constants `0` and `1`,
+then rewrote boolean loads and comparisons to `LOADI`. Lua truthiness hid the
+problem in broad scripts, but returned values had the wrong type.
+
+**Fix:** The SCCP lattice is integer-only. Boolean loads and boolean-producing
+comparisons are excluded instead of approximated as integers.
+
+### 3.11 Forward gotos close exited lexical scopes
+
+**Bug:** Forward-goto resolution recomputed close requirements after exited
+scopes had been popped from compiler state. It replaced a required provisional
+`CLOSE` with a no-op, leaking `<close>` locals on the jump path.
+
+**Fix:** Pending gotos snapshot closable registers by lexical scope and resolve
+the exact lowest register belonging to scopes crossed by the final jump.
+
+### 3.12 Error-close handlers observe reference call names
+
+**Bug:** Call-name inference examined local lifetimes after `CALL`, so the
+result local in `local ok = pcall(foo)` was reported as the callee. Tail-call
+frame reuse could also discard the inferred name.
+
+**Fix:** Names are inferred from the register state at the call instruction,
+and fast tail calls carry that name into the reused frame. Failed bytecode
+frames are removed before error-time close handlers execute.
+
+### 3.13 Test expectations match bounded and diagnostic contracts
+
+`collectgarbage("step", size)` tests now accept either boolean completion
+state for one bounded slice. `--dump-ir` tests read stdout, which is the CLI's
+documented output stream; stderr remains reserved for failures.
+
 ---
 
 ## 4. Commit History (24 commits from 5b8800df)
@@ -249,6 +324,16 @@ bd33379a perf: skip return-packing MOVEs when contiguous
 The final `./test_runner --all-engines` run on 2026-07-13 rebuilt the CLI and
 passed all 90 engine/test combinations. `heavy.lua` remained excluded by the
 runner's default `--skip-heavy` policy.
+
+The post-hardening validation run also passed:
+
+- `dart test`: 1,839 passed, 3 skipped, 0 failed.
+- `dart analyze`: no errors or warnings; 5 pre-existing informational lints in
+  fuzz and trace tooling.
+- Affected-file regression set: 218 passed, including live `luac55` bytecode
+  cross-compatibility.
+- Fresh `./test_runner --all-engines`: AST 30/30, IR 30/30, and lua-bytecode
+  30/30. This run rebuilt the executable from the modified sources first.
 
 **Total:** 24 committed optimization changes plus the final compatibility
 fixes, 0 known integration regressions, and 15+ benchmarks at or below luac55
