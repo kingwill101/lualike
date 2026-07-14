@@ -1,4 +1,4 @@
-/// Register-budget checks for IR that will lower to Lua 5.4 bytecode.
+/// Register-budget checks for IR that will lower to Lua 5.5 bytecode.
 ///
 /// Lua ABC operands and `maxstack` are 8-bit. SSA / escape / inline passes can
 /// allocate many temps; if we emit unlowerable shapes, the binary path fails

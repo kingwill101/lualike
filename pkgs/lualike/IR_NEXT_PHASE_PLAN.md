@@ -49,6 +49,13 @@ contract, official bytecode locals, and SSA safety notes).
 - [x] Property-based fuzz coverage for deep expressions, large parameter lists,
       many locals, and register-budget validation (`test/fuzz_test.dart`).
 - [x] Full compatibility gate: 30/30 on AST, IR, and lua-bytecode.
+- [x] Audit every IR-to-bytecode expansion and metadata transformation.
+- [x] Make root `_ENV` explicit in finalized IR instead of synthesizing it
+      during lowering.
+- [x] Reserve lowering scratch slots from actual expansions (0, 1, or 2), while
+      retaining the conservative two-slot compiler budget.
+- [x] Reject malformed table, concat, root-upvalue, and jump shapes rather than
+      silently normalizing them.
 
 ## Optional hardening
 
@@ -59,9 +66,10 @@ contract, official bytecode locals, and SSA safety notes).
   make that pass skip an individual inline candidate instead of relying on the
   final budget validator to reject the prototype.
 
-### 2. Make lowering even more mechanical
+### 2. Keep lowering mechanical
 
-- Audit remaining expansion sequences (tempBase helpers) for any policy.
+- The expansion and metadata audit is complete. New IR opcodes must document
+  why an expansion is mechanically required and include boundary tests.
 - Prefer specialized opcodes decided in IR over VM inference.
 
 ### 3. Debug metadata edge cases

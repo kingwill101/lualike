@@ -8,7 +8,7 @@ sanity check for whether we are overdoing work in our own compiler.
 
 As of 2026-07-14:
 - `./test_runner --all-engines` passes 30/30 on AST, IR, and lua-bytecode
-- `dart test` passes 1,841 tests with 3 expected skips
+- `dart test` passes 1,853 tests with 3 expected skips
 - the complete folding comparison corpus passes, including transitive bundles
 
 ## Core rule
@@ -16,7 +16,7 @@ As of 2026-07-14:
 1. **IR/SSA decides shape.** If something changes runtime cost or instruction
    count, decide it before lowering.
 2. **Lowering stays boring.** Bytecode lowering should serialize finalized IR,
-   not discover new tricks.
+   not discover new tricks or synthesize missing closure/control-flow metadata.
 3. **VM stays thin.** The bytecode VM should dispatch finalized instructions,
    not re-infer call shape, register shape, or debug layout.
 4. **Debug data must survive.** Serialize → parse → execute should keep the
@@ -136,6 +136,11 @@ If `maxstack` climbs, check whether:
 - a multi-return pack is leaving holes
 - debug-local inference is forcing extra slots
 
+The compiler budget always leaves room for the worst-case two-register
+mechanical expansion. Lowering separately records the exact number of scratch
+slots used by each prototype so simple functions do not advertise unused
+stack slots.
+
 ### Debug correctness
 
 Any change that touches locals, upvalues, `debug.getlocal`, or stack layout
@@ -169,6 +174,7 @@ Before landing a change:
 
 - SSA improves one path but breaks the IR path.
 - Lowering hides a policy decision instead of preserving it.
+- Lowering normalizes malformed finalized IR instead of rejecting it.
 - A bytecode peephole fixes one case and regresses `debug.getlocal`.
 - A VM micro-optimization helps one benchmark but makes the VM harder to
   reason about.

@@ -682,3 +682,39 @@ can lag behind source and produce a false comparison.
 **Validation:** Focused disassembler tests cover prototype metadata and decoded
 operand comments. `tool/compare.dart disasm` provides the side-by-side luac55
 view used for manual review.
+
+---
+
+## Finalized IR owns closure shape and lowering rejects malformed input
+
+**Date:** 2026-07-14
+**Status:** Active
+
+**Context:** The IR-to-bytecode lowering audit found one correctness bug and
+several places where lowering concealed malformed or incomplete IR. High-index
+`SETFIELD` and `SETTABUP` expansions dropped the value operand's `k` bit,
+root `_ENV` was synthesized only during lowering, invalid table/concat fields
+were normalized, and every prototype reserved two scratch slots whether an
+expansion used them or not.
+
+**Decision:** Finalized IR must contain its complete closure and control-flow
+shape. The compiler records root `_ENV` as upvalue 0 (`inStack=1`, `index=0`),
+and lowering validates that descriptor. Lowering rejects invalid jump targets,
+negative `NEWTABLE` sizes, `SETLIST` starts below one, and reversed `CONCAT`
+ranges. It does not repair them.
+
+Mechanical expansions preserve all encoded semantics, including `k`, and
+report whether they use zero, one, or two scratch registers. The compiler-side
+register budget remains conservatively capped for the worst-case two-slot
+expansion, while each emitted prototype's `maxStackSize` includes only scratch
+slots it actually uses.
+
+`SHLI` remains a required expansion: lualike IR defines it as `R(b) << c`, but
+Lua 5.5 bytecode's native `SHLI` encodes `c << R(b)`. The immediate is a
+semantic IR integer and must not be sign-extended as though it were already a
+packed C field.
+
+**Validation:** `test/ir/bytecode_lowering_audit_test.dart` covers root `_ENV`,
+scratch-slot accounting, high constant writes, signed-immediate boundaries,
+large shift immediates, empty debug streams, malformed table/concat shapes,
+and invalid jumps.

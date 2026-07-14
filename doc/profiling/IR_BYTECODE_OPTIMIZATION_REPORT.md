@@ -351,6 +351,31 @@ The comparison command compiles the lualike side in-process from the current
 checkout. It does not invoke `./lualike`, because that executable can lag
 behind source changes and produce a misleading side-by-side listing.
 
+### 3.17 IR-to-bytecode lowering audit
+
+The lowering boundary was audited opcode-by-opcode after the optimization and
+compatibility work. The audit separated mechanically necessary expansions from
+policy that belongs in IR and found these concrete issues:
+
+- High-index `SETFIELD` and `SETTABUP` fallbacks lost the value operand's `k`
+  bit when rewritten through `SETTABLE`. They now preserve it.
+- The root `_ENV` capture was absent from IR and synthesized by lowering. The
+  IR compiler now records it explicitly, and lowering validates its descriptor.
+- `SHLI` sign-extended an unpacked semantic immediate. It now materializes the
+  exact IR value; expansion remains necessary because Lua 5.5's native SHLI
+  reverses the immediate/register operand meaning.
+- `NEWTABLE`, `SETLIST`, and `CONCAT` silently normalized invalid finalized IR.
+  They now reject it, as do out-of-range jump targets.
+- Every prototype reserved two lowering temporaries. Expansion accounting now
+  emits an exact 0/1/2 scratch-slot `maxStackSize`; the upstream register-budget
+  validator still reserves two slots conservatively for encodability.
+- Empty instruction streams with stale debug lines no longer attempt to read a
+  nonexistent first normalized line.
+
+Focused audit coverage lives in
+`test/ir/bytecode_lowering_audit_test.dart`; textual IR fixtures also declare
+the root environment explicitly.
+
 ---
 
 ## 4. Initial Commit History (24 commits from 5b8800df)
@@ -399,8 +424,8 @@ runner's default `--skip-heavy` policy.
 
 The post-hardening validation run also passed:
 
-- `dart test`: 1,841 passed, 3 skipped, 0 failed before the disassembly-only
-  metadata test was added; the focused disassembler suite passes 4/4.
+- `dart test`: 1,853 passed, 3 skipped, 0 failed after the lowering-audit
+  regression coverage was added.
 - `dart analyze`: no errors or warnings; 5 pre-existing informational lints in
   fuzz and trace tooling.
 - Affected-file regression set: 218 passed, including live `luac55` bytecode
