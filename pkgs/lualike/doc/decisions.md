@@ -385,3 +385,130 @@ remaining gaps in `table` and `loops`.
 
 **Remaining:** float (+2) — from `nan ~= nan` not-equal comparison
 pattern that emits an extra NOT instruction.
+
+---
+
+## SROA is conservative across table aliases and child captures
+
+**Date:** 2026-07-13
+**Status:** Active
+
+**Context:** Scalar replacement rewrites constant-key table accesses through
+the register containing `NEWTABLE`. It does not yet maintain an alias set. A
+table copied by `MOVE`, or captured from the parent stack by a child prototype,
+can therefore be observed through a register that the pass never rewrites.
+
+**Decision:** Do not scalar-replace a table when its allocation register is a
+`MOVE` source, appears in a child prototype's in-stack upvalue descriptor, or
+is read by `CHECKGLOBAL`. The latter performs a dynamic environment-table
+lookup that SROA cannot rewrite. This intentionally gives up an optimization
+rather than changing table identity or leaving an observer pointed at a
+removed allocation.
+
+**Future work:** Track equivalent table registers and rewrite every alias as a
+single scalar object. Until then, the conservative escape rule is mandatory.
+
+**Validation:** `test/ir/ssa_escape_pass_test.dart` covers moved tables, child
+captures, and local environment tables consumed by `CHECKGLOBAL`; the
+all-engine compatibility suite passes 30/30 for IR and lua-bytecode.
+
+---
+
+## Comparison operands are read-only and polarity is explicit
+
+**Date:** 2026-07-13
+**Status:** Active
+
+**Context:** `EQ`, `LT`, and `LE` read both operands before materializing their
+boolean result. Re-emitting a local right operand into the left register
+destroys one of those inputs. The comparison `k` bit also controls branch
+polarity and cannot safely rely on the instruction default.
+
+**Decision:** Read local right operands directly from their binding registers
+and evaluate only non-local expressions into temporaries. Emit `k=true` for
+normal equality and relational comparisons, and `k=false` for not-equal.
+Literal relational instructions follow the same explicit-polarity rule.
+
+**Validation:** Compiler tests assert distinct source registers and polarity;
+VM tests execute the same comparison in the IR and optimized lua-bytecode
+engine modes.
+
+---
+
+## Late GC tracking reuses Value allocation classification
+
+**Date:** 2026-07-13
+**Status:** Active
+
+**Context:** Values can be created with GC registration deferred and later
+discovered through the object graph. Reachability tracking and Lua-visible
+memory accounting are separate concerns. Charging a transient primitive only
+because it was tracked late makes `collectgarbage("count")` depend on discovery
+order and broke the weak-table accounting assertion in `gc.lua`.
+
+**Decision:** `Value.shouldCountGcAllocation` is the single classification for
+normal and late registration. `ensureTracked()` always assigns a generation,
+but records excluded Values with `MemoryCredits.onTrackExcluded()` rather than
+charging an allocation.
+
+**Validation:** `test/gc/late_tracked_value_accounting_test.dart` verifies that
+late-tracked scalar and transient string Values enter the young generation
+without increasing reported memory.
+
+---
+
+## Manual collection calls perform one incremental slice
+
+**Date:** 2026-07-13
+**Status:** Active
+
+**Context:** Retrying collection internally and carrying manual-step debt made
+small and large `collectgarbage("step", size)` calls converge on completing an
+entire cycle in one API call. That removed Lua's observable size-dependent
+pacing.
+
+**Decision:** One manual-step call maps to one bounded incremental GC slice.
+The requested kilobytes are converted to work units with a fixed scale and a
+ceiling; the return value is true only if that slice completes the cycle.
+Automatic collection being stopped does not disable explicit manual work.
+
+**Validation:** `test/gc/manual_step_pacing_test.dart` verifies both optimized
+engines, requires more than one large step, and requires more small steps than
+large steps for the same workload.
+
+---
+
+## `require` returns module and loader data as Lua results
+
+**Date:** 2026-07-13
+**Status:** Active
+
+**Context:** Lua 5.4 searchers return a loader plus loader data. `require`
+passes both values to the loader and returns the loaded module plus loader data.
+A raw Dart list does not model Lua multi-return behavior: single-value contexts
+can observe the list itself instead of its first element.
+
+**Decision:** Return `LuaResults([module, loaderData])`. Multi-value assignments
+receive both values, while a single-value expression receives only the module.
+Normalize string paths before exposing loader data so filesystem searchers keep
+stable platform paths.
+
+---
+
+## Final optimization compatibility gate is all green
+
+**Date:** 2026-07-13
+**Status:** Active
+
+After the SROA, comparison, GC accounting, manual-step, and `require` fixes,
+`./test_runner --all-engines` rebuilt the CLI and passed:
+
+| Engine | Result |
+|---|---:|
+| AST | 30/30 |
+| IR | 30/30 |
+| lua-bytecode | 30/30 |
+
+`heavy.lua` was omitted by the runner's default `--skip-heavy` policy. This
+90-test compatibility gate is the correctness baseline for subsequent IR and
+bytecode optimization work.
