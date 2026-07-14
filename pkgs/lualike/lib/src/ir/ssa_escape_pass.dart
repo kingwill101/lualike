@@ -21,7 +21,12 @@ import 'opcode.dart';
 import 'prototype.dart';
 import 'register_budget.dart';
 
-/// Run scalar replacement on an IR prototype.
+/// Runs escape analysis and scalar replacement on [prototype].
+///
+/// The pass is deliberately conservative for table aliases and child-closure
+/// captures. Until alias-aware rewriting exists, tables observed through a
+/// `MOVE`, an in-stack upvalue, or a dynamic `CHECKGLOBAL` lookup remain
+/// allocated so every observer retains the same identity and contents.
 LualikeIrPrototype replaceScalars(LualikeIrPrototype prototype) {
   var current = prototype;
   for (var iter = 0; iter < 5; iter++) {
@@ -97,6 +102,12 @@ bool _blocksScalarReplacement(LualikeIrInstruction inst, int tableReg) {
     return false;
   }
   final op = inst.opcode;
+  // Scalar replacement currently rewrites accesses through the allocation
+  // register only. Keep tables that are copied until MOVE aliases are tracked
+  // and rewritten as part of the same scalar object.
+  if (op == LualikeIrOpcode.move && inst.b == tableReg) {
+    return true;
+  }
   // Array batch fill — not rewritten into per-slot MOVEs.
   if (op == LualikeIrOpcode.setList && inst.a == tableReg) {
     return true;
@@ -184,6 +195,11 @@ bool _causesEscape(
   if (op == LualikeIrOpcode.close || op == LualikeIrOpcode.tbc) {
     return inst is ABCInstruction && inst.a == reg;
   }
+  // CHECKGLOBAL reads an environment table from A. SROA cannot rewrite the
+  // dynamic name lookup performed by the VM, so the table must stay intact.
+  if (op == LualikeIrOpcode.checkGlobal) {
+    return inst is ABxInstruction && inst.a == reg;
+  }
   return false;
 }
 
@@ -258,6 +274,16 @@ LualikeIrPrototype? _runOnce(LualikeIrPrototype prototype) {
   for (final reg in newTableRegs) {
     if (escapes[reg] != true) {
       nonEscaping.add(reg);
+    }
+  }
+
+  // Child closures capture parent stack registers through their upvalue
+  // descriptors, not through an instruction in the parent prototype.
+  for (final child in prototype.prototypes) {
+    for (final descriptor in child.upvalueDescriptors) {
+      if (descriptor.inStack == 1) {
+        nonEscaping.remove(descriptor.index);
+      }
     }
   }
 
