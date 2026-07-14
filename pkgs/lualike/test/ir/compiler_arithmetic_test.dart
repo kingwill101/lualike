@@ -29,11 +29,11 @@ void main() {
       expect(getTab.c, equals(nameIndex));
 
       // IR compiler emits ADDI (c=immediate) instead of ADDK for small
-      // integer constants, matching luac55 behavior.
+      // integer constants and updates the left operand in place.
       final add = instructions[1] as ABCInstruction;
       expect(add.opcode, LualikeIrOpcode.addI);
-      expect(add.a, equals(0));
-      expect(add.b, equals(0));
+      expect(add.a, equals(add.b));
+      expect(add.b, equals(getTab.a));
       expect(add.c, equals(2));
       expect(add.k, isTrue);
     });
@@ -52,8 +52,7 @@ void main() {
 
       final band = instructions[1] as ABCInstruction;
       expect(band.opcode, LualikeIrOpcode.bandK);
-      expect(band.a, equals(0));
-      expect(band.b, equals(0));
+      expect(band.a, equals(band.b));
       expect(band.c, equals(constantIndex));
       expect(band.k, isTrue);
     });
@@ -67,8 +66,7 @@ void main() {
       expect(instructions, hasLength(3));
       final notInstr = instructions[1] as ABCInstruction;
       expect(notInstr.opcode, LualikeIrOpcode.notOp);
-      expect(notInstr.a, equals(0));
-      expect(notInstr.b, equals(0));
+      expect(notInstr.a, equals(notInstr.b));
     });
 
     test('compiles modulo expression', () {
@@ -85,8 +83,7 @@ void main() {
 
       final modInstr = instructions[1] as ABCInstruction;
       expect(modInstr.opcode, LualikeIrOpcode.modK);
-      expect(modInstr.a, equals(0));
-      expect(modInstr.b, equals(0));
+      expect(modInstr.a, equals(modInstr.b));
       expect(modInstr.c, equals(constantIndex));
       expect(modInstr.k, isTrue);
     });
@@ -105,8 +102,7 @@ void main() {
 
       final idivInstr = instructions[1] as ABCInstruction;
       expect(idivInstr.opcode, LualikeIrOpcode.idivK);
-      expect(idivInstr.a, equals(0));
-      expect(idivInstr.b, equals(0));
+      expect(idivInstr.a, equals(idivInstr.b));
       expect(idivInstr.c, equals(constantIndex));
       expect(idivInstr.k, isTrue);
     });
@@ -125,8 +121,7 @@ void main() {
 
       final powInstr = instructions[1] as ABCInstruction;
       expect(powInstr.opcode, LualikeIrOpcode.powK);
-      expect(powInstr.a, equals(0));
-      expect(powInstr.b, equals(0));
+      expect(powInstr.a, equals(powInstr.b));
       expect(powInstr.c, equals(constantIndex));
       expect(powInstr.k, isTrue);
     });
@@ -154,8 +149,7 @@ void main() {
       expect(instructions, hasLength(3));
       final shl = instructions[1] as ABCInstruction;
       expect(shl.opcode, LualikeIrOpcode.shlI);
-      expect(shl.a, equals(0));
-      expect(shl.b, equals(0));
+      expect(shl.a, equals(shl.b));
       expect(shl.c, equals(4));
     });
   });
