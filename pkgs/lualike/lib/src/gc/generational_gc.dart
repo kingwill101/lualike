@@ -1083,27 +1083,38 @@ class GenerationalGCManager {
     }
   }
 
+  /// Adds [obj] to its current generation if it was created unregistered.
+  ///
+  /// Late registration uses the same Lua-visible memory classification as
+  /// normal allocation. This is important for transient scalar wrappers:
+  /// tracking them for reachability must not make `collectgarbage("count")`
+  /// report memory that allocation-time registration would have excluded.
   void ensureTracked(GCObject obj) {
     if (obj.gcSpace != null) {
       return;
     }
 
-    // Check if this object should be counted for memory credits
-    bool shouldCount = true;
-    if (obj is Value) {
-      // Respect the isTempKey and isMulti flags
-      shouldCount = !(obj.isTempKey || obj.isMulti);
-    }
+    final shouldCount = obj is! Value || obj.shouldCountGcAllocation;
 
     if (obj.isOld) {
       _trackOld(obj);
       if (shouldCount) {
         MemoryCredits.instance.onAllocate(obj, space: GCGenerationSpace.old);
+      } else {
+        MemoryCredits.instance.onTrackExcluded(
+          obj,
+          space: GCGenerationSpace.old,
+        );
       }
     } else {
       _trackYoung(obj);
       if (shouldCount) {
         MemoryCredits.instance.onAllocate(obj, space: GCGenerationSpace.young);
+      } else {
+        MemoryCredits.instance.onTrackExcluded(
+          obj,
+          space: GCGenerationSpace.young,
+        );
       }
     }
     _considerTrackedObjectDuringMarking(obj);

@@ -1122,6 +1122,13 @@ class Value with GCObject implements Map<String, dynamic> {
     return true;
   }
 
+  /// Whether GC registration should charge this value to Lua-visible memory.
+  ///
+  /// Both allocation-time and late registration must use this classification
+  /// so transient primitives and internal carriers do not affect
+  /// `collectgarbage("count")` merely because they become reachable.
+  bool get shouldCountGcAllocation => _shouldCountAllocation();
+
   bool isA<T>() {
     return raw is T;
   }
