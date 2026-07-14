@@ -1,3 +1,5 @@
+import 'dart:convert';
+
 import 'chunk.dart';
 import 'instruction.dart';
 import 'opcode.dart';
@@ -101,10 +103,7 @@ final class LuaBytecodeDisassembler {
     );
   }
 
-  String _formatOperands(
-    Opcode opcode,
-    LuaBytecodeInstructionWord word,
-  ) {
+  String _formatOperands(Opcode opcode, LuaBytecodeInstructionWord word) {
     return switch (opcode.mode) {
       LuaBytecodeInstructionMode.iabc =>
         'A=${word.a} B=${word.b} C=${word.c} k=${word.kFlag ? 1 : 0}',
@@ -130,7 +129,8 @@ final class LuaBytecodeDisassembler {
       '(${prototype.instructions.length} instructions)',
     );
     buffer.writeln(
-      '$indent${prototype.prototype.parameterCount} params, '
+      '$indent${prototype.prototype.parameterCount}'
+      '${prototype.prototype.isVararg ? '+' : ''} params, '
       '${prototype.prototype.maxStackSize} slots, '
       '${prototype.prototype.upvalues.length} upvalues, '
       '${prototype.prototype.constants.length} constants, '
@@ -146,9 +146,76 @@ final class LuaBytecodeDisassembler {
         '${instruction.operands}',
       );
     }
+    _writeConstants(buffer, prototype.prototype, indent: indent);
+    _writeLocals(buffer, prototype.prototype, indent: indent);
+    _writeUpvalues(buffer, prototype.prototype, indent: indent);
     for (final child in prototype.children) {
       buffer.writeln();
       _writePrototype(buffer, child, depth: depth + 1);
     }
   }
+
+  void _writeConstants(
+    StringBuffer buffer,
+    LuaBytecodePrototype prototype, {
+    required String indent,
+  }) {
+    buffer.writeln('$indent constants (${prototype.constants.length}):');
+    for (var index = 0; index < prototype.constants.length; index++) {
+      final constant = prototype.constants[index];
+      buffer.writeln(
+        '$indent\t$index\t${_constantTag(constant)}\t'
+        '${_constantValue(constant)}',
+      );
+    }
+  }
+
+  void _writeLocals(
+    StringBuffer buffer,
+    LuaBytecodePrototype prototype, {
+    required String indent,
+  }) {
+    buffer.writeln('$indent locals (${prototype.localVariables.length}):');
+    for (var index = 0; index < prototype.localVariables.length; index++) {
+      final local = prototype.localVariables[index];
+      buffer.writeln(
+        '$indent\t$index\t${local.name ?? '-'}\t'
+        '${local.startPc}\t${local.endPc}',
+      );
+    }
+  }
+
+  void _writeUpvalues(
+    StringBuffer buffer,
+    LuaBytecodePrototype prototype, {
+    required String indent,
+  }) {
+    buffer.writeln('$indent upvalues (${prototype.upvalues.length}):');
+    for (var index = 0; index < prototype.upvalues.length; index++) {
+      final upvalue = prototype.upvalues[index];
+      final debugName = index < prototype.upvalueNames.length
+          ? prototype.upvalueNames[index]
+          : null;
+      buffer.writeln(
+        '$indent\t$index\t${upvalue.name ?? debugName ?? '-'}\t'
+        '${upvalue.inStack ? 1 : 0}\t${upvalue.index}',
+      );
+    }
+  }
+
+  String _constantTag(LuaBytecodeConstant constant) => switch (constant) {
+    LuaBytecodeNilConstant() => 'N',
+    LuaBytecodeBooleanConstant() => 'B',
+    LuaBytecodeIntegerConstant() => 'I',
+    LuaBytecodeFloatConstant() => 'F',
+    LuaBytecodeStringConstant() => 'S',
+  };
+
+  String _constantValue(LuaBytecodeConstant constant) => switch (constant) {
+    LuaBytecodeNilConstant() => 'nil',
+    LuaBytecodeBooleanConstant(:final value) => value.toString(),
+    LuaBytecodeIntegerConstant(:final value) => value.toString(),
+    LuaBytecodeFloatConstant(:final value) => value.toString(),
+    LuaBytecodeStringConstant(:final value) => jsonEncode(value),
+  };
 }

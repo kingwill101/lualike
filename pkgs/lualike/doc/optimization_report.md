@@ -321,6 +321,17 @@ the runner-owned `Console`, and `Style.border`. Directory and folding commands
 aggregate subprocess failures and exit nonzero if either compiler fails, so a
 later fixture cannot hide an earlier failure.
 
+### 3.16 Disassembly includes prototype metadata
+
+**Gap:** lualike's instruction listing reported only aggregate prototype
+counts. `luac55 -l -l` also prints each prototype's constants, debug locals,
+and upvalue descriptors, making side-by-side analysis unnecessarily uneven.
+
+**Fix:** The disassembler now renders luac-style `constants`, `locals`, and
+`upvalues` tables after every prototype's instructions. Constant values retain
+their type tags and escaped string representation, and vararg prototypes use
+luac's `0+ params` notation.
+
 ---
 
 ## 4. Commit History (24 commits from 5b8800df)
@@ -369,7 +380,8 @@ runner's default `--skip-heavy` policy.
 
 The post-hardening validation run also passed:
 
-- `dart test`: 1,841 passed, 3 skipped, 0 failed.
+- `dart test`: 1,841 passed, 3 skipped, 0 failed before the disassembly-only
+  metadata test was added; the focused disassembler suite passes 4/4.
 - `dart analyze`: no errors or warnings; 5 pre-existing informational lints in
   fuzz and trace tooling.
 - Affected-file regression set: 218 passed, including live `luac55` bytecode

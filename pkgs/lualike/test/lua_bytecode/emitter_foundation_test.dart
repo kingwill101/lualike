@@ -71,6 +71,23 @@ void main() {
       );
     });
 
+    test('renders luac-style prototype metadata tables', () {
+      final artifact = const LuaBytecodeEmitter().compileSource(
+        'local message = "hello\\nworld"\nprint(message)\n',
+        chunkName: '/tmp/disassembly_metadata.lua',
+      );
+      final parsed = const LuaBytecodeParser().parse(artifact.bytes);
+      final rendered = const LuaBytecodeDisassembler().render(parsed);
+
+      expect(rendered, contains('0+ params'));
+      expect(rendered, contains('constants (2):'));
+      expect(rendered, contains('S\t"hello\\nworld"'));
+      expect(rendered, contains('locals (1):'));
+      expect(rendered, contains('\t0\tmessage\t'));
+      expect(rendered, contains('upvalues (1):'));
+      expect(rendered, contains('\t0\t_ENV\t1\t0'));
+    });
+
     test('matches luac opcode shape for stable foundation programs', () {
       for (final source in <String>['return 1\n', 'local x = 41\nreturn x\n']) {
         final fixture = _compileFixture(luacBinary!, source);
