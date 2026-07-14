@@ -2255,10 +2255,17 @@ final class LuaBytecodeVm {
                 // callee back through TailCallException so invoke() can reuse
                 // its existing tail-call loop without re-flattening.
                 if (rawCallee is LuaBytecodeClosure && !debugHooksEnabled) {
+                  final tailName = prototype.hasDebugInfo
+                      ? _callSiteTargetLabel(frame, word.a, call.callee)
+                      : null;
                   if (!_closeFrameForCoroutineSync(frame)) {
                     await _closeFrameForCoroutine(frame, error: null);
                   }
-                  return _TailCallResult(call.callee, call.args);
+                  return _TailCallResult(
+                    call.callee,
+                    call.args,
+                    callName: tailName,
+                  );
                 }
 
                 // Slow path: metatables, debug hooks, or non-closure callees.

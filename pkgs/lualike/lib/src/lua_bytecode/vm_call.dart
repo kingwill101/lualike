@@ -52,20 +52,23 @@ extension LuaBytecodeVmCallEntry on LuaBytecodeVm {
             // Tail call via normal return — re-dispatch.
             final tail = result;
             final tailRawCallee = rawLuaSlot(tail.functionValue);
+            final tailNameInfo = _decodeTailCallNameInfo(tail.callName);
             if (tailRawCallee is LuaBytecodeClosure &&
                 _debugInterpreter?.debugHookFunction == null) {
               currentClosure = tailRawCallee;
               currentArgs = tail.args;
               currentFunctionValue = tail.functionValue;
-              currentCallName = null;
-              currentCallNameWhat = null;
+              currentCallName = tailNameInfo.name;
+              currentCallNameWhat = tailNameInfo.namewhat;
               currentIsTailCall = true;
               currentExtraArgs = 0;
               continue;
             }
-            final prepared = _flattenTailCallable(tail.functionValue, tail.args);
+            final prepared = _flattenTailCallable(
+              tail.functionValue,
+              tail.args,
+            );
             final callee = prepared.callee;
-            final tailNameInfo = _decodeTailCallNameInfo(tail.callName);
             if (rawLuaSlot(callee) case final LuaBytecodeClosure nextClosure) {
               currentClosure = nextClosure;
               currentArgs = prepared.args;
@@ -1244,7 +1247,9 @@ extension LuaBytecodeVmCallEntry on LuaBytecodeVm {
       beforePc: currentPc - 2,
     );
     if (!logicalMergeValue) {
-      final activeLocals = frame.activeNamedLocalsAt(currentPc);
+      // frame.pc already points past CALL. Result locals become visible there,
+      // but naming the call must use the register state at the CALL itself.
+      final activeLocals = frame.activeNamedLocalsAt(currentPc - 1);
       if (activeLocals[register] case final String name) {
         return (name: name, namewhat: 'local');
       }
