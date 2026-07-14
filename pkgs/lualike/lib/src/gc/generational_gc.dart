@@ -189,9 +189,6 @@ class GenerationalGCManager {
 
   /// Public getter for allocation debt (used by interpreter to trigger GC at safe points)
   int get allocationDebt => _simulatedAllocationDebt;
-  int _manualStepDebtKb = 0;
-  // Removed: _manualStepProgress (unused)
-  // Deprecated: previous multi-step tracking target (unused)
 
   /// Expose current GC phase for observation-sensitive behaviors (e.g.,
   /// iteration over weak-keys tables during finalization should still see
@@ -508,42 +505,18 @@ class GenerationalGCManager {
     return cycleComplete;
   }
 
+  /// Performs one bounded manual collection slice of approximately [sizeKb].
+  ///
+  /// The return value is `true` only when this slice completes a collection
+  /// cycle. Automatic collection may be stopped while manual steps continue to
+  /// work, matching `collectgarbage("step", size)` behavior.
   bool performManualStep(int sizeKb) {
-    // Lua treats the argument as kilobytes of work to perform. Use it to scale
-    // the incremental budget, so smaller requests need more iterations.
     final requestedKb = math.max(1, sizeKb);
-    _manualStepDebtKb += requestedKb;
-
-    // Clamp debt so extremely large requests do not overflow work units. Keep
-    // debt in kilobytes; convert to work units below.
-    const maxDebtKb = 1 << 20; // ~1GB equivalent budget ceiling
-    _manualStepDebtKb = math.min(_manualStepDebtKb, maxDebtKb);
-
-    // Scale KB into work units. Each unit corresponds to one object processed
-    // in marking/sweeping. A modest scale factor keeps behaviour close to Lua.
-    const workScale = 16; // Tuned to align with Lua step pacing
-    final workUnits = math.min(
-      math.max(1, _manualStepDebtKb * workScale),
-      1 << 20,
-    );
-
-    var cycleComplete = false;
-    var attempts = 0;
-    while (!cycleComplete && attempts < 8) {
-      final budget = workUnits * (attempts + 1);
-      cycleComplete = performIncrementalStep(budget);
-      if (!cycleComplete && _currentPhase == GCPhase.idle) {
-        cycleComplete = true;
-      }
-      attempts++;
-    }
-
-    if (cycleComplete) {
-      _manualStepDebtKb = 0;
-    } else {
-      // Reduce debt gradually so repeated calls progress toward completion.
-      _manualStepDebtKb = math.max(1, _manualStepDebtKb ~/ 2);
-    }
+    // One API call performs one bounded slice. Retrying internally can finish
+    // the whole cycle regardless of size, which erases Lua's step-size pacing.
+    const workScale = 16;
+    final workUnits = math.min(requestedKb * workScale, 1 << 20);
+    final cycleComplete = performIncrementalStep(workUnits);
 
     if (_simulatedAllocationDebt > 0) {
       final reductionBytes = requestedKb * 1024;
