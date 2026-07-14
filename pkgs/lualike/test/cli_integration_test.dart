@@ -184,14 +184,28 @@ void main() {
   });
 
   group('cross-compatibility with luac55', () {
+    String? _luac55;
+
+    setUpAll(() async {
+      try {
+        _luac55 = await _resolveLuac55Binary();
+      } catch (_) {
+        _luac55 = null;
+      }
+    });
+
     test('luac55 bytecode runs in lualike VM', () async {
-      final luac55 = await _resolveLuac55Binary();
+      final luac55 = _luac55;
+      if (luac55 == null) {
+        markTestSkipped('luac55 binary not available; set LUAC55 env var or '
+            'allow the one-time download');
+        return;
+      }
 
       final lua = File(p.join(tmpDir.path, 'test.lua'))
         ..writeAsStringSync('print("from luac55")');
       final lub = File(p.join(tmpDir.path, 'test.lub'));
 
-      // Compile with official luac55
       final compileResult = await Process.run(luac55, [
         '-o',
         lub.path,
@@ -199,7 +213,6 @@ void main() {
       ]);
       expect(compileResult.exitCode, equals(0));
 
-      // Run with lualike VM
       final runResult = await _lualike(['--lua-bytecode', lub.path]);
       expect(runResult.exitCode, equals(0));
       expect(runResult.stdout, contains('from luac55'));
@@ -207,42 +220,105 @@ void main() {
   });
 }
 
+/// Returns the path to a luac55 binary, or throws if none can be found or
+/// downloaded. The cache is checked in order: env var → project .tmp →
+/// workspace .tmp → system temp → download.
 Future<String> _resolveLuac55Binary() async {
+  // 1. LUAC55 env var
   final envPath = Platform.environment['LUAC55'];
   if (envPath != null && File(envPath).existsSync()) {
     return envPath;
   }
 
+  // 2. Existing cache (all tiers)
   final cachedPath = _findLuacBinary(_luacCacheDir);
   if (cachedPath != null) {
     return cachedPath;
   }
 
-  await _downloadLuac55Binary();
+  // 3. Download to project .tmp and cache
+  final packageRoot = _findPackageRoot();
+  final projectCache = Directory(
+    p.join(packageRoot, '.tmp', 'lualike_luac55_cache'),
+  );
+  projectCache.createSync(recursive: true);
+  await _downloadLuac55Binary(projectCache);
 
-  final resolvedPath = _findLuacBinary(_luacCacheDir);
+  final resolvedPath = _findLuacBinary(projectCache);
   if (resolvedPath != null) {
     return resolvedPath;
   }
 
-  throw StateError('Failed to resolve a luac55 binary after download');
+  throw StateError('Failed to resolve a luac55 binary (tried env var, cache, and download)');
 }
 
-Directory get _luacCacheDir =>
-    Directory(p.join(Directory.systemTemp.path, 'lualike_luac55_cache'));
+/// Prior to running this test, download a luac55 binary and place it in one of:
+///   1. `LUAC55` env var pointing to the binary
+///   2. `{package_root}/.tmp/lualike_luac55_cache/`
+///   3. `{workspace_root}/.tmp/lualike_luac55_cache/`
+///   4. `{system_temp}/lualike_luac55_cache/`
+///
+/// Download URLs by platform:
+///   - Linux:   https://downloads.sourceforge.net/project/luabinaries/5.5.0/Tools%20Executables/lua-5.5.0_Linux515_64_bin.tar.gz
+///   - macOS:   https://downloads.sourceforge.net/project/luabinaries/5.5.0/Tools%20Executables/lua-5.5.0_MacOS1015_bin.tar.gz
+///   - Windows: https://downloads.sourceforge.net/project/luabinaries/5.5.0/Tools%20Executables/lua-5.5.0_Win64_bin.zip
+///
+/// Extract and place `luac55` (or `luac55.exe` on Windows) in any of the paths
+/// above. The test skips luac55 cross-compat tests if no binary is found,
+/// so CI without a pre-cached binary does not break.
+
+Directory get _luacCacheDir => _pickLuacCacheDir();
+
+Directory _pickLuacCacheDir() {
+  // Prefer project-local .tmp cache.
+  final packageRoot = _findPackageRoot();
+  final projectCache = Directory(
+    p.join(packageRoot, '.tmp', 'lualike_luac55_cache'),
+  );
+  if (projectCache.existsSync()) return projectCache;
+
+  // Fall back to workspace-level .tmp cache.
+  final workspaceCache = Directory(
+    p.join(packageRoot, '..', '..', '.tmp', 'lualike_luac55_cache'),
+  );
+  if (workspaceCache.existsSync()) return workspaceCache;
+
+  // Finally, system temp.
+  return Directory(
+    p.join(Directory.systemTemp.path, 'lualike_luac55_cache'),
+  );
+}
+
+/// Returns the package root directory by walking up from cwd.
+String _findPackageRoot() {
+  var dir = Directory.current.absolute.path;
+  while (true) {
+    if (File(p.join(dir, 'pubspec.yaml')).existsSync() &&
+        File(p.join(dir, 'bin', 'main.dart')).existsSync()) {
+      return dir;
+    }
+    final parent = p.dirname(dir);
+    if (parent == dir) break;
+    dir = parent;
+  }
+  // fallback for when run from pkgs/lualike subdir
+  final sub = p.join(dir, 'pkgs', 'lualike');
+  if (File(p.join(sub, 'pubspec.yaml')).existsSync()) return sub;
+  return dir;
+}
 
 String _luac55DownloadUrl() {
   if (Platform.isWindows) {
     return 'https://downloads.sourceforge.net/project/luabinaries/5.5.0/Tools%20Executables/lua-5.5.0_Win64_bin.zip';
   }
   if (Platform.isMacOS) {
-    return 'https://downloads.sourceforge.net/project/luabinaries/5.5.0/Tools%20Executables/lua-5.5.0_MacOS1011_bin.tar.gz';
+    return 'https://downloads.sourceforge.net/project/luabinaries/5.5.0/Tools%20Executables/lua-5.5.0_MacOS1015_bin.tar.gz';
   }
   return 'https://downloads.sourceforge.net/project/luabinaries/5.5.0/Tools%20Executables/lua-5.5.0_Linux515_64_bin.tar.gz';
 }
 
-Future<void> _downloadLuac55Binary() async {
-  _luacCacheDir.createSync(recursive: true);
+Future<void> _downloadLuac55Binary(Directory destination) async {
+  destination.createSync(recursive: true);
 
   final url = Uri.parse(_luac55DownloadUrl());
   final response = await http.get(url);
@@ -255,10 +331,10 @@ Future<void> _downloadLuac55Binary() async {
   final archiveBytes = response.bodyBytes;
   if (url.path.endsWith('.zip')) {
     final archive = ZipDecoder().decodeBytes(archiveBytes);
-    _extractArchive(archive, _luacCacheDir);
+    _extractArchive(archive, destination);
   } else {
     final archive = TarDecoder().decodeBytes(gzip.decode(archiveBytes));
-    _extractArchive(archive, _luacCacheDir);
+    _extractArchive(archive, destination);
   }
 }
 
