@@ -120,6 +120,8 @@ final class CompilePipelineConfig {
   factory CompilePipelineConfig.luaBytecodeOptimized({
     bool stripDebug = false,
     bool dumpIr = false,
+    // TODO(optimizer): Default this on after loop rewrites preserve debug-local
+    // ranges and stay within the post-SSA register budget under fuzz coverage.
     bool enableLoopUnrolling = false,
     bool enableBundling = false,
     List<String> bundleSearchPaths = const ['.'],
@@ -132,6 +134,9 @@ final class CompilePipelineConfig {
       enableConstantFolding: true,
       enableConstPropagation: true,
       enableTypeNarrowing: true,
+      // TODO(optimizer): Enable after the pass models the metatable value and
+      // mutation/identity semantics, with metamethod oracle tests. It currently
+      // only recognizes the constant setmetatable shape.
       enableMetatableFolding: false,
       enablePeephole: true,
       enableBytecodePeephole: enableBytecodePeephole,
@@ -141,6 +146,8 @@ final class CompilePipelineConfig {
       enableSsaLicm: true,
       enableSsaCoalesce: true,
       enableSsaEscape: true,
+      // TODO(optimizer): Enable after inlining remaps constants and debug
+      // metadata and skips candidates that would exceed the register budget.
       enableFunctionInlining: false,
       enableLoopUnrolling: enableLoopUnrolling,
       enableBundling: enableBundling,
