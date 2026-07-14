@@ -146,8 +146,9 @@ final class CompilePipelineConfig {
       enableSsaLicm: true,
       enableSsaCoalesce: true,
       enableSsaEscape: true,
-      // TODO(optimizer): Enable after inlining remaps constants and debug
-      // metadata and skips candidates that would exceed the register budget.
+      // TODO(optimizer): Enable only after constants, captures, control flow,
+      // and debug-frame remapping are supported and benchmarks justify it.
+      // The current safe subset is useful only when debug data is stripped.
       enableFunctionInlining: false,
       enableLoopUnrolling: enableLoopUnrolling,
       enableBundling: enableBundling,
@@ -432,7 +433,10 @@ final class CompilePipeline {
     if (config.enableFunctionInlining) {
       chunk = LualikeIrChunk(
         flags: chunk.flags,
-        mainPrototype: inlineFunctions(chunk.mainPrototype),
+        mainPrototype: inlineFunctions(
+          chunk.mainPrototype,
+          preserveDebug: !config.stripDebug,
+        ),
       );
     }
 
