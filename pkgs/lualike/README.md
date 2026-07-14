@@ -57,9 +57,9 @@ Key optimizations include:
 - **Dead code elimination** — unused module exports tree-shaken
 - **Bundling** — static `require("path")` resolved at compile time
 
-See [doc/cli.md](pkgs/lualike/doc/cli.md) for the full CLI reference.
+See [doc/cli.md](doc/cli.md) for the full CLI reference.
 For the optimization / disassembly / test workflow, see
-[doc/ir-bytecode-optimization-guide.md](pkgs/lualike/doc/ir-bytecode-optimization-guide.md).
+[the IR and bytecode optimization guide](../../doc/guides/ir-bytecode-optimization.md).
 
 ### Cross-compatibility
 

@@ -7,8 +7,8 @@ thin. SSA and the fold pipeline exist; the remaining work is making the
 IR→bytecode **contract** register-safe and debug-correct so `--lua-bytecode
 --fold` / `--compile` can stay on the full pipeline by default.
 
-Authoritative decisions: `doc/decisions.md` (IR contract + official bytecode
-locals + SSA safety notes).
+Authoritative decisions: [`doc/decisions.md`](../../doc/decisions.md) (IR
+contract, official bytecode locals, and SSA safety notes).
 
 ## Approach
 
@@ -70,7 +70,7 @@ locals + SSA safety notes).
 | IR compiler / lower | `lib/src/ir/compiler.dart`, `lib/src/ir/bytecode_lowering.dart` |
 | SSA | `lib/src/ir/ssa*.dart` |
 | Parse / locals | `lib/src/lua_bytecode/parser.dart`, `debug_local_caches.dart` |
-| Decisions | `doc/decisions.md` |
+| Decisions | [`doc/decisions.md`](../../doc/decisions.md) |
 
 ## Verification
 

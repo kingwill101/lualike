@@ -1,4 +1,4 @@
-# Design Decisions
+# Compiler and Runtime Design Decisions
 
 This file records non‑obvious design decisions and their rationale so they
 aren't rediscovered the hard way.
@@ -610,3 +610,77 @@ After the SROA, comparison, GC accounting, manual-step, and `require` fixes,
 `heavy.lua` was omitted by the runner's default `--skip-heavy` policy. This
 90-test compatibility gate is the correctness baseline for subsequent IR and
 bytecode optimization work.
+
+---
+
+## Bundled module analysis is lexical; luac55 remains a structural reference
+
+**Date:** 2026-07-14
+**Status:** Active
+
+**Context:** Static bundles place each imported module in a generated `do`
+block. Modules commonly use the same local builder name, such as `local M =
+{}`. A global builder-name map allowed a later module's `M` to replace an
+earlier mapping, causing dead-code elimination to remove live exports.
+
+**Decision:** Discover module builders independently within each generated
+module block and run export elimination with that block's mapping. Do not merge
+builder identities across lexical module boundaries.
+
+`luac55` does not produce a static bundle for `require`. For bundle comparisons,
+compile the entrypoint and each imported source as separate reference chunks,
+then compare their combined instruction count with lualike's optimized bundle.
+Treat this as a structural comparison only; execute the serialized lualike
+bundle separately to validate transitive imports and repeated-require identity.
+
+**Validation:** `tool/compare.dart folding --disassemble` covers the complete
+folding corpus and its transitive three-source bundle. Bundle regressions also
+execute the serialized result.
+
+---
+
+## Signed C immediates are limited to -127 through 128
+
+**Date:** 2026-07-14
+**Status:** Active
+
+**Context:** The bytecode C field is eight bits and signed operands use an
+excess-127 encoding. Its representable decoded range is therefore asymmetric:
+encoded `0..255` represents `-127..128`. Rewriting a larger integer operand to
+`ADDI` creates an instruction that cannot be lowered correctly.
+
+**Decision:** `LuaBytecodeInstructionLayout.minSignedArgC`,
+`maxSignedArgC`, and `fitsSignedArgC` define the encoding contract. Both IR
+emission and bytecode peephole rewrites must use these helpers. Values outside
+the range remain in a register or constant-pool operand; they must not be
+truncated or wrapped into C.
+
+**Validation:** Pipeline coverage compiles the folded table-field sum that
+previously exceeded the range, and the folding corpus includes boundary and
+out-of-range operands.
+
+---
+
+## Disassembly annotations are derived, not serialized
+
+**Date:** 2026-07-14
+**Status:** Active
+
+**Context:** Raw `A`, `B`, `C`, and `k` fields are sufficient for execution but
+make comparison with `luac55 -l -l` unnecessarily difficult. Useful reference
+annotations include constant values, metamethod names such as `__mod`, return
+counts, constants, local lifetimes, and upvalue descriptors.
+
+**Decision:** Keep the binary format unchanged. The serializer writes raw
+instruction words, constants, and debug metadata; the disassembler derives
+human-readable comments from those fields. `MMBIN`, `MMBINI`, and `MMBINK`
+event IDs are rendered as metamethod names, K operands resolve through the
+constant pool, and return widths are decoded into output counts.
+
+The comparison command compiles the lualike side in-process from the current
+checkout instead of invoking `./lualike`, because a previously compiled binary
+can lag behind source and produce a false comparison.
+
+**Validation:** Focused disassembler tests cover prototype metadata and decoded
+operand comments. `tool/compare.dart disasm` provides the side-by-side luac55
+view used for manual review.

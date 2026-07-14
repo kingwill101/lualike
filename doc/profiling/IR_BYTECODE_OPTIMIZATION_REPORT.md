@@ -1,14 +1,19 @@
 # IR/Bytecode Optimization Push — Technical Report
 
 **Branch:** `wip/ssa-ir-optimization`
-**Date:** 2026-07-13
-**Commits:** 24 stacked on `5b8800df`
+**Date:** 2026-07-14
+**Scope:** Initial 24-commit optimization stack plus compatibility, comparison,
+and disassembly hardening
 
 ---
 
 ## 1. What Was Accomplished
 
-24 commits across the IR compiler, SSA passes, bytecode lowering, bytecode peephole, serializer, CLI, test infrastructure, and standard library. The central goal was making the IR layer the optimization boundary so the bytecode VM stays a thin executor.
+The initial 24 commits changed the IR compiler, SSA passes, bytecode lowering,
+bytecode peephole, serializer, CLI, test infrastructure, and standard library.
+Subsequent compatibility and tooling commits hardened that stack. The central
+goal was making the IR layer the optimization boundary so the bytecode VM stays
+a thin executor.
 
 ### 1.1 Instruction-Density Parity with luac55 (the core win)
 
@@ -344,7 +349,7 @@ behind source changes and produce a misleading side-by-side listing.
 
 ---
 
-## 4. Commit History (24 commits from 5b8800df)
+## 4. Initial Commit History (24 commits from 5b8800df)
 
 ```
 59aac26a fix: package.searchers as TableStorage + coalesce TFORxx
@@ -402,6 +407,6 @@ The post-hardening validation run also passed:
   fixtures passed, including the three-source transitive bundle; stderr was
   empty.
 
-**Total:** 24 committed optimization changes plus the final compatibility
-fixes, 0 known integration regressions, and 15+ benchmarks at or below luac55
-instruction-density parity.
+**Total:** The initial 24 optimization commits plus compatibility,
+serialization, comparison, and disassembly hardening; 0 known integration
+regressions; and 15+ benchmarks at or below luac55 instruction-density parity.

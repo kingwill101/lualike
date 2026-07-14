@@ -6,11 +6,10 @@ sanity check for whether we are overdoing work in our own compiler.
 
 ## Current status
 
-As of 2026-07-13:
-- `./test_runner --lua-bytecode` passes
-- `./test_runner --ir` passes
-- some `dart test` cases around IR / bytecode shape are still stale and may need
-  to be updated or retired rather than fixed blindly
+As of 2026-07-14:
+- `./test_runner --all-engines` passes 30/30 on AST, IR, and lua-bytecode
+- `dart test` passes 1,841 tests with 3 expected skips
+- the complete folding comparison corpus passes, including transitive bundles
 
 ## Core rule
 
@@ -35,7 +34,8 @@ large suite run.
 
 Good sources:
 - `luascripts/*.lua`
-- `tool/tmp_*.dart` scratch repros
+- `luascripts/compare/*.lua` for focused disassembly comparisons
+- `luascripts/folding/*.lua` for fold and bundle coverage
 - a focused test file in `test/`
 
 ### 2) Capture a baseline
@@ -70,17 +70,24 @@ Run each timing a few times and compare averages, not a single sample.
 
 Compare our output against `luac55` output for the same source.
 
-Recommended pattern:
+Point the comparison tool at the reference compiler when it is not installed at
+the default development path:
 
 ```sh
 export LUAC55=~/Downloads/lua-5.5.0_Linux68_64_bin/luac55
-"$LUAC55" -l -l /tmp/repro.lua
 ```
 
-For our compiler, use either:
-- `--dump-ir` when the question is about IR shape, or
-- a scratch Dart script that compiles source and prints the bytecode
-  disassembly.
+Use the consolidated comparison tool for both compilers:
+
+```sh
+cd pkgs/lualike
+dart run tool/compare.dart disasm luascripts/compare/01_arith.lua
+```
+
+The command compiles lualike in-process from the current checkout, then invokes
+`luac55`. It intentionally does not use `./lualike`, which may be stale after
+source changes. Use `--dump-ir` or `tool/trace.dart` when the question is about
+an intermediate IR pass rather than final bytecode.
 
 Things to compare:
 - extra `MOVE`, `LOADK`, `LOADNIL`
@@ -139,18 +146,22 @@ needs a round-trip test.
 Before landing a change:
 
 - [ ] Repro script still behaves correctly
-- [ ] `./test_runner --lua-bytecode` passes
+- [ ] `dart test` passes
+- [ ] `./test_runner --all-engines` passes
 - [ ] Affected focused tests pass (`locals.lua`, `db.lua`, `errors.lua`,
       `cstack.lua`, `closure.lua` are common sentinels)
 - [ ] Disassembly is still sane versus `luac55`
-- [ ] Any new policy is documented in `doc/decisions.md`
+- [ ] `dart run tool/compare.dart folding --disassemble` passes when folding
+      or lowering changed
+- [ ] Any new policy is documented in [`doc/decisions.md`](../decisions.md)
 - [ ] If the change is user-visible, add a note to `CHANGELOG.md`
 
 ## Good temporary tooling habits
 
-- Use `tool/tmp_*.dart` for experiments only.
-- Delete or rename scratch scripts once the idea is proven.
-- Move stable investigation helpers into `tool/` or a real test.
+- Add stable investigation behavior to `tool/compare.dart` or a focused test
+  instead of creating shell wrappers.
+- Keep temporary Dart experiments untracked and remove them once the idea is
+  proven.
 - Treat `.tmp/` as disposable cache space (for example,
   `.tmp/lualike_luac55_Cache`).
 
