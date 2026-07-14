@@ -56,23 +56,34 @@ contract, official bytecode locals, and SSA safety notes).
       retaining the conservative two-slot compiler budget.
 - [x] Reject malformed table, concat, root-upvalue, and jump shapes rather than
       silently normalizing them.
+- [x] Harden function inlining as a disabled, conservative subset with
+      operand-role remapping, caller metadata relocation, fresh registers, and
+      independent per-candidate register-budget checks.
 
 ## Optional hardening
 
 ### 1. Transform-specific register budgets
 
-- Escape analysis already skips scalar replacement when it cannot stay within
-  the budget. Before enabling IR function inlining in the production config,
-  make that pass skip an individual inline candidate instead of relying on the
-  final budget validator to reject the prototype.
+- Escape analysis and function inlining both skip individual transformations
+  that cannot stay within the bytecode budget. New register-allocating passes
+  must follow the same rule instead of relying on the final validator.
 
-### 2. Keep lowering mechanical
+### 2. Function-inlining enablement
+
+- Keep `enableFunctionInlining` false in production until constant-pool and
+  capture remapping, control-flow-aware PC relocation, and complete debug-frame
+  semantics are implemented.
+- Benchmark representative call-heavy programs before enabling it. Removing a
+  call is not sufficient if fresh slots and duplicated bodies increase runtime
+  or serialized size.
+
+### 3. Keep lowering mechanical
 
 - The expansion and metadata audit is complete. New IR opcodes must document
   why an expansion is mechanically required and include boundary tests.
 - Prefer specialized opcodes decided in IR over VM inference.
 
-### 3. Debug metadata edge cases
+### 4. Debug metadata edge cases
 
 - Add a private trailing-register extension only if a minimal non-stack local
   layout proves stack inference insufficient; there is no known failing case.

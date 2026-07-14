@@ -8,7 +8,7 @@ sanity check for whether we are overdoing work in our own compiler.
 
 As of 2026-07-14:
 - `./test_runner --all-engines` passes 30/30 on AST, IR, and lua-bytecode
-- `dart test` passes 1,853 tests with 3 expected skips
+- `dart test` passes 1,863 tests with 3 expected skips
 - the complete folding comparison corpus passes, including transitive bundles
 
 ## Core rule
@@ -113,6 +113,19 @@ Prefer this order:
 4. **VM** — only when the shape cannot reasonably be pushed upstream.
 
 If a VM change is needed repeatedly, it is probably a missed IR decision.
+
+### Disabled passes are not production features
+
+Function inlining currently has a tested safe subset, but remains disabled in
+the production configuration. It only accepts direct, fixed-arity,
+straight-line closures when operand roles, register allocation, and caller
+metadata can be preserved exactly. Constants that require pool merging,
+captures, control flow, varargs, multiple results, close state, and observable
+callee debug frames are rejected.
+
+Do not enable it because one script emits fewer instructions. First complete
+the missing semantic remapping, compare serialized size and register pressure,
+benchmark call-heavy workloads, and rerun every verification command below.
 
 ## What usually matters
 

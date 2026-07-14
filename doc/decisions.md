@@ -718,3 +718,40 @@ packed C field.
 scratch-slot accounting, high constant writes, signed-immediate boundaries,
 large shift immediates, empty debug streams, malformed table/concat shapes,
 and invalid jumps.
+
+---
+
+## Function inlining remains disabled behind a conservative safe subset
+
+**Date:** 2026-07-14
+**Status:** Active
+
+**Context:** The original IR inliner remapped every `ABC` B/C field as a
+register, reused caller-local slots, left the defining `CLOSURE` in place, and
+did not update register counts or program-counter metadata. That can corrupt
+immediates and metamethod event IDs, collide with live values, exceed the Lua
+bytecode register budget, and leave stale debug lifetimes.
+
+**Decision:** Keep function inlining disabled in the production pipeline. The
+pass now implements a deliberately narrow contract for direct, single-use,
+fixed-arity, straight-line closures. It allocates fresh slots, remaps operands
+by opcode role, removes both `CLOSURE` and `CALL`, updates caller line/local/
+to-be-closed and const-seal PCs, and checks every candidate independently
+against `IrBytecodeRegisterBudget.maxRegisterCount`.
+
+When debug data is preserved, the pass rejects callees whose frame metadata is
+observable and callers whose debug locals expose the closure register. It also
+rejects constants requiring pool merging, captures, nested prototypes,
+varargs, multiple results, close state, caller or callee control flow, and
+unsupported opcodes. A rejected candidate remains unchanged.
+
+**Enablement gate:** Production enablement requires constant-pool and capture
+remapping, control-flow-aware PC relocation, complete debug-frame semantics,
+and benchmark evidence that the larger register footprint produces a net
+benefit. Passing the current correctness suite is necessary but does not
+justify enabling the pass by itself.
+
+**Validation:** `test/ir/inline_pass_test.dart` covers operand roles, fresh
+registers, caller metadata relocation, debug-preserving rejection, independent
+budget decisions, unsupported semantic shapes, emitted bytecode shape, and
+execution of the strip-debug safe subset.

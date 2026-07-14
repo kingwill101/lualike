@@ -418,23 +418,37 @@ bd33379a perf: skip return-packing MOVEs when contiguous
 | IR | **30/30** | 0 | — |
 | lua-bytecode | **30/30** | 0 | — |
 
-The final `./test_runner --all-engines` run on 2026-07-13 rebuilt the CLI and
+The final `./test_runner --all-engines` run on 2026-07-14 rebuilt the CLI and
 passed all 90 engine/test combinations. `heavy.lua` remained excluded by the
 runner's default `--skip-heavy` policy.
 
 The post-hardening validation run also passed:
 
-- `dart test`: 1,853 passed, 3 skipped, 0 failed after the lowering-audit
-  regression coverage was added.
+- `dart test`: 1,863 passed, 3 skipped, 0 failed after the lowering and inliner
+  hardening regression coverage was added.
 - `dart analyze`: no errors or warnings; 5 pre-existing informational lints in
   fuzz and trace tooling.
-- Affected-file regression set: 218 passed, including live `luac55` bytecode
-  cross-compatibility.
+- Focused IR regression set: 239 passed, including the inliner hardening tests.
 - Fresh `./test_runner --all-engines`: AST 30/30, IR 30/30, and lua-bytecode
   30/30. This run rebuilt the executable from the modified sources first.
 - `tool/compare.dart folding --disassemble`: all 23 top-level folding
   fixtures passed, including the three-source transitive bundle; stderr was
   empty.
+
+### Disabled function-inlining audit
+
+The existing function-inlining pass was not safe to enable: it confused
+register and immediate/event fields, reused caller slots, retained closure
+creation, ignored the register budget, and left caller metadata at stale PCs.
+It is now a conservative safe subset with opcode-specific operand remapping,
+fresh registers, closure/call removal, caller metadata relocation, and
+per-candidate budget checks.
+
+The production flag remains off. Constants requiring pool merging, captures,
+control flow, varargs, multiple results, close state, nested prototypes, and
+observable debug frames still require explicit semantic support. Production
+enablement also requires benchmark evidence; correctness and a smaller local
+instruction sequence alone are not enough.
 
 **Total:** The initial 24 optimization commits plus compatibility,
 serialization, comparison, and disassembly hardening; 0 known integration
