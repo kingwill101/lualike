@@ -2971,18 +2971,16 @@ class RequireFunction extends BuiltinFunction {
         }
 
         final ret = loaded[moduleName];
-        if (loaderData is Value && !isLuaNilSlot(loaderData)) {
-          final rawLoaderData = rawLuaSlot(loaderData);
-          if (rawLoaderData is String) {
-            final normalizedLoaderData = valueFromLuaSlot(
-              interpreter!,
-              path.normalize(rawLoaderData),
-            );
-            return (found: true, result: [ret, normalizedLoaderData]);
-          }
-          return (found: true, result: [ret, loaderData]);
-        }
-        return (found: true, result: ret);
+        // Lua 5.4 returns the loader data as require's second result. Use
+        // LuaResults so single-value contexts still observe only the module.
+        final rawLoaderData = rawLuaSlot(loaderData);
+        final returnedLoaderData = rawLoaderData is String
+            ? valueFromLuaSlot(interpreter!, path.normalize(rawLoaderData))
+            : loaderData;
+        return (
+          found: true,
+          result: LuaResults([ret, returnedLoaderData]),
+        );
       } else if (result is String) {
         errors.add(result);
       } else if (result is Value && rawLuaSlot(result) is String) {
