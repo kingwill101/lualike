@@ -49,7 +49,10 @@ final class CompilePipelineConfig {
   /// Whether to narrow types through `type()` equality checks.
   final bool enableTypeNarrowing;
 
-  /// Whether to fold table operations with known metatables.
+  /// Whether to run the reserved metatable-folding extension point.
+  ///
+  /// The pass is currently analysis-only because metatable mutation, identity,
+  /// aliases, and shadowed `setmetatable` bindings are not modeled yet.
   final bool enableMetatableFolding;
 
   /// Whether to run peephole optimization on emitted IR.
