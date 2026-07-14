@@ -48,7 +48,7 @@ final class LuaBytecodeReader {
   /// Reads the full chunk and recovers local registers for debug tooling.
   ///
   /// Local vars in the binary are `(name, startPc, endPc)` only; see
-  /// [inferLocalRegisters]. Skipping inference breaks `debug.getlocal` after
+  /// local-register inference. Skipping inference breaks `debug.getlocal` after
   /// any serialize → load path (including `CompilePipeline` + `--fold`).
   LuaBytecodeBinaryChunk readChunk() {
     final header = _readHeader();

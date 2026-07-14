@@ -512,7 +512,7 @@ List<LuaBytecodeLocalVariableDebugInfo> inferLocalRegisters(
   ];
 }
 
-/// Returns [prototype] with [inferLocalRegisters] applied recursively.
+/// Returns [prototype] with local-register inference applied recursively.
 ///
 /// Prefer calling this once at chunk-load time (see [LuaBytecodeReader.readChunk])
 /// rather than ad hoc in the VM, so all debug caches see consistent registers.

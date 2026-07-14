@@ -1,3 +1,7 @@
+/// File generation for lualike library documentation metadata.
+///
+/// Use [generateMetadata] when documentation should be written to disk. For
+/// in-memory rendering, use the functions exported by `package:lualike/docs.dart`.
 library;
 
 import 'dart:io';
@@ -18,7 +22,7 @@ extension _MetadataFormatExt on MetadataFormat {
   };
 }
 
-/// Generates metadata files for all libraries registered on [lua].
+/// Generates documentation files for libraries registered on [lua].
 ///
 /// ```dart
 /// final lua = LuaLike();
@@ -32,12 +36,18 @@ extension _MetadataFormatExt on MetadataFormat {
 /// );
 /// ```
 ///
+/// [formats] selects HTML, JSON, LuaLS output, or any combination. When
+/// [includeStdlib] is `false`, only libraries added to [lua] by the embedding
+/// application are emitted.
+///
 /// When [split] is `false` (the default), one file per format is written using
-/// the [packageName] as the filename. When [split] is `true`, each library gets
-/// its own file named `<library_name>.<ext>`.
+/// [packageName] as the filename. When [split] is `true`, each documented
+/// library gets its own file named `<library_name>.<ext>`.
 ///
 /// [packageName] and [packageVersion] are auto-detected from the nearest
-/// `pubspec.yaml` when omitted.
+/// `pubspec.yaml` when omitted. Missing output directories are created
+/// recursively. No files are written when [formats] is empty or no selected
+/// libraries expose documentation.
 Future<void> generateMetadata(
   LuaLike lua, {
   required String outputDir,

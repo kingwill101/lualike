@@ -30,9 +30,9 @@ import 'package:lualike/src/lua_bytecode/opcode.dart';
 /// policy decisions. All shape choices are finalized in IR/SSA.
 ///
 /// Debug obligations at this boundary:
-/// * Copy IR [LocalDebugEntry] ranges through [pcMap] remapping.
+/// * Copy IR [LocalDebugEntry] ranges through program-counter remapping.
 /// * Preserve [LocalDebugEntry.register] so in-memory prototypes work before
-///   serialize; after load, [inferLocalRegisters] recovers them again.
+///   serialize; after load, local-register inference recovers them again.
 /// * Force main [LuaBytecodePrototype.lineDefined] to `0` (Lua main chunk
 ///   convention) so the VM does not treat main as a regular function and inject
 ///   a synthetic `(vararg table)` local for `debug.getlocal`.
@@ -60,8 +60,9 @@ LuaBytecodeBinaryChunk lowerIrChunkToLuaBytecodeChunk(
 /// Only remaps finalized IR instructions and metadata into bytecode fields.
 /// Do not add new analyses or heuristics here — put them in IR/SSA instead.
 ///
-/// When [isMainPrototype] is true, [lineDefined] is forced to `0` regardless
-/// of IR source lines (required for correct main-chunk debug behavior).
+/// When [isMainPrototype] is true, [LualikeIrPrototype.lineDefined] is forced
+/// to `0` regardless of IR source lines (required for correct main-chunk debug
+/// behavior).
 LuaBytecodePrototype lowerIrPrototypeToLuaBytecodePrototype(
   LualikeIrPrototype prototype, {
   required String sourceName,

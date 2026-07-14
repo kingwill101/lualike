@@ -1,4 +1,7 @@
-/// Output format for generated metadata.
+/// Output formats supported by lualike documentation generation.
+library;
+
+/// A generated documentation artifact format.
 enum MetadataFormat {
   /// Standalone HTML documentation page.
   html,

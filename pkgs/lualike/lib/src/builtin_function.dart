@@ -65,7 +65,7 @@ abstract class BuiltinFunction {
   /// Wraps a raw primitive value in a transient [Value] without creating a
   /// permanent cache entry. This avoids the HashMap overhead in
   /// [Interpreter.constantPrimitiveValue] for builtin results (e.g.
-  /// every distinct double from [math.sin]) where caching never hits.
+  /// every distinct double from `math.sin`) where caching never hits.
   Value primitiveValue(Object? raw) {
     if (raw is Value) return raw;
     final r = interpreter;

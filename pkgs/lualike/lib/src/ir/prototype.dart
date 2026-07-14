@@ -127,7 +127,7 @@ class LualikeIrDebugInfo {
 ///
 /// [register] must stay accurate through SSA: DCE pins pure stores into these
 /// registers so `debug.getlocal` still sees values. Lowering copies this into
-/// [LuaBytecodeLocalVariableDebugInfo]; serialize drops register, parse
+/// bytecode local debug metadata; serialization drops [register], parsing
 /// re-infers (see `debug_local_caches.dart`).
 class LocalDebugEntry {
   const LocalDebugEntry({
