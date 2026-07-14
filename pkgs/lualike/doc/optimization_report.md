@@ -332,6 +332,12 @@ and upvalue descriptors, making side-by-side analysis unnecessarily uneven.
 their type tags and escaped string representation, and vararg prototypes use
 luac's `0+ params` notation.
 
+Instruction comments remain derived data rather than serialized strings. The
+serializer writes the raw instruction word and constant pool; the disassembler
+now resolves K-operand values, `MMBIN*` event IDs such as `9` to `__mod`, and
+return counts from those fields. For example, an encoded `MMBINK` referencing
+constant `3` renders as `; __mod 3`, matching `luac55 -l -l`.
+
 ---
 
 ## 4. Commit History (24 commits from 5b8800df)

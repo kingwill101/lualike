@@ -5,6 +5,7 @@ library;
 import 'package:lualike/src/compile/pipeline.dart';
 import 'package:lualike/src/config.dart';
 import 'package:lualike/src/executor.dart';
+import 'package:lualike/src/lua_bytecode/disassembler.dart';
 import 'package:lualike/src/lua_bytecode/instruction.dart';
 import 'package:lualike/src/lua_bytecode/opcode.dart';
 import 'package:lualike/src/parse.dart';
@@ -97,6 +98,23 @@ return total(...)
         ).compile(parse(source, url: 'large_add_immediate.lua')),
         returnsNormally,
       );
+    });
+
+    test('disassembly derives metamethod and constant annotations', () {
+      const source = '''
+local function remainder(value)
+  return value % 3
+end
+return remainder(...)
+''';
+      final artifact =
+          CompilePipeline(
+                config: CompilePipelineConfig.luaBytecodeOptimized(),
+              ).compile(parse(source, url: 'metamethod_comment.lua'))
+              as LuaBytecodeArtifact;
+
+      final rendered = const LuaBytecodeDisassembler().render(artifact.chunk);
+      expect(rendered, contains('; __mod 3'));
     });
 
     test('TEST;TEST;JMP collapse is rejected in optimized bytecode', () {

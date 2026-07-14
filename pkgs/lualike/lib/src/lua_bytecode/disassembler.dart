@@ -11,6 +11,7 @@ final class LuaBytecodeDecodedInstruction {
     required this.word,
     required this.opcode,
     required this.operands,
+    this.comment,
   });
 
   final int pc;
@@ -18,6 +19,12 @@ final class LuaBytecodeDecodedInstruction {
   final LuaBytecodeInstructionWord word;
   final Opcode opcode;
   final String operands;
+
+  /// Meaning reconstructed from encoded operands and the constant pool.
+  ///
+  /// The serializer stores the fields that produce this annotation, not the
+  /// comment text itself.
+  final String? comment;
 }
 
 final class LuaBytecodePrototypeDisassembly {
@@ -100,6 +107,7 @@ final class LuaBytecodeDisassembler {
       word: word,
       opcode: opcode,
       operands: _formatOperands(opcode, word),
+      comment: _formatComment(prototype, opcode, word),
     );
   }
 
@@ -115,6 +123,67 @@ final class LuaBytecodeDisassembler {
       LuaBytecodeInstructionMode.isj => 'sJ=${word.sJ}',
     };
   }
+
+  String? _formatComment(
+    LuaBytecodePrototype prototype,
+    Opcode opcode,
+    LuaBytecodeInstructionWord word,
+  ) {
+    return switch (opcode) {
+      Opcode.addK ||
+      Opcode.subK ||
+      Opcode.mulK ||
+      Opcode.modK ||
+      Opcode.powK ||
+      Opcode.divK ||
+      Opcode.idivK ||
+      Opcode.bandK ||
+      Opcode.borK ||
+      Opcode.bxorK => _constantAt(prototype, word.c),
+      Opcode.mmBin => _metamethodName(word.c),
+      Opcode.mmBinI => '${_metamethodName(word.c)} ${word.signedB}',
+      Opcode.mmBinK =>
+        '${_metamethodName(word.c)} ${_constantAt(prototype, word.b)}',
+      Opcode.return_ => word.b == 0 ? 'all out' : '${word.b - 1} out',
+      _ => null,
+    };
+  }
+
+  String _constantAt(LuaBytecodePrototype prototype, int index) {
+    if (index < 0 || index >= prototype.constants.length) {
+      return '<invalid constant $index>';
+    }
+    return _constantValue(prototype.constants[index]);
+  }
+
+  String _metamethodName(int event) => switch (event) {
+    0 => '__index',
+    1 => '__newindex',
+    2 => '__gc',
+    3 => '__mode',
+    4 => '__len',
+    5 => '__eq',
+    6 => '__add',
+    7 => '__sub',
+    8 => '__mul',
+    9 => '__mod',
+    10 => '__pow',
+    11 => '__div',
+    12 => '__idiv',
+    13 => '__band',
+    14 => '__bor',
+    15 => '__bxor',
+    16 => '__shl',
+    17 => '__shr',
+    18 => '__unm',
+    19 => '__bnot',
+    20 => '__lt',
+    21 => '__le',
+    22 => '__concat',
+    23 => '__call',
+    24 => '__close',
+    _ => '<metamethod $event>',
+  };
 
   void _writePrototype(
     StringBuffer buffer,
@@ -143,7 +212,8 @@ final class LuaBytecodeDisassembler {
         '${(instruction.pc + 1).toString().padLeft(4, '0')} '
         '[${lineLabel.padLeft(2, ' ')}] '
         '${instruction.opcode.luaName.padRight(10)} '
-        '${instruction.operands}',
+        '${instruction.operands}'
+        '${instruction.comment == null ? '' : ' ; ${instruction.comment}'}',
       );
     }
     _writeConstants(buffer, prototype.prototype, indent: indent);
