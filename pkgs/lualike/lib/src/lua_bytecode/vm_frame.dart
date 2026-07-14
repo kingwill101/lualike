@@ -5,6 +5,7 @@ import 'package:lualike/src/exceptions.dart';
 import 'package:lualike/src/gc/gc.dart';
 import 'package:lualike/src/lua_bytecode/chunk.dart';
 import 'package:lualike/src/lua_bytecode/debug_local_caches.dart';
+import 'package:lualike/src/lua_bytecode/instruction_analysis.dart';
 import 'package:lualike/src/lua_bytecode/vm_support.dart';
 import 'package:lualike/src/lua_bytecode/vm_value_helpers.dart';
 
@@ -598,6 +599,9 @@ final class LuaBytecodeFrame implements LuaBytecodeGCRootProvider {
     for (final (:register, :endPc) in registersToClear) {
       final registerIndex = register;
       if (registerIndex >= registers.length) {
+        continue;
+      }
+      if (closure.prototype.code[currentPc].readsRegister(registerIndex)) {
         continue;
       }
       if (_toBeClosedRegisters.contains(registerIndex)) {

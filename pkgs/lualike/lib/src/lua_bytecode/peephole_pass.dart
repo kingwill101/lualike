@@ -137,7 +137,13 @@ class LuaBytecodePeepholePass {
             _isMove(next) &&
             next.b == inst.a &&
             next.a != inst.a &&
-            !_registerUsedLaterAsSource(nextIndex + 1, inst.a, result, removePcs)) {
+            !_hasIncomingControlFlow(nextIndex, result, removePcs) &&
+            !_registerUsedLaterAsSource(
+              nextIndex + 1,
+              inst.a,
+              result,
+              removePcs,
+            )) {
           result[i] = _rewriteLoadDest(inst, next.a);
           removePcs.add(nextIndex);
           i++;
@@ -177,7 +183,14 @@ class LuaBytecodePeepholePass {
             _isMove(move) &&
             move.b == inst.a &&
             move.a != inst.a &&
-            _mmBinMatchesArithmetic(inst, mm)) {
+            _mmBinMatchesArithmetic(inst, mm) &&
+            !_hasIncomingControlFlow(moveIndex, result, removePcs) &&
+            !_registerUsedLaterAsSource(
+              moveIndex + 1,
+              inst.a,
+              result,
+              removePcs,
+            )) {
           result[i] = _rewriteArithmeticDest(inst, move.a);
           // MMBIN operands are the arithmetic sources, not the dest register
           // (same as luac55). Leave [mm] unchanged.
@@ -215,6 +228,34 @@ class LuaBytecodePeepholePass {
       }
     }
     return null;
+  }
+
+  /// Whether a retained branch or loop instruction targets [targetPc].
+  ///
+  /// A targeted instruction cannot be folded away even when execution would
+  /// normally fall through the preceding instruction sequence.
+  bool _hasIncomingControlFlow(
+    int targetPc,
+    List<LuaBytecodeInstructionWord> code,
+    Set<int> removePcs,
+  ) {
+    for (var pc = 0; pc < code.length; pc++) {
+      if (removePcs.contains(pc)) {
+        continue;
+      }
+      final instruction = code[pc];
+      final target = switch (instruction.opcode) {
+        Opcode.jmp => pc + 1 + instruction.sJ,
+        Opcode.forPrep => pc + instruction.bx + 2,
+        Opcode.forLoop || Opcode.tForLoop => pc + 1 - instruction.bx,
+        Opcode.tForPrep => pc + instruction.bx + 1,
+        _ => null,
+      };
+      if (target == targetPc) {
+        return true;
+      }
+    }
+    return false;
   }
 
   bool _isJmp(LuaBytecodeInstructionWord inst) => inst.opcode == Opcode.jmp;
