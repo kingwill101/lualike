@@ -59,6 +59,9 @@ contract, official bytecode locals, and SSA safety notes).
 - [x] Harden function inlining as a disabled, conservative subset with
       operand-role remapping, caller metadata relocation, fresh registers, and
       independent per-candidate register-budget checks.
+- [x] Harden loop unrolling as a disabled, strip-debug-only subset with finite
+      numeric bounds, a conservative body whitelist, and per-iteration slot
+      reuse.
 
 ## Optional hardening
 
@@ -83,7 +86,17 @@ contract, official bytecode locals, and SSA safety notes).
   why an expansion is mechanically required and include boundary tests.
 - Prefer specialized opcodes decided in IR over VM inference.
 
-### 4. Debug metadata edge cases
+### 4. Loop-unrolling enablement
+
+- Keep `enableLoopUnrolling` false in production. Debug-preserving builds and
+  bodies containing non-local control flow, closures, nested loops, attributed
+  locals, or declarations with identity stay on the normal loop path.
+- Before considering default enablement, define a profitability policy that
+  accounts for serialized size and instruction-cache cost, represent duplicated
+  debug scopes exactly, and benchmark a broader loop corpus. The current
+  fixture runs faster but emits more instructions and bytes.
+
+### 5. Debug metadata edge cases
 
 - Add a private trailing-register extension only if a minimal non-stack local
   layout proves stack inference insufficient; there is no known failing case.

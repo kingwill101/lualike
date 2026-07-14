@@ -755,3 +755,41 @@ justify enabling the pass by itself.
 registers, caller metadata relocation, debug-preserving rejection, independent
 budget decisions, unsupported semantic shapes, emitted bytecode shape, and
 execution of the strip-debug safe subset.
+
+---
+
+## Loop unrolling remains disabled behind a strip-debug safe subset
+
+**Date:** 2026-07-14
+**Status:** Active
+
+**Context:** The existing numeric-loop unroller duplicated arbitrary loop
+bodies whenever the bounds folded to constants. It did not account for
+non-local control flow, closure identity, attributed locals, debug-visible
+lexical scopes, non-finite bounds, or registers allocated by each copied body.
+Consequently, an opt-in optimization could change semantics or grow
+`maxStackSize` linearly with the iteration count.
+
+**Decision:** Keep loop unrolling disabled in production. An explicitly
+requested transform is accepted only when debug metadata is stripped, the
+start/end/step values are finite constants with a nonzero correctly directed
+step, the iteration count is between 1 and 64, and the body belongs to a
+conservative whitelist of local assignments, expression statements,
+unattributed local declarations, conditionals, and `do` blocks.
+
+Bodies containing breaks, returns, gotos, labels, closures, nested loops,
+attributed locals, or unsupported declarations retain the ordinary loop. Each
+copied lexical scope releases all registers it allocated so subsequent copies
+reuse those slots.
+
+**Enablement gate:** Exact debug representation for duplicated scopes and a
+profitability policy covering execution time, serialized size, and register
+pressure are required before production enablement. The current loop fixture
+improved median runtime from 511,639 us to 289,341 us and reduced slots from 12
+to 9, but grew from 39 to 44 instructions and from 292 to 312 bytes.
+
+**Validation:** `test/ir/loop_unrolling_test.dart` covers debug-preserving
+rejection, ascending and descending execution, the 64-iteration boundary,
+bounded register pressure, and rejection of non-local control flow, closures,
+nested loops, and attributed locals. The complete Dart, folding, and
+three-engine compatibility gates remain green.

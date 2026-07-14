@@ -8,7 +8,7 @@ sanity check for whether we are overdoing work in our own compiler.
 
 As of 2026-07-14:
 - `./test_runner --all-engines` passes 30/30 on AST, IR, and lua-bytecode
-- `dart test` passes 1,863 tests with 3 expected skips
+- `dart test` passes 1,869 tests with 3 expected skips
 - the complete folding comparison corpus passes, including transitive bundles
 
 ## Core rule
@@ -126,6 +126,18 @@ callee debug frames are rejected.
 Do not enable it because one script emits fewer instructions. First complete
 the missing semantic remapping, compare serialized size and register pressure,
 benchmark call-heavy workloads, and rerun every verification command below.
+
+Loop unrolling also remains disabled in production. Its tested subset requires
+debug stripping, finite constant numeric bounds, at most 64 iterations, and a
+body containing only whitelisted local computation. Non-local control flow,
+closures, nested loops, attributed locals, and unsupported declarations reject
+the transform. Each copied iteration reuses its local slots.
+
+The loop fixture improved median execution from 511,639 us to 289,341 us, but
+grew from 39 to 44 instructions and from 292 to 312 serialized bytes. That is
+useful evidence for an opt-in pass, not sufficient evidence for enabling it by
+default. A profitability policy must account for runtime, bytecode size, and
+register pressure.
 
 ## What usually matters
 

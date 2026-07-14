@@ -424,11 +424,12 @@ runner's default `--skip-heavy` policy.
 
 The post-hardening validation run also passed:
 
-- `dart test`: 1,863 passed, 3 skipped, 0 failed after the lowering and inliner
-  hardening regression coverage was added.
+- `dart test`: 1,869 passed, 3 skipped, 0 failed after the lowering, inliner,
+  and loop-unrolling hardening regression coverage was added.
 - `dart analyze`: no errors or warnings; 5 pre-existing informational lints in
   fuzz and trace tooling.
-- Focused IR regression set: 239 passed, including the inliner hardening tests.
+- Focused IR regression set: 245 passed, including the inliner and loop
+  hardening tests.
 - Fresh `./test_runner --all-engines`: AST 30/30, IR 30/30, and lua-bytecode
   30/30. This run rebuilt the executable from the modified sources first.
 - `tool/compare.dart folding --disassemble`: all 23 top-level folding
@@ -449,6 +450,28 @@ control flow, varargs, multiple results, close state, nested prototypes, and
 observable debug frames still require explicit semantic support. Production
 enablement also requires benchmark evidence; correctness and a smaller local
 instruction sequence alone are not enough.
+
+### Disabled loop-unrolling audit
+
+The loop-unrolling pass now runs only when explicitly requested with debug
+metadata stripped. It requires finite constant numeric bounds, a nonzero step,
+at most 64 iterations, and a conservative body whitelist. Breaks, returns,
+gotos, labels, closures, nested loops, attributed locals, and unsupported
+declarations retain the ordinary loop. Registers allocated for each copied
+scope are released before the next copy, preventing `maxStackSize` from growing
+linearly with the iteration count.
+
+On `luascripts/folding/11_loop_bench.lua`, seven runs with the first two
+discarded produced these median results:
+
+| Shape | Instructions | Bytes | Slots | Median |
+|---|---:|---:|---:|---:|
+| Normal loop | 39 | 292 | 12 | 511,639 us |
+| Unrolled loop | 44 | 312 | 9 | 289,341 us |
+
+The runtime gain accompanies larger bytecode, so production enablement still
+requires a broader profitability policy and exact duplicated-scope debug
+semantics. The flag remains off by default.
 
 **Total:** The initial 24 optimization commits plus compatibility,
 serialization, comparison, and disassembly hardening; 0 known integration
