@@ -29,7 +29,6 @@ Future<bool> compareDisassembly(
 
   final sourcePath = sourceFile.path;
   final shortName = sourcePath.split('/').last;
-  final lualikeBin = Platform.environment['LUALIKE'] ?? './lualike';
   final luac55Bin = Platform.environment['LUAC55'] ?? _defaultLuac55;
 
   if (bundle) {
@@ -58,20 +57,21 @@ Future<bool> compareDisassembly(
   }
   io.newLine();
 
-  // ── lualike disassembly ───────────────────────────────────────
-  final ourResult = await Process.run(lualikeBin, [
-    '--disassemble',
-    sourcePath,
-  ], runInShell: true);
   io.writeln(_sectionStyle(io).render('lualike'));
-  if (ourResult.exitCode != 0) {
+  try {
+    final source = await sourceFile.readAsString();
+    final artifact =
+        CompilePipeline(
+              config: CompilePipelineConfig.luaBytecodeOptimized(),
+            ).compile(parse(source, url: sourcePath))
+            as LuaBytecodeArtifact;
+    io.writeln(
+      const LuaBytecodeDisassembler().render(artifact.chunk).trimRight(),
+    );
+  } catch (error, stackTrace) {
     succeeded = false;
-    io.error('lualike exited with ${ourResult.exitCode}.');
-    if ((ourResult.stderr as String).isNotEmpty) {
-      io.writelnErr(ourResult.stderr as String);
-    }
-  } else {
-    io.writeln(ourResult.stdout.toString().trimRight());
+    io.error('lualike disassembly failed: $error');
+    io.writelnErr(stackTrace.toString());
   }
   io.newLine();
   return succeeded;

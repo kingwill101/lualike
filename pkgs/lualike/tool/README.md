@@ -103,8 +103,9 @@ dart run tool/compare.dart folding --disassemble
 ```
 
 Directory disassembly automatically enables bundling for entrypoints with a
-static `require("module")`. `LUAC55` and `LUALIKE` override the reference
-compiler and lualike executable paths.
+static `require("module")`. `LUAC55` overrides the reference compiler path;
+lualike output is compiled in-process from the current checkout so a stale
+native executable cannot affect comparisons.
 
 ## Parser Profile Tool (`parser_profile.dart`)
 

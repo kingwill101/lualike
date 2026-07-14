@@ -338,6 +338,10 @@ now resolves K-operand values, `MMBIN*` event IDs such as `9` to `__mod`, and
 return counts from those fields. For example, an encoded `MMBINK` referencing
 constant `3` renders as `; __mod 3`, matching `luac55 -l -l`.
 
+The comparison command compiles the lualike side in-process from the current
+checkout. It does not invoke `./lualike`, because that executable can lag
+behind source changes and produce a misleading side-by-side listing.
+
 ---
 
 ## 4. Commit History (24 commits from 5b8800df)
