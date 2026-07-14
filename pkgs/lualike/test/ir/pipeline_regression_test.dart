@@ -82,6 +82,23 @@ void main() {
       );
     });
 
+    test('peephole keeps out-of-range ADDI operands in registers', () {
+      const source = '''
+local COLOR <const> = {r = 255, g = 128, b = 64}
+local function total(value)
+  return value + COLOR.r + COLOR.g + COLOR.b
+end
+return total(...)
+''';
+
+      expect(
+        () => CompilePipeline(
+          config: CompilePipelineConfig.luaBytecodeOptimized(),
+        ).compile(parse(source, url: 'large_add_immediate.lua')),
+        returnsNormally,
+      );
+    });
+
     test('TEST;TEST;JMP collapse is rejected in optimized bytecode', () {
       const src =
           'local a,b=-2,-1; if a and b then print("yes") else print("no") end';

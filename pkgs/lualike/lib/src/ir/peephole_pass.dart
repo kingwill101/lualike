@@ -21,6 +21,7 @@ import 'package:lualike/src/ir/instruction.dart';
 import 'package:lualike/src/ir/instruction_compact.dart';
 import 'package:lualike/src/ir/opcode.dart';
 import 'package:lualike/src/ir/prototype.dart';
+import 'package:lualike/src/lua_bytecode/instruction.dart';
 
 /// Applies peephole optimizations to an IR chunk after emission.
 class PeepholePass {
@@ -249,7 +250,9 @@ class PeepholePass {
       i++;
     }
 
-    // Integer fast path: ADD with LOADI operand → ADDI
+    // Integer fast path: ADD with LOADI operand -> ADDI. Lua bytecode stores
+    // ADDI's immediate as signed C, so larger LOADI values must remain in a
+    // register instead of overflowing the encoded bytecode field.
     final loadiValues = <int, int>{};
     for (var j = 0; j < result.length; j++) {
       if (removePcs.contains(j)) {
@@ -264,6 +267,10 @@ class PeepholePass {
         if (inst.opcode == LualikeIrOpcode.add &&
             loadiValues.containsKey(inst.c)) {
           final val = loadiValues[inst.c]!;
+          if (!LuaBytecodeInstructionLayout.fitsSignedArgC(val)) {
+            loadiValues.remove(inst.a);
+            continue;
+          }
           result[j] = ABCInstruction(
             opcode: LualikeIrOpcode.addI,
             a: inst.a,

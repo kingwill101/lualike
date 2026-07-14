@@ -43,7 +43,21 @@ abstract final class LuaBytecodeInstructionLayout {
   static const int offsetSJ = maxArgSJ >> 1;
   static const int offsetSC = maxArgC >> 1;
   static const int offsetSB = maxArgB >> 1;
+
+  /// Lowest signed immediate represented by the offset-encoded C field.
+  ///
+  /// The eight-bit field uses [offsetSC] as its zero point, yielding the
+  /// intentionally asymmetric inclusive range `-127..128`.
+  static const int minSignedArgC = -offsetSC;
+
+  /// Highest signed immediate represented by the offset-encoded C field.
+  static const int maxSignedArgC = maxArgC - offsetSC;
+
   static const int wordMask = 0xffffffff;
+
+  /// Whether [value] can be encoded as a signed C-field immediate.
+  static bool fitsSignedArgC(int value) =>
+      value >= minSignedArgC && value <= maxSignedArgC;
 }
 
 extension type const LuaBytecodeInstructionWord(int value) {

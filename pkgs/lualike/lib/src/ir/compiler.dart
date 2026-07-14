@@ -3181,13 +3181,10 @@ class _PrototypeContext {
       }
     }
 
-    // Prefer ADDI (luac55) for small integer + immediates before ADDK.
-    // sC is signed 8-bit: [-offsetSC, maxArgC - offsetSC].
+    // Prefer ADDI (luac55) for encodable integer immediates before ADDK.
     if (literalInfo.isLiteral && literalValue is int && node.op == '+') {
       final imm = literalValue;
-      const offsetSc = 127; // mirrors LuaBytecodeInstructionLayout.offsetSC
-      const maxSc = 255 - offsetSc; // 128
-      if (imm >= -offsetSc && imm <= maxSc) {
+      if (LuaBytecodeInstructionLayout.fitsSignedArgC(imm)) {
         emitter.emitABC(
           opcode: LualikeIrOpcode.addI,
           a: leftReg,
@@ -3207,9 +3204,7 @@ class _PrototypeContext {
     // `x - n` as SUBI with n when it fits (lowered to ADDI + __sub event).
     if (literalInfo.isLiteral && literalValue is int && node.op == '-') {
       final imm = literalValue;
-      const offsetSc = 127;
-      const maxSc = 255 - offsetSc;
-      if (imm >= -offsetSc && imm <= maxSc) {
+      if (LuaBytecodeInstructionLayout.fitsSignedArgC(imm)) {
         emitter.emitABC(
           opcode: LualikeIrOpcode.subI,
           a: leftReg,
