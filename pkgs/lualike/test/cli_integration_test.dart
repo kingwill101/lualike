@@ -155,8 +155,8 @@ void main() {
 
       final result = await _lualike(['--ir', '--dump-ir', lua.path]);
       expect(result.exitCode, equals(0));
-      expect(result.stderr, contains('LOADI'));
-      expect(result.stderr, contains('RETURN'));
+      expect(result.stdout, contains('LOADI'));
+      expect(result.stdout, contains('RETURN'));
     }, timeout: Timeout.factor(4));
   });
 
@@ -184,21 +184,23 @@ void main() {
   });
 
   group('cross-compatibility with luac55', () {
-    String? _luac55;
+    String? luac55Binary;
 
     setUpAll(() async {
       try {
-        _luac55 = await _resolveLuac55Binary();
+        luac55Binary = await _resolveLuac55Binary();
       } catch (_) {
-        _luac55 = null;
+        luac55Binary = null;
       }
     });
 
     test('luac55 bytecode runs in lualike VM', () async {
-      final luac55 = _luac55;
+      final luac55 = luac55Binary;
       if (luac55 == null) {
-        markTestSkipped('luac55 binary not available; set LUAC55 env var or '
-            'allow the one-time download');
+        markTestSkipped(
+          'luac55 binary not available; set LUAC55 env var or '
+          'allow the one-time download',
+        );
         return;
       }
 
@@ -249,7 +251,9 @@ Future<String> _resolveLuac55Binary() async {
     return resolvedPath;
   }
 
-  throw StateError('Failed to resolve a luac55 binary (tried env var, cache, and download)');
+  throw StateError(
+    'Failed to resolve a luac55 binary (tried env var, cache, and download)',
+  );
 }
 
 /// Prior to running this test, download a luac55 binary and place it in one of:
@@ -284,9 +288,7 @@ Directory _pickLuacCacheDir() {
   if (workspaceCache.existsSync()) return workspaceCache;
 
   // Finally, system temp.
-  return Directory(
-    p.join(Directory.systemTemp.path, 'lualike_luac55_cache'),
-  );
+  return Directory(p.join(Directory.systemTemp.path, 'lualike_luac55_cache'));
 }
 
 /// Returns the package root directory by walking up from cwd.
