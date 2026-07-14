@@ -793,3 +793,32 @@ rejection, ascending and descending execution, the 64-iteration boundary,
 bounded register pressure, and rejection of non-local control flow, closures,
 nested loops, and attributed locals. The complete Dart, folding, and
 three-engine compatibility gates remain green.
+
+---
+
+## Metatable folding is an analysis-only extension point
+
+**Date:** 2026-07-14
+**Status:** Active
+
+**Context:** The metatable pass appeared to recognize
+`setmetatable(constantTable, constantMetatable)`, but it ran before constant
+folding and therefore had no folding result to inspect. Moving it later would
+expose a deeper correctness problem: its annotation replaced the call's value
+with an AST node and assumed the identifier resolved to the global builtin.
+
+Tables and metatables are mutable identity values. `setmetatable` can be
+shadowed, aliases can escape, and mutation can change `__index`, arithmetic,
+comparison, call, close, weak-reference, or finalizer behavior after the
+original call.
+
+**Decision:** Retain `enableMetatableFolding` for configuration compatibility,
+but make `MetatableFoldingPass` explicitly behavior-neutral. Enabling the flag
+must not mark `setmetatable` calls constant or rewrite later operations. Do not
+enable a transform until lexical binding resolution, alias/escape analysis,
+identity, mutation epochs, and operation-time metamethod lookup are modeled.
+
+**Validation:** `test/ir/metatable_folding_test.dart` verifies that the call is
+not entered into the constant map and executes oracle cases for a shadowed
+`setmetatable`, late `__index` and `__add` mutation, and table/metatable
+identity through the bytecode engine.

@@ -8,7 +8,7 @@ sanity check for whether we are overdoing work in our own compiler.
 
 As of 2026-07-14:
 - `./test_runner --all-engines` passes 30/30 on AST, IR, and lua-bytecode
-- `dart test` passes 1,869 tests with 3 expected skips
+- `dart test` passes 1,872 tests with 3 expected skips
 - the complete folding comparison corpus passes, including transitive bundles
 
 ## Core rule
@@ -138,6 +138,13 @@ grew from 39 to 44 instructions and from 292 to 312 serialized bytes. That is
 useful evidence for an opt-in pass, not sufficient evidence for enabling it by
 default. A profitability policy must account for runtime, bytecode size, and
 register pressure.
+
+Metatable folding has no enabled transform, including when its experimental
+configuration flag is requested. This is deliberate: `setmetatable` can be
+shadowed, tables and metatables have observable identity, and later mutation
+changes metamethod lookup. Do not reorder the placeholder pass after constant
+folding or annotate `setmetatable` as a constant. A future implementation needs
+binding, alias, mutation, and identity analysis plus metamethod oracle tests.
 
 ## What usually matters
 

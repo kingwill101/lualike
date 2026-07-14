@@ -62,6 +62,9 @@ contract, official bytecode locals, and SSA safety notes).
 - [x] Harden loop unrolling as a disabled, strip-debug-only subset with finite
       numeric bounds, a conservative body whitelist, and per-iteration slot
       reuse.
+- [x] Make metatable folding an explicit analysis-only extension point; the
+      opt-in flag cannot annotate `setmetatable` calls or change runtime
+      semantics until identity and mutation are modeled.
 
 ## Optional hardening
 
@@ -96,7 +99,16 @@ contract, official bytecode locals, and SSA safety notes).
   debug scopes exactly, and benchmark a broader loop corpus. The current
   fixture runs faster but emits more instructions and bytes.
 
-### 5. Debug metadata edge cases
+### 5. Metatable-folding enablement
+
+- Keep `enableMetatableFolding` behavior-neutral until analysis models lexical
+  binding resolution, table/metatable aliases and identity, mutation epochs,
+  and metamethod lookup at each operation.
+- Require oracle coverage for shadowed `setmetatable`, protected metatables,
+  all foldable metamethod families, weak/finalizer metatables, and mutation
+  across calls before introducing even a narrow transform.
+
+### 6. Debug metadata edge cases
 
 - Add a private trailing-register extension only if a minimal non-stack local
   layout proves stack inference insufficient; there is no known failing case.

@@ -424,12 +424,12 @@ runner's default `--skip-heavy` policy.
 
 The post-hardening validation run also passed:
 
-- `dart test`: 1,869 passed, 3 skipped, 0 failed after the lowering, inliner,
-  and loop-unrolling hardening regression coverage was added.
+- `dart test`: 1,872 passed, 3 skipped, 0 failed after the lowering, inliner,
+  loop-unrolling, and metatable safety regression coverage was added.
 - `dart analyze`: no errors or warnings; 5 pre-existing informational lints in
   fuzz and trace tooling.
-- Focused IR regression set: 245 passed, including the inliner and loop
-  hardening tests.
+- Focused IR regression set: 248 passed, including the inliner, loop, and
+  metatable safety tests.
 - Fresh `./test_runner --all-engines`: AST 30/30, IR 30/30, and lua-bytecode
   30/30. This run rebuilt the executable from the modified sources first.
 - `tool/compare.dart folding --disassemble`: all 23 top-level folding
@@ -472,6 +472,22 @@ discarded produced these median results:
 The runtime gain accompanies larger bytecode, so production enablement still
 requires a broader profitability policy and exact duplicated-scope debug
 semantics. The flag remains off by default.
+
+### Metatable folding remains analysis-only
+
+The metatable pass previously appeared to recognize constant
+`setmetatable(table, mt)` calls, but pipeline order made it return before a
+folding result existed. Reordering it would not have made the transform sound:
+the proposed annotation replaced the call value with an AST node and ignored
+shadowed bindings, table identity, aliases, later metatable mutation, and
+operation-time metamethod lookup.
+
+The pass is now an explicit behavior-neutral extension point. Its configuration
+flag remains source-compatible, but enabling it cannot annotate or rewrite the
+program. Regression tests execute the bytecode path and preserve shadowed-call
+side effects, late `__index` and `__add` mutation, and table/metatable identity.
+Any future transform requires a real binding, alias, mutation, and identity
+model plus broader metamethod oracle coverage.
 
 **Total:** The initial 24 optimization commits plus compatibility,
 serialization, comparison, and disassembly hardening; 0 known integration
