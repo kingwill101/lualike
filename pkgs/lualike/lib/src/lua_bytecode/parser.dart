@@ -1,4 +1,4 @@
-/// Binary parser for official Lua 5.4-style chunks and lualike-serialized ones.
+/// Binary parser for official Lua 5.5 chunks and lualike-serialized ones.
 ///
 /// After reading prototypes, local debug entries are post-processed with
 /// [prototypeWithInferredLocalRegisters] because the official format does not

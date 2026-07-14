@@ -63,7 +63,8 @@ For the optimization / disassembly / test workflow, see
 
 ### Cross-compatibility
 
-The bytecode format is fully compatible with Lua 5.5:
+Lualike reads official Lua 5.5 binary chunks and emits the Lua 5.5 chunk format
+for the language features covered by the compatibility suite:
 
 ```sh
 # lualike binary chunk → official Lua 5.5
@@ -74,6 +75,9 @@ lua55 script.out
 luac55 -o script.out script.lua
 lualike script.out
 ```
+
+This is an interoperability target, not a claim that every possible chunk from
+every Lua 5.5 build or platform has been validated.
 
 ## What this package exposes
 

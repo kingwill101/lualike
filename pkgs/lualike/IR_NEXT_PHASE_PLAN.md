@@ -1,11 +1,15 @@
-# IR Next-Phase Plan
+# IR Hardening Backlog
 
 ## Context
 
-We want the IR layer to be the optimization boundary and the bytecode VM to stay
-thin. SSA and the fold pipeline exist; the remaining work is making the
-IR→bytecode **contract** register-safe and debug-correct so `--lua-bytecode
---fold` / `--compile` can stay on the full pipeline by default.
+The IR layer is now the optimization boundary and the bytecode VM remains a
+thin executor. The IR-to-bytecode contract is register-safe and debug-correct
+for the current compatibility and Dart test suites. The production
+`--lua-bytecode` and `--compile` paths use the full optimized pipeline by
+default.
+
+This file tracks optional hardening and follow-up work. Its unchecked items are
+not prerequisites for the current production pipeline.
 
 Authoritative decisions: [`doc/decisions.md`](../../doc/decisions.md) (IR
 contract, official bytecode locals, and SSA safety notes).
@@ -17,7 +21,7 @@ contract, official bytecode locals, and SSA safety notes).
 3. VM stays thin: dispatch, registers, explicit slow paths.
 4. Debug metadata must survive serialize → parse → execute.
 
-## Done (2026-07-12)
+## Completed baseline (through 2026-07-14)
 
 - [x] Document IR contract (optimize → lower mechanically → execute thinly).
 - [x] Infer local registers after parse (`inferLocalRegisters`).
@@ -42,14 +46,18 @@ contract, official bytecode locals, and SSA safety notes).
 - [x] Full soft-mode suite green under default IR+SSA `--lua-bytecode`.
 - [x] Precompiled binary: header sniff only (no extension); direct VM path
       in CLI; `--compile` requires `-o`.
+- [x] Property-based fuzz coverage for deep expressions, large parameter lists,
+      many locals, and register-budget validation (`test/fuzz_test.dart`).
+- [x] Full compatibility gate: 30/30 on AST, IR, and lua-bytecode.
 
-## Remaining work
+## Optional hardening
 
-### 1. Keep SSA safer under stress
+### 1. Transform-specific register budgets
 
-- Fuzz / large prototypes that approach the 253-register budget.
-- Loud failure is in place; ensure escape/inline never allocate past budget
-  without skipping the transform (escape already skips when over budget).
+- Escape analysis already skips scalar replacement when it cannot stay within
+  the budget. Before enabling IR function inlining in the production config,
+  make that pass skip an individual inline candidate instead of relying on the
+  final budget validator to reject the prototype.
 
 ### 2. Make lowering even more mechanical
 
@@ -58,8 +66,8 @@ contract, official bytecode locals, and SSA safety notes).
 
 ### 3. Debug metadata edge cases
 
-- Consider private trailing register extension on serialize if stack
-  inference is insufficient for non-stack local layouts.
+- Add a private trailing-register extension only if a minimal non-stack local
+  layout proves stack inference insufficient; there is no known failing case.
 - Broader `getinfo` / upvalue-name oracle tests beyond suite pass.
 
 ## Key files
@@ -77,6 +85,7 @@ contract, official bytecode locals, and SSA safety notes).
 ```sh
 dart analyze
 dart test test/lua_bytecode/local_register_inference_test.dart
-# Optional broader:
-dart run bin/main.dart --lua-bytecode --fold -e 'local a=10; print(debug.getlocal(1,1))'
+dart test
+./test_runner --all-engines
+dart run tool/compare.dart folding --disassemble
 ```

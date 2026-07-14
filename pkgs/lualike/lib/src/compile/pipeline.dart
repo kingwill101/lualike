@@ -180,7 +180,7 @@ final class CompilePipelineConfig {
 
 /// Which bytecode backend to target.
 enum CompileBackend {
-  /// Lua 5.4 compatible bytecode.
+  /// Lua 5.5 compatible bytecode.
   luaBytecode,
 
   /// Lualike custom IR format.
@@ -218,9 +218,9 @@ final class LualikeIrArtifact extends CompileArtifact {
   });
 }
 
-/// A Lua 5.4 binary chunk produced by [CompilePipeline].
+/// A Lua 5.5 binary chunk produced by [CompilePipeline].
 final class LuaBytecodeArtifact extends CompileArtifact {
-  /// The compiled Lua 5.4 chunk.
+  /// The compiled Lua 5.5 chunk.
   final LuaBytecodeBinaryChunk chunk;
 
   @override
@@ -242,7 +242,7 @@ final class LuaBytecodeArtifact extends CompileArtifact {
 ///
 /// ```
 /// Source → Parser → AST passes → [LualikeIrCompiler] → SSA passes
-///        → mechanical lowering → Lua 5.4 bytecode
+///        → mechanical lowering → Lua 5.5 bytecode
 /// ```
 ///
 /// Each pass consumes the results of the previous pass. AST passes annotate or
@@ -338,7 +338,7 @@ final class CompilePipeline {
       ssaDisassembly = formatLualikeIrSsaFunction(ssa);
     }
 
-    // Phase 3: Mechanical lower of finalized IR → Lua 5.4 bytecode.
+    // Phase 3: Mechanical lower of finalized IR → Lua 5.5 bytecode.
     // No new optimization decisions belong here (see doc/decisions.md).
     if (config.target == CompileBackend.luaBytecode) {
       var luaChunk = lowerIrChunkToLuaBytecodeChunk(irChunk);

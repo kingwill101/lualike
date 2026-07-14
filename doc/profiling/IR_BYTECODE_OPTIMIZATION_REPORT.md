@@ -17,7 +17,11 @@ a thin executor.
 
 ### 1.1 Instruction-Density Parity with luac55 (the core win)
 
-The lowering now produces bytecode of equal or better density than the official Lua 5.5 compiler (`luac55`) across 22 comparison scripts covering arithmetic, tables, calls, varargs, closures, loops, boolean logic, strings, tail calls, coroutines, to-be-closed variables, upvalues, floating-point, bitwise operations, locals, globals, lexical scoping, `_ENV` manipulation, global declarations, and const locals.
+The lowering now produces bytecode of equal or better density than the official
+Lua 5.5 compiler (`luac55`) across the 15 directly comparable benchmarks. The
+23 tracked comparison entrypoints additionally cover locals, globals, lexical
+scoping, `_ENV` manipulation, global declarations, const locals, and a bundled
+module graph.
 
 15 comparable benchmarks — all at or below luac55:
 
@@ -205,7 +209,7 @@ small step requires more calls than a large step in both optimized engines.
 
 **Bug:** Returning the successful searcher result as a raw Dart list made
 single-value contexts observe the wrong shape. Returning only the module fixed
-that case but broke Lua 5.4's second `require` result and discarded custom
+that case but broke the Lua 5.4/5.5 second `require` result and discarded custom
 searcher loader data.
 
 **Fix:** Successful `require` calls return
@@ -403,7 +407,7 @@ The post-hardening validation run also passed:
   cross-compatibility.
 - Fresh `./test_runner --all-engines`: AST 30/30, IR 30/30, and lua-bytecode
   30/30. This run rebuilt the executable from the modified sources first.
-- `tool/compare.dart folding --disassemble`: all 22 top-level folding
+- `tool/compare.dart folding --disassemble`: all 23 top-level folding
   fixtures passed, including the three-source transitive bundle; stderr was
   empty.
 

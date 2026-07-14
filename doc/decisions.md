@@ -78,7 +78,7 @@ Non‑scalar results (tables, closures, strings) still take the cached path.
 
 ## Boxing elimination via `isRawPrimitive` flag (vs. storage‑type change)
 
-**Date:** 2026‑06‑??  
+**Recorded:** 2026-07-11
 **Status:** Active  
 
 Several attempts to eliminate `Value` boxing for primitives at the
@@ -100,13 +100,15 @@ the tracing overhead.
 
 ## SSA passes enabled by default on bytecode path, off on IR path
 
-**Date:** 2026‑06‑??  
+**Recorded:** 2026-07-11
 **Status:** Active  
 
-All seven SSA optimisation passes (DCE, GVN, SCCP, LICM, register
-coalescing, escape analysis, scalar replacement) run on the lua‑bytecode
-pipeline. They are gated off on the IR path because the IR VM cannot
-handle post‑SSA instruction patterns.
+The production lua-bytecode pipeline enables six SSA optimization stages: DCE,
+GVN, SCCP, LICM, register coalescing, and escape analysis with scalar
+replacement. Scalar replacement is part of the escape stage, not a separate
+seventh pass. The IR function-inlining pass exists but is not enabled in the
+production configuration. These stages are gated off on the pure IR path
+because the IR VM cannot handle every post-SSA instruction pattern.
 
 ---
 
@@ -210,7 +212,7 @@ stream contract.
 
 ## State restoration only for entry frames / suspended coroutines / debug hooks
 
-**Date:** 2026‑06‑??  
+**Recorded:** 2026-07-11
 **Status:** Active  
 
 The caller environment and script path are restored only for entry frames,
@@ -222,7 +224,7 @@ anyway.
 
 ## Table inline cache uses `Object.hash` instead of XOR
 
-**Date:** 2026‑06‑??  
+**Recorded:** 2026-07-11
 **Status:** Active  
 
 The inline‑cache version uses `Object.hash(instructionPc, word.c)` instead
@@ -233,7 +235,7 @@ A per‑storage `Expando` with `icVersion` drives invalidation.
 
 ## Stackless coroutines — reverted
 
-**Date:** 2026‑07‑??  
+**Recorded:** 2026-07-11
 **Status:** Superseded  
 
 A stackless coroutine implementation compacted the frame on every
@@ -244,34 +246,24 @@ immutable register storage.
 
 ---
 
-## IR compiler register allocation: temp-heavy binary expressions
+## Binary expressions emit directly into safe target registers
 
 **Date:** 2026‑07‑13  
-**Status:** Known inefficiency; accepted for now  
+**Status:** Active; supersedes the temp-heavy allocation limitation
 
-**Context:** The IR compiler's `_emitBinaryExpression` always copies
-both operands to temporary registers before computing, even for simple
-`local a, b; return a + b`. This produces extra MOVE instructions that
-the SSA coalescer can eliminate for straight-line code but not across
-loop-carried register redefinitions.
+**Context:** The IR compiler previously copied both operands to temporary
+registers before every binary operation. In loop-carried expressions such as
+`sum = sum + i`, coalescing could not reliably eliminate the complete
+`MOVE`/`ADD`/`MOVE` sequence.
 
-**Impact:** The `06_loops.lua` benchmark (`sum = sum + i`) emits:
-```
-MOVE tmp1, sum     ; copy left  operand
-MOVE tmp2, i       ; copy right operand
-ADD  tmp1, tmp1, tmp2
-MOVE sum, tmp1     ; copy result back
-```
-vs luac55's:
-```
-ADD sum, sum, i
-```
+**Decision:** Pass the final assignment or return target into binary-expression
+emission when writing there cannot clobber an operand. Read simple local
+operands from their binding registers and allocate a temporary only when the
+expression shape requires one.
 
-A fix would require the binary emitter to read directly from the
-source registers when they are simple locals and no intervening write
-clobbers them. This is a register-allocation/coalescing improvement
-that should be done at the SSA level rather than by special-casing in
-the IR compiler.
+**Result:** The numeric loop body in `06_loops.lua` now emits the direct `ADD`
+shape used by luac55. The complete script is at instruction-count parity
+(`25` versus `25`).
 
 ---
 
@@ -427,8 +419,10 @@ local for `debug.getlocal`).
 **Regression tests:**
 `test/lua_bytecode/local_register_inference_test.dart`
 
-**Still open:** optional private serialize extension if stack inference is ever
-insufficient for non-stack local layouts.
+**Deferred safeguard:** A private serialized-register extension is not part of
+the current format and is not required by known programs. Add one only if a
+minimal non-stack local-layout repro demonstrates that stack inference is
+insufficient.
 
 ---
 
@@ -481,8 +475,9 @@ SETFIELD with k=true (value as Kst constant index) instead of emitting
 LOADI + SETFIELD with a register value.  This eliminated the last
 remaining gaps in `table` and `loops`.
 
-**Remaining:** float (+2) — from `nan ~= nan` not-equal comparison
-pattern that emits an extra NOT instruction.
+**Resolved comparison gap:** Explicit compare polarity removed the extra
+`EQ`/`NOT` shape for `nan ~= nan`; `15_float.lua` now matches luac55 at 27
+instructions.
 
 ---
 
@@ -503,8 +498,10 @@ lookup that SROA cannot rewrite. This intentionally gives up an optimization
 rather than changing table identity or leaving an observer pointed at a
 removed allocation.
 
-**Future work:** Track equivalent table registers and rewrite every alias as a
-single scalar object. Until then, the conservative escape rule is mandatory.
+**Deferred optimization:** Alias-aware scalar replacement could recover this
+optimization later, but it is not required for correctness. Until such a pass
+rewrites every alias as one scalar object, the conservative escape rule is
+mandatory.
 
 **Validation:** `test/ir/ssa_escape_pass_test.dart` covers moved tables, child
 captures, and local environment tables consumed by `CHECKGLOBAL`; the
@@ -581,8 +578,9 @@ large steps for the same workload.
 **Date:** 2026-07-13
 **Status:** Active
 
-**Context:** Lua 5.4 searchers return a loader plus loader data. `require`
-passes both values to the loader and returns the loaded module plus loader data.
+**Context:** Lua 5.4 and 5.5 searchers return a loader plus loader data.
+`require` passes both values to the loader and returns the loaded module plus
+loader data.
 A raw Dart list does not model Lua multi-return behavior: single-value contexts
 can observe the list itself instead of its first element.
 
