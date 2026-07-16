@@ -24,7 +24,10 @@ export 'src/ir/register_budget.dart';
 export 'src/ir/runtime.dart';
 export 'src/ir/serialization.dart';
 export 'src/ir/ssa.dart';
+export 'src/ir/ssa_type_analysis.dart';
 export 'src/ir/textual_formatter.dart';
+export 'src/ir/llvm_lowering.dart';
+export 'src/ir/dart_lowering.dart';
 
 /// Builds a simplified SSA view for a compiled IR prototype.
 ///

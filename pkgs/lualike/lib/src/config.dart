@@ -37,4 +37,10 @@ class LuaLikeConfig {
   /// ([CompilePipelineConfig.luaBytecodeOptimized]); this flag only gates
   /// the pure IR backend path. Use `--fold` for IR-mode experiments.
   bool foldEnabled = false;
+
+  /// When true, emit LLVM IR from the IR chunk and exit without executing.
+  bool emitLlvm = false;
+
+  /// When true, emit Dart source from the IR chunk and exit without executing.
+  bool emitDart = false;
 }
