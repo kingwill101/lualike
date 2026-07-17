@@ -1,21 +1,53 @@
 set shell := ["zsh", "-cu"]
 
+# Build and run the CLI with arbitrary arguments.
+# Usage: just lualike --ir --emit-llvm -e "1+2"
+lualike *args:
+    dart build cli --target=bin/main.dart --verbosity=error
+    ./build/cli/linux_x64/bundle/bin/main {{ args }}
 
+# Build a standalone CLI binary for testing.
+compile:
+    dart build cli --target=bin/main.dart
+
+# Run luascripts/compare/*.lua through the LLVM pipeline and validate with
+# llc.  Only tests scripts in the compilable subset.  Uses existing CLI
+# binary — run `just compile` first if needed.
+#   just check-all          — all compilable scripts
+#   just check-all 01_arith — only 01_arith*
+check-all *name="":
+    -zsh tool/check_llvm_all.sh {{name}}
+
+# Run a snippet with the AST interpreter and debug output.
 run +ARG:
-  dart run bin/main.dart --debug -e "{{ARG}}"
+    dart run bin/main.dart --debug -e "{{ARG}}"
 
+# Run a snippet with the AST interpreter.
 check +ARG:
-  dart run bin/main.dart -e "{{ARG}}"
+    dart run bin/main.dart -e "{{ARG}}"
 
+# Compare IR output with reference Lua.
 compare *ARG='':
     dart run tool/compare.dart {{ARG}}
 
-compile:
-    dart compile exe --output lualike bin/main.dart
+# Compile a Lua script to native code via the Dart AOT backend.
+# Usage: just aot script.lua [output]
+#   1. Generates Dart source from Lua
+#   2. Compiles with dart compile exe
+#   3. Runs the result
+aot *args:
+    zsh tool/aot_compile.sh {{args}}
 
+# Compile a Lua script to native via the LLVM pipeline.
+# Usage: just native script.lua [output]
+native *args:
+    zsh tool/compile_to_native.sh {{args}}
+
+# Build and drop into a REPL.
 repl: compile
-    ./lualike
+    ./build/cli/linux_x64/bundle/bin/main
 
+# Run integration tests via compiled test runner.
 tool-test *ARG='':
     # Ensure compiled test runner exists
     if [ ! -x test_runner ]; then \
@@ -25,43 +57,6 @@ tool-test *ARG='':
     # Run tests using compiled runner and binary
     ./test_runner {{ARG}}
 
-# Compile the standalone test runner binary
+# Compile the standalone test runner binary.
 test-tool-compile:
     dart compile exe tool/test.dart -o test_runner
-
-# Run integration tests with default options
-integrate *ARG='':
-    dart run tool/integration.dart {{ARG}}
-
-# Run integration tests with verbose output
-integrate-verbose *ARG='':
-    dart run tool/integration.dart {{ARG}} --verbose
-
-# Run integration tests in parallel
-integrate-parallel *ARG='':
-    dart run tool/integration.dart {{ARG}} --parallel
-
-# Run integration tests for a specific category
-integrate-category CATEGORY *ARG='':
-    dart run tool/integration.dart {{ARG}} --category {{CATEGORY}}
-
-# List available test categories
-list-categories:
-    dart run tool/integration.dart --list-categories
-
-# Run integration tests with a filter pattern
-integrate-filter PATTERN *ARG='':
-    dart run tool/integration.dart {{ARG}} --filter "{{PATTERN}}"
-
-file +ARG:
-    dart run bin/main.dart {{ARG}}
-
-example +ARG:
-    dart run example/{{ARG}}.dart
-
-# Build web playground and docs viewer
-webdedev:
-    dart run build_runner build --delete-conflicting-outputs
-
-download-luasuite:
-     dart tool/test.dart --download-suite --force

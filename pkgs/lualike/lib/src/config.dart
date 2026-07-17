@@ -44,4 +44,11 @@ class LuaLikeConfig {
   /// corrupt memory or terminate the process. Embedders should enable it only
   /// for trusted scripts.
   bool allowFfi = false;
+
+  /// When true, emit LLVM IR from the IR chunk and exit without executing.
+  bool emitLlvm = false;
+
+  /// When true, emit Dart source from the IR chunk and exit without executing.
+  bool emitDart = false;
+
 }

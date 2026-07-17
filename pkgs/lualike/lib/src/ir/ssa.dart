@@ -1063,6 +1063,7 @@ Set<int> _definedRegistersForInstruction(
     ) =>
       single(a),
     ABCInstruction(opcode: LualikeIrOpcode.forLoop, a: final a) => range(a, 4),
+    AsBxInstruction(opcode: LualikeIrOpcode.forLoop, a: final a) => range(a, 4),
     AsBxInstruction(opcode: LualikeIrOpcode.forPrep, a: final a) => range(a, 4),
     ABCInstruction(opcode: LualikeIrOpcode.tForCall, a: final a, c: final c) =>
       range(a + 3, c + 1),

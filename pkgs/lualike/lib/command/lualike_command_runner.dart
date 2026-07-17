@@ -66,6 +66,20 @@ class LuaLikeCommandRunner extends CommandRunner {
         defaultsTo: false,
       )
       ..addFlag(
+        'emit-llvm',
+        help:
+            'Emit LLVM IR from the IR pipeline and exit without executing',
+        negatable: false,
+        defaultsTo: false,
+      )
+      ..addFlag(
+        'emit-dart',
+        help:
+            'Emit Dart source from the IR pipeline and exit without executing',
+        negatable: false,
+        defaultsTo: false,
+      )
+      ..addFlag(
         'disassemble',
         help:
             'Print bytecode disassembly and exit without executing'
@@ -210,6 +224,8 @@ class LuaLikeCommandRunner extends CommandRunner {
       config.defaultEngineMode = EngineMode.ast;
     }
     config.dumpIr = argResults['dump-ir'] as bool;
+    config.emitLlvm = argResults['emit-llvm'] as bool;
+    config.emitDart = argResults['emit-dart'] as bool;
     config.foldEnabled = argResults['fold'] as bool;
     config.allowFfi = argResults['allow-ffi'] as bool;
 
