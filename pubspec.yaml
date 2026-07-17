@@ -10,3 +10,4 @@ workspace:
   - pkgs/flutter_lualike
   - pkgs/process_lualike
   - pkgs/lualike_hooks
+  - pkgs/lualike_ffi

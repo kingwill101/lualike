@@ -11,6 +11,7 @@ import 'lib_coroutine.dart';
 import 'lib_crypto.dart';
 import 'lib_dart_string.dart';
 import 'lib_debug.dart';
+import 'lib_ffi.dart';
 import 'lib_io.dart';
 import 'lib_logging.dart';
 import 'lib_math.dart';
@@ -34,6 +35,7 @@ void initializeStandardLibrary({required LuaRuntime vm}) {
 
   registry.register(BaseLibrary());
   registry.register(DebugLibrary());
+  registry.register(FfiLibrary());
   registry.register(MathLibrary());
   registry.register(TableLibrary());
   registry.register(IOLibrary());

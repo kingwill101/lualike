@@ -822,3 +822,36 @@ identity, mutation epochs, and operation-time metamethod lookup are modeled.
 not entered into the constant map and executes oracle cases for a shadowed
 `setmetatable`, late `__index` and `__add` mutation, and table/metatable
 identity through the bytecode engine.
+
+---
+
+## Runtime-declared FFI uses a separate native package and an explicit capability
+
+**Date:** 2026-07-14
+**Status:** Active
+
+**Context:** Scripts need to load ordinary C shared libraries and bind symbols
+whose signatures are known only at runtime. Dart's direct native calls require
+statically typed signatures, while putting a native bridge in the interpreter
+package would couple every runtime target to the native toolchain. This feature
+is distinct from `package.loadlib`, which expects the Lua C module ABI.
+
+**Decision:** Keep the libffi bridge, generated bindings, and native build hook
+in the separate `lualike_ffi` package. That package has no dependency on the
+interpreter. The `lualike` package adapts its host API into `require("ffi")` so
+AST, IR, and bytecode execution share one implementation.
+
+FFI is disabled by default and CLI callers must pass `--allow-ffi`. The first
+ABI supports primitive integers, floats, booleans, opaque pointers, and UTF-8
+strings. It excludes structs, callbacks, variadic calls, and arbitrary memory
+access. Closing a library invalidates every function bound from it.
+
+`ffi.load` and `ffi.open` load ordinary shared libraries. They do not change
+`package.loadlib` or claim compatibility with modules that accept a
+`lua_State*` and export `luaopen_*`.
+
+**Validation:** `pkgs/lualike_ffi/test/ffi_host_test.dart` calls real libc
+symbols through runtime signatures and checks lifetime invalidation.
+`pkgs/lualike/test/stdlib/ffi_test.dart` exercises both Lua API forms under all
+three engines and verifies the capability, missing-symbol, and closed-handle
+errors.

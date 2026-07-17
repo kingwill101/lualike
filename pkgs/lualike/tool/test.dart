@@ -249,14 +249,29 @@ Future<void> _compileTestRunner(String? dartPath) async {
   console.writeln('');
 
   final currentDir = Directory.current.path;
-  final testRunnerPath = path.join(currentDir, 'tool', 'test.dart');
   final outputPath = path.join(currentDir, getExecutableName('test_runner'));
+  final bundleOutput = path.join(
+    currentDir,
+    '.build_cache',
+    'test_runner_native',
+  );
+  final bundledExecutable = path.join(
+    bundleOutput,
+    'bundle',
+    'bin',
+    getExecutableName('test_runner'),
+  );
 
   try {
     // Remove existing executable if it exists
-    final outputFile = File(outputPath);
-    if (outputFile.existsSync()) {
-      outputFile.deleteSync();
+    final outputType = FileSystemEntity.typeSync(
+      outputPath,
+      followLinks: false,
+    );
+    if (outputType == FileSystemEntityType.link) {
+      Link(outputPath).deleteSync();
+    } else if (outputType != FileSystemEntityType.notFound) {
+      File(outputPath).deleteSync();
     }
 
     // Get the absolute path to the dart executable
@@ -267,28 +282,31 @@ Future<void> _compileTestRunner(String? dartPath) async {
     );
     console.writeln(dartExecutablePath);
 
-    // Compile the test runner with define to inject the dart path
+    // Build a complete CLI bundle so native assets remain next to the runner.
     final result = await Process.run(dartExecutablePath, [
-      'compile',
-      'exe',
       '-DDART_EXECUTABLE_PATH=$dartExecutablePath',
+      'build',
+      'cli',
       '--output',
-      outputPath,
-      testRunnerPath,
+      bundleOutput,
+      '--target',
+      path.join('bin', 'test_runner.dart'),
+      '--verbosity',
+      'warning',
     ]);
 
     if (result.exitCode == 0) {
+      if (Platform.isWindows) {
+        File(bundledExecutable).copySync(outputPath);
+      } else {
+        Link(outputPath).createSync(path.absolute(bundledExecutable));
+      }
       console.write(
         Style()
             .foreground(Colors.green)
             .render("✓ Test runner compiled successfully: "),
       );
       console.writeln(outputPath);
-
-      // Make it executable on Unix systems
-      if (!Platform.isWindows) {
-        await Process.run('chmod', ['+x', outputPath]);
-      }
     } else {
       console.write(
         Style()
@@ -746,7 +764,7 @@ class TestRunner extends CommandRunner {
       dartPath = _getDartExecutablePath();
     }
     final configuredBinary = r['lualike-bin'] as String?;
-    final lualikeBinaryPath = configuredBinary == null
+    var lualikeBinaryPath = configuredBinary == null
         ? path.join(Directory.current.path, getExecutableName('lualike'))
         : path.normalize(
             path.isAbsolute(configuredBinary)
@@ -775,13 +793,18 @@ class TestRunner extends CommandRunner {
     final shouldSkipCompile = (r['skip-compile'] as bool) && binaryExists;
 
     final compileResult = shouldSkipCompile
-        ? const SmartCompileResult(success: true, recompiled: false)
+        ? SmartCompileResult(
+            success: true,
+            recompiled: false,
+            executablePath: lualikeBinaryPath,
+          )
         : await compile(
             force: force,
             dartPath: dartPath,
             binaryPath: lualikeBinaryPath,
             cacheDir: lualikeCacheDir,
           );
+    lualikeBinaryPath = compileResult.executablePath ?? lualikeBinaryPath;
     if (shouldSkipCompile) {
       console.writeln(
         Style()

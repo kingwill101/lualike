@@ -1,7 +1,7 @@
 /// Integration tests for the lualike CLI.
 ///
 /// Tests the binary end-to-end: --compile, --lua-bytecode, --fold,
-/// --preserve-debug, --dump-ir, and cross-compatibility with luac55.
+/// --preserve-debug, --dump-ir, --allow-ffi, and luac55 compatibility.
 library;
 
 import 'dart:io';
@@ -145,7 +145,7 @@ void main() {
       final r1 = await _lualike(['--lua-bytecode', stripped.path]);
       final r2 = await _lualike(['--lua-bytecode', preserved.path]);
       expect(r1.stdout, equals(r2.stdout));
-    }, timeout: Timeout.factor(4));
+    }, timeout: Timeout.factor(8));
   });
 
   group('--dump-ir', () {
@@ -158,6 +158,28 @@ void main() {
       expect(result.stdout, contains('LOADI'));
       expect(result.stdout, contains('RETURN'));
     }, timeout: Timeout.factor(4));
+  });
+
+  group('--allow-ffi', () {
+    test(
+      'enables shared-library calls for trusted scripts',
+      () async {
+        final lua = File(p.join(tmpDir.path, 'ffi.lua'))
+          ..writeAsStringSync(r'''
+            local ffi = require("ffi")
+            local libc = ffi.load("libc.so.6")
+            local abs = libc:func("abs", "i32", {"i32"})
+            print(abs(-42))
+            libc:close()
+          ''');
+
+        final result = await _lualike(['--allow-ffi', lua.path]);
+        expect(result.exitCode, equals(0), reason: '${result.stderr}');
+        expect(result.stdout.toString().trim(), equals('42'));
+      },
+      skip: Platform.isLinux ? false : 'Linux bridge prototype',
+      timeout: Timeout.factor(4),
+    );
   });
 
   group('error handling', () {

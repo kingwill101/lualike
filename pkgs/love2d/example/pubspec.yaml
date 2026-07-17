@@ -40,6 +40,8 @@ dependencies:
 dependency_overrides:
   lualike:
     path: ../../lualike
+  lualike_ffi:
+    path: ../../lualike_ffi
 
 dev_dependencies:
   flutter_test:

@@ -86,6 +86,12 @@ class LuaLikeCommandRunner extends CommandRunner {
         defaultsTo: false,
       )
       ..addFlag(
+        'allow-ffi',
+        help: 'Allow trusted scripts to load and call native shared libraries',
+        negatable: false,
+        defaultsTo: false,
+      )
+      ..addFlag(
         'compile',
         help:
             'Compile script to binary chunk; requires --output (do not execute)',
@@ -205,6 +211,7 @@ class LuaLikeCommandRunner extends CommandRunner {
     }
     config.dumpIr = argResults['dump-ir'] as bool;
     config.foldEnabled = argResults['fold'] as bool;
+    config.allowFfi = argResults['allow-ffi'] as bool;
 
     // Handle --disassemble (print bytecode listing, no execution)
     if (argResults['disassemble'] as bool) {

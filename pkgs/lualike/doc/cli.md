@@ -45,6 +45,15 @@ If no script or code is provided, lualike starts in interactive REPL mode.
 | `--version` | Print version information |
 | `-h, --help` | Print usage information |
 
+## Native Access
+
+| Flag | Description |
+|------|-------------|
+| `--allow-ffi` | Allow trusted scripts to load and call native shared libraries |
+
+Native FFI is disabled by default because invalid declarations and untrusted
+libraries can corrupt memory or terminate the process. See [ffi.md](ffi.md).
+
 ## Debug and Logging
 
 | Flag | Description |

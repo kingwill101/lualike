@@ -58,6 +58,7 @@ Key optimizations include:
 - **Bundling** — static `require("path")` resolved at compile time
 
 See [doc/cli.md](doc/cli.md) for the full CLI reference.
+See [doc/ffi.md](doc/ffi.md) for capability-gated native shared libraries.
 For the optimization / disassembly / test workflow, see
 [the IR and bytecode optimization guide](../../doc/guides/ir-bytecode-optimization.md).
 

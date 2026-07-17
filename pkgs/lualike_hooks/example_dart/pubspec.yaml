@@ -10,6 +10,10 @@ dependencies:
   lualike:
     path: ../../lualike
 
+dependency_overrides:
+  lualike_ffi:
+    path: ../../lualike_ffi
+
 dev_dependencies:
   lualike_hooks:
     path: ../
