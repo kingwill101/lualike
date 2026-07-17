@@ -377,7 +377,30 @@ class LualikeIrToDart {
        _writeln('      r[$a] = idx < varargs.length ? varargs[idx] : Value(null);');
        _writeln('      pc = $next;');
        _writeln('    } break;');
-     // Close / tbc (no-op without closure support)
+           // Generic for loop (TFOR*) — iterator protocol
+      case AsBxInstruction(opcode: LualikeIrOpcode.tForPrep, a: final a, sBx: final sBx):
+        _writeln('    case $pc: {');
+        _writeln('      var tmp = r[${a + 2}];');
+        _writeln('      r[${a + 2}] = r[${a + 3}];');
+        _writeln('      r[${a + 3}] = tmp;');
+        _writeln('      pc = ${pc + 1 + sBx};');
+        _writeln('    } break;');
+
+      case ABCInstruction(opcode: LualikeIrOpcode.tForCall, a: final a, c: final c):
+        _writeln('    case $pc: {');
+        _writeln('      final fn = r[$a];');
+        _writeln('      final callArgs = <Value>[r[${a + 1}]];');
+        _writeln('      final result = await rt.callFunction(fn, callArgs);');
+        _writeln('      final results = result is Value ? [result] : (result as List).cast<Value>();');
+        _writeln('      for (var j = 0; j < $c; j++) r[${a + 3} + j] = j < results.length ? results[j] : Value(null);');
+        _writeln('      pc = $next;');
+        _writeln('    } break;');
+
+      case AsBxInstruction(opcode: LualikeIrOpcode.tForLoop, a: final a, sBx: final sBx):
+        _writeln('    case $pc: {');
+        _writeln('      if (r[${a + 3}] != null && r[${a + 3}].raw != null) { pc = ${pc + 1 + sBx}; } else { pc = $next; }');
+        _writeln('    } break;');
+// Close / tbc (no-op without closure support)
      case LualikeIrInstruction(opcode: LualikeIrOpcode.close):
      case LualikeIrInstruction(opcode: LualikeIrOpcode.tbc):
        _writeln('    case $pc: pc = $next; break;');
