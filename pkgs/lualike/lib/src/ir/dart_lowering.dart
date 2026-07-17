@@ -171,6 +171,8 @@ class LualikeIrToDart {
 
       case ABCInstruction(opcode: LualikeIrOpcode.loadFalse, a: final a):
         stmt('r[$a] = Value(false);');
+      case ABCInstruction(opcode: LualikeIrOpcode.lFalseSkip, a: final a):
+        _writeln('    case $pc: r[$a] = Value(false); pc = ${pc + 2}; break;');
       case ABCInstruction(opcode: LualikeIrOpcode.loadTrue, a: final a):
         stmt('r[$a] = Value(true);');
       case ABCInstruction(opcode: LualikeIrOpcode.loadNil, a: final a):
@@ -178,6 +180,17 @@ class LualikeIrToDart {
 
       case ABxInstruction(opcode: LualikeIrOpcode.loadK, a: final a, bx: final bx):
         stmt('r[$a] = ${constExpr(bx)};');
+      // LOADKX + EXTRAARG: extended constant index (> 32K constants)
+      case ABxInstruction(opcode: LualikeIrOpcode.loadKx, a: final a):
+        _writeln('    case $pc: {');
+        final nextInst = pc + 1 < proto.instructions.length ? proto.instructions[pc + 1] : null;
+        if (nextInst is AxInstruction) {
+          _writeln('      r[$a] = ${constExpr(nextInst.ax)};');
+        } else {
+          _writeln('      r[$a] = Value(null); // missing EXTRAARG');
+        }
+        _writeln('      pc = ${pc + 2};');
+        _writeln('    } break;');
 
       case ABxInstruction(opcode: LualikeIrOpcode.closure, a: final a, bx: final bx):
         _emitClosure(a, bx, proto, fname, emitted, pc);
@@ -210,6 +223,7 @@ class LualikeIrToDart {
       case ABCInstruction(opcode: LualikeIrOpcode.mulK, a: final a, b: final b, c: final c):
         stmt('r[$a] = r[$b] * ${constExpr(c)};');
       case ABCInstruction(opcode: LualikeIrOpcode.divK, a: final a, b: final b, c: final c):
+        stmt('r[$a] = r[$b] / ${constExpr(c)};');
       case ABCInstruction(opcode: LualikeIrOpcode.modK, a: final a, b: final b, c: final c):
         stmt('r[$a] = r[$b] % ${constExpr(c)};');
       case ABCInstruction(opcode: LualikeIrOpcode.powK, a: final a, b: final b, c: final c):
@@ -226,7 +240,6 @@ class LualikeIrToDart {
         stmt('r[$a] = r[$b] << Value($c);');
       case ABCInstruction(opcode: LualikeIrOpcode.shrI, a: final a, b: final b, c: final c):
         stmt('r[$a] = r[$b] >> Value($c);');
-        stmt('r[$a] = r[$b] / ${constExpr(c)};');
 
       // Bitwise
       case ABCInstruction(opcode: LualikeIrOpcode.band, a: final a, b: final b, c: final c):
@@ -238,9 +251,17 @@ class LualikeIrToDart {
       case ABCInstruction(opcode: LualikeIrOpcode.bnot, a: final a, b: final b):
         reg(a, '~r[$b]');
       case ABCInstruction(opcode: LualikeIrOpcode.shl, a: final a, b: final b, c: final c):
-        unsupported(' << ');
+        stmt('r[$a] = r[$b] << r[$c];');
       case ABCInstruction(opcode: LualikeIrOpcode.shr, a: final a, b: final b, c: final c):
-        unsupported(' >> ');
+        stmt('r[$a] = r[$b] >> r[$c];');
+
+      // Metamethod binary dispatch — same as regular ops since Value handles metamethods
+      case ABCInstruction(opcode: LualikeIrOpcode.mmBin, a: final a, b: final b, c: final c):
+        reg(a, 'r[$b] + r[$c]');
+      case ABCInstruction(opcode: LualikeIrOpcode.mmBinI, a: final a, b: final b, c: final c, k: final k):
+        stmt('r[$a] = r[$b] + Value(${imm(c, k)});');
+      case ABCInstruction(opcode: LualikeIrOpcode.mmBinK, a: final a, b: final b, c: final c):
+        stmt('r[$a] = r[$b] + ${constExpr(c)};');
 
       case ABCInstruction(opcode: LualikeIrOpcode.unm, a: final a, b: final b):
         reg(a, '-r[$b]');
@@ -327,6 +348,13 @@ class LualikeIrToDart {
         _writeln('    case $pc: r[$a] = rt.globals.get(${strKey(c)}); pc = $next; break;');
       case ABCInstruction(opcode: LualikeIrOpcode.setTabUp, b: final b, c: final c):
         _writeln('    case $pc: rt.globals.define(${strKey(b)}, r[$c]); pc = $next; break;');
+      // CHECKGLOBAL — enforce global <const> declarations
+      case ABxInstruction(opcode: LualikeIrOpcode.checkGlobal, a: final a, bx: final bx):
+        _writeln('    case $pc: {');
+        _writeln('      final env = r[$a];');
+        _writeln('      if (!rt.globals.has(${strKey(bx)})) rt.globals.define(${strKey(bx)}, Value(null));');
+        _writeln('      pc = $next;');
+        _writeln('    } break;');
 
       // SETLIST (table constructor with array elements)
       case ABCInstruction(opcode: LualikeIrOpcode.setList, a: final a, b: final b, c: final c):
@@ -439,6 +467,10 @@ class LualikeIrToDart {
        _writeln('      }');
        _writeln('      final result = await rt.callFunction(fn, callArgs); return result is Value ? result : Value(result);');
        _writeln('    } break;');
+      // EXTRAARG — consumed by LOADKX, otherwise a no-op
+      case LualikeIrInstruction(opcode: LualikeIrOpcode.extraArg):
+        _writeln('    case $pc: pc = $next; break;');
+
       default:
         unsupported();
     }
