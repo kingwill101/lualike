@@ -682,6 +682,38 @@ int lualike_table_len(const lua_Value* tbl) {
 }
 
 // ===========================================================================
+// For loop helpers
+// ===========================================================================
+
+int32_t lualike_forprep(lua_Value* r, int a) {
+  // FORPREP: r[a+3] = r[a]; r[a] -= r[a+2]; always enter loop
+  double initial = r[a].payload.n;
+  double step = r[a + 2].payload.n;
+  r[a + 3] = r[a];  // save initial value (struct copy, no ref increment needed for numbers)
+  r[a].payload.n = initial - step;
+  return 1;  // always enter loop body
+}
+
+int32_t lualike_forloop(lua_Value* r, int a) {
+  // FORLOOP: r[a] += r[a+2]; check r[a] against r[a+1]
+  double step = r[a + 2].payload.n;
+  double limit = r[a + 1].payload.n;
+  r[a].payload.n += step;
+  double next = r[a].payload.n;
+  int cont = (step > 0) ? (next <= limit) : (next >= limit);
+  if (cont) {
+    r[a + 3].payload.n = next;  // expose internal variable
+  }
+  return cont;
+}
+
+int32_t lualike_tforloop(lua_Value* r, int a) {
+  // TFORLOOP: check if r[a+3] is not nil
+  if (r[a + 3].type == LUA_TNIL) return 0;
+  return 1;
+}
+
+// ===========================================================================
 // Closure / upvalue
 // ===========================================================================
 

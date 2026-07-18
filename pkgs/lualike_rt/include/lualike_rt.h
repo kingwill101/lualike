@@ -240,6 +240,17 @@ void lualike_tailcall(lua_State* L, lua_Value* dst, const lua_Value* fn_val,
                       lua_Value* args, int nargs);
 
 // ---------------------------------------------------------------------------
+// For loop helpers (return 1 to continue loop, 0 to exit)
+// ---------------------------------------------------------------------------
+int32_t lualike_forprep(lua_Value* r, int a);
+int32_t lualike_forloop(lua_Value* r, int a);
+
+// ---------------------------------------------------------------------------
+// Generic for loop helpers
+// ---------------------------------------------------------------------------
+int32_t lualike_tforloop(lua_Value* r, int a);
+
+// ---------------------------------------------------------------------------
 // Metamethod dispatch (internal, used by arithmetic)
 // ---------------------------------------------------------------------------
 bool lualike_trymetamethod(lua_State* L, lua_Value* dst,
