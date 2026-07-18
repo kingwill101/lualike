@@ -4,6 +4,9 @@ const mem = std.mem;
 /// Allocator. Uses c_allocator (backs to malloc/free via -lc).
 const Alloc = std.heap.c_allocator;
 
+/// Extern C function for environment variable lookup (available with -lc).
+const std_c_getenv: *const fn ([*:0]u8) callconv(.c) ?[*:0]u8 = @ptrCast(&@extern(*anyopaque, .{ .name = "getenv" }).*);
+
 
 /// Discriminant tag for the lualike value system.
 ///
@@ -1837,7 +1840,7 @@ fn stdStringDump(_: *State, _: [*]Value, _: i32, r: [*]Value, _: i32, nr: *i32) 
 
 
 // ===========================================================================
-// IO library
+// IO library — stubs (TODO: implement with std.Io.File)
 // ===========================================================================
 
 fn stdIoOpen(_: *State, _: [*]Value, _: i32, r: [*]Value, _: i32, nr: *i32) callconv(.c) void { lualike_pushnil(&r[0]); nr.* = 1; }
@@ -1894,9 +1897,20 @@ fn stdOsExit(_: *State, args: [*]Value, n: i32, _: [*]Value, _: i32, _: *i32) ca
     std.process.exit(code);
 }
 
-fn stdOsGetenv(_: *State, _: [*]Value, _: i32, r: [*]Value, _: i32, nr: *i32) callconv(.c) void {
-    // Stub — no Zig std.getenv in this version
-    lualike_pushnil(&r[0]); nr.* = 1;
+fn stdOsGetenv(_: *State, args: [*]Value, n: i32, r: [*]Value, _: i32, nr: *i32) callconv(.c) void {
+    if (n < 1 or args[0].type != .string) { lualike_pushnil(&r[0]); nr.* = 1; return; }
+    const s = args[0].payload.s orelse { lualike_pushnil(&r[0]); nr.* = 1; return; };
+    const name = s.data[0..s.len];
+    var buf: [4096]u8 = undefined;
+    if (name.len >= buf.len) { lualike_pushnil(&r[0]); nr.* = 1; return; }
+    @memcpy(buf[0..name.len], name);
+    buf[name.len] = 0;
+    if (std_c_getenv(@ptrCast(&buf))) |val| {
+        lualike_pushcstring(&r[0], null, val);
+    } else {
+        lualike_pushnil(&r[0]);
+    }
+    nr.* = 1;
 }
 
 fn stdOsTmpname(_: *State, _: [*]Value, _: i32, r: [*]Value, _: i32, nr: *i32) callconv(.c) void {
@@ -2112,7 +2126,7 @@ export fn lualike_openlibs(L: *State) void {
     // Constants
     {
         var v: Value = undefined;
-        lualike_pushnumber(&v, 3.141592653589793);
+        lualike_pushnumber(&v, std.math.pi);
         const key = String.init("pi") catch return;
         var k = Value{ .type = .string, ._pad = undefined, .payload = .{ .s = key } };
         lualike_setfield(null, &L.globals, &k, &v);
@@ -2135,7 +2149,7 @@ export fn lualike_openlibs(L: *State) void {
     }
     {
         var v: Value = undefined;
-        lualike_pushcstring(&v, null, @ptrCast(@constCast("LuaLike 0.3")));
+        lualike_pushcstring(&v, null, @ptrCast(@constCast("Lua 5.5")));
         const key = String.init("_VERSION") catch return;
         var k = Value{ .type = .string, ._pad = undefined, .payload = .{ .s = key } };
         lualike_setfield(null, &L.globals, &k, &v);
