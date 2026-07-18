@@ -576,7 +576,12 @@ export fn lualike_gettable(_: ?*State, d: *Value, tbl: *const Value, key: *const
     }
     lualike_pushnil(d);
 }
+var _settable_count: u32 = 0;
 export fn lualike_settable(_: ?*State, tbl: *Value, key: *const Value, val: *const Value) void {
+    _settable_count +%= 1;
+    if (_settable_count <= 40) {
+        _ = libc.fprintf(libc.stderr, "st #%u: tbl=%p k=%p v=%p vt=%u ft=%u\n", _settable_count, tbl, key, val, @intFromEnum(val.type), @intFromEnum(tbl.type));
+    }
     if (tbl.type != .table) return;
     var kbuf: [64]u8 = undefined;
     const k = keyToSlice(key, &kbuf) catch {
