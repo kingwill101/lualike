@@ -1,9 +1,18 @@
-/// Runtime-declared calls into native shared libraries.
+/// FFI library for lualike (opt-in).
 ///
-/// This package contains no lualike runtime dependency. The interpreter adapts
-/// this API into its `ffi` library, while other embedders can use the backend
-/// directly.
+/// Consumers who need native FFI support must explicitly depend on this
+/// package and call [registerFfiLibrary]:
+/// ```dart
+/// import 'package:lualike/lualike.dart';
+/// import 'package:lualike_ffi/lualike_ffi.dart';
+///
+/// void main() {
+///   final vm = LuaRuntime();
+///   initializeStandardLibrary(vm: vm);
+///   registerFfiLibrary(vm.libraryRegistry);
+/// }
+/// ```
 library;
 
-export 'src/ffi_host.dart' show NativeFfiHost;
+export 'src/lualike_ffi_library.dart' show registerFfiLibrary, FfiLibrary, FfiException, FfiType, FfiPointer;
 export 'src/ffi_types.dart';

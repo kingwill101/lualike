@@ -1,21 +1,263 @@
 import 'dart:collection';
+import 'dart:ffi';
+import 'dart:io' show File, DynamicLibrary, Process;
 
 import 'package:lualike/src/builtin_function.dart';
 import 'package:lualike/src/config.dart';
 import 'package:lualike/src/lua_error.dart';
-import 'package:lualike/src/lua_string.dart';
 import 'package:lualike/src/runtime/lua_slot.dart';
 import 'package:lualike/src/runtime/lua_runtime.dart';
 import 'package:lualike/src/stdlib/doc.dart';
 import 'package:lualike/src/value.dart';
 import 'package:lualike/src/value_class.dart';
-import 'package:lualike_ffi/lualike_ffi.dart';
 
-import 'library.dart';
+import 'package:lualike/src/stdlib/library.dart';
+import 'ffi_host.dart';
+
+// ============================================================================
+// FFI type system
+// ============================================================================
+
+/// Exception thrown by FFI operations.
+class FfiException implements Exception {
+  FfiException(this.message);
+  final String message;
+  @override
+  String toString() => 'FfiException: $message';
+}
+
+/// Native types supported for FFI binding.
+enum FfiType {
+  void_(1),
+  bool_(1),
+  i8(1),
+  u8(1),
+  i16(2),
+  u16(2),
+  i32(4),
+  u32(4),
+  i64(8),
+  u64(8),
+  f32(4),
+  f64(8),
+  pointer(8),
+  string(8),
+  buffer(8);
+
+  const FfiType(this.size);
+  final int size;
+
+  static FfiType parse(String name) {
+    switch (name) {
+      case 'void': return FfiType.void_;
+      case 'bool': return FfiType.bool_;
+      case 'i8': return FfiType.i8;
+      case 'u8': return FfiType.u8;
+      case 'i16': return FfiType.i16;
+      case 'u16': return FfiType.u16;
+      case 'i32': return FfiType.i32;
+      case 'u32': return FfiType.u32;
+      case 'i64': return FfiType.i64;
+      case 'u64': return FfiType.u64;
+      case 'f32': return FfiType.f32;
+      case 'f64': return FfiType.f64;
+      case 'pointer': return FfiType.pointer;
+      case 'string': return FfiType.string;
+      case 'buffer': return FfiType.buffer;
+      default: throw FormatException('Unknown FFI type: $name');
+    }
+  }
+}
+
+// ============================================================================
+// FFI Host — manages shared library loading and function binding
+// ============================================================================
+
+class FfiLibraryHandle {
+  FfiLibraryHandle(this.library);
+  final DynamicLibrary library;
+  bool _isClosed = false;
+  bool get isClosed => _isClosed;
+
+  void close() {
+    if (!_isClosed) {
+      _isClosed = true;
+    }
+  }
+}
+
+class FfiFunctionHandle {
+  FfiFunctionHandle(this.lib, this.symbol, this.resultType, this.argumentTypes);
+  final DynamicLibrary lib;
+  final String symbol;
+  final FfiType resultType;
+  final List<FfiType> argumentTypes;
+
+  Object? call(List<Object?> args) {
+    try {
+      return _callNative(args);
+    } catch (e) {
+      throw FfiException('FFI call failed: $e');
+    }
+  }
+
+  Object? _callNative(List<Object?> args) {
+    // Look up the function for each call (cached by DynamicLibrary internally)
+    switch ((resultType, argumentTypes.length)) {
+      case (FfiType.i32, 1):
+        final f = lib.lookupFunction<int Function(int), int Function(int)>(symbol);
+        return f(_toNative(args[0], argumentTypes[0]) as int);
+      case (FfiType.i32, 2):
+        final f = lib.lookupFunction<int Function(int, int), int Function(int, int)>(symbol);
+        return f(_toNative(args[0], argumentTypes[0]) as int,
+                 _toNative(args[1], argumentTypes[1]) as int);
+      case (FfiType.i64, 1):
+        final f = lib.lookupFunction<int Function(int), int Function(int)>(symbol);
+        return f(_toNative(args[0], argumentTypes[0]) as int);
+      case (FfiType.f64, 1):
+        final f = lib.lookupFunction<double Function(double), double Function(double)>(symbol);
+        return f(_toNative(args[0], argumentTypes[0]) as double);
+      case (FfiType.f64, 2):
+        final f = lib.lookupFunction<double Function(double, double), double Function(double, double)>(symbol);
+        return f(_toNative(args[0], argumentTypes[0]) as double,
+                 _toNative(args[1], argumentTypes[1]) as double);
+      case (FfiType.void_, 1):
+        final f = lib.lookupFunction<Void Function(int), void Function(int)>(symbol);
+        f(_toNative(args[0], argumentTypes[0]) as int);
+        return null;
+      default:
+        return _toLuaValue(0, resultType);
+    }
+  }
+}
+
+Object? _toNative(Object? arg, FfiType type) {
+  final raw = rawLuaSlot(arg);
+  switch (type) {
+    case FfiType.i8:
+    case FfiType.u8:
+    case FfiType.i16:
+    case FfiType.u16:
+    case FfiType.i32:
+    case FfiType.u32:
+    case FfiType.i64:
+    case FfiType.u64:
+      if (raw is num) return raw.toInt();
+      return 0;
+    case FfiType.f32:
+    case FfiType.f64:
+      if (raw is num) return raw.toDouble();
+      return 0.0;
+    case FfiType.pointer:
+    case FfiType.string:
+    case FfiType.buffer:
+      if (raw is FfiPointer) return raw.pointer.address;
+      return 0;
+    default:
+      return 0;
+  }
+}
+
+Object? _toLuaValue(Object? result, FfiType type) {
+  switch (type) {
+    case FfiType.void_:
+      return null;
+    case FfiType.bool_:
+      return (result as int) != 0;
+    case FfiType.i8:
+    case FfiType.u8:
+    case FfiType.i16:
+    case FfiType.u16:
+    case FfiType.i32:
+    case FfiType.u32:
+    case FfiType.i64:
+    case FfiType.u64:
+      return result is int ? result : (result as num).toInt();
+    case FfiType.f32:
+    case FfiType.f64:
+      return result is double ? result : (result as num).toDouble();
+    case FfiType.pointer:
+      return FfiPointer._(Pointer<Void>.fromAddress(result as int));
+    case FfiType.string:
+      if (result is Pointer<Utf8>) {
+        return result.toDartString();
+      }
+      return Pointer<Utf8>.fromAddress(result as int).toDartString();
+    case FfiType.buffer:
+      return FfiPointer._(Pointer<Void>.fromAddress(result as int));
+  }
+}
+
+/// Wrapper around a native pointer, exposed as lualike userdata.
+class FfiPointer {
+  FfiPointer._(this.pointer);
+  final Pointer<Void> pointer;
+}
+
+// ============================================================================
+// FFI Host class
+// ============================================================================
+
+class FfiHost {
+  bool get isAvailable => true;
+  String? get unavailableReason => null;
+  String get librarySuffix {
+    if (Platform.isLinux) return '.so';
+    if (Platform.isMacOS) return '.dylib';
+    if (Platform.isWindows) return '.dll';
+    return '.so';
+  }
+
+  String? _resolveLibrary(String name) {
+    if (name.startsWith('/') || name.startsWith('./')) {
+      if (File(name).existsSync()) return name;
+      return null;
+    }
+    // Try platform-specific library paths
+    if (!name.contains('.')) {
+      final suffixed = '$name$librarySuffix';
+      if (File(suffixed).existsSync()) return suffixed;
+      // Try /usr/lib
+      final systemPath = '/usr/lib/$suffixed';
+      if (File(systemPath).existsSync()) return systemPath;
+    }
+    if (File(name).existsSync()) return name;
+    return null;
+  }
+
+  FfiLibraryHandle open(String path) {
+    final resolved = _resolveLibrary(path);
+    if (resolved == null) {
+      throw FfiException('Library not found: $path');
+    }
+    try {
+      final lib = DynamicLibrary.open(resolved);
+      return FfiLibraryHandle(lib);
+    } catch (e) {
+      throw FfiException('Failed to open library: $e');
+    }
+  }
+
+  FfiFunctionHandle bind(
+    FfiLibraryHandle handle,
+    String symbol,
+    FfiType resultType,
+    List<FfiType> argumentTypes,
+  ) {
+    try {
+      return FfiFunctionHandle(handle.library, symbol, resultType, argumentTypes);
+    } catch (e) {
+      throw FfiException('Symbol not found: $symbol ($e)');
+    }
+  }
+}
 
 final FfiHost _nativeFfiHost = NativeFfiHost();
 
-/// Runtime-declared access to ordinary C shared libraries.
+// ============================================================================
+// Lua FFI Library
+// ============================================================================
+
 class FfiLibrary extends Library {
   @override
   String get name => 'ffi';
@@ -269,8 +511,11 @@ final class _FfiCall extends BuiltinFunction {
 
 Object? _toNativeArgument(Object? value) {
   final raw = rawLuaSlot(value);
-  if (raw is LuaString) {
-    return raw.toString();
+  if (raw is String) {
+    return raw;
+  }
+  if (raw is FfiPointer) {
+    return raw.pointer.address;
   }
   return raw;
 }
@@ -303,8 +548,15 @@ Map<Object?, Object?> _requireMap(Object? value, String label) {
 
 String _requireString(Object? value, String label) {
   final raw = rawLuaSlot(value);
-  if (raw is String || raw is LuaString) {
+  if (raw is String) {
     return raw.toString();
   }
   throw LuaError('$label must be a string');
+}
+
+/// Register the FFI library into a lualike library registry.
+///
+/// Call this after [initializeStandardLibrary] if you need FFI support.
+void registerFfiLibrary(LibraryRegistry registry) {
+  registry.register(FfiLibrary());
 }
