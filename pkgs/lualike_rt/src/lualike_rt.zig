@@ -654,7 +654,16 @@ export fn lualike_settabup(upvals: [*]Value, constants: [*]Value, val: *const Va
     const key = &constants[@as(usize, @intCast(c))];
     if (key.type == .string) { if (key.payload.s) |ks| {
         const k = ks.data[0..ks.len];
-        if (env.payload.t != 0) { const t: *Table = @ptrFromInt(env.payload.t); const r = t.map.getOrPut(Alloc, k) catch return; if (r.found_existing) release(r.value_ptr.*); r.value_ptr.* = val.*; retain(val.*); }
+        if (env.payload.t != 0) { const t: *Table = @ptrFromInt(env.payload.t);
+            const owned_key = Alloc.dupe(u8, k) catch return;
+            const r = t.map.getOrPut(Alloc, owned_key) catch return;
+            if (r.found_existing) {
+                Alloc.free(r.key_ptr.*);
+            }
+            r.key_ptr.* = owned_key;
+            r.value_ptr.* = val.*;
+            retain(val.*);
+        }
     } }
 }
 /// SETLIST — copies register values into a table at consecutive integer keys.
