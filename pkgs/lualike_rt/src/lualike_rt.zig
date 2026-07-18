@@ -1327,8 +1327,51 @@ fn stdTableInsert(L: *State, args: [*]Value, n: i32, _: [*]Value, _: i32, nr: *i
     nr.* = 0;
 }
 
-fn stdTableRemove(_: *State, _: [*]Value, _: i32, r: [*]Value, _: i32, nr: *i32) callconv(.c) void {
-    lualike_pushnil(&r[0]); nr.* = 1;
+fn stdTableRemove(L: *State, args: [*]Value, n: i32, r: [*]Value, _: i32, nr: *i32) callconv(.c) void {
+    _ = L;
+    if (n < 1 or args[0].type != .table) { lualike_pushnil(&r[0]); nr.* = 1; return; }
+    // Find max integer key
+    var max_idx: i64 = 0;
+    if (args[0].payload.t != 0) {
+        const t: *Table = @ptrFromInt(args[0].payload.t);
+        var it = t.map.iterator();
+        while (it.next()) |e| {
+            const key_str = e.key_ptr.*;
+            if (key_str.len > 0 and key_str.len <= 20) {
+                const val = std.fmt.parseInt(i64, key_str, 10) catch continue;
+                if (val > max_idx) max_idx = val;
+            }
+        }
+    }
+    if (max_idx == 0) { lualike_pushnil(&r[0]); nr.* = 1; return; }
+
+    const pos: i64 = if (n >= 2 and args[1].type == .number)
+        @as(i64, @intFromFloat(args[1].payload.n)) else max_idx;
+
+    // Return the removed element
+    lualike_geti(null, &r[0], &args[0], pos);
+
+    // Shift elements down
+    var k: i64 = pos;
+    while (k < max_idx) : (k += 1) {
+        var v: Value = undefined;
+        lualike_geti(null, &v, &args[0], k + 1);
+        if (v.type != .nil) {
+            lualike_seti(null, &args[0], k, &v);
+        } else {
+            lualike_seti(null, &args[0], k, &Value{ .type = .nil, ._pad = undefined, .payload = undefined });
+        }
+        release(v);
+    }
+    // Remove the last element (now duplicated)
+    var last: Value = undefined;
+    lualike_geti(null, &last, &args[0], max_idx);
+    if (last.type != .nil) {
+        lualike_pushnil(&last);
+        lualike_seti(null, &args[0], max_idx, &last);
+    }
+    release(last);
+    nr.* = 1;
 }
 
 fn stdTableConcat(L: *State, args: [*]Value, n: i32, r: [*]Value, _: i32, nr: *i32) callconv(.c) void {
