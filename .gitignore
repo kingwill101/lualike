@@ -42,3 +42,11 @@ third_party/
 .fvm/
 pkgs/love2d/.fvm/
 pkgs/love2d/example/.fvm/
+
+# Build artifacts
+*.o
+*.a
+*.so
+a.out
+test_runner
+/tmp/lualike_test_runner
