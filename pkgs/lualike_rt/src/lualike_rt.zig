@@ -595,6 +595,11 @@ export fn lualike_settable(_: ?*State, tbl: *Value, key: *const Value, val: *con
     }
 }
 export fn lualike_getfield(L: ?*State, d: *Value, tbl: *const Value, field: *const Value) void {
+    if (@intFromPtr(field) > 0x0000800000000000) {
+        _ = libc.fprintf(libc.stderr, "GF: field=%p d=%p tbl=%p\n", field, d, tbl);
+        lualike_pushnil(d);
+        return;
+    }
     if (field.type != .string) { lualike_pushnil(d); return; }
     const s = field.payload.s orelse { lualike_pushnil(d); return; };
     // Defensive: s.len must be sane (freed/corrupted strings have huge or zero len)
