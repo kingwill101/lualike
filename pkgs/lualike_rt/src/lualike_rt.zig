@@ -1491,38 +1491,108 @@ fn stdStringGsub(L: *State, args: [*]Value, n: i32, r: [*]Value, _: i32, nr: *i3
     const needle = args[1].payload.s orelse { lualike_pushnil(&r[0]); nr.* = 1; return; };
     const hs = haystack.data[0..haystack.len];
     const nd = needle.data[0..needle.len];
-    // Simple plain-text replacement (no patterns)
     const repl: []const u8 = if (n >= 3 and args[2].type == .string) blk: {
         const s = args[2].payload.s orelse { lualike_pushnil(&r[0]); nr.* = 1; return; };
         break :blk s.data[0..s.len];
     } else "";
-    // Count replacements (default: all)
-    const max_repl: usize = if (n >= 4 and args[3].type == .number) @as(usize, @intFromFloat(args[3].payload.n)) else std.math.maxInt(usize);
+    const max_repl: usize = if (n >= 4 and args[3].type == .number)
+        @as(usize, @intFromFloat(args[3].payload.n)) else std.math.maxInt(usize);
     if (nd.len == 0) { pushStr(&r[0], hs); lualike_pushnumber(&r[1], 0); nr.* = 2; return; }
-    // Build result
-    var result_len: usize = hs.len;
+
+    // Phase 1: collect match positions and captures
+    const MatchPos = struct { start: usize, end: usize };
+    var positions: [256]MatchPos = @splat(MatchPos{ .start = 0, .end = 0 });
+    var captures: [256][32]?[]const u8 = @splat(@as([32]?[]const u8, @splat(null)));
+    var cap_counts: [256]usize = @splat(0);
     var match_count: usize = 0;
     var search_pos: usize = 0;
-    while (std.mem.indexOf(u8, hs[search_pos..], nd)) |pos| {
-        match_count += 1;
-        result_len += repl.len - nd.len;
-        search_pos += pos + nd.len;
-        if (match_count >= max_repl) break;
+    while (match_count < positions.len and match_count < max_repl) {
+        if (pattern.strFind(hs, nd, search_pos)) |mr| {
+            positions[match_count] = .{ .start = mr.start, .end = mr.end };
+            cap_counts[match_count] = mr.capture_count;
+            for (0..@min(mr.capture_count, captures[0].len)) |ci| {
+                captures[match_count][ci] = mr.captures[ci];
+            }
+            match_count += 1;
+            search_pos = mr.end;
+            if (mr.end == mr.start) search_pos += 1; // empty match
+        } else break;
     }
-    if (match_count == 0) { lualike_copy(&r[0], &args[0]); lualike_pushnumber(&r[1], 0); nr.* = 2; return; }
+
+    if (match_count == 0) {
+        lualike_copy(&r[0], &args[0]);
+        lualike_pushnumber(&r[1], 0);
+        nr.* = 2; return;
+    }
+
+    // Phase 2: calculate result size
+    var result_len: usize = 0;
+    var last_end: usize = 0;
+    for (0..match_count) |mi| {
+        result_len += positions[mi].start - last_end; // unchanged text
+        // expansion of repl with captures
+        var ri: usize = 0;
+        while (ri < repl.len) {
+            if (repl[ri] == '%' and ri + 1 < repl.len) {
+                ri += 1;
+                if (repl[ri] >= '0' and repl[ri] <= '9') {
+                    const cap_idx = if (repl[ri] == '0') @as(usize, 0) else repl[ri] - '1';
+                    if (cap_idx < cap_counts[mi]) {
+                        if (captures[mi][cap_idx]) |cap| result_len += cap.len;
+                    }
+                } else if (repl[ri] == '%') {
+                    result_len += 1; // literal '%'
+                }
+                ri += 1;
+            } else {
+                result_len += 1;
+                ri += 1;
+            }
+        }
+        last_end = positions[mi].end;
+    }
+    result_len += hs.len - last_end; // trailing text
+
     var buf = Alloc.alloc(u8, result_len) catch { lualike_pushnil(&r[0]); nr.* = 1; return; };
     defer Alloc.free(buf);
     var buf_pos: usize = 0;
-    search_pos = 0;
-    match_count = 0;
-    while (std.mem.indexOf(u8, hs[search_pos..], nd)) |pos| {
-        match_count += 1;
-        const pre_len = pos;
-        @memcpy(buf[buf_pos..][0..pre_len], hs[search_pos..][0..pre_len]);
+    last_end = 0;
+    for (0..match_count) |mi| {
+        // Unchanged text before match
+        const pre_len = positions[mi].start - last_end;
+        @memcpy(buf[buf_pos..][0..pre_len], hs[last_end..][0..pre_len]);
         buf_pos += pre_len;
-        if (repl.len > 0) { @memcpy(buf[buf_pos..][0..repl.len], repl); buf_pos += repl.len; }
-        search_pos += pos + nd.len;
-        if (match_count >= max_repl) break;
+        // Replacement with capture expansion
+        var ri: usize = 0;
+        while (ri < repl.len) {
+            if (repl[ri] == '%' and ri + 1 < repl.len) {
+                ri += 1;
+                if (repl[ri] >= '0' and repl[ri] <= '9') {
+                    const cap_idx = if (repl[ri] == '0') @as(usize, 0) else repl[ri] - '1';
+                    if (cap_idx < cap_counts[mi]) {
+                        if (captures[mi][cap_idx]) |cap| {
+                            @memcpy(buf[buf_pos..][0..cap.len], cap);
+                            buf_pos += cap.len;
+                        }
+                    }
+                } else if (repl[ri] == '%') {
+                    buf[buf_pos] = '%';
+                    buf_pos += 1;
+                }
+                ri += 1;
+            } else {
+                buf[buf_pos] = repl[ri];
+                buf_pos += 1;
+                ri += 1;
+            }
+        }
+        last_end = positions[mi].end;
+    }
+    // Trailing text
+    const trail_len = hs.len - last_end;
+    if (trail_len > 0) {
+        @memcpy(buf[buf_pos..][0..trail_len], hs[last_end..][0..trail_len]);
+        buf_pos += trail_len;
     }
     const remaining = hs[search_pos..];
     if (remaining.len > 0) { @memcpy(buf[buf_pos..][0..remaining.len], remaining); buf_pos += remaining.len; }
