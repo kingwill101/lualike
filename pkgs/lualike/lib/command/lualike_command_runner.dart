@@ -7,6 +7,7 @@ import 'package:lualike/command/version_command.dart';
 import 'package:lualike/src/compile/pipeline.dart';
 import 'package:lualike/src/config.dart';
 import 'package:lualike/src/interop.dart';
+import 'package:lualike/src/ir/llvm_compile.dart';
 import 'package:lualike/src/lua_bytecode/disassembler.dart';
 import 'package:lualike/src/lua_bytecode/parser.dart';
 import 'package:lualike/src/lua_bytecode/runtime.dart';
@@ -308,7 +309,7 @@ class LuaLikeCommandRunner extends CommandRunner {
           'run', 'tool/compile_llvm.dart', '--help',
         ]);
         if (r.exitCode == 0) {
-          stderr.println('  compile_llvm.dart: OK (%{r.exitCode})');
+          stderr.writeln('  compile_llvm.dart: OK (${r.exitCode})');
         }
       } catch (_) {
         stderr.writeln('  compile_llvm.dart: not found in tool/');
@@ -331,27 +332,22 @@ class LuaLikeCommandRunner extends CommandRunner {
         exit(1);
       }
       final scriptPath = restArgs.first;
+      if (!File(scriptPath).existsSync()) {
+        stderr.writeln('File not found: $scriptPath');
+        exit(1);
+      }
       final outputPath = argResults['output'] as String?;
       if (outputPath == null || outputPath.isEmpty) {
-        stderr.writeln(
-          'Error: --native requires --output / -o <path>',
-        );
+        stderr.writeln('Error: --native requires --output / -o <path>');
         exit(1);
       }
-      // Import and run the LLVM pipeline
-      final result = await Process.run('dart', [
-        'run',
-        'tool/compile_llvm.dart',
-        scriptPath,
-        '-o',
-        outputPath,
-      ]);
-      if (result.exitCode != 0) {
-        stderr.writeln('Native compilation failed:');
-        stderr.writeln(result.stderr.toString());
-        exit(1);
-      }
-      stderr.writeln(result.stderr.toString());
+      await checkEnvironment();
+      final out = await compileLuaToNative(
+        scriptPath: scriptPath,
+        outputPath: outputPath,
+      );
+      stderr.writeln('Done: $out');
+      stderr.writeln('Run: $out');
       exit(0);
     }
 
