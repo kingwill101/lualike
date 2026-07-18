@@ -1542,14 +1542,24 @@ fn stdMathFmod(_: *State, args: [*]Value, n: i32, r: [*]Value, _: i32, nr: *i32)
 var _prng_state: u64 = 123456789;
 
 fn stdMathRandom(_: *State, args: [*]Value, n: i32, r: [*]Value, _: i32, nr: *i32) callconv(.c) void {
-    _ = args;
-    _ = n;
     // xorshift64
     _prng_state ^= _prng_state << 13;
     _prng_state ^= _prng_state >> 7;
     _prng_state ^= _prng_state << 17;
-    const val = @as(f64, @floatFromInt(_prng_state & 0x7FFFFFFFFFFFFFFF)) / @as(f64, @floatFromInt(std.math.maxInt(u64)));
-    lualike_pushnumber(&r[0], val);
+    const raw = @as(f64, @floatFromInt(_prng_state & 0x7FFFFFFFFFFFFFFF)) / @as(f64, @floatFromInt(std.math.maxInt(u64)));
+    if (n == 0) {
+        lualike_pushnumber(&r[0], raw);
+    } else if (n == 1 and args[0].type == .number) {
+        const m = @as(i64, @intFromFloat(args[0].payload.n));
+        lualike_pushnumber(&r[0], @as(f64, @floatFromInt(@as(i64, @intFromFloat(raw * @as(f64, @floatFromInt(m)))) + 1)));
+    } else if (n >= 2 and args[0].type == .number and args[1].type == .number) {
+        const m = @as(i64, @intFromFloat(args[0].payload.n));
+        const M = @as(i64, @intFromFloat(args[1].payload.n));
+        const range = M - m + 1;
+        lualike_pushnumber(&r[0], @as(f64, @floatFromInt(m + @as(i64, @intFromFloat(raw * @as(f64, @floatFromInt(range)))))));
+    } else {
+        lualike_pushnumber(&r[0], raw);
+    }
     nr.* = 1;
 }
 fn stdMathRandomseed(_: *State, args: [*]Value, n: i32, _: [*]Value, _: i32, nr: *i32) callconv(.c) void {
