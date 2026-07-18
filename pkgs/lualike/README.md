@@ -512,3 +512,52 @@ Examples and source:
 The supported API surface is the set of symbols exported by `package:lualike/lualike.dart`, `package:lualike/parsers.dart`, and `package:lualike/library_builder.dart`.
 
 The `lib/src/` tree is still visible in the repository for people who want to study or borrow implementations, but those files should be treated as internal details unless they are re-exported through one of the public libraries above.
+
+## LLVM native compilation pipeline
+
+LuaLike can compile Lua scripts directly to **native executables** via LLVM IR, bypassing the bytecode VM entirely. The pipeline is:
+
+```
+Lua source → parse → IR → SSA optimization → LLVM IR → llc (machine code)
+  → Zig runtime archive → clang link → native binary
+```
+
+### Usage
+
+```sh
+dart run tool/compile_llvm.dart myscript.lua
+./a.out
+```
+
+This produces a standalone native executable from any Lua 5.2-compatible script.
+
+### Architecture
+
+- **`pkgs/lualike/lib/src/ir/llvm_lowering.dart`** — Lowers lualike IR to LLVM IR. Emits one function per Lua sub-function (`_lua_fn_0`, `_lua_fn_1`, …) with register arrays, constants tables, upvalue capture, and all standard opcodes.
+- **`pkgs/lualike/tool/compile_llvm.dart`** — Orchestrates the pipeline: parse → IR → LLVM IR → `llc` → Zig wrapper → link.
+- **`pkgs/lualike_rt/`** — Pure-Zig runtime library implementing all Lua operations (arithmetic, bitwise, tables, strings, closures, calls, for loops, stdlib, etc.). The runtime has no C source — the only C dependency is `-lc` for `malloc`/`free` via `std.heap.c_allocator`.
+
+### Zig runtime (`lualike_rt`)
+
+The runtime is ~2250 lines of Zig providing:
+
+| Category | Functions |
+|----------|-----------|
+| **Value ops** | push/get/set for nil, boolean, number, string, closure, native function |
+| **Arithmetic** | add, sub, mul, div, mod, pow, idiv, unm |
+| **Bitwise** | band, bor, bxor, bnot, shl, shr |
+| **Comparisons** | eq, lt, le, not |
+| **String** | len, concat, byte, char, sub, reverse, rep, upper, lower, find (plain), match, format, gmatch, gsub, pack/unpack/packsize |
+| **Table** | get/set (field, by key, by index), insert, remove, concat, sort, move, pack/unpack, create |
+| **Closures** | newclosure, get/set upvalue, call dispatch with multi-return |
+| **Loops** | forprep, forloop, tforloop, tforcall |
+| **Globals** | gettabup, settabup (upvalue-based `_ENV` access) |
+| **Stdlib** | ~70 functions across base, string, table, math, io, os libraries |
+
+Memory management uses reference counting (strings, tables, closures) with inline release to avoid deep call stacks.
+
+### Test suite
+
+- **10 LLVM pipeline tests** — arithmetic, closures, for loops, pairs iteration, upvalues, getfield, global field, table access
+- **34 Zig runtime tests** — state lifecycle, all value ops, tables (multi-field, 3-key, numeric, overwrite, mixed), for loops (normal, step2, neg-step, empty), select, raw ops, type queries, closures, retain/release, error, stdlib
+- **Comprehensive integration test** (~463 lines of Lua) — exercises all sections: arithmetic, bitwise, comparisons, tables, control flow, functions, closures, stdlib, string ops, table ops, math ops, assertions. The full pipeline compiles and runs this test successfully.
