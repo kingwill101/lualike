@@ -88,17 +88,13 @@ fn nilV() Value {
 /// Increments the reference count of the heap-allocated object held by `v`.
 ///
 fn retain(v: Value) void {
-    switch (v.type) {
-        .string => {
-            if (v.payload.s) |s| s.refcount = s.refcount +% 1;
-        },
-        .table => {
-            if (v.payload.t != 0) { const t: *Table = @ptrFromInt(v.payload.t); t.refcount = t.refcount +% 1; }
-        },
-        .function_ => {
-            if (v.payload.fn_ptr != 0) { const f: *Closure = @ptrFromInt(v.payload.fn_ptr); f.refcount = f.refcount +% 1; }
-        },
-        else => {},
+    const tag = @as(u32, @intFromEnum(v.type));
+    if (tag == @intFromEnum(Type.string)) {
+        if (v.payload.s) |s| s.refcount = s.refcount +% 1;
+    } else if (tag == @intFromEnum(Type.table)) {
+        if (v.payload.t != 0) { const t: *Table = @ptrFromInt(v.payload.t); t.refcount = t.refcount +% 1; }
+    } else if (tag == @intFromEnum(Type.function_)) {
+        if (v.payload.fn_ptr != 0) { const f: *Closure = @ptrFromInt(v.payload.fn_ptr); f.refcount = f.refcount +% 1; }
     }
 }
 
@@ -371,7 +367,7 @@ export fn lualike_unm(_: ?*State, d: *Value, a: *const Value) void {
 /// Converts a [`Value`] to a signed 64-bit integer for bitwise operations.
 ///
 fn toi(v: *const Value) i64 {
-    return if (v.type == .number) @intFromFloat(v.payload.n) else 0;
+    return @intFromFloat(v.payload.n);
 }
 /// Computes bitwise AND of `a` and `b`, writing the result into `d`.
 ///
@@ -582,6 +578,10 @@ export fn lualike_settabup(upvals: [*]Value, constants: [*]Value, val: *const Va
         if (env.payload.t != 0) { const t: *Table = @ptrFromInt(env.payload.t); const r = t.map.getOrPut(Alloc, k) catch return; if (r.found_existing) release(r.value_ptr.*); r.value_ptr.* = val.*; retain(val.*); }
     } }
 }
+/// SETLIST — copies register values into a table at consecutive integer keys.
+/// r[a] is the table; values are taken from r[a+1]..r[a+count].
+/// idx0 is the starting integer key (typically c from the ABC instruction).
+export fn lualike_setlist(_: ?*State, _: *Value, _: i32, _: i32, _: i32) void {}
 export fn lualike_getglobal(L: ?*State, d: *Value, name: [*:0]u8) void {
     lualike_getfield(L, d, &L.?.globals, name);
 }
@@ -802,21 +802,98 @@ fn stdPairs(_: *State, args: [*]Value, n: i32, r: [*]Value, _: i32, nr: *i32) ca
     nr.* = 3;
 }
 
-fn reg(L: *State, name: []const u8, cfn: NativeFn) void {
+fn reg(L: *State, lib: []const u8, name: []const u8, cfn: NativeFn) void {
     var fv: Value = nilV();
     lualike_pushcfunction(&fv, @intFromPtr(cfn), @ptrCast(@constCast(name)));
     defer release(fv);
     const key = String.init(name) catch return;
     var k = Value{ .type = .string, ._pad = undefined, .payload = .{ .s = key } };
-    lualike_settable(null, &L.globals, &k, &fv);
+    if (lib.len == 0) {
+        lualike_settable(null, &L.globals, &k, &fv);
+    } else {
+        var libKey = String.init(lib) catch return;
+        defer libKey.deref();
+        var lk = Value{ .type = .string, ._pad = undefined, .payload = .{ .s = libKey } };
+        var libVal: Value = undefined;
+        lualike_gettable(null, &libVal, &L.globals, &lk);
+        if (libVal.type != .table) { lualike_newtable(&libVal); lualike_settable(null, &L.globals, &lk, &libVal); }
+        lualike_settable(null, &libVal, &k, &fv);
+        release(libVal);
+    }
+}
+
+/// Generic stub C function — returns nil.
+fn stdStub(_: *State, _: [*]Value, _: i32, r: [*]Value, _: i32, nr: *i32) callconv(.c) void {
+    lualike_pushnil(&r[0]); nr.* = 1;
 }
 
 export fn lualike_openlibs(L: *State) void {
-    reg(L, "print", stdPrint);
-    reg(L, "type", stdType);
-    reg(L, "tonumber", stdTonumber);
-    reg(L, "next", stdNext);
-    reg(L, "pairs", stdPairs);
+    // Base library
+    reg(L, "", "print", stdPrint);
+    reg(L, "", "type", stdType);
+    reg(L, "", "tonumber", stdTonumber);
+    reg(L, "", "next", stdNext);
+    reg(L, "", "pairs", stdPairs);
+    reg(L, "", "ipairs", stdStub);
+    reg(L, "", "select", stdStub);
+    reg(L, "", "error", stdStub);
+    reg(L, "", "pcall", stdStub);
+    reg(L, "", "xpcall", stdStub);
+    reg(L, "", "assert", stdStub);
+    reg(L, "", "tostring", stdStub);
+    reg(L, "", "rawget", stdStub);
+    reg(L, "", "rawset", stdStub);
+    reg(L, "", "rawequal", stdStub);
+    reg(L, "", "rawlen", stdStub);
+    reg(L, "", "getmetatable", stdStub);
+    reg(L, "", "setmetatable", stdStub);
+    reg(L, "", "dofile", stdStub);
+    reg(L, "", "load", stdStub);
+    reg(L, "", "loadfile", stdStub);
+    reg(L, "", "require", stdStub);
+    reg(L, "", "collectgarbage", stdStub);
+
+    // String library
+    {
+        const names = [_][]const u8{"byte","char","sub","upper","lower","reverse","rep","len","find","match","gmatch","gsub","format","pack","unpack","packsize","dump"};
+        for (names) |n| { reg(L, "string", n, stdStub); }
+    }
+
+    // Table library
+    {
+        const names = [_][]const u8{"insert","remove","concat","sort","move","pack","unpack","create"};
+        for (names) |n| { reg(L, "table", n, stdStub); }
+    }
+
+    // Math library
+    {
+        const names = [_][]const u8{"abs","floor","ceil","max","min","sin","cos","tan","asin","acos","atan","atan2","sqrt","log","exp","random","randomseed","deg","rad","fmod","modf","tointeger","type","ult"};
+        for (names) |n| { reg(L, "math", n, stdStub); }
+    }
+    // Math constants
+    // (Constants can't be registered via reg() which expects functions)
+
+    // IO library
+    reg(L, "", "io", stdStub);
+    {
+        const names = [_][]const u8{"close","flush","input","lines","open","output","popen","read","tmpfile","type","write"};
+        for (names) |n| { reg(L, "io", n, stdStub); }
+    }
+
+    // OS library
+    reg(L, "", "os", stdStub);
+
+    // Debug library
+    reg(L, "", "debug", stdStub);
+
+    // UTF-8 library
+    reg(L, "", "utf8", stdStub);
+
+    // Coroutine library
+    reg(L, "", "coroutine", stdStub);
+
+    // Package library
+    reg(L, "", "package", stdStub);
 }
 
 // ===========================================================================

@@ -247,9 +247,9 @@ class LualikeIrToLlvm {
       case ABCInstruction(opcode: LualikeIrOpcode.shr,  a: final a, b: final b, c: final c): call3r('lualike_shr', a, b, c);
 
       // -- Bitwise (const) --
-      case ABCInstruction(opcode: LualikeIrOpcode.bandK, a: final a, b: final b, c: final _): call2r('lualike_band', a, b);
-      case ABCInstruction(opcode: LualikeIrOpcode.borK,  a: final a, b: final b, c: final _): call2r('lualike_bor', a, b);
-      case ABCInstruction(opcode: LualikeIrOpcode.bxorK, a: final a, b: final b, c: final _): call2r('lualike_bxor', a, b);
+      case ABCInstruction(opcode: LualikeIrOpcode.bandK, a: final a, b: final b, c: final c): call3('lualike_band', a, b, c);
+      case ABCInstruction(opcode: LualikeIrOpcode.borK,  a: final a, b: final b, c: final c): call3('lualike_bor', a, b, c);
+      case ABCInstruction(opcode: LualikeIrOpcode.bxorK, a: final a, b: final b, c: final c): call3('lualike_bxor', a, b, c);
 
       // -- Bitwise (imm) --
       case ABCInstruction(opcode: LualikeIrOpcode.shlI, a: final a, b: final b, c: final c):
