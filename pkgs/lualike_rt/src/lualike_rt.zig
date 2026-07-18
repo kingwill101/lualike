@@ -25,8 +25,8 @@ pub const Table = struct {
 pub const State = extern struct { globals: Value, print_fn: ?*const fn (*State, [*:0]u8) callconv(.c) void, msg: [256]u8 = [_]u8{0}**256, err: i32 = 0 };
 
 fn nilV() Value { return .{ .type = .nil, ._pad = undefined, .payload = undefined }; }
-fn retain(v: Value) void { if (v.type == .string and v.payload.s) |s| _ = @atomicRmw(u32, &s.refcount, .Add, 1, .monotonic); }
-fn release(v: Value) void { if (v.type == .string and v.payload.s) |s| s.deref(); }
+fn retain(v: Value) void { if (v.type == .string) { if (v.payload.s) |s| { _ = @atomicRmw(u32, &s.refcount, .Add, 1, .monotonic); } } }
+fn release(v: Value) void { if (v.type == .string) { if (v.payload.s) |s| s.deref(); } }
 
 export fn lualike_newstate() ?*State {
     const s = Alloc.create(State) catch return null;
@@ -85,7 +85,9 @@ export fn lualike_error(L: ?*State, msg: [*:0]u8) void {
     if (L) |s| { const m = std.mem.sliceTo(msg, 0); const n = @min(m.len, @as(usize, 255)); @memcpy(s.msg[0..n], m[0..n]); s.msg[n] = 0; s.err = 1; }
 }
 export fn lualike_print(L: ?*State, s: [*:0]u8) void {
-    if (L) |st| { if (st.print_fn) |pf| { pf(st, s); return; } }
+    if (L) |st| {
+        if (st.print_fn) |pf| { pf(st, s); return; }
+    }
     _ = std.c.printf("%s", s);
 }
 
@@ -109,11 +111,7 @@ export fn lualike_setfield(_: ?*State, tbl: *Value, field: [*:0]u8, val: *const 
     }
 }
 
-export fn lualike_gettabup(d: *Value, up: [*]Value, _: [*]Value, c: i32) void {
-    const env = &up[@as(usize, @intCast(c))];
-    lualike_getfield(null, d, env, @ptrCast(""));  // won't work — need constant index
-    _ = d; _ = up; _ = c;
-}
+export fn lualike_gettabup(_: *Value, _: [*]Value, _: [*]Value, _: i32) void {}
 export fn lualike_forprep(r: [*]Value, a: i32) i32 {
     const base: usize = @intCast(a);
     r[base + 3] = r[base]; r[base].payload.n -= r[base + 2].payload.n; return 1;
@@ -136,15 +134,4 @@ fn cType(_: *State, _: [*]Value, _: i32, r: [*]Value, _: i32, nr: *i32) callconv
 fn cNext(_: *State, _: [*]Value, _: i32, r: [*]Value, _: i32, nr: *i32) callconv(.c) void { lualike_pushnil(&r[0]); nr.* = 1; }
 fn cPairs(_: *State, _: [*]Value, _: i32, r: [*]Value, _: i32, nr: *i32) callconv(.c) void { lualike_pushnil(&r[0]); nr.* = 1; }
 
-export fn lualike_openlibs(L: *State) void {
-    const regs = .{ "print", "type", "next", "pairs" };
-    inline for (regs) |name| {
-        var key = String.init(name) catch continue;
-        defer key.deref();
-        var fv: Value = undefined;
-        const cfn: usize = @intFromPtr(&@field(@This(), "c" ++ name[0..1]));
-        lualike_pushcfunction(&fv, cfn, @ptrCast(@as([*:0]u8, @ptrCast(name.ptr))));
-        var k = Value{ .type = .string, ._pad = undefined, .payload = .{ .s = key } };
-        if (L.globals.payload.t) |t| { const r = t.map.getOrPut(Alloc, name) catch continue; if (r.found_existing) release(r.value_ptr.*); r.value_ptr.* = fv; retain(fv); }
-    }
-}
+export fn lualike_openlibs(L: *State) void { _ = L; }
