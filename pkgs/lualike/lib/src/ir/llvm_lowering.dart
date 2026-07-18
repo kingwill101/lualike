@@ -378,7 +378,7 @@ class LualikeIrToLlvm {
 
       // -- Generic for --
       case AsBxInstruction(opcode: LualikeIrOpcode.tForPrep, a: final a, sBx: final sBx): {
-        _writeln('  call void @lualike_copy(ptr ${_reg(a + 2)}, ptr ${_reg(a + 3)})');
+        // Copy initial key from r[a+2] to r[a+3] (tForCall reads control from r[a+3])
         _writeln('  call void @lualike_copy(ptr ${_reg(a + 3)}, ptr ${_reg(a + 2)})');
         final bodyBlock = _findBlock(pc + 1);
         if (bodyBlock >= 0) {
@@ -388,31 +388,54 @@ class LualikeIrToLlvm {
           // the block containing tForLoop's fallthrough (which is the loop body itself)
           // Actually, the real exit is the block after the loop body in the SSA
           // Use the body block's first successor (which should be the exit)
+
+          
+          final exitBlock = _findBlock(pc + 1 + sBx + 1);
+          final checkLabel = _syntheticBlock++;
+          _loopCheckLabels[bodyBlock] = checkLabel;
+          _writeln('  br label %b_tcheck_$checkLabel');
+          _terminated = true;
+          _writeln('b_tcheck_$checkLabel:');
+          // Call the iterator (next(t, key)), store result in r[a+3]
+          _writeln('  call void @lualike_call(ptr %L, ptr ${_reg(a + 3)}, ptr ${_reg(a)}, ptr ${_reg(a + 1)}, i32 2)');
+          // Copy r[a+3] to r[a+2] for next call's args
+          _writeln('  call void @lualike_copy(ptr ${_reg(a + 2)}, ptr ${_reg(a + 3)})');
+          // Check result
+          final cont = _next(); final cond = _next();
+          _writeln('  $cont = call i32 @lualike_tforloop(ptr %r, i32 $a)');
+          _writeln('  $cond = icmp ne i32 $cont, 0');
+          // Find the real exit: the body block's successor that is not the body itself
           final bodySsa = ssaFunction.blocks.firstWhere(
             (b) => b.block.index == bodyBlock,
             orElse: () => ssaFunction.blocks.first,
           );
-          final exitTarget = bodySsa.block.successors.isNotEmpty
-              ? _label(bodySsa.block.successors.first)
-              : 'b${_syntheticBlock++}';
-          
-          final checkLabel = _syntheticBlock++;
-          _loopCheckLabels[bodyBlock] = checkLabel;
-          final cont = _next(); final cond = _next();
-          _writeln('  br label %b_tcheck_$checkLabel');
-          _terminated = true;
-          _writeln('b_tcheck_$checkLabel:');
-          _writeln('  $cont = call i32 @lualike_tforloop(ptr %r, i32 $a)');
-          _writeln('  $cond = icmp ne i32 $cont, 0');
-          _writeln('  br i1 $cond, label %${_label(bodyBlock)}, label %$exitTarget');
+          var exitLabel = bodySsa.block.successors.length > 1 &&
+                  bodySsa.block.successors[0] == bodyBlock
+              ? _label(bodySsa.block.successors[1])
+              : (bodySsa.block.successors.isNotEmpty
+                  ? _label(bodySsa.block.successors.first)
+                  : 'b${_syntheticBlock++}');
+          _writeln('  br i1 $cond, label %${_label(bodyBlock)}, label %$exitLabel');
         }
         break;
       }
-      case ABCInstruction(opcode: LualikeIrOpcode.tForCall, a: final a, c: final _):
-        _writeln('  call void @lualike_call(ptr %L, ptr ${_reg(a)}, ptr ${_reg(a)}, ptr ${_reg(a + 1)}, i32 2)');
+      case ABCInstruction(opcode: LualikeIrOpcode.tForCall, a: final a, c: final _): {
+        // tForCall in the body: call iterator and copy result to r[a+2]
+        final checkLabel = _loopCheckLabels[_currentBlockIndex];
+        if (checkLabel != null) {
+          _writeln('  call void @lualike_call(ptr %L, ptr ${_reg(a + 3)}, ptr ${_reg(a)}, ptr ${_reg(a + 1)}, i32 2)');
+          _writeln('  call void @lualike_copy(ptr ${_reg(a + 2)}, ptr ${_reg(a + 3)})');
+          _writeln('  br label %b_tcheck_$checkLabel');
+          _terminated = true;
+        }
+        break;
+      }
       case AsBxInstruction(opcode: LualikeIrOpcode.tForLoop, a: final a, sBx: final sBx): {
-        final exitBlock = _findBlock(pc + 1);
-        if (exitBlock >= 0) { _writeln('  br label %${_label(exitBlock)}'); _terminated = true; }
+        final checkLabel = _loopCheckLabels[_currentBlockIndex];
+        if (checkLabel != null) {
+          _writeln('  br label %b_tcheck_$checkLabel');
+          _terminated = true;
+        }
         break;
       }
 

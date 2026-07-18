@@ -71,7 +71,7 @@ typedef struct lua_Value {
 struct lua_String {
   uint32_t refcount;
   uint32_t length;
-  char data[];  // not null-terminated; use length
+  char* data;   // separate heap allocation (Zig-compatible ABI)
 };
 
 // ---------------------------------------------------------------------------

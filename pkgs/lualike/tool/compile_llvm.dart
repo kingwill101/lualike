@@ -194,9 +194,11 @@ String _generateMainWrapper(LualikeIrPrototype proto) {
         buf.writeln('  {');
         buf.writeln('    const char* _cs = "${_escapeC(v)}";');
         buf.writeln('    constants[$i].type = LUA_TSTRING;');
-        buf.writeln('    constants[$i].payload.s = (lua_String*)malloc(sizeof(lua_String) + ${v.length} + 1);');
+        buf.writeln('    // Allocate separately: refcount+len (8 bytes) + data pointer (8 bytes) = 16 bytes');
+        buf.writeln('    constants[$i].payload.s = (lua_String*)malloc(sizeof(lua_String));');
         buf.writeln('    constants[$i].payload.s->refcount = 1;');
         buf.writeln('    constants[$i].payload.s->length = ${v.length};');
+        buf.writeln('    constants[$i].payload.s->data = (char*)malloc(${v.length} + 1);');
         buf.writeln('    memcpy(constants[$i].payload.s->data, _cs, ${v.length});');
         buf.writeln('    constants[$i].payload.s->data[${v.length}] = 0;');
         buf.writeln('  }');
