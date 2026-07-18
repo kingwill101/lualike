@@ -1508,6 +1508,236 @@ fn stdMathUlt(L: *State, args: [*]Value, n: i32, r: [*]Value, _: i32, nr: *i32) 
     nr.* = 1;
 }
 
+
+fn stdTableMove(L: *State, args: [*]Value, n: i32, r: [*]Value, _: i32, nr: *i32) callconv(.c) void {
+    _ = L;
+    if (n < 4 or args[0].type != .table) { nr.* = 0; return; }
+    const src_tbl = &args[0];
+    var dst_tbl = src_tbl;
+    var src_start: i64 = 1;
+    var src_end: i64 = 0;
+    var dst_start: i64 = 1;
+    if (n >= 2 and args[1].type == .number) src_start = @as(i64, @intFromFloat(args[1].payload.n));
+    if (n >= 3 and args[2].type == .number) src_end = @as(i64, @intFromFloat(args[2].payload.n));
+    if (n >= 4 and args[3].type == .number) dst_start = @as(i64, @intFromFloat(args[3].payload.n));
+    if (n >= 5 and args[4].type == .table) dst_tbl = &args[4];
+    // Copy elements from src[src_start..src_end] to dst[dst_start..]
+    if (src_end >= src_start) {
+        const count = src_end - src_start + 1;
+        // Copy in order or reverse depending on overlap
+        if (dst_tbl == src_tbl and dst_start < src_start) {
+            // Copy from end to start to avoid overwriting
+            var k: i64 = count - 1;
+            while (k >= 0) : (k -= 1) {
+                var v: Value = undefined;
+                lualike_geti(null, &v, src_tbl, src_start + k);
+                lualike_seti(null, dst_tbl, dst_start + k, &v);
+                release(v);
+            }
+        } else {
+            for (0..@as(usize, @intCast(count))) |k| {
+                var v: Value = undefined;
+                lualike_geti(null, &v, src_tbl, src_start + @as(i64, @intCast(k)));
+                lualike_seti(null, dst_tbl, dst_start + @as(i64, @intCast(k)), &v);
+                release(v);
+            }
+        }
+    }
+    lualike_copy(&r[0], dst_tbl);
+    nr.* = 1;
+}
+
+fn stdTablePack(L: *State, args: [*]Value, n: i32, r: [*]Value, _: i32, nr: *i32) callconv(.c) void {
+    _ = L;
+    lualike_newtable(&r[0]);
+    for (0..@as(usize, @intCast(n))) |i| {
+        lualike_seti(null, &r[0], @as(i64, @intCast(i + 1)), &args[i]);
+    }
+    // Set 'n' field to the number of packed elements
+    // (For now, skip the 'n' field since we don't need it for basic usage)
+    nr.* = 1;
+}
+
+fn stdTableUnpack(L: *State, args: [*]Value, n: i32, r: [*]Value, _: i32, nr: *i32) callconv(.c) void {
+    _ = L;
+    var start: i64 = 1;
+    var end_val: i64 = -1; // -1 means "to end"
+    if (n >= 2 and args[1].type == .number) start = @as(i64, @intFromFloat(args[1].payload.n));
+    if (n >= 3 and args[2].type == .number) end_val = @as(i64, @intFromFloat(args[2].payload.n));
+    // Find end by scanning
+    if (end_val < 0) {
+        end_val = start;
+        while (true) {
+            var v: Value = undefined;
+            lualike_geti(null, &v, &args[0], end_val);
+            defer release(v);
+            if (v.type == .nil) { end_val -= 1; break; }
+            end_val += 1;
+            if (end_val - start > 1024) { end_val = start - 1; break; } // safety limit
+        }
+    }
+    var count: usize = 0;
+    var idx = start;
+    while (idx <= end_val) : (idx += 1) {
+        var v: Value = undefined;
+        lualike_geti(null, &v, &args[0], idx);
+        if (v.type != .nil and count < 256) {
+            lualike_copy(&r[count], &v);
+            count += 1;
+        }
+        release(v);
+    }
+    nr.* = @as(i32, @intCast(count));
+}
+
+fn stdTableCreate(L: *State, args: [*]Value, n: i32, r: [*]Value, _: i32, nr: *i32) callconv(.c) void {
+    _ = L;
+    _ = n;
+    _ = args;
+    lualike_newtable(&r[0]);
+    nr.* = 1;
+}
+
+fn stdStringPack(L: *State, args: [*]Value, n: i32, r: [*]Value, _: i32, nr: *i32) callconv(.c) void {
+    _ = L;
+    if (n < 1 or args[0].type != .string) { lualike_pushnil(&r[0]); nr.* = 1; return; }
+    const fmt = args[0].payload.s orelse { lualike_pushnil(&r[0]); nr.* = 1; return; };
+    const fmt_str = fmt.data[0..fmt.len];
+    // Simple pack: only supports I (i32), i (i64), s (string), c (char), B (byte)
+    var buf: [1024]u8 = undefined;
+    var buf_pos: usize = 0;
+    var arg_idx: usize = 1;
+    var i: usize = 0;
+    while (i < fmt_str.len and buf_pos < buf.len) {
+        const spec = fmt_str[i];
+        i += 1;
+        if (spec == ' ') continue;
+        // Skip numeric prefixes
+        if (spec >= '0' and spec <= '9') { while (i < fmt_str.len and fmt_str[i] >= '0' and fmt_str[i] <= '9') { i += 1; } continue; }
+        if (spec == 'I') { // i32 (4 bytes)
+            if (arg_idx < @as(usize, @intCast(n)) and args[arg_idx].type == .number) {
+                const val = @as(u32, @intFromFloat(args[arg_idx].payload.n));
+                if (buf_pos + 4 <= buf.len) { std.mem.writeInt(u32, buf[buf_pos..][0..4], val, std.builtin.Endian.little); buf_pos += 4; }
+            }
+            arg_idx += 1;
+        } else if (spec == 'i') { // i64 (8 bytes)
+            if (arg_idx < @as(usize, @intCast(n)) and args[arg_idx].type == .number) {
+                const val = @as(u64, @bitCast(args[arg_idx].payload.n));
+                if (buf_pos + 8 <= buf.len) { std.mem.writeInt(u64, buf[buf_pos..][0..8], val, std.builtin.Endian.little); buf_pos += 8; }
+            }
+            arg_idx += 1;
+        } else if (spec == 'B') { // byte (1 byte)
+            if (arg_idx < @as(usize, @intCast(n)) and args[arg_idx].type == .number) {
+                if (buf_pos < buf.len) { buf[buf_pos] = @as(u8, @intFromFloat(args[arg_idx].payload.n)); buf_pos += 1; }
+            }
+            arg_idx += 1;
+        } else if (spec == 'c') { // char
+            if (arg_idx < @as(usize, @intCast(n)) and args[arg_idx].type == .string) {
+                if (args[arg_idx].payload.s) |s| {
+                    const copy_len = @min(s.len, buf.len - buf_pos);
+                    @memcpy(buf[buf_pos..][0..copy_len], s.data[0..copy_len]);
+                    buf_pos += copy_len;
+                }
+            }
+            arg_idx += 1;
+        } else if (spec == 's') { // string (size-prefixed)
+            if (arg_idx < @as(usize, @intCast(n)) and args[arg_idx].type == .string) {
+                if (args[arg_idx].payload.s) |s| {
+                    const slen = @as(u32, @intCast(s.len));
+                    if (buf_pos + 4 + s.len <= buf.len) {
+                        std.mem.writeInt(u32, buf[buf_pos..][0..4], slen, std.builtin.Endian.little);
+                        buf_pos += 4;
+                        @memcpy(buf[buf_pos..][0..s.len], s.data[0..s.len]);
+                        buf_pos += s.len;
+                    }
+                }
+            }
+            arg_idx += 1;
+        } else if (spec == 'x') { // padding byte
+            if (buf_pos < buf.len) { buf[buf_pos] = 0; buf_pos += 1; }
+        }
+    }
+    if (buf_pos > 0) pushStr(&r[0], buf[0..buf_pos]) else lualike_pushnil(&r[0]);
+    nr.* = 1;
+}
+
+fn stdStringUnpack(L: *State, args: [*]Value, n: i32, r: [*]Value, _: i32, nr: *i32) callconv(.c) void {
+    _ = L;
+    if (n < 1 or args[0].type != .string) { lualike_pushnil(&r[0]); nr.* = 1; return; }
+    const data = args[0].payload.s orelse { lualike_pushnil(&r[0]); nr.* = 1; return; };
+    const fmt_str: []const u8 = if (n >= 2 and args[1].type == .string) blk: {
+        const fs = args[1].payload.s orelse { lualike_pushnil(&r[0]); nr.* = 1; return; };
+        break :blk fs.data[0..fs.len];
+    } else "";
+    const bytes = data.data[0..data.len];
+    var res_count: usize = 0;
+    var byte_pos: usize = 0;
+    var i: usize = 0;
+    while (i < fmt_str.len and byte_pos < bytes.len and res_count < 256) {
+        const spec = fmt_str[i];
+        i += 1;
+        if (spec == ' ') continue;
+        if (spec == 'I') {
+            if (byte_pos + 4 <= bytes.len) {
+                const val = std.mem.readInt(u32, bytes[byte_pos..][0..4], .little);
+                lualike_pushnumber(&r[res_count], @as(f64, @floatFromInt(val)));
+                byte_pos += 4; res_count += 1;
+            }
+        } else if (spec == 'i') {
+            if (byte_pos + 8 <= bytes.len) {
+                const val = std.mem.readInt(u64, bytes[byte_pos..][0..8], .little);
+                lualike_pushnumber(&r[res_count], @as(f64, @bitCast(val)));
+                byte_pos += 8; res_count += 1;
+            }
+        } else if (spec == 'B') {
+            if (byte_pos < bytes.len) {
+                lualike_pushnumber(&r[res_count], @as(f64, @floatFromInt(bytes[byte_pos])));
+                byte_pos += 1; res_count += 1;
+            }
+        } else if (spec == 's') {
+            if (byte_pos + 4 <= bytes.len) {
+                const slen = std.mem.readInt(u32, bytes[byte_pos..][0..4], .little);
+                byte_pos += 4;
+                if (byte_pos + slen <= bytes.len) {
+                    pushStr(&r[res_count], bytes[byte_pos..][0..slen]);
+                    byte_pos += slen; res_count += 1;
+                }
+            }
+        } else if (spec == 'x') {
+            if (byte_pos < bytes.len) byte_pos += 1;
+        }
+    }
+    lualike_pushnumber(&r[res_count], @as(f64, @floatFromInt(byte_pos)));
+    res_count += 1;
+    nr.* = @as(i32, @intCast(res_count));
+}
+
+fn stdStringPacksize(L: *State, args: [*]Value, n: i32, r: [*]Value, _: i32, nr: *i32) callconv(.c) void {
+    _ = L;
+    if (n < 1 or args[0].type != .string) { lualike_pushnil(&r[0]); nr.* = 1; return; }
+    const fmt = args[0].payload.s orelse { lualike_pushnil(&r[0]); nr.* = 1; return; };
+    var size: usize = 0;
+    var i: usize = 0;
+    const fmt_str = fmt.data[0..fmt.len];
+    while (i < fmt_str.len) {
+        const spec = fmt_str[i];
+        i += 1;
+        if (spec == ' ') continue;
+        if (spec == 'I') { size += 4; }
+        if (spec == 'i') { size += 8; }
+        if (spec == 'B') { size += 1; }
+        if (spec == 'x') { size += 1; }
+        if (spec == 'c') { size += 1; }
+        if (spec == 's') { size += 4; }
+    }
+    lualike_pushnumber(&r[0], @as(f64, @floatFromInt(size)));
+    nr.* = 1;
+}
+
+fn stdStringDump(_: *State, _: [*]Value, _: i32, r: [*]Value, _: i32, nr: *i32) callconv(.c) void {
+    lualike_pushnil(&r[0]); nr.* = 1;
+}
+
 // ===========================================================================
 // Extended stdlib implementations
 // ===========================================================================
@@ -1655,20 +1885,20 @@ export fn lualike_openlibs(L: *State) void {
     reg(L, "string", "gmatch", stdStringGmatch);
     reg(L, "string", "gsub", stdStringGsub);
     reg(L, "string", "format", stdStringFormat);
-    reg(L, "string", "pack", stdLoad);
-    reg(L, "string", "unpack", stdLoad);
-    reg(L, "string", "packsize", stdLoad);
-    reg(L, "string", "dump", stdLoad);
+    reg(L, "string", "pack", stdStringPack);
+    reg(L, "string", "unpack", stdStringUnpack);
+    reg(L, "string", "packsize", stdStringPacksize);
+    reg(L, "string", "dump", stdStringDump);
 
     // Table library
     reg(L, "table", "insert", stdTableInsert);
     reg(L, "table", "remove", stdTableRemove);
     reg(L, "table", "concat", stdTableConcat);
     reg(L, "table", "sort", stdTableSort);
-    reg(L, "table", "move", stdLoad);
-    reg(L, "table", "pack", stdLoad);
-    reg(L, "table", "unpack", stdLoad);
-    reg(L, "table", "create", stdLoad);
+    reg(L, "table", "move", stdTableMove);
+    reg(L, "table", "pack", stdTablePack);
+    reg(L, "table", "unpack", stdTableUnpack);
+    reg(L, "table", "create", stdTableCreate);
 
     // Math library
     reg(L, "math", "abs", stdMathAbs);
