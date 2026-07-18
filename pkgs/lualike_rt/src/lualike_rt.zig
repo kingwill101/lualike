@@ -1358,6 +1358,156 @@ fn stdMathRandomseed(_: *State, args: [*]Value, n: i32, _: [*]Value, _: i32, nr:
 }
 
 
+
+fn stdStringGmatch(L: *State, args: [*]Value, n: i32, r: [*]Value, _: i32, nr: *i32) callconv(.c) void {
+    _ = L;
+    if (n < 2 or args[0].type != .string or args[1].type != .string) {
+        lualike_pushnil(&r[0]); nr.* = 1; return;
+    }
+    // gmatch returns an iterator function that returns matches one at a time
+    // We return a closure-like state: { fn, subject, pattern }
+    // For simplicity, use stdStringFind and return the match
+    lualike_pushcfunction(&r[0], @intFromPtr(&stdStringMatch), @ptrCast(@constCast("match")));
+    lualike_copy(&r[1], &args[0]);
+    lualike_copy(&r[2], &args[1]);
+    nr.* = 3;
+}
+
+fn stdStringGsub(L: *State, args: [*]Value, n: i32, r: [*]Value, _: i32, nr: *i32) callconv(.c) void {
+    _ = L;
+    if (n < 3 or args[0].type != .string or args[1].type != .string) {
+        lualike_pushnil(&r[0]); nr.* = 1; return;
+    }
+    const haystack = args[0].payload.s orelse { lualike_pushnil(&r[0]); nr.* = 1; return; };
+    const needle = args[1].payload.s orelse { lualike_pushnil(&r[0]); nr.* = 1; return; };
+    const hs = haystack.data[0..haystack.len];
+    const nd = needle.data[0..needle.len];
+    // Simple plain-text replacement (no patterns)
+    const repl: []const u8 = if (n >= 3 and args[2].type == .string) blk: {
+        const s = args[2].payload.s orelse { lualike_pushnil(&r[0]); nr.* = 1; return; };
+        break :blk s.data[0..s.len];
+    } else "";
+    // Count replacements (default: all)
+    const max_repl: usize = if (n >= 4 and args[3].type == .number) @as(usize, @intFromFloat(args[3].payload.n)) else std.math.maxInt(usize);
+    if (nd.len == 0) { pushStr(&r[0], hs); lualike_pushnumber(&r[1], 0); nr.* = 2; return; }
+    // Build result
+    var result_len: usize = hs.len;
+    var match_count: usize = 0;
+    var search_pos: usize = 0;
+    while (std.mem.indexOf(u8, hs[search_pos..], nd)) |pos| {
+        match_count += 1;
+        result_len += repl.len - nd.len;
+        search_pos += pos + nd.len;
+        if (match_count >= max_repl) break;
+    }
+    if (match_count == 0) { lualike_copy(&r[0], &args[0]); lualike_pushnumber(&r[1], 0); nr.* = 2; return; }
+    var buf = Alloc.alloc(u8, result_len) catch { lualike_pushnil(&r[0]); nr.* = 1; return; };
+    defer Alloc.free(buf);
+    var buf_pos: usize = 0;
+    search_pos = 0;
+    match_count = 0;
+    while (std.mem.indexOf(u8, hs[search_pos..], nd)) |pos| {
+        match_count += 1;
+        const pre_len = pos;
+        @memcpy(buf[buf_pos..][0..pre_len], hs[search_pos..][0..pre_len]);
+        buf_pos += pre_len;
+        if (repl.len > 0) { @memcpy(buf[buf_pos..][0..repl.len], repl); buf_pos += repl.len; }
+        search_pos += pos + nd.len;
+        if (match_count >= max_repl) break;
+    }
+    const remaining = hs[search_pos..];
+    if (remaining.len > 0) { @memcpy(buf[buf_pos..][0..remaining.len], remaining); buf_pos += remaining.len; }
+    pushStr(&r[0], buf[0..buf_pos]);
+    lualike_pushnumber(&r[1], @floatFromInt(match_count));
+    nr.* = 2;
+}
+
+fn stdTableSort(_: *State, args: [*]Value, n: i32, _: [*]Value, _: i32, nr: *i32) callconv(.c) void {
+    if (n < 1 or args[0].type != .table) { nr.* = 0; return; }
+    // Simple quicksort on integer keys 1..N
+    // Collect values
+    var vals: [1024]f64 = undefined;
+    var count: usize = 0;
+    if (args[0].payload.t != 0) {
+        var idx: i64 = 1;
+        while (count < vals.len) {
+            var k = Value{ .type = .number, ._pad = undefined, .payload = .{ .n = @as(f64, @floatFromInt(idx)) } };
+            var v: Value = undefined;
+            lualike_gettable(null, &v, &args[0], &k);
+            defer release(v);
+            if (v.type == .nil) break;
+            if (v.type == .number) { vals[count] = v.payload.n; count += 1; }
+            idx += 1;
+        }
+    }
+    if (count < 2) { nr.* = 0; return; }
+    // Simple bubble sort for small arrays
+    var i: usize = 0;
+    while (i < count) : (i += 1) {
+        var j: usize = i + 1;
+        while (j < count) : (j += 1) {
+            if (vals[i] > vals[j]) {
+                const tmp = vals[i];
+                vals[i] = vals[j];
+                vals[j] = tmp;
+            }
+        }
+    }
+    // Write back
+    for (0..count) |idx| {
+        const vi = @as(i64, @intCast(idx + 1));
+        lualike_seti(null, &args[0], vi, &Value{ .type = .number, ._pad = undefined, .payload = .{ .n = vals[idx] } });
+    }
+    nr.* = 0;
+}
+
+fn stdMathModf(L: *State, args: [*]Value, n: i32, r: [*]Value, _: i32, nr: *i32) callconv(.c) void {
+    _ = L;
+    if (n < 1 or args[0].type != .number) { lualike_pushnil(&r[0]); nr.* = 1; return; }
+    const v = args[0].payload.n;
+    lualike_pushnumber(&r[0], @trunc(v));
+    lualike_pushnumber(&r[1], v - @trunc(v));
+    nr.* = 2;
+}
+
+fn stdMathTointeger(L: *State, args: [*]Value, n: i32, r: [*]Value, _: i32, nr: *i32) callconv(.c) void {
+    _ = L;
+    if (n < 1 or args[0].type != .number) { lualike_pushnil(&r[0]); nr.* = 1; return; }
+    const v = args[0].payload.n;
+    const i = @as(i64, @intFromFloat(v));
+    if (@as(f64, @floatFromInt(i)) == v) {
+        lualike_pushnumber(&r[0], @floatFromInt(i));
+    } else {
+        lualike_pushnil(&r[0]);
+    }
+    nr.* = 1;
+}
+
+fn stdMathType(_: *State, args: [*]Value, n: i32, r: [*]Value, _: i32, nr: *i32) callconv(.c) void {
+    if (n < 1) { lualike_pushnil(&r[0]); nr.* = 1; return; }
+    if (args[0].type == .number) {
+        const v = args[0].payload.n;
+        const i = @as(i64, @intFromFloat(v));
+        if (@as(f64, @floatFromInt(i)) == v) {
+            pushStr(&r[0], "integer");
+        } else {
+            pushStr(&r[0], "float");
+        }
+    } else {
+        lualike_pushnil(&r[0]);
+    }
+    nr.* = 1;
+}
+
+fn stdMathUlt(L: *State, args: [*]Value, n: i32, r: [*]Value, _: i32, nr: *i32) callconv(.c) void {
+    _ = L;
+    if (n < 2 or args[0].type != .number or args[1].type != .number) { lualike_pushnil(&r[0]); nr.* = 1; return; }
+    const a = @as(u64, @bitCast(args[0].payload.n));
+    const b = @as(u64, @bitCast(args[1].payload.n));
+    lualike_pushboolean(&r[0], a < b);
+    nr.* = 1;
+}
+
 // ===========================================================================
 // Extended stdlib implementations
 // ===========================================================================
@@ -1502,8 +1652,8 @@ export fn lualike_openlibs(L: *State) void {
     reg(L, "string", "len", stdStringLen);
     reg(L, "string", "find", stdStringFind);
     reg(L, "string", "match", stdStringMatch);
-    reg(L, "string", "gmatch", stdStringFind);
-    reg(L, "string", "gsub", stdStringFind);
+    reg(L, "string", "gmatch", stdStringGmatch);
+    reg(L, "string", "gsub", stdStringGsub);
     reg(L, "string", "format", stdStringFormat);
     reg(L, "string", "pack", stdLoad);
     reg(L, "string", "unpack", stdLoad);
@@ -1514,7 +1664,7 @@ export fn lualike_openlibs(L: *State) void {
     reg(L, "table", "insert", stdTableInsert);
     reg(L, "table", "remove", stdTableRemove);
     reg(L, "table", "concat", stdTableConcat);
-    reg(L, "table", "sort", stdLoad);
+    reg(L, "table", "sort", stdTableSort);
     reg(L, "table", "move", stdLoad);
     reg(L, "table", "pack", stdLoad);
     reg(L, "table", "unpack", stdLoad);
@@ -1541,10 +1691,10 @@ export fn lualike_openlibs(L: *State) void {
     reg(L, "math", "deg", stdMathDeg);
     reg(L, "math", "rad", stdMathRad);
     reg(L, "math", "fmod", stdMathFmod);
-    reg(L, "math", "modf", stdLoad);
-    reg(L, "math", "tointeger", stdLoad);
-    reg(L, "math", "type", stdLoad);
-    reg(L, "math", "ult", stdLoad);
+    reg(L, "math", "modf", stdMathModf);
+    reg(L, "math", "tointeger", stdMathTointeger);
+    reg(L, "math", "type", stdMathType);
+    reg(L, "math", "ult", stdMathUlt);
 
     // IO library (sub-table)
     reg(L, "io", "close", stdLoad);
