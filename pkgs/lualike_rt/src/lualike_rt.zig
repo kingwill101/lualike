@@ -867,10 +867,44 @@ fn stdTonumber(_: *State, args: [*]Value, n: i32, r: [*]Value, _: i32, nr: *i32)
     lualike_pushnil(&r[0]);
     nr.* = 1;
 }
-fn stdNext(_: *State, _: [*]Value, _a: i32, _: [*]Value, _b: i32, nr: *i32) callconv(.c) void {
-    _ = _a;
-    _ = _b;
-    nr.* = 1;
+fn stdNext(_: *State, args: [*]Value, n: i32, r: [*]Value, _: i32, nr: *i32) callconv(.c) void {
+    if (n < 1 or args[0].type != .table) { lualike_pushnil(&r[0]); nr.* = 1; return; }
+    if (args[0].payload.t == 0) { lualike_pushnil(&r[0]); nr.* = 1; return; }
+    const t: *Table = @ptrFromInt(args[0].payload.t);
+    // If key is nil/null, return first entry; else return next entry after key
+    if (n < 2 or args[1].type == .nil) {
+        // Return first key-value pair
+        var it = t.map.iterator();
+        if (it.next()) |e| {
+            const k_str = e.key_ptr.*;
+            pushStr(&r[0], k_str);
+            lualike_copy(&r[1], e.value_ptr);
+            nr.* = 2;
+        } else {
+            lualike_pushnil(&r[0]); nr.* = 1;
+        }
+    } else {
+        // Find the entry AFTER the given key
+        // Convert key to string for comparison
+        var kbuf: [64]u8 = undefined;
+        const key_slice = keyToSlice(&args[1], &kbuf) catch { lualike_pushnil(&r[0]); nr.* = 1; return; };
+        var found = false;
+        var it = t.map.iterator();
+        while (it.next()) |e| {
+            if (found) {
+                // This is the NEXT entry after the given key
+                const k_str = e.key_ptr.*;
+                pushStr(&r[0], k_str);
+                lualike_copy(&r[1], e.value_ptr);
+                nr.* = 2;
+                return;
+            }
+            if (std.mem.eql(u8, e.key_ptr.*, key_slice)) {
+                found = true;
+            }
+        }
+        lualike_pushnil(&r[0]); nr.* = 1;
+    }
 }
 fn stdPairs(_: *State, args: [*]Value, n: i32, r: [*]Value, _: i32, nr: *i32) callconv(.c) void {
     if (n < 1 or args[0].type != .table) {
