@@ -39,6 +39,28 @@ class LualikeIrToLlvm {
     _buf.clear();
     _unnamedCounter = 0;
     _emitHeader();
+    // Emit extern globals for sub-function constants (Value = 16 bytes each)
+    for (var i = 0; i < prototype.prototypes.length; i++) {
+      final subNc = prototype.prototypes[i].constants.length;
+      _writeln(subNc > 0
+        ? '@_lua_fn_const_${i + 1} = external global [${subNc * 2} x i64]'
+        : '@_lua_fn_const_${i + 1} = external global i64 0');
+    }
+    // Emit sub-functions first for forward references
+    for (var i = 0; i < prototype.prototypes.length; i++) {
+      final subProto = prototype.prototypes[i];
+      final subSsa = LualikeIrSsaFunction.fromPrototype(subProto).simplifyTrivialPhis();
+      final subTa = analyzeLualikeIrSsaTypes(subProto, subSsa);
+      final subEmitter = LualikeIrToLlvm(
+        prototype: subProto,
+        ssaFunction: subSsa,
+        typeAnalysis: subTa,
+        functionIndex: i + 1,
+        targetTriple: targetTriple,
+      );
+      subEmitter._emitFunction();
+      _buf.write(subEmitter._buf.toString());
+    }
     _emitFunction();
     return _buf.toString();
   }
@@ -65,6 +87,7 @@ class LualikeIrToLlvm {
   }
 
   static const _decls = <String>[
+    'declare i1 @lualike_istruthy(ptr)',
     'declare void @lualike_copy(ptr, ptr)',
     'declare void @lualike_pushnil(ptr)',
     'declare void @lualike_pushboolean(ptr, i8)',
@@ -101,7 +124,7 @@ class LualikeIrToLlvm {
     'declare void @lualike_setlist(ptr, ptr, i32, i32, i32)',
     'declare void @lualike_getupval(ptr, ptr, i32)',
     'declare void @lualike_setupval(ptr, i32, ptr)',
-    'declare void @lualike_newclosure(ptr, ptr, ptr, i32, ptr)',
+    'declare void @lualike_newclosure(ptr, ptr, ptr, i32, ptr, ptr, i32)',
     'declare void @lualike_call(ptr, ptr, ptr, ptr, i32)',
     'declare void @lualike_tailcall(ptr, ptr, ptr, ptr, i32)',
     'declare void @lualike_gettabup(ptr, ptr, ptr, i32)',
@@ -329,8 +352,8 @@ class LualikeIrToLlvm {
         _writeln('  call void @lualike_settabup(ptr %upvals, ptr %constants, ptr ${_reg(a)}, i32 $c)');
 
       // -- Closure --
-      case ABxInstruction(opcode: LualikeIrOpcode.closure, a: final a, bx: final _):
-        _writeln('  call void @lualike_newclosure(ptr ${_reg(a)}, ptr null, ptr %upvals, i32 %nupvals, ptr null)');
+      case ABxInstruction(opcode: LualikeIrOpcode.closure, a: final a, bx: final bx):
+        _writeln('  call void @lualike_newclosure(ptr ${_reg(a)}, ptr @_lua_fn_${bx + 1}, ptr %upvals, i32 %nupvals, ptr null, ptr @_lua_fn_const_${bx + 1}, i32 ${prototype.prototypes[bx].constants.length})');
 
       // -- Self --
       case ABCInstruction(opcode: LualikeIrOpcode.selfOp, a: final a, b: final b, c: final c):
@@ -460,8 +483,23 @@ class LualikeIrToLlvm {
         break;
 
       // -- Test / TestSet / Jmp --
-      case ABCInstruction(opcode: LualikeIrOpcode.test, a: final a, k: final _):
+      case ABCInstruction(opcode: LualikeIrOpcode.test, a: final a, k: final k): {
+        // TEST R(A) k — skip next if R(A) is truthy XOR k
+        final sb = ssaFunction.blocks[_currentBlockIndex];
+        if (sb.block.successors.length >= 2) {
+          final cond = _next();
+          _writeln('  $cond = call i1 @lualike_istruthy(ptr ${_reg(a)})');
+          if (k) {
+            // k=true: skip next if truthy → branch if NOT truthy to exit
+            _writeln('  br i1 $cond, label %${_label(sb.block.successors[0])}, label %${_label(sb.block.successors[1])}');
+          } else {
+            // k=false: skip next if NOT truthy → branch if truthy to body
+            _writeln('  br i1 $cond, label %${_label(sb.block.successors[1])}, label %${_label(sb.block.successors[0])}');
+          }
+          _terminated = true;
+        }
         break;
+      }
       case ABCInstruction(opcode: LualikeIrOpcode.testSet, a: final a, b: final b, k: final _):
         cpy(a, b);
       case AsJInstruction(opcode: LualikeIrOpcode.jmp, sJ: final sJ):

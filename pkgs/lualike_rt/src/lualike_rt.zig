@@ -20,7 +20,7 @@ pub const Value = extern struct { type: Type, _pad: [4]u8 = [_]u8{0} ** 4, paylo
 
 /// Function signature for LLVM-compiled Lua function bodies.
 ///
-pub const CompiledFn = *const fn (*State, [*]Value, i32, [*]Value, i32, [*]Value, i32) callconv(.c) void;
+pub const CompiledFn = *const fn (*State, [*]Value, i32, [*]Value, i32, [*]Value, i32, [*]Value, i32) callconv(.c) void;
 
 /// The top-level Lua-like execution state.
 ///
@@ -55,6 +55,8 @@ pub const Closure = struct {
     upvals: [*]Value,
     nupvals: i32,
     name: ?[*:0]u8,
+    constants: [*]Value = undefined,
+    nconstants: i32 = 0,
 };
 
 /// A Lua table — an associative array mapping string keys to [`Value`]s.
@@ -665,7 +667,7 @@ export fn lualike_tforloop(r: [*]Value, a: i32) i32 {
 }
 
 // Closure / upvalue
-export fn lualike_newclosure(d: *Value, fn_ptr: ?CompiledFn, up: [*]Value, nup: i32, name: ?[*:0]u8) void {
+export fn lualike_newclosure(d: *Value, fn_ptr: ?CompiledFn, up: [*]Value, nup: i32, name: ?[*:0]u8, constants: [*]Value, nconstants: i32) void {
     const c = Alloc.create(Closure) catch {
         lualike_pushnil(d);
         return;
@@ -680,6 +682,8 @@ export fn lualike_newclosure(d: *Value, fn_ptr: ?CompiledFn, up: [*]Value, nup: 
             lualike_pushnil(d);
             return;
         }).ptr,
+        .constants = constants,
+        .nconstants = nconstants,
     };
     for (0..@as(usize, @intCast(nup))) |i| lualike_copy(&c.upvals[i], &up[i]);
     if (name) |n| {
@@ -725,7 +729,7 @@ export fn lualike_call(L: ?*State, dst: ?*Value, fn_val: *const Value, args: [*]
         var regs: [16]Value = @splat(nilV());
         for (0..@min(@as(usize, @intCast(nargs)), 16)) |i| lualike_copy(&regs[i], &args[i]);
         var ev: [1]Value = @splat(nilV());
-        cfn(L.?, &regs, 16, closure.upvals, closure.nupvals, &ev, 0);
+        cfn(L.?, &regs, 16, closure.upvals, closure.nupvals, &ev, 0, closure.constants, closure.nconstants);
         if (dst) |d| lualike_copy(d, &regs[0]);
         for (&regs) |*r| release(r.*);
     } else {

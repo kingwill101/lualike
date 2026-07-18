@@ -133,13 +133,20 @@ String _generateMainZig(LualikeIrPrototype proto) {
   buf.writeln('extern fn lualike_release(*Value) void;');
   buf.writeln('extern fn lualike_copy(*Value, *const Value) void;');
   buf.writeln();
-  buf.writeln('// Compiled Lua function');
-  buf.writeln('extern fn _lua_fn_0(');
-  buf.writeln('  L: ?*State, r: [*]Value, nregs: i32,');
-  buf.writeln('  upvals: [*]Value, nupvals: i32,');
-  buf.writeln('  varargs: [*]Value, nvarargs: i32,');
-  buf.writeln('  constants: [*]Value, nconstants: i32,');
-  buf.writeln(') void;');
+  // Compiled Lua functions (main + sub-functions for closures)
+  for (var fi = 0; fi <= proto.prototypes.length; fi++) {
+    buf.writeln('extern fn _lua_fn_$fi(');
+    buf.writeln('  L: ?*State, r: [*]Value, nregs: i32,');
+    buf.writeln('  upvals: [*]Value, nupvals: i32,');
+    buf.writeln('  varargs: [*]Value, nvarargs: i32,');
+    buf.writeln('  constants: [*]Value, nconstants: i32,');
+    buf.writeln(') void;');
+  }
+  buf.writeln('// Sub-function constant globals (for closure dispatch)');
+  for (var si = 0; si < proto.prototypes.length; si++) {
+    final subNc = proto.prototypes[si].constants.length;
+    buf.writeln('export var _lua_fn_const_${si + 1}: [${subNc > 0 ? subNc : 1}]Value = undefined;');
+  }
   buf.writeln();
 
   // Main function
@@ -189,8 +196,49 @@ String _generateMainZig(LualikeIrPrototype proto) {
     }
   }
   buf.writeln();
-
-  // Registers (heap-allocated)
+  buf.writeln('  // Initialize sub-function constants (for closure globals)');
+  buf.writeln('  var si: usize = 0;');
+  buf.writeln('  while (si < ${proto.prototypes.length}) : (si += 1) {');
+  buf.writeln('    switch (si) {');
+  for (var si = 0; si < proto.prototypes.length; si++) {
+    final subProto = proto.prototypes[si];
+    final subNc = subProto.constants.length;
+    if (subNc > 0) {
+      buf.writeln('      ${si} => {');
+      buf.writeln('        @memset(&_lua_fn_const_${si + 1}, .{ .type = .nil, ._pad = undefined, .payload = undefined });');
+      for (var j = 0; j < subNc; j++) {
+        final sc = subProto.constants[j];
+        if (sc is NilConstant) {
+          buf.writeln('        _lua_fn_const_${si + 1}[${j}].type = .nil;');
+        } else if (sc is BooleanConstant) {
+          final v = (sc as BooleanConstant).value;
+          buf.writeln('        _lua_fn_const_${si + 1}[${j}].type = .boolean;');
+          buf.writeln('        _lua_fn_const_${si + 1}[${j}].payload.b = ${v ? "true" : "false"};');
+        } else if (sc is IntegerConstant) {
+          final v = (sc as IntegerConstant).value;
+          buf.writeln('        _lua_fn_const_${si + 1}[${j}].type = .number;');
+          buf.writeln('        _lua_fn_const_${si + 1}[${j}].payload.n = @as(f64, @floatFromInt(${v}));');
+        } else if (sc is NumberConstant) {
+          final v = (sc as NumberConstant).value;
+          buf.writeln('        _lua_fn_const_${si + 1}[${j}].type = .number;');
+          buf.writeln('        _lua_fn_const_${si + 1}[${j}].payload.n = ${_zigFloat(v)};');
+        } else if (sc is ShortStringConstant || sc is LongStringConstant) {
+          final v = (sc as dynamic).value as String;
+          buf.writeln('        {');
+          buf.writeln('          const str = alloc.create(String) catch |e| { @import("std").log.err("alloc fail {}", .{e}); return; };');
+          buf.writeln('          const strBuf = alloc.dupe(u8, "${_escapeZig(v)}") catch |e| { alloc.destroy(str); @import("std").log.err("alloc fail {}", .{e}); return; };');
+          buf.writeln('          str.* = .{ .refcount = 1, .len = ${v.length}, .data = strBuf.ptr };');
+          buf.writeln('          _lua_fn_const_${si + 1}[${j}].type = .string;');
+          buf.writeln('          _lua_fn_const_${si + 1}[${j}].payload.s = str;');
+          buf.writeln('        }');
+        }
+      }
+      buf.writeln('      },');
+    }
+  }
+  buf.writeln('      else => {},');
+  buf.writeln('    }');
+  buf.writeln('  }');
   buf.writeln('  const regs = alloc.alloc(Value, $nr) catch |e| {');
   buf.writeln('    @import("std").log.err("alloc fail {}", .{e}); return;');
   buf.writeln('  };');
