@@ -1281,20 +1281,49 @@ fn stdStringFind(L: *State, args: [*]Value, n: i32, r: [*]Value, _: i32, nr: *i3
 fn stdTableInsert(L: *State, args: [*]Value, n: i32, _: [*]Value, _: i32, nr: *i32) callconv(.c) void {
     _ = L;
     if (n < 2 or args[0].type != .table) { nr.* = 0; return; }
-    // Find the highest integer key + 1 by scanning the table
-    var max_idx: i64 = 0;
-    if (args[0].payload.t != 0) {
-        const t: *Table = @ptrFromInt(args[0].payload.t);
-        var it = t.map.iterator();
-        while (it.next()) |e| {
-            const key_str = e.key_ptr.*;
-            if (key_str.len > 0 and key_str.len <= 20) {
-                const val = std.fmt.parseInt(i64, key_str, 10) catch continue;
-                if (val > max_idx) max_idx = val;
+    if (n == 3) {
+        // table.insert(t, pos, val) — insert at position, shift others up
+        const pos = @as(i64, @intFromFloat(args[1].payload.n));
+        // Find the highest integer key
+        var max_idx: i64 = 0;
+        if (args[0].payload.t != 0) {
+            const t: *Table = @ptrFromInt(args[0].payload.t);
+            var it = t.map.iterator();
+            while (it.next()) |e| {
+                const key_str = e.key_ptr.*;
+                if (key_str.len > 0 and key_str.len <= 20) {
+                    const val = std.fmt.parseInt(i64, key_str, 10) catch continue;
+                    if (val > max_idx) max_idx = val;
+                }
             }
         }
+        // Shift elements from pos to end upward by 1
+        var k: i64 = max_idx;
+        while (k >= pos) : (k -= 1) {
+            var v: Value = undefined;
+            lualike_geti(null, &v, &args[0], k);
+            if (v.type != .nil) {
+                lualike_seti(null, &args[0], k + 1, &v);
+            }
+            release(v);
+        }
+        lualike_seti(null, &args[0], pos, &args[2]);
+    } else {
+        // table.insert(t, val) — append at end
+        var max_idx: i64 = 0;
+        if (args[0].payload.t != 0) {
+            const t: *Table = @ptrFromInt(args[0].payload.t);
+            var it = t.map.iterator();
+            while (it.next()) |e| {
+                const key_str = e.key_ptr.*;
+                if (key_str.len > 0 and key_str.len <= 20) {
+                    const val = std.fmt.parseInt(i64, key_str, 10) catch continue;
+                    if (val > max_idx) max_idx = val;
+                }
+            }
+        }
+        lualike_seti(null, &args[0], max_idx + 1, &args[1]);
     }
-    lualike_seti(null, &args[0], max_idx + 1, &args[1]);
     nr.* = 0;
 }
 
@@ -1601,41 +1630,70 @@ fn stdStringGsub(L: *State, args: [*]Value, n: i32, r: [*]Value, _: i32, nr: *i3
     nr.* = 2;
 }
 
-fn stdTableSort(_: *State, args: [*]Value, n: i32, _: [*]Value, _: i32, nr: *i32) callconv(.c) void {
+fn stdTableSort(L: *State, args: [*]Value, n: i32, _: [*]Value, _: i32, nr: *i32) callconv(.c) void {
     if (n < 1 or args[0].type != .table) { nr.* = 0; return; }
-    // Simple quicksort on integer keys 1..N
-    // Collect values
-    var vals: [1024]f64 = undefined;
+    const has_comp = (n >= 2 and args[1].type == .function_);
+
+    // Collect all integer-keyed values into a list
     var count: usize = 0;
+    var values: [1024]Value = @splat(nilV());
     if (args[0].payload.t != 0) {
         var idx: i64 = 1;
-        while (count < vals.len) {
+        while (count < values.len) {
             var k = Value{ .type = .number, ._pad = undefined, .payload = .{ .n = @as(f64, @floatFromInt(idx)) } };
             var v: Value = undefined;
             lualike_gettable(null, &v, &args[0], &k);
-            defer release(v);
-            if (v.type == .nil) break;
-            if (v.type == .number) { vals[count] = v.payload.n; count += 1; }
+            if (v.type == .nil) { release(v); break; }
+            values[count] = v;
+            count += 1;
             idx += 1;
         }
     }
-    if (count < 2) { nr.* = 0; return; }
-    // Simple bubble sort for small arrays
-    var i: usize = 0;
-    while (i < count) : (i += 1) {
-        var j: usize = i + 1;
-        while (j < count) : (j += 1) {
-            if (vals[i] > vals[j]) {
-                const tmp = vals[i];
-                vals[i] = vals[j];
-                vals[j] = tmp;
-            }
-        }
+    if (count < 2) {
+        for (0..count) |i| release(values[i]);
+        nr.* = 0; return;
     }
+
+    // Insertion sort with optional comparator
+    var i: usize = 1;
+    while (i < count) : (i += 1) {
+        var j: usize = i;
+        while (j > 0) {
+            var less: bool = undefined;
+            if (has_comp) {
+                // Call comparator(args[1], values[j-1], values[j])
+                var comp_args: [2]Value = .{ values[j - 1], values[j] };
+                var comp_result: Value = undefined;
+                const saved_err = L.err;
+                L.err = 0;
+                lualike_call(L, &comp_result, &args[1], &comp_args, 2);
+                if (L.err != 0) {
+                    L.err = saved_err;
+                    for (0..count) |ri| release(values[ri]);
+                    nr.* = 0; return;
+                }
+                L.err = saved_err;
+                less = lualike_istruthy(&comp_result);
+                release(comp_result);
+            } else {
+                // Default: numeric comparison
+                less = (values[j - 1].type == .number and values[j].type == .number and
+                    values[j - 1].payload.n > values[j].payload.n);
+            }
+            if (!less) break;
+            const tmp = values[j - 1];
+            values[j - 1] = values[j];
+            values[j] = tmp;
+            j -= 1;
+        }
+        i += 1;
+    }
+
     // Write back
     for (0..count) |idx| {
         const vi = @as(i64, @intCast(idx + 1));
-        lualike_seti(null, &args[0], vi, &Value{ .type = .number, ._pad = undefined, .payload = .{ .n = vals[idx] } });
+        lualike_seti(null, &args[0], vi, &values[idx]);
+        release(values[idx]);
     }
     nr.* = 0;
 }
@@ -2106,6 +2164,21 @@ fn stdOsTmpname(_: *State, _: [*]Value, _: i32, r: [*]Value, _: i32, nr: *i32) c
     pushStr(&r[0], "/tmp/lualike_XXXXXX"); nr.* = 1;
 }
 
+fn stdOsExecute(_: *State, args: [*]Value, n: i32, r: [*]Value, _: i32, nr: *i32) callconv(.c) void {
+    if (n < 1 or args[0].type != .string) { lualike_pushnil(&r[0]); nr.* = 1; return; }
+    const s = args[0].payload.s orelse { lualike_pushnil(&r[0]); nr.* = 1; return; };
+    // Use system() from libc (available via -lc)
+    var buf: [4096]u8 = undefined;
+    const cmd_len = @min(s.len, buf.len - 1);
+    @memcpy(buf[0..cmd_len], s.data[0..cmd_len]);
+    buf[cmd_len] = 0;
+    const std_c_system: *const fn ([*:0]u8) callconv(.c) i32 =
+        @ptrCast(&@extern(*anyopaque, .{ .name = "system" }).*);
+    const result = std_c_system(@ptrCast(&buf));
+    lualike_pushnumber(&r[0], @as(f64, @floatFromInt(result)));
+    nr.* = 1;
+}
+
 fn stdPcall(L: *State, args: [*]Value, n: i32, r: [*]Value, _: i32, nr: *i32) callconv(.c) void {
     if (n < 1) { lualike_pushboolean(&r[0], false); nr.* = 1; return; }
     const saved_err = L.err;
@@ -2322,6 +2395,7 @@ export fn lualike_openlibs(L: *State) void {
     reg(L, "os", "exit", stdOsExit);
     reg(L, "os", "getenv", stdOsGetenv);
     reg(L, "os", "tmpname", stdOsTmpname);
+    reg(L, "os", "execute", stdOsExecute);
 
     // Constants
     {
@@ -2336,7 +2410,37 @@ export fn lualike_openlibs(L: *State) void {
         lualike_pushnumber(&v, std.math.inf(f64));
         const key = String.init("huge") catch return;
         var k = Value{ .type = .string, ._pad = undefined, .payload = .{ .s = key } };
-        // store in math table: math.huge
+        var mathKey = String.init("math") catch return;
+        defer mathKey.deref();
+        var mk = Value{ .type = .string, ._pad = undefined, .payload = .{ .s = mathKey } };
+        var mathTbl: Value = undefined;
+        lualike_getfield(null, &mathTbl, &L.globals, &mk);
+        if (mathTbl.type == .table) {
+            lualike_setfield(null, &mathTbl, &k, &v);
+        }
+        release(mathTbl);
+    }
+    // math.maxinteger / math.mininteger
+    {
+        var v: Value = undefined;
+        lualike_pushnumber(&v, @as(f64, @floatFromInt(std.math.maxInt(i64))));
+        const key = String.init("maxinteger") catch return;
+        var k = Value{ .type = .string, ._pad = undefined, .payload = .{ .s = key } };
+        var mathKey = String.init("math") catch return;
+        defer mathKey.deref();
+        var mk = Value{ .type = .string, ._pad = undefined, .payload = .{ .s = mathKey } };
+        var mathTbl: Value = undefined;
+        lualike_getfield(null, &mathTbl, &L.globals, &mk);
+        if (mathTbl.type == .table) {
+            lualike_setfield(null, &mathTbl, &k, &v);
+        }
+        release(mathTbl);
+    }
+    {
+        var v: Value = undefined;
+        lualike_pushnumber(&v, @as(f64, @floatFromInt(std.math.minInt(i64))));
+        const key = String.init("mininteger") catch return;
+        var k = Value{ .type = .string, ._pad = undefined, .payload = .{ .s = key } };
         var mathKey = String.init("math") catch return;
         defer mathKey.deref();
         var mk = Value{ .type = .string, ._pad = undefined, .payload = .{ .s = mathKey } };
