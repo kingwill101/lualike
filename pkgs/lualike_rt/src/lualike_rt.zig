@@ -744,7 +744,12 @@ export fn lualike_call(L: ?*State, dst: ?*Value, fn_val: *const Value, args: [*]
         cfn(L.?, args, nargs, &results, 8, &nr);
         if (nr > 0 and dst != null) {
             lualike_copy(dst.?, &results[0]);
-            for (1..@as(usize, @intCast(nr))) |j| release(results[j]);
+            // Store up to 2 extra results — SAFE because generic for loop
+            // always has a+4 < nregs (loop state needs 4 contiguous regs)
+            const ncopy = @min(@as(usize, @intCast(nr - 1)), 2);
+            const dst_arr: [*]Value = @ptrCast(dst.?);
+            for (0..ncopy) |j| lualike_copy(&dst_arr[j + 1], &results[j + 1]);
+            for (ncopy + 1..@as(usize, @intCast(nr))) |j| release(results[j]);
         }
         return;
     }
@@ -761,7 +766,9 @@ export fn lualike_call(L: ?*State, dst: ?*Value, fn_val: *const Value, args: [*]
     const closure: *Closure = @ptrFromInt(fn_val.payload.fn_ptr);
     if (closure.fn_ptr) |cfn| {
         var regs: [16]Value = @splat(nilV());
-        for (0..@min(@as(usize, @intCast(nargs)), 16)) |i| lualike_copy(&regs[i], &args[i]);
+        // nargs == -1 means "all remaining registers" (vararg convention)
+        const na: i32 = if (nargs < 0) 16 else nargs;
+        for (0..@min(@as(usize, @intCast(na)), 16)) |i| lualike_copy(&regs[i], &args[i]);
         var ev: [1]Value = @splat(nilV());
         cfn(L.?, &regs, 16, closure.upvals, closure.nupvals, &ev, 0, closure.constants, closure.nconstants);
         if (dst) |d| lualike_copy(d, &regs[0]);

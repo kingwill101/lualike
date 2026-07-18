@@ -410,8 +410,29 @@ class LualikeIrToLlvm {
         final subNc = subProto.constants.length;
         final hasConst = subNc > 0 && bxMap.containsKey('$functionIndex:$bx');
         final constRef = hasConst ? 'ptr @_lua_fn_const_$flatIdx' : 'ptr null';
-        print('closure fn=$functionIndex bx=$bx flat=$flatIdx subNc=$subNc hasConst=$hasConst');
-        _writeln('  call void @lualike_newclosure(ptr ${_reg(a)}, ptr @_lua_fn_$flatIdx, ptr %upvals, i32 %nupvals, ptr null, $constRef, i32 ${hasConst ? subNc : 0})');
+        final nup = subProto.upvalueCount;
+        if (nup > 0) {
+          final uvArray = _next();
+          // Zero-initialize the array to avoid releasing garbage in lualike_copy
+          _writeln('  $uvArray = alloca [${nup}x { i64, [2 x i64] }], i32 1');
+          for (var i = 0; i < nup; i++) {
+            final desc = subProto.upvalueDescriptors[i];
+            final uvSlot = _next();
+            _writeln('  $uvSlot = getelementptr i8, ptr $uvArray, i32 ${i * _valueSz}');
+            // Zero the slot first (prevents lualike_copy from releasing garbage)
+            _writeln('  call void @lualike_pushnil(ptr $uvSlot)');
+            if (desc.inStack == 1) {
+              _writeln('  call void @lualike_copy(ptr $uvSlot, ptr ${_reg(desc.index)})');
+            } else {
+              final uvPtr = _next();
+              _writeln('  $uvPtr = getelementptr i8, ptr %upvals, i32 ${desc.index * _valueSz}');
+              _writeln('  call void @lualike_copy(ptr $uvSlot, ptr $uvPtr)');
+            }
+          }
+          _writeln('  call void @lualike_newclosure(ptr ${_reg(a)}, ptr @_lua_fn_$flatIdx, ptr $uvArray, i32 $nup, ptr null, $constRef, i32 ${hasConst ? subNc : 0})');
+        } else {
+          _writeln('  call void @lualike_newclosure(ptr ${_reg(a)}, ptr @_lua_fn_$flatIdx, ptr null, i32 $nup, ptr null, $constRef, i32 ${hasConst ? subNc : 0})');
+        }
         break;
       }
 
