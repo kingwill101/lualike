@@ -112,11 +112,26 @@ class LuaLikeCommandRunner extends CommandRunner {
         negatable: false,
         defaultsTo: false,
       )
+      ..addFlag(
+        'native',
+        help:
+            'Compile to native binary via LLVM + Zig runtime. '
+            'Requires --output, zig, llc, and clang on PATH.',
+        negatable: false,
+        defaultsTo: false,
+      )
+      ..addFlag(
+        'check-env',
+        help:
+            'Check that zig, llc, and clang are available for --native compilation.',
+        negatable: false,
+        defaultsTo: false,
+      )
       ..addOption(
         'output',
         abbr: 'o',
         help:
-            'Output path for --compile (required; any path — binary is '
+            'Output path for --compile or --native (required; any path — binary is '
             'detected by chunk header, not extension)',
         valueHelp: 'file',
       )
@@ -285,6 +300,61 @@ class LuaLikeCommandRunner extends CommandRunner {
       );
       return;
     }
+    // Handle --check-env (verify native compilation toolchain)
+    if (argResults['check-env'] as bool) {
+      stderr.writeln('Checking native compilation environment...');
+      try {
+        final r = await Process.run('dart', [
+          'run', 'tool/compile_llvm.dart', '--help',
+        ]);
+        if (r.exitCode == 0) {
+          stderr.println('  compile_llvm.dart: OK (%{r.exitCode})');
+        }
+      } catch (_) {
+        stderr.writeln('  compile_llvm.dart: not found in tool/');
+      }
+      for (final tool in ['zig', 'llc', 'clang']) {
+        try {
+          final r = await Process.run('which', [tool]);
+          stdout.writeln('  $tool: ${r.stdout.toString().trim()}');
+        } catch (_) {
+          stderr.writeln('  $tool: not found');
+        }
+      }
+      exit(0);
+    }
+
+    // Handle --native (LLVM native compilation)
+    if (argResults['native'] as bool) {
+      if (restArgs.isEmpty) {
+        stderr.writeln('Error: --native requires a script file argument.');
+        exit(1);
+      }
+      final scriptPath = restArgs.first;
+      final outputPath = argResults['output'] as String?;
+      if (outputPath == null || outputPath.isEmpty) {
+        stderr.writeln(
+          'Error: --native requires --output / -o <path>',
+        );
+        exit(1);
+      }
+      // Import and run the LLVM pipeline
+      final result = await Process.run('dart', [
+        'run',
+        'tool/compile_llvm.dart',
+        scriptPath,
+        '-o',
+        outputPath,
+      ]);
+      if (result.exitCode != 0) {
+        stderr.writeln('Native compilation failed:');
+        stderr.writeln(result.stderr.toString());
+        exit(1);
+      }
+      stderr.writeln(result.stderr.toString());
+      exit(0);
+    }
+
     BaseCommand.resetBridge();
 
     final emitDocsFormat = argResults['emit-docs'] as String?;
