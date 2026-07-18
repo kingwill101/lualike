@@ -1,5 +1,6 @@
 const std = @import("std");
 const mem = std.mem;
+const pattern = @import("pattern.zig");
 
 /// Allocator. Uses c_allocator (backs to malloc/free via -lc).
 const Alloc = std.heap.c_allocator;
@@ -1242,21 +1243,31 @@ fn stdStringFind(L: *State, args: [*]Value, n: i32, r: [*]Value, _: i32, nr: *i3
     }
     const haystack = args[0].payload.s orelse { lualike_pushnil(&r[0]); nr.* = 1; return; };
     const needle = args[1].payload.s orelse { lualike_pushnil(&r[0]); nr.* = 1; return; };
-    // Plain substring search (no patterns)
     const hs = haystack.data[0..haystack.len];
     const nd = needle.data[0..needle.len];
     if (nd.len == 0) { lualike_pushnumber(&r[0], 1); nr.* = 1; return; }
-    // Optional start index (plain mode)
     var start: usize = 0;
     if (n >= 3 and args[2].type == .number) {
         const si = @as(i64, @intFromFloat(args[2].payload.n));
         start = if (si > 0) @as(usize, @intCast(si - 1)) else 0;
     }
     if (start >= hs.len) { lualike_pushnil(&r[0]); nr.* = 1; return; }
-    if (std.mem.indexOf(u8, hs[start..], nd)) |pos| {
-        lualike_pushnumber(&r[0], @floatFromInt(start + pos + 1));
-        lualike_pushnumber(&r[1], @floatFromInt(start + pos + nd.len));
+    // Use pattern matching (handles both plain and pattern strings)
+    if (pattern.strFind(hs, nd, start)) |mr| {
+        lualike_pushnumber(&r[0], @floatFromInt(mr.start + 1));
+        lualike_pushnumber(&r[1], @floatFromInt(mr.end));
         nr.* = 2;
+        // Push captures if any
+        if (mr.capture_count > 0) {
+            var ci: usize = 0;
+            while (ci < mr.capture_count and ci + 2 < 8) {
+                if (mr.captures[ci]) |cap| {
+                    pushStr(&r[ci + 2], cap);
+                }
+                ci += 1;
+            }
+            nr.* = 2 + @as(i32, @intCast(ci));
+        }
     } else {
         lualike_pushnil(&r[0]); nr.* = 1;
     }
@@ -1464,9 +1475,7 @@ fn stdStringGmatch(L: *State, args: [*]Value, n: i32, r: [*]Value, _: i32, nr: *
     if (n < 2 or args[0].type != .string or args[1].type != .string) {
         lualike_pushnil(&r[0]); nr.* = 1; return;
     }
-    // gmatch returns an iterator function that returns matches one at a time
-    // We return a closure-like state: { fn, subject, pattern }
-    // For simplicity, use stdStringFind and return the match
+    // Return iterator: match function + subject + pattern (called repeatedly)
     lualike_pushcfunction(&r[0], @intFromPtr(&stdStringMatch), @ptrCast(@constCast("match")));
     lualike_copy(&r[1], &args[0]);
     lualike_copy(&r[2], &args[1]);
@@ -2064,12 +2073,23 @@ fn stdStringMatch(L: *State, args: [*]Value, n: i32, r: [*]Value, _: i32, nr: *i
         break :blk if (si > 0) @as(usize, @intCast(si - 1)) else 0;
     } else 0;
     if (start >= hs.len) { lualike_pushnil(&r[0]); nr.* = 1; return; }
-    if (std.mem.indexOf(u8, hs[start..], nd)) |pos| {
-        pushStr(&r[0], hs[start + pos .. start + pos + nd.len]);
+    if (pattern.strMatch(hs, nd, start)) |mr| {
+        if (mr.capture_count > 0) {
+            var ci: usize = 0;
+            while (ci < mr.capture_count and ci < 8) {
+                if (mr.captures[ci]) |cap| {
+                    pushStr(&r[ci], cap);
+                }
+                ci += 1;
+            }
+            nr.* = @as(i32, @intCast(ci));
+        } else {
+            pushStr(&r[0], hs[mr.start..mr.end]);
+            nr.* = 1;
+        }
     } else {
-        lualike_pushnil(&r[0]);
+        lualike_pushnil(&r[0]); nr.* = 1;
     }
-    nr.* = 1;
 }
 
 fn stdStringFormat(L: *State, args: [*]Value, n: i32, r: [*]Value, _: i32, nr: *i32) callconv(.c) void {
