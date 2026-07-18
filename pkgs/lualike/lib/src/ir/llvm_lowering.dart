@@ -268,11 +268,18 @@ class LualikeIrToLlvm {
       case ABCInstruction(opcode: LualikeIrOpcode.eq,  a: final a, b: final b, c: final c): call3('lualike_eq', a, b, c);
       case ABCInstruction(opcode: LualikeIrOpcode.lt,  a: final a, b: final b, c: final c): call3('lualike_lt', a, b, c);
       case ABCInstruction(opcode: LualikeIrOpcode.le,  a: final a, b: final b, c: final c): call3('lualike_le', a, b, c);
-      case ABCInstruction(opcode: LualikeIrOpcode.eqI, a: final a, b: final b, c: final c, k: final _): call3c('lualike_eq', a, b, c);
-      case ABCInstruction(opcode: LualikeIrOpcode.ltI, a: final a, b: final b, c: final c, k: final _): call3c('lualike_lt', a, b, c);
-      case ABCInstruction(opcode: LualikeIrOpcode.leI, a: final a, b: final b, c: final c, k: final _): call3c('lualike_le', a, b, c);
-      case ABCInstruction(opcode: LualikeIrOpcode.gtI, a: final a, b: final b, c: final c, k: final _): call3c('lualike_lt', a, b, c);
-      case ABCInstruction(opcode: LualikeIrOpcode.geI, a: final a, b: final b, c: final c, k: final _): call3c('lualike_le', a, b, c);
+            case ABCInstruction(opcode: LualikeIrOpcode.eqI, a: final a, b: final b, c: final c, k: final _):
+        pushInt(a, _se(c, 9)); call3('lualike_eq', a, b, a);
+      case ABCInstruction(opcode: LualikeIrOpcode.ltI, a: final a, b: final b, c: final c, k: final _):
+        pushInt(a, _se(c, 9)); call3('lualike_lt', a, b, a);
+      case ABCInstruction(opcode: LualikeIrOpcode.leI, a: final a, b: final b, c: final c, k: final _):
+        pushInt(a, _se(c, 9)); call3('lualike_le', a, b, a);
+      case ABCInstruction(opcode: LualikeIrOpcode.gtI, a: final a, b: final b, c: final c, k: final _):
+        // a > literal → literal < a
+        pushInt(a, _se(c, 9)); call3('lualike_lt', a, a, b);
+      case ABCInstruction(opcode: LualikeIrOpcode.geI, a: final a, b: final b, c: final c, k: final _):
+        // a >= literal → literal <= a
+        pushInt(a, _se(c, 9)); call3('lualike_le', a, a, b);
       case ABCInstruction(opcode: LualikeIrOpcode.eqK, a: final a, b: final b, c: final c): call3c('lualike_eq', a, b, c);
 
       // -- Logical --

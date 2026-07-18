@@ -567,17 +567,18 @@ export fn lualike_settable(_: ?*State, tbl: *Value, key: *const Value, val: *con
         retain(val.*);
     }
 }
-export fn lualike_getfield(L: ?*State, d: *Value, tbl: *const Value, field: [*:0]u8) void {
-    const key = String.init(std.mem.sliceTo(field, 0)) catch {
-        lualike_pushnil(d);
-        return;
-    };
+export fn lualike_getfield(L: ?*State, d: *Value, tbl: *const Value, field: *const Value) void {
+    if (field.type != .string) { lualike_pushnil(d); return; }
+    const s = field.payload.s orelse { lualike_pushnil(d); return; };
+    const key = String.init(s.data[0..s.len]) catch { lualike_pushnil(d); return; };
     defer key.deref();
     var k = Value{ .type = .string, ._pad = undefined, .payload = .{ .s = key } };
     lualike_gettable(L, d, tbl, &k);
 }
-export fn lualike_setfield(L: ?*State, tbl: *Value, field: [*:0]u8, val: *const Value) void {
-    const key = String.init(std.mem.sliceTo(field, 0)) catch return;
+export fn lualike_setfield(L: ?*State, tbl: *Value, field: *const Value, val: *const Value) void {
+    if (field.type != .string) return;
+    const s = field.payload.s orelse return;
+    const key = String.init(s.data[0..s.len]) catch return;
     defer key.deref();
     var k = Value{ .type = .string, ._pad = undefined, .payload = .{ .s = key } };
     lualike_settable(L, tbl, &k, val);
@@ -629,10 +630,16 @@ export fn lualike_settabup(upvals: [*]Value, constants: [*]Value, val: *const Va
 export fn lualike_setlist(_: ?*State, _: *Value, _: i32, _: i32, _: i32) void {}
 
 export fn lualike_getglobal(L: ?*State, d: *Value, name: [*:0]u8) void {
-    lualike_getfield(L, d, &L.?.globals, name);
+    const key = String.init(std.mem.sliceTo(name, 0)) catch { lualike_pushnil(d); return; };
+    defer key.deref();
+    var k = Value{ .type = .string, ._pad = undefined, .payload = .{ .s = key } };
+    lualike_getfield(L, d, &L.?.globals, &k);
 }
 export fn lualike_setglobal(L: ?*State, name: [*:0]u8, v: *const Value) void {
-    lualike_setfield(L, &L.?.globals, name, v);
+    const key = String.init(std.mem.sliceTo(name, 0)) catch return;
+    defer key.deref();
+    var k = Value{ .type = .string, ._pad = undefined, .payload = .{ .s = key } };
+    lualike_setfield(L, &L.?.globals, &k, v);
 }
 
 // For loop
