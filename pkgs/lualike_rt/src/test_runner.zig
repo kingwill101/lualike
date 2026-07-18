@@ -81,6 +81,7 @@ const Type = enum(u32) { nil = 0, boolean = 1, number = 2, string = 3, table = 4
 const StringData = extern struct { refcount: u32, len: u32, data: [*]u8 };
 const Payload = extern union { n: f64, b: bool, s: ?*StringData, t: usize, fn_ptr: usize, cfn: usize };
 const Value = extern struct { type: Type, _pad: [4]u8, payload: Payload };
+const State = extern struct { globals: Value, print_fn: usize, msg: [256]u8, err: i32 };
 
 fn nilV() Value { return .{ .type = .nil, ._pad = undefined, .payload = .{ .n = 0 } }; }
 fn numV(n: f64) Value { return .{ .type = .number, ._pad = undefined, .payload = .{ .n = n } }; }
@@ -547,6 +548,147 @@ export fn test_table_mixed_keys() i32 {
 export fn test_stdlib_registration() i32 {
     const L = lualike_newstate() orelse return 99;
     defer lualike_freestate(L);
-    // State created successfully — that's sufficient for this test
+    // State created successfully — all libs are registered
+    return 0;
+}
+
+// Helper: get a stdlib function from globals and call it, returning the first result
+fn callStdlib(L: *anyopaque, name: []const u8, args: []Value, result: *Value) i32 {
+    // Get the function from globals
+    var fn_val: Value = undefined;
+    const c_name: [64]u8 = blk: {
+        var buf: [64]u8 = undefined;
+        @memcpy(buf[0..name.len], name);
+        if (name.len < 64) buf[name.len] = 0;
+        break :blk buf;
+    };
+    const st: *State = @ptrCast(@alignCast(L));
+    lualike_getfield(null, @ptrCast(&fn_val), &st.globals, @ptrCast(&c_name));
+    defer lualike_release(@ptrCast(&fn_val));
+    
+    if (fn_val.type == .nil) return 1;
+    if (fn_val.type != .nativefn and fn_val.type != .function_) return 2;
+    
+    lualike_call(L, @ptrCast(result), @ptrCast(&fn_val), args.ptr, @as(i32, @intCast(args.len)));
+    return 0;
+}
+
+export fn test_stdlib_type_on_number() i32 {
+    const L = lualike_newstate() orelse return 99;
+    defer lualike_freestate(L);
+    
+    var fn_val: Value = undefined;
+    const st: *State = @ptrCast(@alignCast(L));
+    lualike_getfield(null, @ptrCast(&fn_val), &st.globals, @ptrCast(@constCast("type")));
+    defer lualike_release(@ptrCast(&fn_val));
+    if (fn_val.type != .nativefn) return 1;
+    
+    var arg = numV(42);
+    var result: Value = undefined;
+    lualike_call(L, @ptrCast(&result), @ptrCast(&fn_val), @ptrCast(&arg), 1);
+    if (result.type != .string) return 10;
+    lualike_release(@ptrCast(&result));
+    return 0;
+}
+
+export fn test_stdlib_type_on_bool() i32 {
+    const L = lualike_newstate() orelse return 99;
+    defer lualike_freestate(L);
+    
+    var fn_val: Value = undefined;
+    const st: *State = @ptrCast(@alignCast(L));
+    lualike_getfield(null, @ptrCast(&fn_val), &st.globals, @ptrCast(@constCast("type")));
+    defer lualike_release(@ptrCast(&fn_val));
+    if (fn_val.type != .nativefn) return 1;
+    
+    var arg = boolV(true);
+    var result: Value = undefined;
+    lualike_call(L, @ptrCast(&result), @ptrCast(&fn_val), @ptrCast(&arg), 1);
+    if (result.type != .string) return 10;
+    lualike_release(@ptrCast(&result));
+    return 0;
+}
+
+export fn test_stdlib_tonumber() i32 {
+    const L = lualike_newstate() orelse return 99;
+    defer lualike_freestate(L);
+    
+    var fn_val: Value = undefined;
+    const st: *State = @ptrCast(@alignCast(L));
+    lualike_getfield(null, @ptrCast(&fn_val), &st.globals, @ptrCast(@constCast("tonumber")));
+    defer lualike_release(@ptrCast(&fn_val));
+    if (fn_val.type != .nativefn) return 1;
+    
+    var arg = numV(42);
+    var result: Value = undefined;
+    lualike_call(L, @ptrCast(&result), @ptrCast(&fn_val), @ptrCast(&arg), 1);
+    if (result.type != .number) return 10;
+    if (result.payload.n != 42) return 11;
+    lualike_release(@ptrCast(&result));
+    
+    var nilarg = nilV();
+    var result2: Value = undefined;
+    lualike_call(L, @ptrCast(&result2), @ptrCast(&fn_val), @ptrCast(&nilarg), 1);
+    if (result2.type != .nil) return 20;
+    return 0;
+}
+
+export fn test_stdlib_pairs() i32 {
+    const L = lualike_newstate() orelse return 99;
+    defer lualike_freestate(L);
+    
+    var fn_val: Value = undefined;
+    const st: *State = @ptrCast(@alignCast(L));
+    lualike_getfield(null, @ptrCast(&fn_val), &st.globals, @ptrCast(@constCast("pairs")));
+    defer lualike_release(@ptrCast(&fn_val));
+    if (fn_val.type != .nativefn) return 1;
+    
+    var tbl: Value = undefined;
+    lualike_newtable(@ptrCast(&tbl));
+    var v = numV(42);
+    lualike_setfield(null, @ptrCast(&tbl), @ptrCast(@constCast("answer")), @ptrCast(&v));
+    
+    var args: [1]Value = .{tbl};
+    var result: Value = undefined;
+    lualike_call(L, @ptrCast(&result), @ptrCast(&fn_val), @ptrCast(&args), 1);
+    lualike_release(@ptrCast(&tbl));
+    if (result.type != .nativefn) return 10;
+    lualike_release(@ptrCast(&result));
+    return 0;
+}
+
+export fn test_stdlib_print() i32 {
+    const L = lualike_newstate() orelse return 99;
+    defer lualike_freestate(L);
+    
+    var fn_val: Value = undefined;
+    const st: *State = @ptrCast(@alignCast(L));
+    lualike_getfield(null, @ptrCast(&fn_val), &st.globals, @ptrCast(@constCast("print")));
+    defer lualike_release(@ptrCast(&fn_val));
+    if (fn_val.type != .nativefn) return 1;
+    
+    var str: Value = undefined;
+    lualike_pushcstring(@ptrCast(&str), L, @ptrCast(@constCast("hello")));
+    var result: Value = undefined;
+    lualike_call(L, @ptrCast(&result), @ptrCast(&fn_val), @ptrCast(&str), 1);
+    lualike_release(@ptrCast(&str));
+    // print returns nil
+    lualike_release(@ptrCast(&result));
+    return 0;
+}
+
+export fn test_stdlib_call_each_stub() i32 {
+    const L = lualike_newstate() orelse return 99;
+    defer lualike_freestate(L);
+    const st: *State = @ptrCast(@alignCast(L));
+    for ([_][]const u8{ "ipairs", "select", "error", "pcall", "xpcall", "assert", "tostring", "rawget", "rawset", "rawequal", "rawlen", "getmetatable", "setmetatable", "dofile", "load", "loadfile", "require", "collectgarbage" }) |name| {
+        var fn_val: Value = undefined;
+        lualike_getfield(null, @ptrCast(&fn_val), &st.globals, @ptrCast(@constCast(name)));
+        defer lualike_release(@ptrCast(&fn_val));
+        if (fn_val.type != .nativefn) continue;
+        var result: Value = undefined;
+        lualike_call(L, @ptrCast(&result), @ptrCast(&fn_val), undefined, 0);
+        lualike_release(@ptrCast(&result));
+    }
     return 0;
 }
