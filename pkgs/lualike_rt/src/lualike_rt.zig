@@ -933,15 +933,14 @@ fn stdTostring(_: *State, args: [*]Value, n: i32, r: [*]Value, _: i32, nr: *i32)
     nr.* = 1;
 }
 
-fn stdError(L: *State, args: [*]Value, n: i32, _: [*]Value, _: i32, _: *i32) callconv(.c) void {
+fn stdError(L: *State, args: [*]Value, n: i32, r: [*]Value, _: i32, nr: *i32) callconv(.c) void {
     if (n >= 1 and args[0].type == .string) {
-        const s = args[0].payload.s orelse return;
+        const s = args[0].payload.s orelse { lualike_pushnil(&r[0]); nr.* = 1; return; };
         lualike_error(L, @ptrCast(s.data));
     } else {
         lualike_error(L, @ptrCast(@constCast("error")));
     }
-    // Never returns normally — longjmp or exit
-    // For now we mark error and return nil
+    lualike_pushnil(&r[0]); nr.* = 1;
 }
 
 fn stdAssert(_: *State, args: [*]Value, n: i32, r: [*]Value, _: i32, nr: *i32) callconv(.c) void {
@@ -1019,8 +1018,22 @@ fn stdIpairs(_: *State, args: [*]Value, n: i32, r: [*]Value, _: i32, nr: *i32) c
     nr.* = 3;
 }
 
-fn stdCollectgarbage(_: *State, _: [*]Value, _: i32, r: [*]Value, _: i32, nr: *i32) callconv(.c) void {
-    lualike_pushnil(&r[0]); nr.* = 1;
+fn stdCollectgarbage(L: *State, args: [*]Value, n: i32, r: [*]Value, _: i32, nr: *i32) callconv(.c) void {
+    _ = L;
+    if (n >= 1 and args[0].type == .string) {
+        const s = args[0].payload.s orelse { lualike_pushnil(&r[0]); nr.* = 1; return; };
+        const opt = s.data[0..s.len];
+        if (std.mem.eql(u8, opt, "count")) {
+            lualike_pushnumber(&r[0], 0); // stub — GC not implemented yet
+        } else if (std.mem.eql(u8, opt, "stop") or std.mem.eql(u8, opt, "restart")) {
+            lualike_pushnil(&r[0]);
+        } else {
+            lualike_pushnil(&r[0]);
+        }
+    } else {
+        lualike_pushnil(&r[0]);
+    }
+    nr.* = 1;
 }
 
 fn stdDofile(_: *State, _: [*]Value, _: i32, r: [*]Value, _: i32, nr: *i32) callconv(.c) void {
@@ -1133,8 +1146,31 @@ fn stdStringLen(L: *State, args: [*]Value, n: i32, r: [*]Value, _: i32, nr: *i32
     nr.* = 1;
 }
 
-fn stdStringFind(_: *State, _: [*]Value, _: i32, r: [*]Value, _: i32, nr: *i32) callconv(.c) void {
-    lualike_pushnil(&r[0]); nr.* = 1;
+fn stdStringFind(L: *State, args: [*]Value, n: i32, r: [*]Value, _: i32, nr: *i32) callconv(.c) void {
+    _ = L;
+    if (n < 2 or args[0].type != .string or args[1].type != .string) {
+        lualike_pushnil(&r[0]); nr.* = 1; return;
+    }
+    const haystack = args[0].payload.s orelse { lualike_pushnil(&r[0]); nr.* = 1; return; };
+    const needle = args[1].payload.s orelse { lualike_pushnil(&r[0]); nr.* = 1; return; };
+    // Plain substring search (no patterns)
+    const hs = haystack.data[0..haystack.len];
+    const nd = needle.data[0..needle.len];
+    if (nd.len == 0) { lualike_pushnumber(&r[0], 1); nr.* = 1; return; }
+    // Optional start index (plain mode)
+    var start: usize = 0;
+    if (n >= 3 and args[2].type == .number) {
+        const si = @as(i64, @intFromFloat(args[2].payload.n));
+        start = if (si > 0) @as(usize, @intCast(si - 1)) else 0;
+    }
+    if (start >= hs.len) { lualike_pushnil(&r[0]); nr.* = 1; return; }
+    if (std.mem.indexOf(u8, hs[start..], nd)) |pos| {
+        lualike_pushnumber(&r[0], @floatFromInt(start + pos + 1));
+        lualike_pushnumber(&r[1], @floatFromInt(start + pos + nd.len));
+        nr.* = 2;
+    } else {
+        lualike_pushnil(&r[0]); nr.* = 1;
+    }
 }
 
 fn stdStringFormat(_: *State, _: [*]Value, _: i32, r: [*]Value, _: i32, nr: *i32) callconv(.c) void {
@@ -1145,7 +1181,23 @@ fn stdStringFormat(_: *State, _: [*]Value, _: i32, r: [*]Value, _: i32, nr: *i32
 // Table library
 // ---------------------------------------------------------------------------
 
-fn stdTableInsert(_: *State, _: [*]Value, _: i32, _: [*]Value, _: i32, nr: *i32) callconv(.c) void {
+fn stdTableInsert(L: *State, args: [*]Value, n: i32, _: [*]Value, _: i32, nr: *i32) callconv(.c) void {
+    _ = L;
+    if (n < 2 or args[0].type != .table) { nr.* = 0; return; }
+    // Find the highest integer key + 1 by scanning the table
+    var max_idx: i64 = 0;
+    if (args[0].payload.t != 0) {
+        const t: *Table = @ptrFromInt(args[0].payload.t);
+        var it = t.map.iterator();
+        while (it.next()) |e| {
+            const key_str = e.key_ptr.*;
+            if (key_str.len > 0 and key_str.len <= 20) {
+                const val = std.fmt.parseInt(i64, key_str, 10) catch continue;
+                if (val > max_idx) max_idx = val;
+            }
+        }
+    }
+    lualike_seti(null, &args[0], max_idx + 1, &args[1]);
     nr.* = 0;
 }
 
@@ -1153,8 +1205,49 @@ fn stdTableRemove(_: *State, _: [*]Value, _: i32, r: [*]Value, _: i32, nr: *i32)
     lualike_pushnil(&r[0]); nr.* = 1;
 }
 
-fn stdTableConcat(_: *State, _: [*]Value, _: i32, r: [*]Value, _: i32, nr: *i32) callconv(.c) void {
-    lualike_pushnil(&r[0]); nr.* = 1;
+fn stdTableConcat(L: *State, args: [*]Value, n: i32, r: [*]Value, _: i32, nr: *i32) callconv(.c) void {
+    _ = L;
+    if (n < 1 or args[0].type != .table) { lualike_pushnil(&r[0]); nr.* = 1; return; }
+    // Get separator
+    const sep: []const u8 = if (n >= 2 and args[1].type == .string) blk: {
+        const s = args[1].payload.s orelse { lualike_pushnil(&r[0]); nr.* = 1; return; };
+        break :blk s.data[0..s.len];
+    } else "";
+    // Collect all string values at integer keys 1..N
+    var total_len: usize = 0;
+    var values: [256][]const u8 = undefined;
+    var count: usize = 0;
+    if (args[0].payload.t != 0) {
+        _ = @as(*Table, @ptrFromInt(args[0].payload.t));
+        var idx: i64 = 1;
+        while (count < 256) {
+            var k = Value{ .type = .number, ._pad = undefined, .payload = .{ .n = @as(f64, @floatFromInt(idx)) } };
+            var v: Value = undefined;
+            lualike_gettable(null, &v, &args[0], &k);
+            defer release(v);
+            if (v.type == .nil) break;
+            if (v.type == .string) {
+                const s = v.payload.s orelse break;
+                values[count] = s.data[0..s.len];
+                total_len += s.len;
+                count += 1;
+            } else break;
+            idx += 1;
+        }
+    }
+    if (count == 0) { pushStr(&r[0], ""); nr.* = 1; return; }
+    // Build concatenated string
+    const result_len = total_len + sep.len * (count - 1);
+    if (result_len > 1024 * 1024) { lualike_pushnil(&r[0]); nr.* = 1; return; }
+    var buf = Alloc.alloc(u8, result_len) catch { lualike_pushnil(&r[0]); nr.* = 1; return; };
+    defer Alloc.free(buf);
+    var pos: usize = 0;
+    for (values[0..count], 0..) |v, i| {
+        if (i > 0 and sep.len > 0) { @memcpy(buf[pos..][0..sep.len], sep); pos += sep.len; }
+        @memcpy(buf[pos..][0..v.len], v); pos += v.len;
+    }
+    pushStr(&r[0], buf[0..result_len]);
+    nr.* = 1;
 }
 
 // ---------------------------------------------------------------------------
