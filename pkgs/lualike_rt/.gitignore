@@ -1,0 +1,4 @@
+.zig-cache/
+zig-out/
+lualike_rt*.a
+liblualike_rt.a
