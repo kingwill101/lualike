@@ -291,18 +291,43 @@ class LualikeIrToLlvm {
       case ABCInstruction(opcode: LualikeIrOpcode.eq,  a: final a, b: final b, c: final c): call3('lualike_eq', a, b, c);
       case ABCInstruction(opcode: LualikeIrOpcode.lt,  a: final a, b: final b, c: final c): call3('lualike_lt', a, b, c);
       case ABCInstruction(opcode: LualikeIrOpcode.le,  a: final a, b: final b, c: final c): call3('lualike_le', a, b, c);
-            case ABCInstruction(opcode: LualikeIrOpcode.eqI, a: final a, b: final b, c: final c, k: final _):
-        pushInt(a, _se(c, 9)); call3('lualike_eq', a, b, a);
-      case ABCInstruction(opcode: LualikeIrOpcode.ltI, a: final a, b: final b, c: final c, k: final _):
-        pushInt(a, _se(c, 9)); call3('lualike_lt', a, b, a);
-      case ABCInstruction(opcode: LualikeIrOpcode.leI, a: final a, b: final b, c: final c, k: final _):
-        pushInt(a, _se(c, 9)); call3('lualike_le', a, b, a);
-      case ABCInstruction(opcode: LualikeIrOpcode.gtI, a: final a, b: final b, c: final c, k: final _):
+                  case ABCInstruction(opcode: LualikeIrOpcode.eqI, a: final a, b: final b, c: final c, k: final _): {
+        final tmp = _next();
+        _writeln('  $tmp = alloca i64, i64 1');
+        _writeln('  call void @lualike_pushinteger(ptr $tmp, i64 ${_se(c, 9)})');
+        _writeln('  call void @lualike_eq(ptr %L, ptr ${_reg(a)}, ptr ${_reg(b)}, ptr $tmp)');
+        break;
+      }
+      case ABCInstruction(opcode: LualikeIrOpcode.ltI, a: final a, b: final b, c: final c, k: final _): {
+        final tmp = _next();
+        _writeln('  $tmp = alloca i64, i64 1');
+        _writeln('  call void @lualike_pushinteger(ptr $tmp, i64 ${_se(c, 9)})');
+        _writeln('  call void @lualike_lt(ptr %L, ptr ${_reg(a)}, ptr ${_reg(b)}, ptr $tmp)');
+        break;
+      }
+      case ABCInstruction(opcode: LualikeIrOpcode.leI, a: final a, b: final b, c: final c, k: final _): {
+        final tmp = _next();
+        _writeln('  $tmp = alloca i64, i64 1');
+        _writeln('  call void @lualike_pushinteger(ptr $tmp, i64 ${_se(c, 9)})');
+        _writeln('  call void @lualike_le(ptr %L, ptr ${_reg(a)}, ptr ${_reg(b)}, ptr $tmp)');
+        break;
+      }
+      case ABCInstruction(opcode: LualikeIrOpcode.gtI, a: final a, b: final b, c: final c, k: final _): {
         // a > literal → literal < a
-        pushInt(a, _se(c, 9)); call3('lualike_lt', a, a, b);
-      case ABCInstruction(opcode: LualikeIrOpcode.geI, a: final a, b: final b, c: final c, k: final _):
+        final tmp = _next();
+        _writeln('  $tmp = alloca i64, i64 1');
+        _writeln('  call void @lualike_pushinteger(ptr $tmp, i64 ${_se(c, 9)})');
+        _writeln('  call void @lualike_lt(ptr %L, ptr ${_reg(a)}, ptr $tmp, ptr ${_reg(b)})');
+        break;
+      }
+      case ABCInstruction(opcode: LualikeIrOpcode.geI, a: final a, b: final b, c: final c, k: final _): {
         // a >= literal → literal <= a
-        pushInt(a, _se(c, 9)); call3('lualike_le', a, a, b);
+        final tmp = _next();
+        _writeln('  $tmp = alloca i64, i64 1');
+        _writeln('  call void @lualike_pushinteger(ptr $tmp, i64 ${_se(c, 9)})');
+        _writeln('  call void @lualike_le(ptr %L, ptr ${_reg(a)}, ptr $tmp, ptr ${_reg(b)})');
+        break;
+      }
       case ABCInstruction(opcode: LualikeIrOpcode.eqK, a: final a, b: final b, c: final c): call3c('lualike_eq', a, b, c);
 
       // -- Logical --
@@ -478,15 +503,17 @@ class LualikeIrToLlvm {
       // -- Test / TestSet / Jmp --
       case ABCInstruction(opcode: LualikeIrOpcode.test, a: final a, k: final k): {
         // TEST R(A) k — skip next if R(A) is truthy XOR k
+        // In Lua: if k==0: skip next if R(A) is false. if k==1: skip next if R(A) is true.
+        // LLVM successors[0] = fallthrough (skip), successors[1] = taken (no skip)
         final sb = ssaFunction.blocks[_currentBlockIndex];
         if (sb.block.successors.length >= 2) {
           final cond = _next();
           _writeln('  $cond = call i1 @lualike_istruthy(ptr ${_reg(a)})');
           if (k) {
-            // k=true: skip next if truthy → branch if NOT truthy to exit
+            // k=1: skip if truthy → when truthy go to fallthrough, when falsy go to taken
             _writeln('  br i1 $cond, label %${_label(sb.block.successors[0])}, label %${_label(sb.block.successors[1])}');
           } else {
-            // k=false: skip next if NOT truthy → branch if truthy to body
+            // k=0: skip if falsy → when truthy go to taken, when falsy go to fallthrough
             _writeln('  br i1 $cond, label %${_label(sb.block.successors[1])}, label %${_label(sb.block.successors[0])}');
           }
           _terminated = true;
