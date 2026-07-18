@@ -1,6 +1,18 @@
 const std = @import("std");
 const mem = std.mem;
 const Alloc = std.heap.c_allocator;
+const libc = @cImport({
+    @cInclude("stdio.h");
+    @cInclude("stdlib.h");
+    @cInclude("string.h");
+    @cInclude("time.h");
+});
+
+/// Convert a usize handle to a FILE* for C library calls.
+fn fileCast(h: usize) @TypeOf(libc.stdin.?) {
+    return @as(@TypeOf(libc.stdin.?), @ptrCast(@as(*anyopaque, @ptrFromInt(h))));
+}
+
 
 /// Discriminant tag for the lualike value system.
 ///
@@ -1750,125 +1762,168 @@ fn ioFileType(f: *std.c.FILE) []const u8 {
     return "file";
 }
 
-fn stdIoOpen(_: *State, _: [*]Value, _: i32, r: [*]Value, _: i32, nr: *i32) callconv(.c) void {
-    lualike_pushnil(&r[0]); nr.* = 1;
-}
-fn stdIoClose(_: *State, _: [*]Value, _: i32, r: [*]Value, _: i32, nr: *i32) callconv(.c) void {
-    lualike_pushnil(&r[0]); nr.* = 1;
-}
-fn stdIoInput(_: *State, _: [*]Value, _: i32, r: [*]Value, _: i32, nr: *i32) callconv(.c) void {
-    lualike_pushnil(&r[0]); nr.* = 1;
-}
-fn stdIoOutput(_: *State, _: [*]Value, _: i32, r: [*]Value, _: i32, nr: *i32) callconv(.c) void {
-    lualike_pushnil(&r[0]); nr.* = 1;
-}
-fn stdIoPopen(_: *State, _: [*]Value, _: i32, r: [*]Value, _: i32, nr: *i32) callconv(.c) void {
-    lualike_pushnil(&r[0]); nr.* = 1;
-}
-fn stdIoTmpfile(_: *State, _: [*]Value, _: i32, r: [*]Value, _: i32, nr: *i32) callconv(.c) void {
-    lualike_pushnil(&r[0]); nr.* = 1;
-}
-fn stdIoType(_: *State, _: [*]Value, _: i32, r: [*]Value, _: i32, nr: *i32) callconv(.c) void {
-    pushStr(&r[0], "file"); nr.* = 1;
-}
-fn stdIoRead(L: *State, args: [*]Value, n: i32, r: [*]Value, _: i32, nr: *i32) callconv(.c) void {
-    _ = L;
-    _ = args;
-    _ = n;
-    lualike_pushnil(&r[0]); nr.* = 1;
-}
-
-fn stdIoWrite(L: *State, args: [*]Value, n: i32, r: [*]Value, _: i32, nr: *i32) callconv(.c) void {
-    _ = L;
-    _ = args;
-    _ = n;
-    lualike_pushnil(&r[0]); nr.* = 1;
-}
-
-fn stdIoFlush(_: *State, _: [*]Value, _: i32, r: [*]Value, _: i32, nr: *i32) callconv(.c) void {
-    lualike_pushboolean(&r[0], true); nr.* = 1;
-}
-
-fn stdIoLines(L: *State, args: [*]Value, n: i32, r: [*]Value, _: i32, nr: *i32) callconv(.c) void {
-    _ = L;
-    _ = args;
-    _ = n;
-    lualike_pushnil(&r[0]); nr.* = 1;
-}
-// ===========================================================================
-// OS library
-// ===========================================================================
-
-fn stdOsClock(L: *State, args: [*]Value, n: i32, r: [*]Value, _: i32, nr: *i32) callconv(.c) void {
-    _ = L;
-    _ = args;
-    _ = n;
-    lualike_pushnumber(&r[0], @as(f64, @floatFromInt(std.time.microTimestamp())) / 1000000.0);
-    nr.* = 1;
-}
-
-fn stdOsDate(L: *State, args: [*]Value, n: i32, r: [*]Value, _: i32, nr: *i32) callconv(.c) void {
-    _ = L;
-    _ = n;
-    _ = args;
-    // Return current date as a string
-    var buf: [64]u8 = undefined;
-    const ts = std.time.timestamp();
-    const secs: i64 = @intCast(ts);
-    var buf2: [64]u8 = undefined;
-    const len = std.c.strftime(@ptrCast(&buf2), buf2.len, "%c", std.c.localtime(&secs));
-    if (len > 0) pushStr(&r[0], buf2[0..len]) else pushStr(&r[0], buf[0..0]);
-    nr.* = 1;
-}
-
-fn stdOsTime(L: *State, args: [*]Value, n: i32, r: [*]Value, _: i32, nr: *i32) callconv(.c) void {
-    _ = L;
-    _ = n;
-    _ = args;
-    lualike_pushnumber(&r[0], @as(f64, @floatFromInt(std.time.timestamp())));
-    nr.* = 1;
-}
-
-fn stdOsDifftime(L: *State, args: [*]Value, n: i32, r: [*]Value, _: i32, nr: *i32) callconv(.c) void {
-    _ = L;
-    if (n < 2 or args[0].type != .number or args[1].type != .number) { lualike_pushnil(&r[0]); nr.* = 1; return; }
-    lualike_pushnumber(&r[0], args[0].payload.n - args[1].payload.n);
-    nr.* = 1;
-}
-
-fn stdOsExit(L: *State, args: [*]Value, n: i32, _: [*]Value, _: i32, _: *i32) callconv(.c) void {
-    _ = L;
-    const code: u8 = if (n >= 1 and args[0].type == .number) @as(u8, @intFromFloat(args[0].payload.n)) else 0;
-    std.process.exit(code);
-}
-
-fn stdOsGetenv(L: *State, args: [*]Value, n: i32, r: [*]Value, _: i32, nr: *i32) callconv(.c) void {
-    _ = L;
+fn stdIoOpen(_: *State, args: [*]Value, n: i32, r: [*]Value, _: i32, nr: *i32) callconv(.c) void {
     if (n < 1 or args[0].type != .string) { lualike_pushnil(&r[0]); nr.* = 1; return; }
+    var path_buf: [1024]u8 = undefined;
     const s = args[0].payload.s orelse { lualike_pushnil(&r[0]); nr.* = 1; return; };
-    var buf: [256]u8 = undefined;
-    const copy_len = @min(s.len, buf.len - 1);
-    @memcpy(buf[0..copy_len], s.data[0..copy_len]);
-    buf[copy_len] = 0;
-    if (std.c.getenv(@ptrCast(&buf))) |val| {
-        lualike_pushcstring(&r[0], null, val);
+    const path_len = @min(s.len, path_buf.len - 1);
+    @memcpy(path_buf[0..path_len], s.data[0..path_len]);
+    path_buf[path_len] = 0;
+    const mode: [:0]const u8 = if (n >= 2 and args[1].type == .string) blk: {
+        const ms = args[1].payload.s orelse break :blk "r";
+        if (std.mem.eql(u8, ms.data[0..ms.len], "w")) break :blk "w";
+        if (std.mem.eql(u8, ms.data[0..ms.len], "a")) break :blk "a";
+        break :blk "r";
+    } else "r";
+    const f = libc.fopen(@ptrCast(&path_buf), @ptrCast(@constCast(mode.ptr)));
+    if (f) |file| {
+        lualike_pushnumber(&r[0], @as(f64, @floatFromInt(@intFromPtr(@as(*anyopaque, @ptrCast(file))))));
     } else {
         lualike_pushnil(&r[0]);
     }
     nr.* = 1;
 }
 
-fn stdOsTmpname(L: *State, args: [*]Value, n: i32, r: [*]Value, _: i32, nr: *i32) callconv(.c) void {
-    _ = L;
-    _ = args;
-    _ = n;
-    pushStr(&r[0], "/tmp/lualike_tmp");
+fn stdIoClose(_: *State, args: [*]Value, n: i32, r: [*]Value, _: i32, nr: *i32) callconv(.c) void {
+    if (n >= 1 and args[0].type == .number) {
+        const h = @as(usize, @intFromFloat(args[0].payload.n));
+        if (h != 0) {
+            _ = libc.fclose(fileCast(h));
+        }
+    }
+    lualike_pushboolean(&r[0], true); nr.* = 1;
+}
+
+fn stdIoRead(_: *State, args: [*]Value, n: i32, r: [*]Value, _: i32, nr: *i32) callconv(.c) void {
+    const h: usize = if (n >= 1 and args[0].type == .number)
+        @as(usize, @intFromFloat(args[0].payload.n))
+    else
+        @intFromPtr(@as(*anyopaque, @ptrCast(libc.stdin)));
+    var buf: [4096]u8 = undefined;
+    const line = libc.fgets(@ptrCast(&buf), @as(c_int, @intCast(buf.len)), fileCast(h));
+    if (line) |_| {
+        const len = std.mem.sliceTo(@as([*:0]u8, @ptrCast(&buf)), 0).len;
+        const trim = if (len > 0 and buf[len - 1] == 10) len - 1 else len;
+        pushStr(&r[0], buf[0..trim]);
+    } else {
+        lualike_pushnil(&r[0]);
+    }
     nr.* = 1;
 }
 
+fn stdIoWrite(_: *State, args: [*]Value, n: i32, r: [*]Value, _: i32, nr: *i32) callconv(.c) void {
+    var arg_start: usize = 0;
+    const h: usize = if (n >= 1 and args[0].type == .number) blk: {
+        arg_start = 1;
+        break :blk @as(usize, @intFromFloat(args[0].payload.n));
+    } else @intFromPtr(@as(*anyopaque, @ptrCast(libc.stdout)));
+    var written: usize = 0;
+    for (arg_start..@as(usize, @intCast(n))) |i| {
+        if (args[i].type == .string) {
+            if (args[i].payload.s) |s| {
+                written += @as(usize, @intCast(libc.fwrite(s.data, 1, s.len, fileCast(h))));
+            }
+        } else if (args[i].type == .number) {
+            var fmt_buf: [64]u8 = undefined;
+            const fmt_s = std.fmt.bufPrint(&fmt_buf, "{d}", .{args[i].payload.n}) catch "";
+            fmt_buf[fmt_s.len] = 0;
+            written += @as(usize, @intCast(libc.fprintf(fileCast(h), @ptrCast(&fmt_buf))));
+        }
+    }
+    lualike_pushnumber(&r[0], @as(f64, @floatFromInt(written)));
+    nr.* = 1;
+}
+
+fn stdIoFlush(_: *State, args: [*]Value, n: i32, r: [*]Value, _: i32, nr: *i32) callconv(.c) void {
+    const h: usize = if (n >= 1 and args[0].type == .number)
+        @as(usize, @intFromFloat(args[0].payload.n))
+    else
+        @intFromPtr(@as(*anyopaque, @ptrCast(libc.stdout)));
+    _ = libc.fflush(fileCast(h));
+    lualike_pushboolean(&r[0], true); nr.* = 1;
+}
+
+fn stdIoLines(_: *State, args: [*]Value, n: i32, r: [*]Value, _: i32, nr: *i32) callconv(.c) void {
+    if (n >= 1 and args[0].type == .string) {
+        var path_buf: [1024]u8 = undefined;
+        const s = args[0].payload.s orelse { lualike_pushnil(&r[0]); nr.* = 1; return; };
+        const path_len = @min(s.len, path_buf.len - 1);
+        @memcpy(path_buf[0..path_len], s.data[0..path_len]);
+        path_buf[path_len] = 0;
+        const f = libc.fopen(@ptrCast(&path_buf), "r");
+        if (f) |file| {
+            lualike_pushcfunction(&r[0], @intFromPtr(&stdIoRead), @ptrCast(@constCast("read")));
+            lualike_pushnumber(&r[1], @as(f64, @floatFromInt(@intFromPtr(file))));
+            nr.* = 2; return;
+        }
+    }
+    lualike_pushnil(&r[0]); nr.* = 1;
+}
+
+fn stdIoInput(_: *State, _: [*]Value, _: i32, r: [*]Value, _: i32, nr: *i32) callconv(.c) void { lualike_pushnil(&r[0]); nr.* = 1; }
+fn stdIoOutput(_: *State, _: [*]Value, _: i32, r: [*]Value, _: i32, nr: *i32) callconv(.c) void { lualike_pushnil(&r[0]); nr.* = 1; }
+fn stdIoPopen(_: *State, _: [*]Value, _: i32, r: [*]Value, _: i32, nr: *i32) callconv(.c) void { lualike_pushnil(&r[0]); nr.* = 1; }
+fn stdIoTmpfile(_: *State, _: [*]Value, _: i32, r: [*]Value, _: i32, nr: *i32) callconv(.c) void { lualike_pushnil(&r[0]); nr.* = 1; }
+fn stdIoType(_: *State, _: [*]Value, _: i32, r: [*]Value, _: i32, nr: *i32) callconv(.c) void { pushStr(&r[0], "file"); nr.* = 1; }
+
 // ===========================================================================
-// Extended stdlib implementations
+// OS library
 // ===========================================================================
+
+fn stdOsClock(_: *State, _: [*]Value, _: i32, r: [*]Value, _: i32, nr: *i32) callconv(.c) void {
+    lualike_pushnumber(&r[0], @as(f64, @floatFromInt(std.time.microTimestamp())) / 1000000.0);
+    nr.* = 1;
+}
+
+fn stdOsDate(_: *State, _: [*]Value, _: i32, r: [*]Value, _: i32, nr: *i32) callconv(.c) void {
+    const ts = std.time.timestamp();
+    var buf: [128]u8 = undefined;
+    const secs = @as(i64, @intCast(ts));
+    const tm = libc.localtime(&secs);
+    if (tm) |t| {
+        const len = libc.strftime(@ptrCast(&buf), buf.len, "%c", t);
+        if (len > 0) pushStr(&r[0], buf[0..@as(usize, @intCast(len))]) else lualike_pushnil(&r[0]);
+    } else {
+        lualike_pushnil(&r[0]);
+    }
+    nr.* = 1;
+}
+
+fn stdOsTime(_: *State, _: [*]Value, _: i32, r: [*]Value, _: i32, nr: *i32) callconv(.c) void {
+    lualike_pushnumber(&r[0], @as(f64, @floatFromInt(std.time.timestamp())));
+    nr.* = 1;
+}
+
+fn stdOsDifftime(_: *State, args: [*]Value, n: i32, r: [*]Value, _: i32, nr: *i32) callconv(.c) void {
+    if (n < 2 or args[0].type != .number or args[1].type != .number) { lualike_pushnil(&r[0]); nr.* = 1; return; }
+    lualike_pushnumber(&r[0], args[0].payload.n - args[1].payload.n);
+    nr.* = 1;
+}
+
+fn stdOsExit(_: *State, args: [*]Value, n: i32, _: [*]Value, _: i32, _: *i32) callconv(.c) void {
+    const code: u8 = if (n >= 1 and args[0].type == .number) @as(u8, @intFromFloat(args[0].payload.n)) else 0;
+    std.process.exit(code);
+}
+
+fn stdOsGetenv(_: *State, args: [*]Value, n: i32, r: [*]Value, _: i32, nr: *i32) callconv(.c) void {
+    if (n < 1 or args[0].type != .string) { lualike_pushnil(&r[0]); nr.* = 1; return; }
+    var buf: [4096]u8 = undefined;
+    const s = args[0].payload.s orelse { lualike_pushnil(&r[0]); nr.* = 1; return; };
+    const copy_len = @min(s.len, buf.len - 1);
+    @memcpy(buf[0..copy_len], s.data[0..copy_len]);
+    buf[copy_len] = 0;
+    const val = libc.getenv(@ptrCast(&buf));
+    if (val) |v| {
+        lualike_pushcstring(&r[0], null, v);
+    } else {
+        lualike_pushnil(&r[0]);
+    }
+    nr.* = 1;
+}
+
+fn stdOsTmpname(_: *State, _: [*]Value, _: i32, r: [*]Value, _: i32, nr: *i32) callconv(.c) void {
+    pushStr(&r[0], "/tmp/lualike_XXXXXX"); nr.* = 1;
+}
 
 fn stdPcall(L: *State, args: [*]Value, n: i32, r: [*]Value, _: i32, nr: *i32) callconv(.c) void {
     if (n < 1) { lualike_pushboolean(&r[0], false); nr.* = 1; return; }
