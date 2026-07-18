@@ -42,9 +42,9 @@ class LualikeIrToLlvm {
     // Emit extern globals for sub-function constants (Value = 16 bytes each)
     for (var i = 0; i < prototype.prototypes.length; i++) {
       final subNc = prototype.prototypes[i].constants.length;
-      _writeln(subNc > 0
-        ? '@_lua_fn_const_${i + 1} = external global [${subNc * 2} x i64]'
-        : '@_lua_fn_const_${i + 1} = external global i64 0');
+      if (subNc > 0) {
+        _writeln('@_lua_fn_const_${i + 1} = external global [${subNc * 2} x i64]');
+      }
     }
     // Emit sub-functions first for forward references
     for (var i = 0; i < prototype.prototypes.length; i++) {
@@ -353,7 +353,10 @@ class LualikeIrToLlvm {
 
       // -- Closure --
       case ABxInstruction(opcode: LualikeIrOpcode.closure, a: final a, bx: final bx):
-        _writeln('  call void @lualike_newclosure(ptr ${_reg(a)}, ptr @_lua_fn_${bx + 1}, ptr %upvals, i32 %nupvals, ptr null, ptr @_lua_fn_const_${bx + 1}, i32 ${prototype.prototypes[bx].constants.length})');
+        // bx indexes into the CURRENT function's prototypes, not the root's
+        // We just pass null for constants and 0 — the Zig wrapper will
+        // resolve the actual constants via the function index.
+        _writeln('  call void @lualike_newclosure(ptr ${_reg(a)}, ptr @_lua_fn_${bx + 1}, ptr %upvals, i32 %nupvals, ptr null, ptr null, i32 0)');
 
       // -- Self --
       case ABCInstruction(opcode: LualikeIrOpcode.selfOp, a: final a, b: final b, c: final c):
