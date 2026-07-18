@@ -174,32 +174,19 @@ export fn lualike_freestate(s: ?*State) void {
 // Value constructors
 /// Sets `v` to a nil value, releasing any previously-held reference.
 export fn lualike_pushnil(v: *Value) void {
-    const ot = @as(u32, @intFromEnum(v.type));
-    if (ot == @intFromEnum(Type.string)) { if (v.payload.s) |s| { s.refcount -%= 1; if (s.refcount == 0) { Alloc.free(s.data[0..s.len]); Alloc.destroy(s); } } }
-    else if (ot == @intFromEnum(Type.table)) { if (v.payload.t != 0) { const tp: *Table = @ptrFromInt(v.payload.t); tp.refcount -%= 1; if (tp.refcount == 0) { var it = tp.map.iterator(); while (it.next()) |e| { Alloc.free(e.key_ptr.*); release(e.value_ptr.*); } tp.map.deinit(Alloc); Alloc.destroy(tp); } } }
-    else if (ot == @intFromEnum(Type.function_)) { if (v.payload.fn_ptr != 0) { const cp: *Closure = @ptrFromInt(v.payload.fn_ptr); cp.refcount -%= 1; if (cp.refcount == 0) { const n_up = @as(usize, @intCast(cp.nupvals)); for (0..n_up) |ui| release(cp.upvals[ui]); Alloc.free(cp.upvals[0..n_up]); if (cp.name) |nm| Alloc.free(nm[0..std.mem.len(nm)]); Alloc.destroy(cp); } } }
+    release(v.*);
     v.* = nilV();
 }
 /// Sets `v` to a boolean value, releasing any previously-held reference.
 ///
 export fn lualike_pushboolean(v: *Value, b: bool) void {
-    const ot = @as(u32, @intFromEnum(v.type));
-    if (ot == @intFromEnum(Type.string)) { if (v.payload.s) |s| { s.refcount -%= 1; if (s.refcount == 0) { Alloc.free(s.data[0..s.len]); Alloc.destroy(s); } } }
-    else if (ot == @intFromEnum(Type.table)) { if (v.payload.t != 0) { const tp: *Table = @ptrFromInt(v.payload.t); tp.refcount -%= 1; if (tp.refcount == 0) { var it = tp.map.iterator(); while (it.next()) |e| { Alloc.free(e.key_ptr.*); release(e.value_ptr.*); } tp.map.deinit(Alloc); Alloc.destroy(tp); } } }
-    else if (ot == @intFromEnum(Type.function_)) { if (v.payload.fn_ptr != 0) { const cp: *Closure = @ptrFromInt(v.payload.fn_ptr); cp.refcount -%= 1; if (cp.refcount == 0) { const n_up = @as(usize, @intCast(cp.nupvals)); for (0..n_up) |ui| release(cp.upvals[ui]); Alloc.free(cp.upvals[0..n_up]); if (cp.name) |nm| Alloc.free(nm[0..std.mem.len(nm)]); Alloc.destroy(cp); } } }
+    release(v.*);
     v.* = .{ .type = .boolean, ._pad = undefined, .payload = .{ .b = b } };
 }
 /// Sets `v` to a floating-point number, releasing any previously-held reference.
 ///
 export fn lualike_pushnumber(v: *Value, n: f64) void {
-    const old_tag = @as(u32, @intFromEnum(v.type));
-    if (old_tag == @intFromEnum(Type.string)) {
-        if (v.payload.s) |s| { s.refcount = s.refcount -% 1; if (s.refcount == 0) { Alloc.free(s.data[0..s.len]); Alloc.destroy(s); } }
-    } else if (old_tag == @intFromEnum(Type.table)) {
-        if (v.payload.t != 0) { const t: *Table = @ptrFromInt(v.payload.t); t.refcount = t.refcount -% 1; if (t.refcount == 0) { var it = t.map.iterator(); while (it.next()) |e| { Alloc.free(e.key_ptr.*); release(e.value_ptr.*); } t.map.deinit(Alloc); Alloc.destroy(t); } }
-    } else if (old_tag == @intFromEnum(Type.function_)) {
-        if (v.payload.fn_ptr != 0) { const f: *Closure = @ptrFromInt(v.payload.fn_ptr); f.refcount = f.refcount -% 1; if (f.refcount == 0) { Alloc.free(f.upvals[0..@as(usize, @intCast(f.nupvals))]); if (f.name) |nm| Alloc.free(nm[0..std.mem.len(nm)]); Alloc.destroy(f); } }
-    }
+    release(v.*);
     v.* = .{ .type = .number, ._pad = undefined, .payload = .{ .n = n } };
 }
 /// Sets `v` to a number converted from a signed 64-bit integer.
@@ -210,7 +197,7 @@ export fn lualike_pushinteger(v: *Value, i: i64) void {
 /// Sets `v` to a string created from a null-terminated C string.
 ///
 export fn lualike_pushcstring(v: *Value, _: ?*State, s: [*:0]u8) void {
-    const str = String.init(std.mem.sliceTo(s, 0)) catch {
+    const str = String.init(mem.sliceTo(s, 0)) catch {
         lualike_pushnil(v);
         return;
     };
@@ -511,7 +498,7 @@ export fn lualike_concat(L: ?*State, d: *Value, a: *const Value, b: *const Value
 // Error / Print
 export fn lualike_error(L: ?*State, msg: [*:0]u8) void {
     if (L) |s| {
-        const m = std.mem.sliceTo(msg, 0);
+        const m = mem.sliceTo(msg, 0);
         const n = @min(m.len, @as(usize, 255));
         @memcpy(s.msg[0..n], m[0..n]);
         s.msg[n] = 0;
@@ -531,10 +518,7 @@ export fn lualike_print(L: ?*State, s: [*:0]u8) void {
 // Tables
 export fn lualike_newtable(d: *Value) void {
     const t = Table.init() catch { lualike_pushnil(d); return; };
-    const ot = @as(u32, @intFromEnum(d.type));
-    if (ot == @intFromEnum(Type.string)) { if (d.payload.s) |s| { s.refcount -%= 1; if (s.refcount == 0) { Alloc.free(s.data[0..s.len]); Alloc.destroy(s); } } }
-    else if (ot == @intFromEnum(Type.table)) { if (d.payload.t != 0) { const tp: *Table = @ptrFromInt(d.payload.t); tp.refcount -%= 1; if (tp.refcount == 0) { var it = tp.map.iterator(); while (it.next()) |e| { Alloc.free(e.key_ptr.*); release(e.value_ptr.*); } tp.map.deinit(Alloc); Alloc.destroy(tp); } } }
-    else if (ot == @intFromEnum(Type.function_)) { if (d.payload.fn_ptr != 0) { const cp: *Closure = @ptrFromInt(d.payload.fn_ptr); cp.refcount -%= 1; if (cp.refcount == 0) { const n_up = @as(usize, @intCast(cp.nupvals)); for (0..n_up) |ui| release(cp.upvals[ui]); Alloc.free(cp.upvals[0..n_up]); if (cp.name) |nm| Alloc.free(nm[0..std.mem.len(nm)]); Alloc.destroy(cp); } } }
+    release(d.*);
     d.* = .{ .type = .table, ._pad = undefined, .payload = .{ .t = @intFromPtr(t) } };
 }
 /// Convert a Value key to a []const u8 for use as a HashMap key.
@@ -586,7 +570,6 @@ export fn lualike_settable(_: ?*State, tbl: *Value, key: *const Value, val: *con
     };
     if (tbl.payload.t != 0) { const t: *Table = @ptrFromInt(tbl.payload.t);
         const owned_key = Alloc.dupe(u8, k) catch return;
-        // Use getOrPut for Unmanaged: (allocator, key)
         const r = t.map.getOrPut(Alloc, owned_key) catch return;
         if (r.found_existing) {
             Alloc.free(r.key_ptr.*);
@@ -596,6 +579,7 @@ export fn lualike_settable(_: ?*State, tbl: *Value, key: *const Value, val: *con
         retain(val.*);
     }
 }
+
 export fn lualike_getfield(L: ?*State, d: *Value, tbl: *const Value, field: *const Value) void {
     if (field.type != .string) { lualike_pushnil(d); return; }
     const s = field.payload.s orelse { lualike_pushnil(d); return; };
@@ -614,13 +598,13 @@ export fn lualike_setfield(L: ?*State, tbl: *Value, field: *const Value, val: *c
 }
 // C-string convenience wrappers (for test runner and getglobal/setglobal compatibility)
 export fn lualike_getfield_c(L: ?*State, d: *Value, tbl: *const Value, field: [*:0]u8) void {
-    const key = String.init(std.mem.sliceTo(field, 0)) catch { lualike_pushnil(d); return; };
+    const key = String.init(mem.sliceTo(field, 0)) catch { lualike_pushnil(d); return; };
     defer key.deref();
     var k = Value{ .type = .string, ._pad = undefined, .payload = .{ .s = key } };
     lualike_gettable(L, d, tbl, &k);
 }
 export fn lualike_setfield_c(L: ?*State, tbl: *Value, field: [*:0]u8, val: *const Value) void {
-    const key = String.init(std.mem.sliceTo(field, 0)) catch return;
+    const key = String.init(mem.sliceTo(field, 0)) catch return;
     defer key.deref();
     var k = Value{ .type = .string, ._pad = undefined, .payload = .{ .s = key } };
     lualike_settable(L, tbl, &k, val);
@@ -649,19 +633,21 @@ export fn lualike_settabup(upvals: [*]Value, constants: [*]Value, val: *const Va
     const env = &upvals[0];
     if (env.type != .table) return;
     const key = &constants[@as(usize, @intCast(c))];
-    if (key.type == .string) { if (key.payload.s) |ks| {
-        const k = ks.data[0..ks.len];
-        if (env.payload.t != 0) { const t: *Table = @ptrFromInt(env.payload.t);
-            const owned_key = Alloc.dupe(u8, k) catch return;
-            const r = t.map.getOrPut(Alloc, owned_key) catch return;
-            if (r.found_existing) {
-                Alloc.free(r.key_ptr.*);
+    if (key.type == .string) {
+        if (key.payload.s) |ks| {
+            const k = ks.data[0..ks.len];
+            if (env.payload.t != 0) { const t: *Table = @ptrFromInt(env.payload.t);
+                const owned_key = Alloc.dupe(u8, k) catch return;
+                const r = t.map.getOrPut(Alloc, owned_key) catch return;
+                if (r.found_existing) {
+                    Alloc.free(r.key_ptr.*);
+                }
+                r.key_ptr.* = owned_key;
+                r.value_ptr.* = val.*;
+                retain(val.*);
             }
-            r.key_ptr.* = owned_key;
-            r.value_ptr.* = val.*;
-            retain(val.*);
         }
-    } }
+    }
 }
 /// SETLIST — copies register values into a table at consecutive integer keys.
 /// r[a] is the table; values are taken from r[a+1]..r[a+count].
@@ -681,13 +667,13 @@ export fn lualike_settabup(upvals: [*]Value, constants: [*]Value, val: *const Va
 export fn lualike_setlist(_: ?*State, _: *Value, _: i32, _: i32, _: i32) void {}
 
 export fn lualike_getglobal(L: ?*State, d: *Value, name: [*:0]u8) void {
-    const key = String.init(std.mem.sliceTo(name, 0)) catch { lualike_pushnil(d); return; };
+    const key = String.init(mem.sliceTo(name, 0)) catch { lualike_pushnil(d); return; };
     defer key.deref();
     var k = Value{ .type = .string, ._pad = undefined, .payload = .{ .s = key } };
     lualike_getfield(L, d, &L.?.globals, &k);
 }
 export fn lualike_setglobal(L: ?*State, name: [*:0]u8, v: *const Value) void {
-    const key = String.init(std.mem.sliceTo(name, 0)) catch return;
+    const key = String.init(mem.sliceTo(name, 0)) catch return;
     defer key.deref();
     var k = Value{ .type = .string, ._pad = undefined, .payload = .{ .s = key } };
     lualike_setfield(L, &L.?.globals, &k, v);
@@ -742,7 +728,7 @@ export fn lualike_newclosure(d: *Value, fn_ptr: ?CompiledFn, up: [*]Value, nup: 
         retain(c.upvals[i]);
     }
     if (name) |n| {
-        const sl = std.mem.sliceTo(n, 0);
+        const sl = mem.sliceTo(n, 0);
         if (Alloc.dupe(u8, sl)) |dup| {
             c.name = @ptrCast(dup);
         } else |_| {}
@@ -981,13 +967,7 @@ fn stdStub(_: *State, _: [*]Value, _: i32, r: [*]Value, _: i32, nr: *i32) callco
 
 /// Helper: push a string from a Zig slice into a Value.
 fn pushStr(r: *Value, s: []const u8) void {
-    const key = String.init(s) catch { lualike_pushnil(r); return; };
-    lualike_pushstring(r, null, key.data, @as(i32, @intCast(key.len)));
-    key.refcount -%= 1;
-    if (key.refcount == 0) {
-        Alloc.free(key.data[0..key.len]);
-        Alloc.destroy(key);
-    }
+    lualike_pushstring(r, null, @ptrCast(@constCast(s.ptr)), @as(i32, @intCast(s.len)));
 }
 
 // ---------------------------------------------------------------------------
@@ -1821,13 +1801,6 @@ fn stdStringDump(_: *State, _: [*]Value, _: i32, r: [*]Value, _: i32, nr: *i32) 
 // IO library
 // ===========================================================================
 
-fn ioFileType(f: *std.c.FILE) []const u8 {
-    if (f == @as(*std.c.FILE, @ptrFromInt(@as(usize, @intCast(0))))) return "file";
-    if (f == @as(*std.c.FILE, @ptrFromInt(@as(usize, @intCast(1))))) return "file";
-    if (f == @as(*std.c.FILE, @ptrFromInt(@as(usize, @intCast(2))))) return "file";
-    return "file";
-}
-
 fn stdIoOpen(_: *State, args: [*]Value, n: i32, r: [*]Value, _: i32, nr: *i32) callconv(.c) void {
     if (n < 1 or args[0].type != .string) { lualike_pushnil(&r[0]); nr.* = 1; return; }
     var path_buf: [1024]u8 = undefined;
@@ -1868,7 +1841,7 @@ fn stdIoRead(_: *State, args: [*]Value, n: i32, r: [*]Value, _: i32, nr: *i32) c
     var buf: [4096]u8 = undefined;
     const line = libc.fgets(@ptrCast(&buf), @as(c_int, @intCast(buf.len)), fileCast(h));
     if (line) |_| {
-        const len = std.mem.sliceTo(@as([*:0]u8, @ptrCast(&buf)), 0).len;
+        const len = mem.sliceTo(@as([*:0]u8, @ptrCast(&buf)), 0).len;
         const trim = if (len > 0 and buf[len - 1] == 10) len - 1 else len;
         pushStr(&r[0], buf[0..trim]);
     } else {
