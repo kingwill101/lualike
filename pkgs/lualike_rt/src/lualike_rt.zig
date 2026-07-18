@@ -1123,6 +1123,10 @@ fn stdIpairs(_: *State, args: [*]Value, n: i32, r: [*]Value, _: i32, nr: *i32) c
 var _gc_alloc_bytes: usize = 0;
 var _gc_alloc_count: usize = 0;
 
+/// Default IO file handles (for io.input/io.output)
+var _io_default_input: usize = 0;
+var _io_default_output: usize = 1;
+
 fn stdCollectgarbage(L: *State, args: [*]Value, n: i32, r: [*]Value, _: i32, nr: *i32) callconv(.c) void {
     _ = L;
     if (n >= 1 and args[0].type == .string) {
@@ -2220,8 +2224,39 @@ fn stdIoLines(_: *State, args: [*]Value, n: i32, r: [*]Value, _: i32, nr: *i32) 
     lualike_pushnil(&r[0]); nr.* = 1;
 }
 
-fn stdIoInput(_: *State, _: [*]Value, _: i32, r: [*]Value, _: i32, nr: *i32) callconv(.c) void { lualike_pushnil(&r[0]); nr.* = 1; }
-fn stdIoOutput(_: *State, _: [*]Value, _: i32, r: [*]Value, _: i32, nr: *i32) callconv(.c) void { lualike_pushnil(&r[0]); nr.* = 1; }
+fn stdIoInput(_: *State, args: [*]Value, n: i32, r: [*]Value, _: i32, nr: *i32) callconv(.c) void {
+    if (n >= 1 and args[0].type == .number) {
+        _io_default_input = @as(usize, @intFromFloat(args[0].payload.n));
+    } else if (n >= 1 and args[0].type == .string) {
+        // Open file for reading and set as default input
+        const s = args[0].payload.s orelse { lualike_pushnil(&r[0]); nr.* = 1; return; };
+        var path_buf: [1024]u8 = undefined;
+        const path_len = @min(s.len, path_buf.len - 1);
+        @memcpy(path_buf[0..path_len], s.data[0..path_len]);
+        path_buf[path_len] = 0;
+        if (std_c_fopen(@ptrCast(&path_buf), @ptrCast(@constCast("r")))) |f| {
+            _io_default_input = @intFromPtr(f);
+        }
+    }
+    lualike_pushnumber(&r[0], @as(f64, @floatFromInt(_io_default_input)));
+    nr.* = 1;
+}
+fn stdIoOutput(_: *State, args: [*]Value, n: i32, r: [*]Value, _: i32, nr: *i32) callconv(.c) void {
+    if (n >= 1 and args[0].type == .number) {
+        _io_default_output = @as(usize, @intFromFloat(args[0].payload.n));
+    } else if (n >= 1 and args[0].type == .string) {
+        const s = args[0].payload.s orelse { lualike_pushnil(&r[0]); nr.* = 1; return; };
+        var path_buf: [1024]u8 = undefined;
+        const path_len = @min(s.len, path_buf.len - 1);
+        @memcpy(path_buf[0..path_len], s.data[0..path_len]);
+        path_buf[path_len] = 0;
+        if (std_c_fopen(@ptrCast(&path_buf), @ptrCast(@constCast("w")))) |f| {
+            _io_default_output = @intFromPtr(f);
+        }
+    }
+    lualike_pushnumber(&r[0], @as(f64, @floatFromInt(_io_default_output)));
+    nr.* = 1;
+}
 fn stdIoPopen(_: *State, _: [*]Value, _: i32, r: [*]Value, _: i32, nr: *i32) callconv(.c) void { lualike_pushnil(&r[0]); nr.* = 1; }
 fn stdIoTmpfile(_: *State, _: [*]Value, _: i32, r: [*]Value, _: i32, nr: *i32) callconv(.c) void { lualike_pushnil(&r[0]); nr.* = 1; }
 fn stdIoType(_: *State, _: [*]Value, _: i32, r: [*]Value, _: i32, nr: *i32) callconv(.c) void { pushStr(&r[0], "file"); nr.* = 1; }
