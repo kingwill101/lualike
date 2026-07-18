@@ -142,11 +142,20 @@ String _generateMainZig(LualikeIrPrototype proto) {
     buf.writeln('  constants: [*]Value, nconstants: i32,');
     buf.writeln(') void;');
   }
-  buf.writeln('// Sub-function constant globals (for closure dispatch)');
-  for (var si = 0; si < proto.prototypes.length; si++) {
-    final subNc = proto.prototypes[si].constants.length;
-    buf.writeln('export var _lua_fn_const_${si + 1}: [${subNc > 0 ? subNc : 1}]Value = undefined;');
+  // Sub-function constants — walk prototype tree depth-first
+  // matching LLVM lowering flat indices
+  int walkDecl(LualikeIrPrototype p, int idx) {
+    for (var si = 0; si < p.prototypes.length; si++) {
+      final sub = p.prototypes[si];
+      if (sub.registerCount == 0) continue;
+      final subNc = sub.constants.length;
+      buf.writeln('export var _lua_fn_const_${idx}: [${subNc > 0 ? subNc : 1}]Value = undefined;');
+      idx++;
+      idx = walkDecl(sub, idx);
+    }
+    return idx;
   }
+  walkDecl(proto, 1);
   buf.writeln();
 
   // Main function
@@ -196,49 +205,48 @@ String _generateMainZig(LualikeIrPrototype proto) {
     }
   }
   buf.writeln();
-  buf.writeln('  // Initialize sub-function constants (for closure globals)');
-  buf.writeln('  var si: usize = 0;');
-  buf.writeln('  while (si < ${proto.prototypes.length}) : (si += 1) {');
-  buf.writeln('    switch (si) {');
-  for (var si = 0; si < proto.prototypes.length; si++) {
-    final subProto = proto.prototypes[si];
-    final subNc = subProto.constants.length;
-    if (subNc > 0) {
-      buf.writeln('      ${si} => {');
-      buf.writeln('        @memset(&_lua_fn_const_${si + 1}, .{ .type = .nil, ._pad = undefined, .payload = undefined });');
-      for (var j = 0; j < subNc; j++) {
-        final sc = subProto.constants[j];
-        if (sc is NilConstant) {
-          buf.writeln('        _lua_fn_const_${si + 1}[${j}].type = .nil;');
-        } else if (sc is BooleanConstant) {
-          final v = (sc as BooleanConstant).value;
-          buf.writeln('        _lua_fn_const_${si + 1}[${j}].type = .boolean;');
-          buf.writeln('        _lua_fn_const_${si + 1}[${j}].payload.b = ${v ? "true" : "false"};');
-        } else if (sc is IntegerConstant) {
-          final v = (sc as IntegerConstant).value;
-          buf.writeln('        _lua_fn_const_${si + 1}[${j}].type = .number;');
-          buf.writeln('        _lua_fn_const_${si + 1}[${j}].payload.n = @as(f64, @floatFromInt(${v}));');
-        } else if (sc is NumberConstant) {
-          final v = (sc as NumberConstant).value;
-          buf.writeln('        _lua_fn_const_${si + 1}[${j}].type = .number;');
-          buf.writeln('        _lua_fn_const_${si + 1}[${j}].payload.n = ${_zigFloat(v)};');
-        } else if (sc is ShortStringConstant || sc is LongStringConstant) {
-          final v = (sc as dynamic).value as String;
-          buf.writeln('        {');
-          buf.writeln('          const str = alloc.create(String) catch |e| { @import("std").log.err("alloc fail {}", .{e}); return; };');
-          buf.writeln('          const strBuf = alloc.dupe(u8, "${_escapeZig(v)}") catch |e| { alloc.destroy(str); @import("std").log.err("alloc fail {}", .{e}); return; };');
-          buf.writeln('          str.* = .{ .refcount = 1, .len = ${v.length}, .data = strBuf.ptr };');
-          buf.writeln('          _lua_fn_const_${si + 1}[${j}].type = .string;');
-          buf.writeln('          _lua_fn_const_${si + 1}[${j}].payload.s = str;');
-          buf.writeln('        }');
+  // Initialize sub-function constants — walk prototype tree depth-first
+  int walkInit(LualikeIrPrototype p, int idx) {
+    for (var si = 0; si < p.prototypes.length; si++) {
+      final subProto = p.prototypes[si];
+      if (subProto.registerCount == 0) continue;
+      final subNc = subProto.constants.length;
+      if (subNc > 0) {
+        buf.writeln('  @memset(&_lua_fn_const_${idx}, .{ .type = .nil, ._pad = undefined, .payload = undefined });');
+        for (var j = 0; j < subNc; j++) {
+          final sc = subProto.constants[j];
+          if (sc is NilConstant) {
+            buf.writeln('  _lua_fn_const_${idx}[${j}].type = .nil;');
+          } else if (sc is BooleanConstant) {
+            final v = (sc as BooleanConstant).value;
+            buf.writeln('  _lua_fn_const_${idx}[${j}].type = .boolean;');
+            buf.writeln('  _lua_fn_const_${idx}[${j}].payload.b = ${v ? "true" : "false"};');
+          } else if (sc is IntegerConstant) {
+            final v = (sc as IntegerConstant).value;
+            buf.writeln('  _lua_fn_const_${idx}[${j}].type = .number;');
+            buf.writeln('  _lua_fn_const_${idx}[${j}].payload.n = @as(f64, @floatFromInt(${v}));');
+          } else if (sc is NumberConstant) {
+            final v = (sc as NumberConstant).value;
+            buf.writeln('  _lua_fn_const_${idx}[${j}].type = .number;');
+            buf.writeln('  _lua_fn_const_${idx}[${j}].payload.n = ${_zigFloat(v)};');
+          } else if (sc is ShortStringConstant || sc is LongStringConstant) {
+            final v = (sc as dynamic).value as String;
+            buf.writeln('  {');
+            buf.writeln('    const str = alloc.create(String) catch |e| { @import("std").log.err("alloc fail {}", .{e}); return; };');
+            buf.writeln('    const strBuf = alloc.dupe(u8, "${_escapeZig(v)}") catch |e| { alloc.destroy(str); @import("std").log.err("alloc fail {}", .{e}); return; };');
+            buf.writeln('    str.* = .{ .refcount = 1, .len = ${v.length}, .data = strBuf.ptr };');
+            buf.writeln('    _lua_fn_const_${idx}[${j}].type = .string;');
+            buf.writeln('    _lua_fn_const_${idx}[${j}].payload.s = str;');
+            buf.writeln('  }');
+          }
         }
       }
-      buf.writeln('      },');
+      idx++;
+      idx = walkInit(subProto, idx);
     }
+    return idx;
   }
-  buf.writeln('      else => {},');
-  buf.writeln('    }');
-  buf.writeln('  }');
+  walkInit(proto, 1);
   buf.writeln('  const regs = alloc.alloc(Value, $nr) catch |e| {');
   buf.writeln('    @import("std").log.err("alloc fail {}", .{e}); return;');
   buf.writeln('  };');

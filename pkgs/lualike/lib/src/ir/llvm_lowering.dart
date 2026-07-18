@@ -18,6 +18,7 @@ class LualikeIrToLlvm {
     required this.typeAnalysis,
     this.functionIndex = 0,
     this.targetTriple,
+    this.bxMap = const {},
   });
 
   final LualikeIrPrototype prototype;
@@ -25,6 +26,7 @@ class LualikeIrToLlvm {
   final LualikeIrSsaTypeAnalysis typeAnalysis;
   final int functionIndex;
   final String? targetTriple;
+  Map<String, int> bxMap;
 
   static const _valueSz = 16; // sizeof(lua_Value)
 
@@ -35,32 +37,57 @@ class LualikeIrToLlvm {
   int _currentBlockIndex = 0;
   final _loopCheckLabels = <int, int>{};
 
+  // Walk prototype tree depth-first, building flat index mapping.
+  // Returns the next available flat index after assigning for all descendants.
+  int _walkProtos(LualikeIrPrototype p, int parentFlat, int nextFlat,
+      Map<String, int> bxMap) {
+    for (var bx = 0; bx < p.prototypes.length; bx++) {
+      final sub = p.prototypes[bx];
+      // Skip prototypes that don't generate LLVM functions
+      if (sub.registerCount == 0) continue;
+      bxMap['$parentFlat:$bx'] = nextFlat;
+      if (sub.constants.isNotEmpty) {
+        _writeln('@_lua_fn_const_$nextFlat = external global [${sub.constants.length * 2} x i64]');
+      }
+      nextFlat++;
+      nextFlat = _walkProtos(sub, nextFlat - 1, nextFlat, bxMap);
+    }
+    return nextFlat;
+  }
+
   String generateModule() {
     _buf.clear();
     _unnamedCounter = 0;
     _emitHeader();
-    // Emit extern globals for sub-function constants (Value = 16 bytes each)
-    for (var i = 0; i < prototype.prototypes.length; i++) {
-      final subNc = prototype.prototypes[i].constants.length;
-      if (subNc > 0) {
-        _writeln('@_lua_fn_const_${i + 1} = external global [${subNc * 2} x i64]');
+    // Build flat index mapping
+    final bxMap = <String, int>{};
+    _walkProtos(prototype, 0, 1, bxMap);
+    this.bxMap = bxMap;
+    for (final e in bxMap.entries) { print('  bx ${e.key} -> ${e.value}'); }
+    // Emit sub-functions in depth-first order matching flat indices
+    int emitFns(LualikeIrPrototype p, int parentFlat, int nextFlat) {
+      for (var bx = 0; bx < p.prototypes.length; bx++) {
+        final subProto = p.prototypes[bx];
+        if (subProto.registerCount == 0) continue;
+        final idx = bxMap['$parentFlat:$bx']!;
+        final subSsa = LualikeIrSsaFunction.fromPrototype(subProto).simplifyTrivialPhis();
+        final subTa = analyzeLualikeIrSsaTypes(subProto, subSsa);
+        final subEmitter = LualikeIrToLlvm(
+          prototype: subProto,
+          ssaFunction: subSsa,
+          typeAnalysis: subTa,
+          functionIndex: idx,
+          targetTriple: targetTriple,
+          bxMap: bxMap,
+        );
+        subEmitter._emitFunction();
+        _buf.write(subEmitter._buf.toString());
+        nextFlat++;
+        nextFlat = emitFns(subProto, idx, nextFlat);
       }
+      return nextFlat;
     }
-    // Emit sub-functions first for forward references
-    for (var i = 0; i < prototype.prototypes.length; i++) {
-      final subProto = prototype.prototypes[i];
-      final subSsa = LualikeIrSsaFunction.fromPrototype(subProto).simplifyTrivialPhis();
-      final subTa = analyzeLualikeIrSsaTypes(subProto, subSsa);
-      final subEmitter = LualikeIrToLlvm(
-        prototype: subProto,
-        ssaFunction: subSsa,
-        typeAnalysis: subTa,
-        functionIndex: i + 1,
-        targetTriple: targetTriple,
-      );
-      subEmitter._emitFunction();
-      _buf.write(subEmitter._buf.toString());
-    }
+    emitFns(prototype, 0, 1);
     _emitFunction();
     return _buf.toString();
   }
@@ -377,11 +404,16 @@ class LualikeIrToLlvm {
         _writeln('  call void @lualike_settabup(ptr %upvals, ptr %constants, ptr ${_reg(a)}, i32 $c)');
 
       // -- Closure --
-      case ABxInstruction(opcode: LualikeIrOpcode.closure, a: final a, bx: final bx):
-        // bx indexes into the CURRENT function's prototypes, not the root's
-        // We just pass null for constants and 0 — the Zig wrapper will
-        // resolve the actual constants via the function index.
-        _writeln('  call void @lualike_newclosure(ptr ${_reg(a)}, ptr @_lua_fn_${bx + 1}, ptr %upvals, i32 %nupvals, ptr null, ptr null, i32 0)');
+      case ABxInstruction(opcode: LualikeIrOpcode.closure, a: final a, bx: final bx): {
+        final flatIdx = bxMap['$functionIndex:$bx'] ?? bx + 1;
+        final subProto = prototype.prototypes[bx];
+        final subNc = subProto.constants.length;
+        final hasConst = subNc > 0 && bxMap.containsKey('$functionIndex:$bx');
+        final constRef = hasConst ? 'ptr @_lua_fn_const_$flatIdx' : 'ptr null';
+        print('closure fn=$functionIndex bx=$bx flat=$flatIdx subNc=$subNc hasConst=$hasConst');
+        _writeln('  call void @lualike_newclosure(ptr ${_reg(a)}, ptr @_lua_fn_$flatIdx, ptr %upvals, i32 %nupvals, ptr null, $constRef, i32 ${hasConst ? subNc : 0})');
+        break;
+      }
 
       // -- Self --
       case ABCInstruction(opcode: LualikeIrOpcode.selfOp, a: final a, b: final b, c: final c):

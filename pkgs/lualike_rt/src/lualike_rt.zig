@@ -173,13 +173,19 @@ export fn lualike_freestate(s: ?*State) void {
 // Value constructors
 /// Sets `v` to a nil value, releasing any previously-held reference.
 export fn lualike_pushnil(v: *Value) void {
-    release(v.*);
+    const ot = @as(u32, @intFromEnum(v.type));
+    if (ot == @intFromEnum(Type.string)) { if (v.payload.s) |s| { s.refcount -%= 1; if (s.refcount == 0) { Alloc.free(s.data[0..s.len]); Alloc.destroy(s); } } }
+    else if (ot == @intFromEnum(Type.table)) { if (v.payload.t != 0) { const tp: *Table = @ptrFromInt(v.payload.t); tp.refcount -%= 1; if (tp.refcount == 0) { var it = tp.map.iterator(); while (it.next()) |e| { Alloc.free(e.key_ptr.*); release(e.value_ptr.*); } tp.map.deinit(Alloc); Alloc.destroy(tp); } } }
+    else if (ot == @intFromEnum(Type.function_)) { if (v.payload.fn_ptr != 0) { const cp: *Closure = @ptrFromInt(v.payload.fn_ptr); cp.refcount -%= 1; if (cp.refcount == 0) { Alloc.free(cp.upvals[0..@as(usize, @intCast(cp.nupvals))]); if (cp.name) |nm| Alloc.free(nm[0..std.mem.len(nm)]); Alloc.destroy(cp); } } }
     v.* = nilV();
 }
 /// Sets `v` to a boolean value, releasing any previously-held reference.
 ///
 export fn lualike_pushboolean(v: *Value, b: bool) void {
-    release(v.*);
+    const ot = @as(u32, @intFromEnum(v.type));
+    if (ot == @intFromEnum(Type.string)) { if (v.payload.s) |s| { s.refcount -%= 1; if (s.refcount == 0) { Alloc.free(s.data[0..s.len]); Alloc.destroy(s); } } }
+    else if (ot == @intFromEnum(Type.table)) { if (v.payload.t != 0) { const tp: *Table = @ptrFromInt(v.payload.t); tp.refcount -%= 1; if (tp.refcount == 0) { var it = tp.map.iterator(); while (it.next()) |e| { Alloc.free(e.key_ptr.*); release(e.value_ptr.*); } tp.map.deinit(Alloc); Alloc.destroy(tp); } } }
+    else if (ot == @intFromEnum(Type.function_)) { if (v.payload.fn_ptr != 0) { const cp: *Closure = @ptrFromInt(v.payload.fn_ptr); cp.refcount -%= 1; if (cp.refcount == 0) { Alloc.free(cp.upvals[0..@as(usize, @intCast(cp.nupvals))]); if (cp.name) |nm| Alloc.free(nm[0..std.mem.len(nm)]); Alloc.destroy(cp); } } }
     v.* = .{ .type = .boolean, ._pad = undefined, .payload = .{ .b = b } };
 }
 /// Sets `v` to a floating-point number, releasing any previously-held reference.
@@ -515,11 +521,11 @@ export fn lualike_print(L: ?*State, s: [*:0]u8) void {
 
 // Tables
 export fn lualike_newtable(d: *Value) void {
-    const t = Table.init() catch {
-        lualike_pushnil(d);
-        return;
-    };
-    release(d.*);
+    const t = Table.init() catch { lualike_pushnil(d); return; };
+    const ot = @as(u32, @intFromEnum(d.type));
+    if (ot == @intFromEnum(Type.string)) { if (d.payload.s) |s| { s.refcount -%= 1; if (s.refcount == 0) { Alloc.free(s.data[0..s.len]); Alloc.destroy(s); } } }
+    else if (ot == @intFromEnum(Type.table)) { if (d.payload.t != 0) { const tp: *Table = @ptrFromInt(d.payload.t); tp.refcount -%= 1; if (tp.refcount == 0) { var it = tp.map.iterator(); while (it.next()) |e| { Alloc.free(e.key_ptr.*); release(e.value_ptr.*); } tp.map.deinit(Alloc); Alloc.destroy(tp); } } }
+    else if (ot == @intFromEnum(Type.function_)) { if (d.payload.fn_ptr != 0) { const cp: *Closure = @ptrFromInt(d.payload.fn_ptr); cp.refcount -%= 1; if (cp.refcount == 0) { Alloc.free(cp.upvals[0..@as(usize, @intCast(cp.nupvals))]); if (cp.name) |nm| Alloc.free(nm[0..std.mem.len(nm)]); Alloc.destroy(cp); } } }
     d.* = .{ .type = .table, ._pad = undefined, .payload = .{ .t = @intFromPtr(t) } };
 }
 /// Convert a Value key to a []const u8 for use as a HashMap key.
@@ -1057,10 +1063,10 @@ fn stdIpairs(_: *State, args: [*]Value, n: i32, r: [*]Value, _: i32, nr: *i32) c
     if (n < 1 or args[0].type != .table) {
         lualike_pushnil(&r[0]); nr.* = 1; return;
     }
-    // ipairs returns a function that iterates over integer keys starting from 1
-    lualike_pushcfunction(&r[0], @intFromPtr(&stdNext), @ptrCast(@constCast("next")));
+    // ipairs returns iterator, table, nil (nil means "no key yet")
+    lualike_pushcfunction(&r[0], @intFromPtr(&stdNext), @ptrCast(@constCast("ipairs")));
     lualike_copy(&r[1], &args[0]);
-    lualike_pushnumber(&r[2], 0);
+    lualike_pushnil(&r[2]);
     nr.* = 3;
 }
 
