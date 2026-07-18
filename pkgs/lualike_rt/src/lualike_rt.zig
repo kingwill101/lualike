@@ -748,12 +748,7 @@ export fn lualike_call(L: ?*State, dst: ?*Value, fn_val: *const Value, args: [*]
         cfn(L.?, args, nargs, &results, 8, &nr);
         if (nr > 0 and dst != null) {
             lualike_copy(dst.?, &results[0]);
-            // Store up to 2 extra results — SAFE because generic for loop
-            // always has a+4 < nregs (loop state needs 4 contiguous regs)
-            const ncopy = @min(@as(usize, @intCast(nr - 1)), 2);
-            const dst_arr: [*]Value = @ptrCast(dst.?);
-            for (0..ncopy) |j| lualike_copy(&dst_arr[j + 1], &results[j + 1]);
-            for (ncopy + 1..@as(usize, @intCast(nr))) |j| release(results[j]);
+            for (1..@as(usize, @intCast(nr))) |j| release(results[j]);
         }
         return;
     }

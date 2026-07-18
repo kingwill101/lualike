@@ -198,7 +198,7 @@ String _generateMainZig(LualikeIrPrototype proto) {
         buf.writeln('      @import("std").heap.c_allocator.destroy(str);');
         buf.writeln('      @import("std").log.err("alloc fail {}", .{e}); return;');
         buf.writeln('    };');
-        buf.writeln('    str.* = .{ .refcount = 999, .len = ${v.length}, .data = buf.ptr };');
+        buf.writeln('    str.* = .{ .refcount = 1, .len = ${v.length}, .data = buf.ptr };');
         buf.writeln('    constants[$i].type = .string;');
         buf.writeln('    constants[$i].payload.s = str;');
         buf.writeln('  }');
@@ -234,7 +234,7 @@ String _generateMainZig(LualikeIrPrototype proto) {
             buf.writeln('  {');
             buf.writeln('    const str = alloc.create(String) catch |e| { @import("std").log.err("alloc fail {}", .{e}); return; };');
             buf.writeln('    const strBuf = alloc.dupe(u8, "${_escapeZig(v)}") catch |e| { alloc.destroy(str); @import("std").log.err("alloc fail {}", .{e}); return; };');
-            buf.writeln('    str.* = .{ .refcount = 999, .len = ${v.length}, .data = strBuf.ptr };');
+            buf.writeln('    str.* = .{ .refcount = 1, .len = ${v.length}, .data = strBuf.ptr };');
             buf.writeln('    _lua_fn_const_${idx}[${j}].type = .string;');
             buf.writeln('    _lua_fn_const_${idx}[${j}].payload.s = str;');
             buf.writeln('  }');
