@@ -734,8 +734,11 @@ export fn lualike_call(L: ?*State, dst: ?*Value, fn_val: *const Value, args: [*]
         var nr: i32 = 0;
         cfn(L.?, args, nargs, &results, 8, &nr);
         if (nr > 0 and dst != null) {
-            lualike_copy(dst.?, &results[0]);
-            for (1..@as(usize, @intCast(nr))) |j| release(results[j]);
+            const dst_arr: [*]Value = @ptrCast(dst.?);
+            lualike_copy(&dst_arr[0], &results[0]);
+            const ncopy = @min(@as(usize, @intCast(nr - 1)), 7);
+            for (0..ncopy) |j| lualike_copy(&dst_arr[j + 1], &results[j + 1]);
+            for (ncopy + 1..@as(usize, @intCast(nr))) |j| release(results[j]);
         }
         return;
     }
