@@ -304,6 +304,10 @@ export fn lualike_retain(v: *const Value) void {
 /// freeing it when the count reaches zero.
 export fn lualike_release(v: *Value) void {
     release(v.*);
+    // Nil out the value to prevent double-free on stale pointers.
+    // This is safe because LLVM-compiled code never calls lualike_release
+    // directly — it uses lualike_copy for register assignments.
+    v.* = .{ .type = .nil, ._pad = undefined, .payload = .{ .n = 0 } };
 }
 /// Copies `s` into `d`, performing proper retain/release bookkeeping.
 ///

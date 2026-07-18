@@ -408,8 +408,16 @@ class LualikeIrToLlvm {
         final flatIdx = bxMap['$functionIndex:$bx'] ?? bx + 1;
         final subProto = prototype.prototypes[bx];
         final subNc = subProto.constants.length;
-        final hasConst = subNc > 0 && bxMap.containsKey('$functionIndex:$bx');
-        final constRef = hasConst ? 'ptr @_lua_fn_const_$flatIdx' : 'ptr null';
+        // Always pass a valid constants pointer — the Zig wrapper always
+        // declares at least [1]Value for every sub-function, even when
+        // subNc == 0, because the function body may reference constants[0]
+        // from an inherited/shared constant pool.
+        // When subNc == 0, the child shares the parent's constant table.
+        // Use ptr %constants (the creating function's constants) directly.
+        // When subNc > 0, use the dedicated @_lua_fn_const_N.
+        final constRef = (subNc > 0 && bxMap.containsKey('$functionIndex:$bx'))
+            ? 'ptr @_lua_fn_const_$flatIdx'
+            : 'ptr %constants';
         final nup = subProto.upvalueCount;
         if (nup > 0) {
           final uvArray = _next();
@@ -429,9 +437,12 @@ class LualikeIrToLlvm {
               _writeln('  call void @lualike_copy(ptr $uvSlot, ptr $uvPtr)');
             }
           }
-          _writeln('  call void @lualike_newclosure(ptr ${_reg(a)}, ptr @_lua_fn_$flatIdx, ptr $uvArray, i32 $nup, ptr null, $constRef, i32 ${hasConst ? subNc : 0})');
+          // When sharing parent constants, use parent's count (%nconstants)
+          final ncArg = (subNc > 0 && bxMap.containsKey('$functionIndex:$bx')) ? subNc.toString() : '%nconstants';
+          _writeln('  call void @lualike_newclosure(ptr ${_reg(a)}, ptr @_lua_fn_$flatIdx, ptr $uvArray, i32 $nup, ptr null, $constRef, i32 $ncArg)');
         } else {
-          _writeln('  call void @lualike_newclosure(ptr ${_reg(a)}, ptr @_lua_fn_$flatIdx, ptr null, i32 $nup, ptr null, $constRef, i32 ${hasConst ? subNc : 0})');
+          final ncArg = (subNc > 0 && bxMap.containsKey('$functionIndex:$bx')) ? subNc.toString() : '%nconstants';
+          _writeln('  call void @lualike_newclosure(ptr ${_reg(a)}, ptr @_lua_fn_$flatIdx, ptr null, i32 $nup, ptr null, $constRef, i32 $ncArg)');
         }
         break;
       }

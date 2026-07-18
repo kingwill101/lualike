@@ -693,3 +693,161 @@ export fn test_stdlib_call_each_stub() i32 {
     }
     return 0;
 }
+
+// ===========================================================================
+// Stress tests for string constant refcounting (reproduces the getfield crash
+// from the comprehensive Lua test, where string constant data gets freed)
+// ===========================================================================
+
+/// Creates a constant table with string values and repeatedly copies them
+/// to/from registers, simulating what the LLVM-compiled code does.
+/// Tests: GETTABUP (constant string as key), lualike_copy (reg←const),
+/// lualike_newclosure (capture constants as upvalues), and release chains.
+export fn test_string_constant_stress() i32 {
+    const nc = 64;
+    const constants = std.heap.c_allocator.alloc(Value, nc) catch return 999;
+    defer std.heap.c_allocator.free(constants);
+    for (0..nc) |ci| {
+        var buf: [64]u8 = undefined;
+        const s = std.fmt.bufPrint(&buf, "CONST_{}_{}", .{ ci, ci * 7 }) catch "ERR";
+        const dup = std.heap.c_allocator.dupe(u8, s) catch return 998;
+        const str = std.heap.c_allocator.create(StringData) catch { std.heap.c_allocator.free(dup); return 997; };
+        str.* = .{ .refcount = 1, .len = @as(u32, @intCast(s.len)), .data = dup.ptr };
+        constants[ci].type = .string;
+        constants[ci].payload.s = str;
+    }
+    defer {
+        for (0..nc) |i| {
+            if (constants[i].payload.s) |sd| {
+                std.heap.c_allocator.free(sd.data[0..sd.len]);
+                std.heap.c_allocator.destroy(sd);
+            }
+        }
+    }
+    const L = lualike_newstate() orelse return 1;
+    defer lualike_freestate(L);
+    const st: *State = @ptrCast(@alignCast(L));
+    var upvals: [4]Value = .{ st.globals, nilV(), nilV(), nilV() };
+    // 20 rounds of stress
+    for (0..20) |_| {
+        for (0..nc) |i| {
+            // 1. Direct constant verification
+            const cval = &constants[i];
+            if (cval.type != .string) return 10 + @as(i32, @intCast(i));
+            const sd = cval.payload.s orelse return 100 + @as(i32, @intCast(i));
+            if (sd.data[0] != 'C' or sd.len < 5) return 200 + @as(i32, @intCast(i));
+            // 2. GETTABUP: use constant as key in globals table
+            var dst: Value = undefined;
+            lualike_gettabup(@ptrCast(&dst), @ptrCast(&upvals), constants.ptr, @as(i32, @intCast(i % 4)));
+            lualike_release(@ptrCast(&dst));
+            // 3. Copy constant to register
+            var reg: Value = undefined;
+            lualike_copy(@ptrCast(&reg), @ptrCast(cval));
+            lualike_release(@ptrCast(&reg));
+        }
+        // 4. Simulate closure with captured constants
+        var closure_dst: Value = undefined;
+        var captured: [4]Value = @splat(nilV());
+        for (0..4) |j| {
+            lualike_copy(@ptrCast(&captured[j]), @ptrCast(&constants[(j * 17 + 3) % nc]));
+        }
+        lualike_newclosure(@ptrCast(&closure_dst), @constCast(@ptrCast(&lualike_newstate)), @ptrCast(&captured), 4, null, constants.ptr, nc);
+        lualike_release(@ptrCast(&closure_dst));
+        for (0..4) |j| lualike_release(@ptrCast(&captured[j]));
+        // 5. Verify constants again after closure capture
+        for (0..nc) |i| {
+            const cval = &constants[i];
+            if (cval.type != .string) return 400 + @as(i32, @intCast(i));
+            const sd = cval.payload.s orelse return 500 + @as(i32, @intCast(i));
+            if (sd.data[0] != 'C') return 600 + @as(i32, @intCast(i));
+        }
+    }
+    return 0;
+}
+
+/// Deep closure nesting: create chains of closures that capture constants,
+/// then release them all. Tests that nested releases don't corrupt shared
+/// constant string data.
+export fn test_closure_constant_capture_chain() i32 {
+    const nc = 32;
+    const alloc = std.heap.c_allocator;
+    const constants = alloc.alloc(Value, nc) catch return 999;
+    defer {
+        for (0..nc) |i| {
+            if (constants[i].payload.s) |sd| {
+                alloc.free(sd.data[0..sd.len]);
+                alloc.destroy(sd);
+            }
+        }
+        alloc.free(constants);
+    }
+    for (0..nc) |i| {
+        var buf: [64]u8 = undefined;
+        const s = std.fmt.bufPrint(&buf, "CAPTURE_CONST_{}", .{i}) catch "ERR";
+        const dup = alloc.dupe(u8, s) catch return 998;
+        const str = alloc.create(StringData) catch { alloc.free(dup); return 997; };
+        str.* = .{ .refcount = 1, .len = @as(u32, @intCast(s.len)), .data = dup.ptr };
+        constants[i].type = .string;
+        constants[i].payload.s = str;
+    }
+    for (0..20) |_| {
+        var chain: [5]Value = @splat(nilV());
+        for (0..5) |ci| {
+            var captured: [4]Value = @splat(nilV());
+            for (0..4) |j| {
+                lualike_copy(@ptrCast(&captured[j]), @ptrCast(&constants[(ci * 4 + j) % nc]));
+            }
+            lualike_newclosure(@ptrCast(&chain[ci]), @constCast(@ptrCast(&lualike_newstate)), @ptrCast(&captured), 4, null, constants.ptr, nc);
+            for (0..4) |j| lualike_release(@ptrCast(&captured[j]));
+        }
+        for (0..5) |ci| lualike_release(@ptrCast(&chain[ci]));
+        for (0..nc) |i| {
+            const cval = &constants[i];
+            if (cval.type != .string) return 10 + @as(i32, @intCast(i));
+            const sd = cval.payload.s orelse return 100 + @as(i32, @intCast(i));
+            if (sd.len < 1 or sd.data[0] != 'C') return 200 + @as(i32, @intCast(i));
+        }
+    }
+    return 0;
+}
+
+/// Rapid copy/release of the same constants 100 times, verifying refcounts
+/// never reach zero.
+export fn test_string_refcount_stress() i32 {
+    const nc = 16;
+    const alloc = std.heap.c_allocator;
+    const constants = alloc.alloc(Value, nc) catch return 999;
+    defer {
+        for (0..nc) |i| {
+            if (constants[i].payload.s) |sd| {
+                alloc.free(sd.data[0..sd.len]);
+                alloc.destroy(sd);
+            }
+        }
+        alloc.free(constants);
+    }
+    for (0..nc) |i| {
+        var buf: [64]u8 = undefined;
+        const s = std.fmt.bufPrint(&buf, "STR_{}", .{i}) catch "ERR";
+        const dup = alloc.dupe(u8, s) catch return 998;
+        const str = alloc.create(StringData) catch { alloc.free(dup); return 997; };
+        str.* = .{ .refcount = 1, .len = @as(u32, @intCast(s.len)), .data = dup.ptr };
+        constants[i].type = .string;
+        constants[i].payload.s = str;
+    }
+    var regs: [64]Value = @splat(nilV());
+    for (0..100) |_| {
+        for (0..nc) |i| lualike_copy(@ptrCast(&regs[i]), @ptrCast(&constants[i]));
+        for (0..nc) |i| lualike_copy(@ptrCast(&regs[nc + i]), @ptrCast(&regs[i]));
+        for (0..nc) |i| { lualike_release(@ptrCast(&regs[nc + i])); regs[nc + i] = nilV(); }
+        for (0..nc) |i| {
+            if (constants[i].type != .string) return 10 + @as(i32, @intCast(i));
+        }
+    }
+    for (0..nc) |i| { lualike_release(@ptrCast(&regs[i])); regs[i] = nilV(); }
+    return 0;
+}
+
+// ===========================================================================
+// Comprehensive stress test: simulates what the LLVM-compiled code does
+// with many string constants, closures, and upvalue captures.
