@@ -268,16 +268,16 @@ class LualikeIrToLlvm {
       // -- Arithmetic (imm) — use stack temp to avoid overwriting r[b]
       case ABCInstruction(opcode: LualikeIrOpcode.addI, a: final a, b: final b, c: final c, k: final _): {
         final immReg = _next();
-        _writeln('  $immReg = alloca i64, i64 1');
+        _writeln('  $immReg = alloca { i64, [2 x i64] }, i32 1');
         _writeln('  call void @lualike_pushinteger(ptr $immReg, i64 ${_se(c, 9)})');
         _writeln('  call void @lualike_add(ptr %L, ptr ${_reg(a)}, ptr ${_reg(b)}, ptr $immReg)');
         break;
       }
       case ABCInstruction(opcode: LualikeIrOpcode.subI, a: final a, b: final b, c: final c, k: final _): {
         final immReg = _next();
-        _writeln('  $immReg = alloca i64, i64 1');
+        _writeln('  $immReg = alloca { i64, [2 x i64] }, i32 1');
         _writeln('  call void @lualike_pushinteger(ptr $immReg, i64 ${_se(c, 9)})');
-        _writeln('  call void @lualike_sub(ptr %L, ptr ${_reg(a)}, ptr ${_reg(b)}, ptr $immReg)');
+        _writeln('  call void @lualike_sub(ptr %L, ptr ${_reg(b)}, ptr $immReg, ptr ${_reg(a)})');
         break;
       }
 
@@ -320,21 +320,21 @@ class LualikeIrToLlvm {
       case ABCInstruction(opcode: LualikeIrOpcode.le,  a: final a, b: final b, c: final c, k: _): call3('lualike_le', a, b, c);
                   case ABCInstruction(opcode: LualikeIrOpcode.eqI, a: final a, b: final b, c: final c, k: final _): {
         final tmp = _next();
-        _writeln('  $tmp = alloca i64, i64 1');
+        _writeln('  $tmp = alloca { i64, [2 x i64] }, i32 1');
         _writeln('  call void @lualike_pushinteger(ptr $tmp, i64 ${_se(c, 9)})');
         _writeln('  call void @lualike_eq(ptr %L, ptr ${_reg(a)}, ptr ${_reg(b)}, ptr $tmp)');
         break;
       }
       case ABCInstruction(opcode: LualikeIrOpcode.ltI, a: final a, b: final b, c: final c, k: final _): {
         final tmp = _next();
-        _writeln('  $tmp = alloca i64, i64 1');
+        _writeln('  $tmp = alloca { i64, [2 x i64] }, i32 1');
         _writeln('  call void @lualike_pushinteger(ptr $tmp, i64 ${_se(c, 9)})');
         _writeln('  call void @lualike_lt(ptr %L, ptr ${_reg(a)}, ptr ${_reg(b)}, ptr $tmp)');
         break;
       }
       case ABCInstruction(opcode: LualikeIrOpcode.leI, a: final a, b: final b, c: final c, k: final _): {
         final tmp = _next();
-        _writeln('  $tmp = alloca i64, i64 1');
+        _writeln('  $tmp = alloca { i64, [2 x i64] }, i32 1');
         _writeln('  call void @lualike_pushinteger(ptr $tmp, i64 ${_se(c, 9)})');
         _writeln('  call void @lualike_le(ptr %L, ptr ${_reg(a)}, ptr ${_reg(b)}, ptr $tmp)');
         break;
@@ -342,7 +342,7 @@ class LualikeIrToLlvm {
       case ABCInstruction(opcode: LualikeIrOpcode.gtI, a: final a, b: final b, c: final c, k: final _): {
         // a > literal → literal < a
         final tmp = _next();
-        _writeln('  $tmp = alloca i64, i64 1');
+        _writeln('  $tmp = alloca { i64, [2 x i64] }, i32 1');
         _writeln('  call void @lualike_pushinteger(ptr $tmp, i64 ${_se(c, 9)})');
         _writeln('  call void @lualike_lt(ptr %L, ptr ${_reg(a)}, ptr $tmp, ptr ${_reg(b)})');
         break;
@@ -350,7 +350,7 @@ class LualikeIrToLlvm {
       case ABCInstruction(opcode: LualikeIrOpcode.geI, a: final a, b: final b, c: final c, k: final _): {
         // a >= literal → literal <= a
         final tmp = _next();
-        _writeln('  $tmp = alloca i64, i64 1');
+        _writeln('  $tmp = alloca { i64, [2 x i64] }, i32 1');
         _writeln('  call void @lualike_pushinteger(ptr $tmp, i64 ${_se(c, 9)})');
         _writeln('  call void @lualike_le(ptr %L, ptr ${_reg(a)}, ptr $tmp, ptr ${_reg(b)})');
         break;

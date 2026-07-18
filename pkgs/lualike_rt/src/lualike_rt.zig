@@ -134,7 +134,9 @@ fn releaseTable(t: *Table) void {
 fn releaseClosure(c: *Closure) void {
     c.refcount -%= 1;
     if (c.refcount == 0) {
-        Alloc.free(c.upvals[0..@as(usize, @intCast(c.nupvals))]);
+        const n_up = @as(usize, @intCast(c.nupvals));
+        for (0..n_up) |i| release(c.upvals[i]);
+        Alloc.free(c.upvals[0..n_up]);
         if (c.name) |nm| Alloc.free(nm[0..std.mem.len(nm)]);
         Alloc.destroy(c);
     }
@@ -175,7 +177,7 @@ export fn lualike_pushnil(v: *Value) void {
     const ot = @as(u32, @intFromEnum(v.type));
     if (ot == @intFromEnum(Type.string)) { if (v.payload.s) |s| { s.refcount -%= 1; if (s.refcount == 0) { Alloc.free(s.data[0..s.len]); Alloc.destroy(s); } } }
     else if (ot == @intFromEnum(Type.table)) { if (v.payload.t != 0) { const tp: *Table = @ptrFromInt(v.payload.t); tp.refcount -%= 1; if (tp.refcount == 0) { var it = tp.map.iterator(); while (it.next()) |e| { Alloc.free(e.key_ptr.*); release(e.value_ptr.*); } tp.map.deinit(Alloc); Alloc.destroy(tp); } } }
-    else if (ot == @intFromEnum(Type.function_)) { if (v.payload.fn_ptr != 0) { const cp: *Closure = @ptrFromInt(v.payload.fn_ptr); cp.refcount -%= 1; if (cp.refcount == 0) { Alloc.free(cp.upvals[0..@as(usize, @intCast(cp.nupvals))]); if (cp.name) |nm| Alloc.free(nm[0..std.mem.len(nm)]); Alloc.destroy(cp); } } }
+    else if (ot == @intFromEnum(Type.function_)) { if (v.payload.fn_ptr != 0) { const cp: *Closure = @ptrFromInt(v.payload.fn_ptr); cp.refcount -%= 1; if (cp.refcount == 0) { const n_up = @as(usize, @intCast(cp.nupvals)); for (0..n_up) |ui| release(cp.upvals[ui]); Alloc.free(cp.upvals[0..n_up]); if (cp.name) |nm| Alloc.free(nm[0..std.mem.len(nm)]); Alloc.destroy(cp); } } }
     v.* = nilV();
 }
 /// Sets `v` to a boolean value, releasing any previously-held reference.
@@ -184,7 +186,7 @@ export fn lualike_pushboolean(v: *Value, b: bool) void {
     const ot = @as(u32, @intFromEnum(v.type));
     if (ot == @intFromEnum(Type.string)) { if (v.payload.s) |s| { s.refcount -%= 1; if (s.refcount == 0) { Alloc.free(s.data[0..s.len]); Alloc.destroy(s); } } }
     else if (ot == @intFromEnum(Type.table)) { if (v.payload.t != 0) { const tp: *Table = @ptrFromInt(v.payload.t); tp.refcount -%= 1; if (tp.refcount == 0) { var it = tp.map.iterator(); while (it.next()) |e| { Alloc.free(e.key_ptr.*); release(e.value_ptr.*); } tp.map.deinit(Alloc); Alloc.destroy(tp); } } }
-    else if (ot == @intFromEnum(Type.function_)) { if (v.payload.fn_ptr != 0) { const cp: *Closure = @ptrFromInt(v.payload.fn_ptr); cp.refcount -%= 1; if (cp.refcount == 0) { Alloc.free(cp.upvals[0..@as(usize, @intCast(cp.nupvals))]); if (cp.name) |nm| Alloc.free(nm[0..std.mem.len(nm)]); Alloc.destroy(cp); } } }
+    else if (ot == @intFromEnum(Type.function_)) { if (v.payload.fn_ptr != 0) { const cp: *Closure = @ptrFromInt(v.payload.fn_ptr); cp.refcount -%= 1; if (cp.refcount == 0) { const n_up = @as(usize, @intCast(cp.nupvals)); for (0..n_up) |ui| release(cp.upvals[ui]); Alloc.free(cp.upvals[0..n_up]); if (cp.name) |nm| Alloc.free(nm[0..std.mem.len(nm)]); Alloc.destroy(cp); } } }
     v.* = .{ .type = .boolean, ._pad = undefined, .payload = .{ .b = b } };
 }
 /// Sets `v` to a floating-point number, releasing any previously-held reference.
@@ -317,7 +319,7 @@ export fn lualike_copy(d: *Value, s: *const Value) void {
         const ot = @as(u32, @intFromEnum(d.type));
         if (ot == @intFromEnum(Type.string)) { if (d.payload.s) |sd| { sd.refcount -%= 1; if (sd.refcount == 0) { Alloc.free(sd.data[0..sd.len]); Alloc.destroy(sd); } } }
         else if (ot == @intFromEnum(Type.table)) { if (d.payload.t != 0) { const tp: *Table = @ptrFromInt(d.payload.t); tp.refcount -%= 1; if (tp.refcount == 0) { var it = tp.map.iterator(); while (it.next()) |e| { Alloc.free(e.key_ptr.*); release(e.value_ptr.*); } tp.map.deinit(Alloc); Alloc.destroy(tp); } } }
-        else if (ot == @intFromEnum(Type.function_)) { if (d.payload.fn_ptr != 0) { const cp: *Closure = @ptrFromInt(d.payload.fn_ptr); cp.refcount -%= 1; if (cp.refcount == 0) { Alloc.free(cp.upvals[0..@as(usize, @intCast(cp.nupvals))]); if (cp.name) |nm| Alloc.free(nm[0..std.mem.len(nm)]); Alloc.destroy(cp); } } }
+        else if (ot == @intFromEnum(Type.function_)) { if (d.payload.fn_ptr != 0) { const cp: *Closure = @ptrFromInt(d.payload.fn_ptr); cp.refcount -%= 1; if (cp.refcount == 0) { const n_up = @as(usize, @intCast(cp.nupvals)); for (0..n_up) |ui| release(cp.upvals[ui]); Alloc.free(cp.upvals[0..n_up]); if (cp.name) |nm| Alloc.free(nm[0..std.mem.len(nm)]); Alloc.destroy(cp); } } }
         d.* = s.*;
         retain(s.*);
     }
@@ -532,7 +534,7 @@ export fn lualike_newtable(d: *Value) void {
     const ot = @as(u32, @intFromEnum(d.type));
     if (ot == @intFromEnum(Type.string)) { if (d.payload.s) |s| { s.refcount -%= 1; if (s.refcount == 0) { Alloc.free(s.data[0..s.len]); Alloc.destroy(s); } } }
     else if (ot == @intFromEnum(Type.table)) { if (d.payload.t != 0) { const tp: *Table = @ptrFromInt(d.payload.t); tp.refcount -%= 1; if (tp.refcount == 0) { var it = tp.map.iterator(); while (it.next()) |e| { Alloc.free(e.key_ptr.*); release(e.value_ptr.*); } tp.map.deinit(Alloc); Alloc.destroy(tp); } } }
-    else if (ot == @intFromEnum(Type.function_)) { if (d.payload.fn_ptr != 0) { const cp: *Closure = @ptrFromInt(d.payload.fn_ptr); cp.refcount -%= 1; if (cp.refcount == 0) { Alloc.free(cp.upvals[0..@as(usize, @intCast(cp.nupvals))]); if (cp.name) |nm| Alloc.free(nm[0..std.mem.len(nm)]); Alloc.destroy(cp); } } }
+    else if (ot == @intFromEnum(Type.function_)) { if (d.payload.fn_ptr != 0) { const cp: *Closure = @ptrFromInt(d.payload.fn_ptr); cp.refcount -%= 1; if (cp.refcount == 0) { const n_up = @as(usize, @intCast(cp.nupvals)); for (0..n_up) |ui| release(cp.upvals[ui]); Alloc.free(cp.upvals[0..n_up]); if (cp.name) |nm| Alloc.free(nm[0..std.mem.len(nm)]); Alloc.destroy(cp); } } }
     d.* = .{ .type = .table, ._pad = undefined, .payload = .{ .t = @intFromPtr(t) } };
 }
 /// Convert a Value key to a []const u8 for use as a HashMap key.
@@ -576,12 +578,7 @@ export fn lualike_gettable(_: ?*State, d: *Value, tbl: *const Value, key: *const
     }
     lualike_pushnil(d);
 }
-var _settable_count: u32 = 0;
 export fn lualike_settable(_: ?*State, tbl: *Value, key: *const Value, val: *const Value) void {
-    _settable_count +%= 1;
-    if (_settable_count <= 40) {
-        _ = libc.fprintf(libc.stderr, "st #%u: tbl=%p k=%p v=%p vt=%u ft=%u\n", _settable_count, tbl, key, val, @intFromEnum(val.type), @intFromEnum(tbl.type));
-    }
     if (tbl.type != .table) return;
     var kbuf: [64]u8 = undefined;
     const k = keyToSlice(key, &kbuf) catch {
@@ -602,11 +599,6 @@ export fn lualike_settable(_: ?*State, tbl: *Value, key: *const Value, val: *con
 export fn lualike_getfield(L: ?*State, d: *Value, tbl: *const Value, field: *const Value) void {
     if (field.type != .string) { lualike_pushnil(d); return; }
     const s = field.payload.s orelse { lualike_pushnil(d); return; };
-    // Defensive: s.len must be sane (freed/corrupted strings have huge or zero len)
-    if (s.len == 0 or s.len > 65536) {
-        lualike_pushnil(d);
-        return;
-    }
     const key = String.init(s.data[0..s.len]) catch { lualike_pushnil(d); return; };
     defer key.deref();
     var k = Value{ .type = .string, ._pad = undefined, .payload = .{ .s = key } };
@@ -742,7 +734,13 @@ export fn lualike_newclosure(d: *Value, fn_ptr: ?CompiledFn, up: [*]Value, nup: 
         .constants = constants,
         .nconstants = nconstants,
     };
-    for (0..@as(usize, @intCast(nup))) |i| lualike_copy(&c.upvals[i], &up[i]);
+    // Initialize each upvalue slot with nil before retain — avoids
+    // lualike_copy releasing uninitialized memory as a string/table/closure
+    const uv_count = @as(usize, @intCast(nup));
+    for (0..uv_count) |i| {
+        c.upvals[i] = up[i];
+        retain(c.upvals[i]);
+    }
     if (name) |n| {
         const sl = std.mem.sliceTo(n, 0);
         if (Alloc.dupe(u8, sl)) |dup| {

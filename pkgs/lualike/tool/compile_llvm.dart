@@ -64,12 +64,12 @@ Future<void> main(List<String> args) async {
   );
   final llvmIr = emitter.generateModule();
 
-  // 3. Zig wrapper (no C, no header)
-  final zigMain = _generateMainZig(proto);
+  // 3. C wrapper (avoids zig -lc which breaks valgrind)
+  final cMain = _generateMainC(proto, rtDir);
 
   final tmpDir = Directory.systemTemp.createTempSync('lualike_llvm_');
   await File('${tmpDir.path}/module.ll').writeAsString(llvmIr);
-  await File('${tmpDir.path}/main.zig').writeAsString(zigMain);
+  await File('${tmpDir.path}/main.c').writeAsString(cMain);
 
   // 4. llc
   print('llc...');
@@ -77,13 +77,13 @@ Future<void> main(List<String> args) async {
       '-o', '${tmpDir.path}/module.o', '${tmpDir.path}/module.ll']);
   if (l.exitCode != 0) { print('llc error: ${l.stderr}'); exit(1); }
 
-  // 5. zig build-obj (replaces clang)
-  print('Zig wrapper...');
-  final z = await Process.run('/usr/bin/zig', [
-    'build-obj', '-lc', '--name', 'main_wrapper',
-    '-femit-bin=${tmpDir.path}/main.o', '${tmpDir.path}/main.zig',
+  // 5. clang -c (main.c)
+  print('C wrapper...');
+  final c = await Process.run('clang', [
+    '-c', '-o', '${tmpDir.path}/main.o', '${tmpDir.path}/main.c',
+    '-I', '$rtDir/include', '-Wno-unused-variable',
   ]);
-  if (z.exitCode != 0) { print('Zig error: ${z.stderr}'); exit(1); }
+  if (c.exitCode != 0) { print('clang error: ${c.stderr}'); exit(1); }
 
   // 6. Link
   print('Linking...');
@@ -97,59 +97,34 @@ Future<void> main(List<String> args) async {
   print('Run: ./a.out');
 }
 
-/// Generate a Zig main wrapper — no C header, no struct mismatch.
-String _generateMainZig(LualikeIrPrototype proto) {
+/// Generate a C main wrapper.
+String _generateMainC(LualikeIrPrototype proto, String rtDir) {
   final buf = StringBuffer();
   final nc = proto.constants.length;
   final nr = proto.registerCount + 8;
 
-  buf.writeln('// Generated Zig wrapper — no C header needed.');
-  buf.writeln('const c = @cImport({ @cInclude("stdio.h"); });');
+  buf.writeln('#include <stdio.h>');
+  buf.writeln('#include <stdlib.h>');
+  buf.writeln('#include <string.h>');
+  buf.writeln('#include "lualike_rt.h"');
   buf.writeln();
-  buf.writeln('// Value types (must match Zig runtime exactly)');
-  buf.writeln('const Type = enum(u32) { nil = 0, boolean = 1, number = 2,');
-  buf.writeln('  string = 3, table = 4, function_ = 5, nativefn = 6 };');
-  buf.writeln('const Payload = extern union {');
-  buf.writeln('  n: f64, b: bool, s: ?*String,');
-  buf.writeln('  t: usize, fn_ptr: usize, cfn: usize };');
-  buf.writeln('const Value = extern struct {');
-  buf.writeln('  type: Type, _pad: [4]u8 = [_]u8{0}**4, payload: Payload,');
-  buf.writeln('};');
-  buf.writeln('const String = extern struct {');
-  buf.writeln('  refcount: u32, len: u32, data: [*]u8,');
-  buf.writeln('};');
-  buf.writeln('const State = extern struct {');
-  buf.writeln('  globals: Value, print_fn: usize,');
-  buf.writeln('  msg: [256]u8, err: i32,');
-  buf.writeln('};');
-  buf.writeln();
-  buf.writeln('// Runtime C ABI functions');
-  buf.writeln('extern fn lualike_newstate() ?*State;');
-  buf.writeln('extern fn lualike_freestate(*State) void;');
-  buf.writeln('extern fn lualike_pushnil(*Value) void;');
-  buf.writeln('extern fn lualike_pushnumber(*Value, f64) void;');
-  buf.writeln('extern fn lualike_pushboolean(*Value, bool) void;');
-  buf.writeln('extern fn lualike_retain(*const Value) void;');
-  buf.writeln('extern fn lualike_release(*Value) void;');
-  buf.writeln('extern fn lualike_copy(*Value, *const Value) void;');
-  buf.writeln();
-  // Compiled Lua functions (main + sub-functions for closures)
+
+  // Compiled Lua function signatures (constants + nconstants are appended)
   for (var fi = 0; fi <= proto.prototypes.length; fi++) {
-    buf.writeln('extern fn _lua_fn_$fi(');
-    buf.writeln('  L: ?*State, r: [*]Value, nregs: i32,');
-    buf.writeln('  upvals: [*]Value, nupvals: i32,');
-    buf.writeln('  varargs: [*]Value, nvarargs: i32,');
-    buf.writeln('  constants: [*]Value, nconstants: i32,');
-    buf.writeln(') void;');
+    buf.writeln('extern void _lua_fn_$fi(');
+    buf.writeln('  lua_State* L, lua_Value* r, int nregs,');
+    buf.writeln('  lua_Value* upvals, int nupvals,');
+    buf.writeln('  lua_Value* varargs, int nvarargs,');
+    buf.writeln('  lua_Value* constants, int nconstants);');
   }
-  // Sub-function constants — walk prototype tree depth-first
-  // matching LLVM lowering flat indices
+
+  // Sub-function constant arrays
   int walkDecl(LualikeIrPrototype p, int idx) {
     for (var si = 0; si < p.prototypes.length; si++) {
       final sub = p.prototypes[si];
       if (sub.registerCount == 0) continue;
       final subNc = sub.constants.length;
-      buf.writeln('export var _lua_fn_const_${idx}: [${subNc > 0 ? subNc : 1}]Value = undefined;');
+      buf.writeln('lua_Value _lua_fn_const_${idx}[${subNc > 0 ? subNc : 1}];');
       idx++;
       idx = walkDecl(sub, idx);
     }
@@ -158,85 +133,89 @@ String _generateMainZig(LualikeIrPrototype proto) {
   walkDecl(proto, 1);
   buf.writeln();
 
-  // Main function
-  buf.writeln('pub fn main() void {');
-  buf.writeln('  const L = lualike_newstate() orelse {');
-  buf.writeln('    _ = c.printf("state fail\\n"); return;');
-  buf.writeln('  };');
-  buf.writeln('  defer lualike_freestate(L);');
+  // Helper for C string escaping
+  String escapeC(String s) => s
+      .replaceAll('\\', '\\\\')
+      .replaceAll('"', '\\"')
+      .replaceAll('\n', '\\n')
+      .replaceAll('\r', '\\r')
+      .replaceAll('\t', '\\t');
+
+  String zigFloatToC(double v) {
+    if (v.isNaN) return 'NAN';
+    if (v.isInfinite) return v.isNegative ? '-INFINITY' : 'INFINITY';
+    return v.toString();
+  }
+
+  buf.writeln('int main(void) {');
+  buf.writeln('  lua_State* L = lualike_newstate();');
+  buf.writeln('  if (!L) { fprintf(stderr, "state fail\\n"); return 1; }');
   buf.writeln();
 
-  // Constants — allocated as Zig values, no malloc
-  // Heap-allocate constants to avoid stack overflow on large scripts
-  buf.writeln('  const alloc = @import("std").heap.c_allocator;');
-  buf.writeln('  // Constants (heap-allocated to avoid stack overflow)');
-  buf.writeln('  const constants = alloc.alloc(Value, $nc) catch |e| {');
-  buf.writeln('    @import("std").log.err("alloc fail {}", .{e}); return;');
-  buf.writeln('  };');
-  buf.writeln('  @memset(constants, .{ .type = .nil, ._pad = undefined,');
-  buf.writeln('    .payload = undefined });');
+  // Constants
+  buf.writeln('  lua_Value constants[$nc];');
+  buf.writeln('  memset(constants, 0, sizeof(constants));');
   for (var i = 0; i < nc; i++) {
     final c = proto.constants[i];
     switch (c) {
       case NilConstant():
-        buf.writeln('  constants[$i].type = .nil;');
+        buf.writeln('  constants[$i].type = LUA_TNIL;');
       case BooleanConstant(value: final v):
-        buf.writeln('  constants[$i].type = .boolean;');
+        buf.writeln('  constants[$i].type = LUA_TBOOLEAN;');
         buf.writeln('  constants[$i].payload.b = ${v ? "true" : "false"};');
       case IntegerConstant(value: final v):
-        buf.writeln('  constants[$i].type = .number;');
-        buf.writeln('  constants[$i].payload.n = @as(f64, @floatFromInt(${v}));');
+        buf.writeln('  constants[$i].type = LUA_TNUMBER;');
+        buf.writeln('  constants[$i].payload.n = (double)($v);');
       case NumberConstant(value: final v):
-        buf.writeln('  constants[$i].type = .number;');
-        buf.writeln('  constants[$i].payload.n = ${_zigFloat(v)};');
+        buf.writeln('  constants[$i].type = LUA_TNUMBER;');
+        buf.writeln('  constants[$i].payload.n = ${zigFloatToC(v)};');
       case ShortStringConstant(value: final v) || LongStringConstant(value: final v):
         buf.writeln('  {');
-        buf.writeln('    const str = @import("std").heap.c_allocator.create(String) catch |e| {');
-        buf.writeln('      @import("std").log.err("alloc fail {}", .{e}); return;');
-        buf.writeln('    };');
-        buf.writeln('    const buf = @import("std").heap.c_allocator.dupe(u8, "${_escapeZig(v)}") catch |e| {');
-        buf.writeln('      @import("std").heap.c_allocator.destroy(str);');
-        buf.writeln('      @import("std").log.err("alloc fail {}", .{e}); return;');
-        buf.writeln('    };');
-        buf.writeln('    str.* = .{ .refcount = 1, .len = ${v.length}, .data = buf.ptr };');
-        buf.writeln('    constants[$i].type = .string;');
+        buf.writeln('    lua_String* str = (lua_String*)malloc(sizeof(lua_String));');
+        buf.writeln('    str->length = ${v.length};');
+        buf.writeln('    str->data = (char*)malloc(${v.length + 1});');
+        buf.writeln('    memcpy(str->data, "${escapeC(v)}", ${v.length + 1});');
+        buf.writeln('    str->refcount = 1;');
+        buf.writeln('    constants[$i].type = LUA_TSTRING;');
         buf.writeln('    constants[$i].payload.s = str;');
         buf.writeln('  }');
     }
   }
-  buf.writeln();
-  // Initialize sub-function constants — walk prototype tree depth-first
+
+  // Sub-function constants
   int walkInit(LualikeIrPrototype p, int idx) {
     for (var si = 0; si < p.prototypes.length; si++) {
       final subProto = p.prototypes[si];
       if (subProto.registerCount == 0) continue;
       final subNc = subProto.constants.length;
       if (subNc > 0) {
-        buf.writeln('  @memset(&_lua_fn_const_${idx}, .{ .type = .nil, ._pad = undefined, .payload = undefined });');
+        buf.writeln('  memset(_lua_fn_const_$idx, 0, sizeof(_lua_fn_const_$idx));');
         for (var j = 0; j < subNc; j++) {
           final sc = subProto.constants[j];
           if (sc is NilConstant) {
-            buf.writeln('  _lua_fn_const_${idx}[${j}].type = .nil;');
+            buf.writeln('  _lua_fn_const_$idx[$j].type = LUA_TNIL;');
           } else if (sc is BooleanConstant) {
             final v = (sc as BooleanConstant).value;
-            buf.writeln('  _lua_fn_const_${idx}[${j}].type = .boolean;');
-            buf.writeln('  _lua_fn_const_${idx}[${j}].payload.b = ${v ? "true" : "false"};');
+            buf.writeln('  _lua_fn_const_$idx[$j].type = LUA_TBOOLEAN;');
+            buf.writeln('  _lua_fn_const_$idx[$j].payload.b = ${v ? "true" : "false"};');
           } else if (sc is IntegerConstant) {
             final v = (sc as IntegerConstant).value;
-            buf.writeln('  _lua_fn_const_${idx}[${j}].type = .number;');
-            buf.writeln('  _lua_fn_const_${idx}[${j}].payload.n = @as(f64, @floatFromInt(${v}));');
+            buf.writeln('  _lua_fn_const_$idx[$j].type = LUA_TNUMBER;');
+            buf.writeln('  _lua_fn_const_$idx[$j].payload.n = (double)($v);');
           } else if (sc is NumberConstant) {
             final v = (sc as NumberConstant).value;
-            buf.writeln('  _lua_fn_const_${idx}[${j}].type = .number;');
-            buf.writeln('  _lua_fn_const_${idx}[${j}].payload.n = ${_zigFloat(v)};');
+            buf.writeln('  _lua_fn_const_$idx[$j].type = LUA_TNUMBER;');
+            buf.writeln('  _lua_fn_const_$idx[$j].payload.n = ${zigFloatToC(v)};');
           } else if (sc is ShortStringConstant || sc is LongStringConstant) {
             final v = (sc as dynamic).value as String;
             buf.writeln('  {');
-            buf.writeln('    const str = alloc.create(String) catch |e| { @import("std").log.err("alloc fail {}", .{e}); return; };');
-            buf.writeln('    const strBuf = alloc.dupe(u8, "${_escapeZig(v)}") catch |e| { alloc.destroy(str); @import("std").log.err("alloc fail {}", .{e}); return; };');
-            buf.writeln('    str.* = .{ .refcount = 1, .len = ${v.length}, .data = strBuf.ptr };');
-            buf.writeln('    _lua_fn_const_${idx}[${j}].type = .string;');
-            buf.writeln('    _lua_fn_const_${idx}[${j}].payload.s = str;');
+            buf.writeln('    lua_String* str = (lua_String*)malloc(sizeof(lua_String));');
+            buf.writeln('    str->length = ${v.length};');
+            buf.writeln('    str->data = (char*)malloc(${v.length + 1});');
+            buf.writeln('    memcpy(str->data, "${escapeC(v)}", ${v.length + 1});');
+            buf.writeln('    str->refcount = 1;');
+            buf.writeln('    _lua_fn_const_$idx[$j].type = LUA_TSTRING;');
+            buf.writeln('    _lua_fn_const_$idx[$j].payload.s = str;');
             buf.writeln('  }');
           }
         }
@@ -247,56 +226,45 @@ String _generateMainZig(LualikeIrPrototype proto) {
     return idx;
   }
   walkInit(proto, 1);
-  buf.writeln('  const regs = alloc.alloc(Value, $nr) catch |e| {');
-  buf.writeln('    @import("std").log.err("alloc fail {}", .{e}); return;');
-  buf.writeln('  };');
-  buf.writeln('  @memset(regs, .{ .type = .nil, ._pad = undefined, .payload = undefined });');
+
+  // Registers and upvalues
+  buf.writeln('  lua_Value regs[$nr];');
+  buf.writeln('  memset(regs, 0, sizeof(regs));');
+  buf.writeln();
+  buf.writeln('  lua_Value upvals[1];');
+  buf.writeln('  memset(upvals, 0, sizeof(upvals));');
+  buf.writeln('  upvals[0].type = LUA_TTABLE;');
+  buf.writeln('  upvals[0].payload.t = L->globals.payload.t;');
+  buf.writeln('  lualike_retain(&L->globals);');
+  buf.writeln('  lua_Value empty_va[1];');
+  buf.writeln('  memset(empty_va, 0, sizeof(empty_va));');
   buf.writeln();
 
-  // Upvalues
-  buf.writeln('  // Upvalues: index 0 = _ENV = globals table');
-  buf.writeln('  const upvals = alloc.alloc(Value, 1) catch |e| {');
-  buf.writeln('    @import("std").log.err("alloc fail {}", .{e}); return;');
-  buf.writeln('  };');
-  buf.writeln('  @memset(upvals, .{ .type = .nil, ._pad = undefined, .payload = undefined });');
-  buf.writeln('  upvals[0].type = .table;');
-  buf.writeln('  upvals[0].payload.t = L.globals.payload.t;');
-  buf.writeln('  lualike_retain(&L.globals);');
-  buf.writeln('  const empty_va = alloc.alloc(Value, 1) catch |e| {');
-  buf.writeln('    @import("std").log.err("alloc fail {}", .{e}); return;');
-  buf.writeln('  };');
-  buf.writeln('  @memset(empty_va, .{ .type = .nil, ._pad = undefined, .payload = undefined });');
-  buf.writeln();
-
-  // Call compiled function
-  buf.writeln('  _lua_fn_0(L, regs.ptr, $nr, upvals.ptr, 1, empty_va.ptr, 0, constants.ptr, $nc);');
+  // Call
+  buf.writeln('  _lua_fn_0(L, regs, $nr, upvals, 1, empty_va, 0, constants, $nc);');
   buf.writeln();
 
   // Print result
-  buf.writeln('  // Print result from regs[0]');
   buf.writeln('  switch (regs[0].type) {');
-  buf.writeln('    .nil => _ = c.printf("nil\\n"),');
-  buf.writeln('    .boolean => _ = c.printf("%s\\n", @as([*:0]const u8, @ptrCast(@constCast(if (regs[0].payload.b) "true" else "false")))),');
-  buf.writeln('    .number => {');
-  buf.writeln('      const n = regs[0].payload.n;');
-  buf.writeln('      if (n == @trunc(n)) { _ = c.printf("%d\\n", @as(i64, @intFromFloat(n))); } else { _ = c.printf("%.14g\\n", n); }');
-  buf.writeln('');
-  buf.writeln('    },');
-  buf.writeln('    .string => {');
-  buf.writeln('      if (regs[0].payload.s) |s| _ = c.printf("%s\\n", @as([*:0]const u8, @ptrCast(@constCast(s.data))));');
-  buf.writeln('    },');
-  buf.writeln('    else => _ = c.printf("table\\n"),');
+  buf.writeln('    case LUA_TNIL: printf("nil\\n"); break;');
+  buf.writeln('    case LUA_TBOOLEAN: printf("%s\\n", regs[0].payload.b ? "true" : "false"); break;');
+  buf.writeln('    case LUA_TNUMBER: {');
+  buf.writeln('      double n = regs[0].payload.n;');
+  buf.writeln('      if (n == (long long)n) printf("%lld\\n", (long long)n);');
+  buf.writeln('      else printf("%.14g\\n", n);');
+  buf.writeln('      break;');
+  buf.writeln('    }');
+  buf.writeln('    case LUA_TSTRING: printf("%s\\n", regs[0].payload.s->data); break;');
+  buf.writeln('    default: printf("table\\n"); break;');
   buf.writeln('  }');
   buf.writeln();
 
   // Cleanup
-  buf.writeln('  defer {');
-  buf.writeln('    for (regs) |*v| lualike_release(v);');
-  buf.writeln('    alloc.free(regs);');
-  buf.writeln('    alloc.free(constants);');
-  buf.writeln('    alloc.free(upvals);');
-  buf.writeln('    alloc.free(empty_va);');
-  buf.writeln('  }');
+  buf.writeln('  for (int i = 0; i < $nr; i++) lualike_release(&regs[i]);');
+  buf.writeln('  for (int i = 0; i < $nc; i++) lualike_release(&constants[i]);');
+  buf.writeln('  lualike_release(&upvals[0]);');
+  buf.writeln('  lualike_freestate(L);');
+  buf.writeln('  return 0;');
   buf.writeln('}');
   return buf.toString();
 }
