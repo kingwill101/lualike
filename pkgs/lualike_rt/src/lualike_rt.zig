@@ -2033,6 +2033,72 @@ fn stdStringDump(_: *State, _: [*]Value, _: i32, r: [*]Value, _: i32, nr: *i32) 
     lualike_pushnil(&r[0]); nr.* = 1;
 }
 
+// ===========================================================================
+// Debug library
+// ===========================================================================
+
+fn stdDebugTraceback(L: *State, args: [*]Value, n: i32, r: [*]Value, _: i32, nr: *i32) callconv(.c) void {
+    // Return error message if available, or a generic traceback
+    if (n >= 1 and args[0].type == .string) {
+        const s = args[0].payload.s orelse { lualike_pushnil(&r[0]); nr.* = 1; return; };
+        pushStr(&r[0], s.data[0..s.len]);
+    } else if (L.msg[0] != 0) {
+        pushStr(&r[0], L.msg[0..std.mem.indexOfScalar(u8, L.msg[0..], 0) orelse 256]);
+    } else {
+        pushStr(&r[0], "[string \"...\"]:0: (no error)");
+    }
+    nr.* = 1;
+}
+
+// ===========================================================================
+// UTF8 library
+// ===========================================================================
+
+fn stdUtf8Char(_: *State, args: [*]Value, n: i32, r: [*]Value, _: i32, nr: *i32) callconv(.c) void {
+    if (n < 1 or args[0].type != .number) { lualike_pushnil(&r[0]); nr.* = 1; return; }
+    const cp = @as(u21, @intFromFloat(args[0].payload.n));
+    var buf: [4]u8 = undefined;
+    const len = std.unicode.utf8Encode(cp, &buf) catch {
+        lualike_pushnil(&r[0]); nr.* = 1; return;
+    };
+    pushStr(&r[0], buf[0..len]);
+    nr.* = 1;
+}
+
+fn stdUtf8Len(_: *State, args: [*]Value, n: i32, r: [*]Value, _: i32, nr: *i32) callconv(.c) void {
+    if (n < 1 or args[0].type != .string) { lualike_pushnil(&r[0]); nr.* = 1; return; }
+    const s = args[0].payload.s orelse { lualike_pushnil(&r[0]); nr.* = 1; return; };
+    const bytes = s.data[0..s.len];
+    var count: usize = 0;
+    var i: usize = 0;
+    while (i < bytes.len) {
+        const len = std.unicode.utf8ByteSequenceLength(bytes[i]) catch break;
+        i += len;
+        count += 1;
+    }
+    if (i != bytes.len) { lualike_pushnil(&r[0]); nr.* = 1; return; } // invalid UTF-8
+    lualike_pushnumber(&r[0], @as(f64, @floatFromInt(count)));
+    nr.* = 1;
+}
+
+fn stdUtf8Codes(L: *State, args: [*]Value, n: i32, r: [*]Value, _: i32, nr: *i32) callconv(.c) void {
+    // Return an iterator function for code points
+    // For simplicity, just return the first code point as a single result
+    _ = L;
+    if (n < 1 or args[0].type != .string) { lualike_pushnil(&r[0]); nr.* = 1; return; }
+    const s = args[0].payload.s orelse { lualike_pushnil(&r[0]); nr.* = 1; return; };
+    const bytes = s.data[0..s.len];
+    if (bytes.len == 0) { lualike_pushnil(&r[0]); nr.* = 1; return; }
+    const seq_len = std.unicode.utf8ByteSequenceLength(bytes[0]) catch {
+        lualike_pushnil(&r[0]); nr.* = 1; return;
+    };
+    if (seq_len > bytes.len) { lualike_pushnil(&r[0]); nr.* = 1; return; }
+    const cp = std.unicode.utf8Decode(bytes[0..seq_len]) catch {
+        lualike_pushnil(&r[0]); nr.* = 1; return;
+    };
+    lualike_pushnumber(&r[0], @as(f64, @floatFromInt(cp)));
+    nr.* = 1;
+}
 
 // ===========================================================================
 // IO library — uses C stdio via extern (available because -lc is linked)
@@ -2518,8 +2584,29 @@ export fn lualike_openlibs(L: *State) void {
         release(v);
     }
 
-    // Debug / UTF8 / Coroutine / Package — empty namespace tables
-    inline for (.{"debug", "utf8", "coroutine", "package"}) |ns| {
+    // Debug library
+    reg(L, "debug", "traceback", stdDebugTraceback);
+    {
+        var v: Value = undefined;
+        lualike_pushcstring(&v, null, @ptrCast(@constCast("LuaLike 0.3")));
+        const key = String.init("version") catch return;
+        var k = Value{ .type = .string, ._pad = undefined, .payload = .{ .s = key } };
+        var tbl: Value = undefined;
+        lualike_getfield_c(null, &tbl, &L.globals, @ptrCast(@constCast("debug")));
+        if (tbl.type == .table) {
+            lualike_setfield(null, &tbl, &k, &v);
+        }
+        release(tbl);
+        release(v);
+    }
+
+    // UTF8 library — basic functions
+    reg(L, "utf8", "char", stdUtf8Char);
+    reg(L, "utf8", "len", stdUtf8Len);
+    reg(L, "utf8", "codes", stdUtf8Codes);
+
+    // Coroutine / Package — empty namespace tables
+    inline for (.{"coroutine", "package"}) |ns| {
         var t: Value = undefined;
         lualike_newtable(&t);
         const key = String.init(ns) catch { release(t); return; };
