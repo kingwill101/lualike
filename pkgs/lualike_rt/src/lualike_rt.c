@@ -5,6 +5,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <stdio.h>
+#include <ctype.h>
 
 // ===========================================================================
 // Internal helpers
@@ -752,8 +753,27 @@ void lualike_setupval(lua_Value* upvals, int index, const lua_Value* src) {
 // Function call dispatch
 // ===========================================================================
 
+void lualike_pushcfunction(lua_Value* v, lua_CFunction fn, const char* name) {
+  (void)name;
+  lualike_release(v);
+  memset(v, 0, sizeof(*v));
+  v->type = LUA_TNATIVEFUNC;
+  v->payload.cfn = fn;
+}
+
 void lualike_call(lua_State* L, lua_Value* dst, const lua_Value* fn_val,
                   lua_Value* args, int nargs) {
+  if (fn_val->type == LUA_TNATIVEFUNC) {
+    lua_CFunction cfn = fn_val->payload.cfn;
+    if (cfn) {
+      lua_Value result;
+      memset(&result, 0, sizeof(result));
+      cfn(L, args, nargs, &result);
+      if (dst) lualike_copy(dst, &result);
+      lualike_release(&result);
+      return;
+    }
+  }
   if (fn_val->type != LUA_TFUNCTION) {
     lualike_error(L, "attempt to call a non-function value");
     lualike_pushnil(dst);
@@ -827,6 +847,268 @@ void lualike_setglobal(lua_State* L, const char* name, const lua_Value* val) {
   lualike_setfield(L, &L->globals, name, val);
 }
 
+// GetTabUp helper for LLVM pipeline: looks up const[c] in upvals[0]
+void lualike_gettabup(lua_Value* dst, lua_Value* upvals, lua_Value* constants, int c) {
+  lua_Value* env = &upvals[0];
+  if (env->type != LUA_TTABLE) { lualike_pushnil(dst); return; }
+  lua_Value* key = &constants[c];
+  if (key->type == LUA_TSTRING) {
+    lua_Value* found = table_find(env->payload.t, key);
+    if (found) { lualike_copy(dst, found); return; }
+  }
+  lualike_pushnil(dst);
+}
+
+// SetTabUp helper for LLVM pipeline: sets constants[c] in upvals[0] = val
+void lualike_settabup(lua_Value* upvals, lua_Value* constants, lua_Value* val, int c) {
+  lua_Value* env = &upvals[0];
+  if (env->type != LUA_TTABLE) return;
+  lua_Value* key = &constants[c];
+  table_set(env->payload.t, key, val);
+}
+
+// ===========================================================================
+// Raw table access
+// ===========================================================================
+void lualike_rawget(lua_Value* dst, const lua_Value* tbl, const lua_Value* key) {
+  if (tbl->type != LUA_TTABLE) { lualike_pushnil(dst); return; }
+  lua_Value* found = table_find(tbl->payload.t, key);
+  if (found) { lualike_copy(dst, found); return; }
+  lualike_pushnil(dst);
+}
+void lualike_rawset(lua_Value* tbl, const lua_Value* key, const lua_Value* val) {
+  if (tbl->type == LUA_TTABLE) table_set(tbl->payload.t, key, val);
+}
+void lualike_rawequal(lua_Value* dst, const lua_Value* a, const lua_Value* b) {
+  if (a->type != b->type) { lualike_pushboolean(dst, 0); return; }
+  lualike_pushboolean(dst, a->type == b->type);
+}
+void lualike_rawlen(lua_Value* dst, const lua_Value* v) {
+  if (v->type == LUA_TSTRING) { lualike_pushnumber(dst,(double)v->payload.s->length); return; }
+  if (v->type == LUA_TTABLE) { lualike_pushnumber(dst,(double)lualike_table_len(v)); return; }
+  lualike_pushnumber(dst,0);
+}
+void lualike_next(lua_State* L, lua_Value* dst, const lua_Value* tbl, const lua_Value* key) {
+  (void)L;
+  if (tbl->type != LUA_TTABLE) { lualike_pushnil(dst); return; }
+  lua_Table* t = tbl->payload.t;
+  if (key->type == LUA_TNIL) {
+    for (uint32_t i = 0; i < t->array_len; i++)
+      if (t->array[i].type != LUA_TNIL) { lualike_pushnumber(dst,(double)(i+1)); return; }
+    for (uint32_t i = 0; i < t->capacity; i++)
+      if (t->entries[i].key.type != LUA_TNIL) { lualike_copy(dst,&t->entries[i].key); return; }
+    lualike_pushnil(dst); return;
+  }
+  lualike_pushnil(dst);
+}
+void lualike_getmetatable(lua_Value* dst, const lua_Value* v) {
+  (void)v; lualike_pushnil(dst);
+}
+void lualike_setmetatable(lua_Value* v, const lua_Value* mt) {
+  (void)v; (void)mt;
+}
+void lualike_type_str(lua_Value* dst, const lua_Value* v) {
+  const char* s;
+  switch (v->type) {
+    case LUA_TNIL: s = "nil"; break;
+    case LUA_TBOOLEAN: s = "boolean"; break;
+    case LUA_TNUMBER: s = "number"; break;
+    case LUA_TSTRING: s = "string"; break;
+    case LUA_TTABLE: s = "table"; break;
+    case LUA_TFUNCTION: case LUA_TNATIVEFUNC: s = "function"; break;
+    default: s = "unknown";
+  }
+  lualike_pushcstring(dst, NULL, s);
+}
+void lualike_select(lua_Value* dst, lua_Value* args, int nargs) {
+  if (nargs < 1) { lualike_pushnil(dst); return; }
+  if (args[0].type == LUA_TNUMBER) {
+    int idx = (int)args[0].payload.n;
+    if (idx < 0) idx = nargs + idx;
+    if (idx >= 1 && idx < nargs) lualike_copy(dst, &args[idx]);
+  } else if (args[0].type == LUA_TSTRING && args[0].payload.s->data[0] == '#') {
+    lualike_pushnumber(dst, (double)(nargs - 1));
+  }
+}
+
+// ===========================================================================
+// Standard library — Native C functions
+// ===========================================================================
+static double _an(lua_Value* a, int i, double d) { return a[i].type==LUA_TNUMBER?a[i].payload.n:d; }
+
+static void _c_print(lua_State* L, lua_Value* a, int n, lua_Value* r) {
+  (void)r;
+  for (int i = 0; i < n; i++) {
+    if (i > 0) lualike_print(L,"\t");
+    if (a[i].type == LUA_TSTRING) lualike_print(L,a[i].payload.s->data);
+    else if (a[i].type == LUA_TNUMBER) { char b[64]; snprintf(b,64,"%.14g",a[i].payload.n); lualike_print(L,b); }
+    else if (a[i].type == LUA_TBOOLEAN) lualike_print(L,a[i].payload.b?"true":"false");
+    else if (a[i].type == LUA_TNIL) lualike_print(L,"nil");
+    else lualike_print(L,"table");
+  }
+  lualike_print(L,"\n");
+  lualike_pushnil(r);
+}
+static void _c_type(lua_State* L, lua_Value* a, int n, lua_Value* r) {
+  (void)L; if (n<1) { lualike_pushcstring(r,NULL,"nil"); return; }
+  lualike_type_str(r, &a[0]);
+}
+static void _c_tonumber(lua_State* L, lua_Value* a, int n, lua_Value* r) {
+  (void)L; if (n<1||a[0].type==LUA_TNIL) { lualike_pushnil(r); return; }
+  if (a[0].type==LUA_TNUMBER) { lualike_copy(r,&a[0]); return; }
+  if (a[0].type==LUA_TSTRING) { char* e=0; double v=strtod(a[0].payload.s->data,&e); if(e!=a[0].payload.s->data){lualike_pushnumber(r,v);return;}}
+  lualike_pushnil(r);
+}
+static void _c_tostring(lua_State* L, lua_Value* a, int n, lua_Value* r) {
+  if (n<1||a[0].type==LUA_TNIL){lualike_pushcstring(r,L,"nil");return;}
+  switch(a[0].type) {
+    case LUA_TBOOLEAN: lualike_pushcstring(r,L,a[0].payload.b?"true":"false"); break;
+    case LUA_TNUMBER: {char b[64];snprintf(b,64,"%.14g",a[0].payload.n);lualike_pushcstring(r,L,b);break;}
+    case LUA_TSTRING: lualike_copy(r,&a[0]); break;
+    default: lualike_pushcstring(r,L,"table"); break;
+  }
+}
+
+static void _c_tinsert(lua_State* L, lua_Value* a, int n, lua_Value* r) {
+  (void)L;(void)r; if(n<2||a[0].type!=LUA_TTABLE)return;
+  lua_Table* t=a[0].payload.t; int p; lua_Value* v;
+  if(n>=3){p=(int)_an(&a[1],0,(int)t->array_len+1);v=&a[2];}
+  else{p=(int)t->array_len+1;v=&a[1];}
+  if(p<=(int)t->array_len){
+    t->array=(lua_Value*)realloc(t->array,(size_t)(t->array_len+1)*sizeof(lua_Value)); t->array_len++;
+    for(int i=(int)t->array_len-1;i>p-1;i--)lualike_copy(&t->array[i],&t->array[i-1]);
+  }else{t->array=(lua_Value*)realloc(t->array,(size_t)p*sizeof(lua_Value));for(uint32_t i=t->array_len;i<(uint32_t)p;i++)memset(&t->array[i],0,sizeof(lua_Value));t->array_len=(uint32_t)p;}
+  lualike_copy(&t->array[p-1],v);
+}
+static void _c_tremove(lua_State* L, lua_Value* a, int n, lua_Value* r) {
+  (void)L; if(n<1||a[0].type!=LUA_TTABLE){lualike_pushnil(r);return;}
+  lua_Table* t=a[0].payload.t; if(t->array_len==0){lualike_pushnil(r);return;}
+  int p=(n>=2)?(int)_an(&a[1],0,(int)t->array_len):(int)t->array_len;
+  if(p<1||p>(int)t->array_len){lualike_pushnil(r);return;}
+  lualike_copy(r,&t->array[p-1]);
+  for(uint32_t i=(uint32_t)p;i<t->array_len;i++)lualike_copy(&t->array[i-1],&t->array[i]);
+  memset(&t->array[--t->array_len],0,sizeof(lua_Value));
+}
+
+static void _c_sbyte(lua_State* L, lua_Value* a, int n, lua_Value* r) {
+  (void)L; if(n<1||a[0].type!=LUA_TSTRING){lualike_pushnil(r);return;}
+  int i=(n>=2)?(int)_an(&a[1],0,1):1;
+  if(i<1||i>(int)a[0].payload.s->length){lualike_pushnil(r);return;}
+  lualike_pushnumber(r,(double)(unsigned char)a[0].payload.s->data[i-1]);
+}
+static void _c_schar(lua_State* L, lua_Value* a, int n, lua_Value* r) {
+  char b[64]; int i; for(i=0;i<n&&i<64;i++)b[i]=(char)(int)_an(&a[i],0,0);
+  lualike_pushstring(r,L,b,n>64?64:n);
+}
+static void _c_ssub(lua_State* L, lua_Value* a, int n, lua_Value* r) {
+  if(n<1||a[0].type!=LUA_TSTRING){lualike_pushnil(r);return;}
+  const char* s=a[0].payload.s->data; int l=(int)a[0].payload.s->length;
+  int st=(n>=2)?(int)_an(&a[1],0,1):1; int en=(n>=3)?(int)_an(&a[2],0,l):l;
+  if(st<0)st=l+st+1; if(en<0)en=l+en+1; if(st<1)st=1; if(en>l)en=l;
+  if(st>en){lualike_pushcstring(r,L,"");return;}
+  lualike_pushstring(r,L,s+st-1,en-st+1);
+}
+static void _c_srev(lua_State* L, lua_Value* a, int n, lua_Value* r) {
+  if(n<1||a[0].type!=LUA_TSTRING){lualike_pushnil(r);return;}
+  const char* s=a[0].payload.s->data; int l=(int)a[0].payload.s->length;
+  char* b=(char*)malloc((size_t)l+1); for(int i=0;i<l;i++)b[i]=s[l-1-i]; b[l]=0;
+  lualike_pushstring(r,L,b,l); free(b);
+}
+static void _c_slower(lua_State* L, lua_Value* a, int n, lua_Value* r) {
+  if(n<1||a[0].type!=LUA_TSTRING){lualike_pushnil(r);return;}
+  const char* s=a[0].payload.s->data; int l=(int)a[0].payload.s->length;
+  char* b=(char*)malloc((size_t)l+1); for(int i=0;i<l;i++)b[i]=(char)tolower((unsigned char)s[i]); b[l]=0;
+  lualike_pushstring(r,L,b,l); free(b);
+}
+static void _c_supper(lua_State* L, lua_Value* a, int n, lua_Value* r) {
+  if(n<1||a[0].type!=LUA_TSTRING){lualike_pushnil(r);return;}
+  const char* s=a[0].payload.s->data; int l=(int)a[0].payload.s->length;
+  char* b=(char*)malloc((size_t)l+1); for(int i=0;i<l;i++)b[i]=(char)toupper((unsigned char)s[i]); b[l]=0;
+  lualike_pushstring(r,L,b,l); free(b);
+}
+static void _c_srep(lua_State* L, lua_Value* a, int n, lua_Value* r) {
+  if(n<1||a[0].type!=LUA_TSTRING){lualike_pushnil(r);return;}
+  const char* s=a[0].payload.s->data; int sl=(int)a[0].payload.s->length; int c=(n>=2)?(int)_an(&a[1],0,1):1;
+  if(c<=0){lualike_pushcstring(r,L,"");return;}
+  int tl=sl*c; char* b=(char*)malloc((size_t)tl+1);
+  for(int i=0;i<c;i++)memcpy(b+i*sl,s,(size_t)sl); b[tl]=0;
+  lualike_pushstring(r,L,b,tl); free(b);
+}
+
+static void _c_mabs(lua_State* L, lua_Value* a, int n, lua_Value* r) {
+  (void)L; if(n<1||a[0].type!=LUA_TNUMBER){lualike_pushnil(r);return;} lualike_pushnumber(r,fabs(a[0].payload.n));
+}
+static void _c_mfloor(lua_State* L, lua_Value* a, int n, lua_Value* r) {
+  (void)L; if(n<1||a[0].type!=LUA_TNUMBER){lualike_pushnil(r);return;} lualike_pushnumber(r,floor(a[0].payload.n));
+}
+static void _c_mceil(lua_State* L, lua_Value* a, int n, lua_Value* r) {
+  (void)L; if(n<1||a[0].type!=LUA_TNUMBER){lualike_pushnil(r);return;} lualike_pushnumber(r,ceil(a[0].payload.n));
+}
+static void _c_mmax(lua_State* L, lua_Value* a, int n, lua_Value* r) {
+  (void)L; if(n<1){lualike_pushnil(r);return;} double m=_an(&a[0],0,0);
+  for(int i=1;i<n;i++){double v=_an(&a[i],0,m);if(v>m)m=v;} lualike_pushnumber(r,m);
+}
+static void _c_mmin(lua_State* L, lua_Value* a, int n, lua_Value* r) {
+  (void)L; if(n<1){lualike_pushnil(r);return;} double m=_an(&a[0],0,0);
+  for(int i=1;i<n;i++){double v=_an(&a[i],0,m);if(v<m)m=v;} lualike_pushnumber(r,m);
+}
+
+#define MC(name,fn) static void _c_m##name(lua_State* L, lua_Value* a, int n, lua_Value* r) { (void)L; if(n<1||a[0].type!=LUA_TNUMBER){lualike_pushnil(r);return;} lualike_pushnumber(r,fn(a[0].payload.n)); }
+MC(sin,sin) MC(cos,cos) MC(tan,tan) MC(asin,asin) MC(acos,acos) MC(atan,atan)
+MC(sqrt,sqrt) MC(log,log) MC(exp,exp)
+static void _c_matan2(lua_State* L, lua_Value* a, int n, lua_Value* r) {
+  (void)L; if(n<2||a[0].type!=LUA_TNUMBER||a[1].type!=LUA_TNUMBER){lualike_pushnil(r);return;} lualike_pushnumber(r,atan2(a[0].payload.n,a[1].payload.n));
+}
+
+static unsigned int _rand = 1;
+static void _c_mrandom(lua_State* L, lua_Value* a, int n, lua_Value* r) {
+  (void)L; _rand=_rand*1103515245+12345; double v=(double)(_rand&0x7FFFFFFF)/2147483648.0;
+  if(n==0)lualike_pushnumber(r,v);
+  else if(n==1)lualike_pushnumber(r,1.0+(int)(v*_an(&a[0],0,1)));
+  else{int m=(int)_an(&a[0],0,1),M=(int)_an(&a[1],0,100);lualike_pushnumber(r,m+(int)(v*(M-m+1)));}
+}
+static void _c_mrandseed(lua_State* L, lua_Value* a, int n, lua_Value* r) {
+  (void)L;(void)r; if(n>=1&&a[0].type==LUA_TNUMBER)_rand=(unsigned int)a[0].payload.n;
+}
+
+// ===========================================================================
+// lualike_openlibs
+// ===========================================================================
+static void _regf(lua_State* L, const char* t, const char* n, lua_CFunction fn) {
+  lua_Value tv,fv; memset(&tv,0,sizeof(tv)); memset(&fv,0,sizeof(fv));
+  if(t&&t[0]){lualike_getfield(L,&tv,&L->globals,t);if(tv.type!=LUA_TTABLE){lualike_newtable(&tv);lualike_setfield(L,&L->globals,t,&tv);}}
+  else{tv=L->globals;lualike_retain(&tv);}
+  lualike_pushcfunction(&fv,fn,n); lualike_setfield(L,&tv,n,&fv);
+  if(t&&t[0])lualike_setfield(L,&L->globals,t,&tv);
+  lualike_release(&tv); lualike_release(&fv);
+}
+static void _regn(lua_State* L, const char* t, const char* n, double vv) {
+  lua_Value v; memset(&v,0,sizeof(v)); v.type=LUA_TNUMBER; v.payload.n=vv;
+  lua_Value tv; memset(&tv,0,sizeof(tv)); lualike_getfield(L,&tv,&L->globals,t);
+  if(tv.type!=LUA_TTABLE){lualike_newtable(&tv);lualike_setfield(L,&L->globals,t,&tv);}
+  lualike_setfield(L,&tv,n,&v); lualike_setfield(L,&L->globals,t,&tv); lualike_release(&tv);
+}
+
+void lualike_openlibs(lua_State* L) {
+  _regf(L,"","print",_c_print); _regf(L,"","type",_c_type);
+  _regf(L,"","tonumber",_c_tonumber); _regf(L,"","tostring",_c_tostring);
+  _regf(L,"table","insert",_c_tinsert); _regf(L,"table","remove",_c_tremove);
+  _regf(L,"string","byte",_c_sbyte); _regf(L,"string","char",_c_schar);
+  _regf(L,"string","sub",_c_ssub); _regf(L,"string","reverse",_c_srev);
+  _regf(L,"string","lower",_c_slower); _regf(L,"string","upper",_c_supper);
+  _regf(L,"string","rep",_c_srep);
+  _regf(L,"math","abs",_c_mabs); _regf(L,"math","floor",_c_mfloor);
+  _regf(L,"math","ceil",_c_mceil); _regf(L,"math","max",_c_mmax);
+  _regf(L,"math","min",_c_mmin); _regf(L,"math","sin",_c_msin);
+  _regf(L,"math","cos",_c_mcos); _regf(L,"math","tan",_c_mtan);
+  _regf(L,"math","asin",_c_masin); _regf(L,"math","acos",_c_macos);
+  _regf(L,"math","atan",_c_matan); _regf(L,"math","atan2",_c_matan2);
+  _regf(L,"math","sqrt",_c_msqrt); _regf(L,"math","log",_c_mlog);
+  _regf(L,"math","exp",_c_mexp); _regf(L,"math","random",_c_mrandom);
+  _regf(L,"math","randomseed",_c_mrandseed);
+  _regn(L,"math","pi",3.14159265358979323846); _regn(L,"math","huge",HUGE_VAL);
+}
+
 // ===========================================================================
 // State lifecycle
 // ===========================================================================
@@ -835,6 +1117,7 @@ lua_State* lualike_newstate(void) {
   lua_State* L = (lua_State*)xcalloc(1, sizeof(lua_State));
   lualike_newtable(&L->globals);
   L->print_fn = NULL;
+  lualike_openlibs(L);
   return L;
 }
 

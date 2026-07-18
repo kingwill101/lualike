@@ -30,8 +30,10 @@ class LualikeIrToLlvm {
 
   final _buf = StringBuffer();
   int _unnamedCounter = 0;
-  int _syntheticBlock = 1000000; // synthetic block labels
+  int _syntheticBlock = 1000000;
   bool _terminated = false;
+  int _currentBlockIndex = 0;
+  final _loopCheckLabels = <int, int>{};
 
   String generateModule() {
     _buf.clear();
@@ -102,6 +104,8 @@ class LualikeIrToLlvm {
     'declare void @lualike_newclosure(ptr, ptr, ptr, i32, ptr)',
     'declare void @lualike_call(ptr, ptr, ptr, ptr, i32)',
     'declare void @lualike_tailcall(ptr, ptr, ptr, ptr, i32)',
+    'declare void @lualike_gettabup(ptr, ptr, ptr, i32)',
+    'declare void @lualike_settabup(ptr, ptr, ptr, i32)',
     'declare void @lualike_error(ptr, ptr)',
     'declare i32 @lualike_forprep(ptr, i32)',
     'declare i32 @lualike_forloop(ptr, i32)',
@@ -132,6 +136,7 @@ class LualikeIrToLlvm {
     final b = sb.block;
     _writeln('${_label(b.index)}:');
     _terminated = false;
+    _currentBlockIndex = b.index;
     for (final pc in b.instructionPcs) {
       if (_terminated) break;
       _emitOne(prototype.instructions[pc], pc);
@@ -304,9 +309,9 @@ class LualikeIrToLlvm {
 
       // -- Globals --
       case ABCInstruction(opcode: LualikeIrOpcode.getTabUp, a: final a, c: final c):
-        _writeln('  call void @lualike_getfield(ptr %L, ptr ${_reg(a)}, ptr %L, ptr ${_const(c)})');
-      case ABCInstruction(opcode: LualikeIrOpcode.setTabUp, b: final b, c: final c):
-        _writeln('  call void @lualike_setfield(ptr %L, ptr %L, ptr ${_const(b)}, ptr ${_const(c)})');
+        _writeln('  call void @lualike_gettabup(ptr ${_reg(a)}, ptr %upvals, ptr %constants, i32 $c)');
+      case ABCInstruction(opcode: LualikeIrOpcode.setTabUp, a: final a, c: final c):
+        _writeln('  call void @lualike_settabup(ptr %upvals, ptr %constants, ptr ${_reg(a)}, i32 $c)');
 
       // -- Closure --
       case ABxInstruction(opcode: LualikeIrOpcode.closure, a: final a, bx: final _):
@@ -348,8 +353,8 @@ class LualikeIrToLlvm {
         final bodyBlock = _findBlock(pc + 1);          // block containing the body
         final exitBlock = _findBlock(pc + 1 + sBx + 1); // block after FORLOOP
         if (bodyBlock >= 0) {
-          // Emit a synthetic check block that runs FORLOOP and branches
           final checkLabel = _syntheticBlock++;
+          _loopCheckLabels[bodyBlock] = checkLabel;
           final exitLabel = exitBlock >= 0 ? _label(exitBlock) : 'b${_syntheticBlock++}';
           final cont = _next(); final cond = _next();
           _writeln('  br label %b_check_$checkLabel');
@@ -361,13 +366,13 @@ class LualikeIrToLlvm {
         }
         break;
       }
-      // FORLOOP: branch back to the synthetic check block
+      
       case AsBxInstruction(opcode: LualikeIrOpcode.forLoop, a: final a, sBx: final sBx): {
-        // Find the check block label from the matching FORPREP
-        // We use a counter-based approach: find the check block by searching backward
-        // For simplicity, just fall through — the FORPREP already emitted the check block
-        final exitBlock = _findBlock(pc + 1);
-        if (exitBlock >= 0) { _writeln('  br label %${_label(exitBlock)}'); _terminated = true; }
+        final checkLabel = _loopCheckLabels[_currentBlockIndex];
+        if (checkLabel != null) {
+          _writeln('  br label %b_check_$checkLabel');
+          _terminated = true;
+        }
         break;
       }
 

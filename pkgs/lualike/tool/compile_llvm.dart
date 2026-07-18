@@ -59,9 +59,9 @@ Future<void> main(List<String> args) async {
       enablePeephole: true,
       enableDeadCodeElimination: true,
       enableSsaDeadCodeElimination: true,
-      enableSsaGlobalValueNumbering: true,
-      enableSsaSccp: true,
-      enableSsaLicm: true,
+      enableSsaGlobalValueNumbering: false,
+      enableSsaSccp: false,
+      enableSsaLicm: false,
       enableSsaCoalesce: true,
       enableSsaEscape: true,
       enableFunctionInlining: false,
@@ -181,27 +181,38 @@ String _generateMainWrapper(LualikeIrPrototype proto) {
         buf.writeln('  constants[$i].type = LUA_TNUMBER;');
         buf.writeln('  constants[$i].payload.n = $v;');
       case ShortStringConstant(value: final v) || LongStringConstant(value: final v):
-        buf.writeln('  // String constants not yet supported in LLVM pipeline');
-        buf.writeln('  constants[$i].type = LUA_TNIL;');
+        buf.writeln('  constants[$i].type = LUA_TSTRING;');
+        buf.writeln('  {');
+        buf.writeln('    const char* _cs = "${_escapeC(v)}";');
+        buf.writeln('    constants[$i].type = LUA_TSTRING;');
+        buf.writeln('    constants[$i].payload.s = (lua_String*)malloc(sizeof(lua_String) + ${v.length} + 1);');
+        buf.writeln('    constants[$i].payload.s->refcount = 1;');
+        buf.writeln('    constants[$i].payload.s->length = ${v.length};');
+        buf.writeln('    memcpy(constants[$i].payload.s->data, _cs, ${v.length});');
+        buf.writeln('    constants[$i].payload.s->data[${v.length}] = 0;');
+        buf.writeln('  }');
     }
   }
   buf.writeln();
 
   // Determine register count
-  buf.writeln('  // Allocate register array');
-  buf.writeln('  int nregs = ${proto.registerCount};');
+  buf.writeln('  // Allocate register array (with extra space for loop internals)');
+  buf.writeln('  int nregs = ${proto.registerCount + 8};');
   buf.writeln('  lua_Value* r = (lua_Value*)calloc(nregs, sizeof(lua_Value));');
 
-  // Upvalues (empty for main script)
-  buf.writeln('  lua_Value empty_upvals[1];');
-  buf.writeln('  memset(empty_upvals, 0, sizeof(empty_upvals));');
+  // Upvalues: index 0 = _ENV = globals table
+  buf.writeln('  lua_Value upvals[1];');
+  buf.writeln('  memset(upvals, 0, sizeof(upvals));');
+  buf.writeln('  upvals[0].type = LUA_TTABLE;');
+  buf.writeln('  upvals[0].payload.t = L->globals.payload.t;');
+  buf.writeln('  lualike_retain(&L->globals);');
   buf.writeln('  lua_Value empty_varargs[1];');
   buf.writeln('  memset(empty_varargs, 0, sizeof(empty_varargs));');
   buf.writeln();
 
   // Call the compiled function
   buf.writeln('  // Call compiled function');
-  buf.writeln('  _lua_fn_0(L, r, nregs, empty_upvals, 0, empty_varargs, 0, constants, $nconsts);');
+  buf.writeln('  _lua_fn_0(L, r, ${proto.registerCount}, upvals, 1, empty_varargs, 0, constants, $nconsts);');
   buf.writeln();
 
   // Print the result from r[0]
@@ -229,4 +240,13 @@ String _generateMainWrapper(LualikeIrPrototype proto) {
   buf.writeln('  return 0;');
   buf.writeln('}');
   return buf.toString();
+}
+
+String _escapeC(String s) {
+  return s
+    .replaceAll('\\', '\\\\')
+    .replaceAll('"', '\\"')
+    .replaceAll('\n', '\\n')
+    .replaceAll('\r', '\\r')
+    .replaceAll('\t', '\\t');
 }

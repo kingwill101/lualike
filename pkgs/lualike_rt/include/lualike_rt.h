@@ -31,31 +31,37 @@ typedef enum {
   LUA_TSTRING = 3,
   LUA_TTABLE = 4,
   LUA_TFUNCTION = 5,
+  LUA_TNATIVEFUNC = 6,
 } lua_Type;
 
 // ---------------------------------------------------------------------------
 // Forward declarations
 // ---------------------------------------------------------------------------
+struct lua_Value;
 typedef struct lua_Table lua_Table;
 typedef struct lua_String lua_String;
 typedef struct lua_Function lua_Function;
 typedef struct lua_State lua_State;
 typedef struct lua_Upvalue lua_Upvalue;
 
+// A C function callable from Lua.
+typedef void (*lua_CFunction)(lua_State* L, struct lua_Value* args, int nargs, struct lua_Value* result);
+
 // ---------------------------------------------------------------------------
 // Lua value — tagged union
 // ---------------------------------------------------------------------------
 typedef union {
-    double   n;         // LUA_TNUMBER
-    bool     b;         // LUA_TBOOLEAN
-    lua_String* s;      // LUA_TSTRING
-    lua_Table* t;       // LUA_TTABLE
-    lua_Function* fn;   // LUA_TFUNCTION
+    double   n;          // LUA_TNUMBER
+    bool     b;          // LUA_TBOOLEAN
+    lua_String* s;       // LUA_TSTRING
+    lua_Table* t;        // LUA_TTABLE
+    lua_Function* fn;    // LUA_TFUNCTION
+    lua_CFunction cfn;   // LUA_TNATIVEFUNC
 } lua_Payload;
 
 typedef struct lua_Value {
   lua_Type type;
-  uint8_t _pad[4];  // padding
+  uint8_t _pad[4];
   lua_Payload payload;
 } lua_Value;
 
@@ -258,16 +264,58 @@ bool lualike_trymetamethod(lua_State* L, lua_Value* dst,
                            const char* metamethod);
 
 // ---------------------------------------------------------------------------
+// Native C function registration
+// ---------------------------------------------------------------------------
+void lualike_pushcfunction(lua_Value* v, lua_CFunction fn, const char* name);
+
+// ---------------------------------------------------------------------------
+// Raw table access (no metamethods)
+// ---------------------------------------------------------------------------
+void lualike_rawget(lua_Value* dst, const lua_Value* tbl, const lua_Value* key);
+void lualike_rawset(lua_Value* tbl, const lua_Value* key, const lua_Value* val);
+void lualike_rawequal(lua_Value* dst, const lua_Value* a, const lua_Value* b);
+void lualike_rawlen(lua_Value* dst, const lua_Value* v);
+
+// ---------------------------------------------------------------------------
+// Table iteration (next)
+// ---------------------------------------------------------------------------
+void lualike_next(lua_State* L, lua_Value* dst, const lua_Value* tbl, const lua_Value* key);
+
+// ---------------------------------------------------------------------------
+// Metatable access
+// ---------------------------------------------------------------------------
+void lualike_getmetatable(lua_Value* dst, const lua_Value* v);
+void lualike_setmetatable(lua_Value* v, const lua_Value* mt);
+
+// ---------------------------------------------------------------------------
+// Type as string
+// ---------------------------------------------------------------------------
+void lualike_type_str(lua_Value* dst, const lua_Value* v);
+
+// ---------------------------------------------------------------------------
+// Select
+// ---------------------------------------------------------------------------
+void lualike_select(lua_Value* dst, lua_Value* args, int nargs);
+
+// ---------------------------------------------------------------------------
+// Standard library init
+// ---------------------------------------------------------------------------
+// Registers all stdlib functions into the global environment.
+void lualike_openlibs(lua_State* L);
+
+// ---------------------------------------------------------------------------
 // I/O and standard library
 // ---------------------------------------------------------------------------
 void lualike_print(lua_State* L, const char* s);
 void lualike_error(lua_State* L, const char* msg);
 
 // ---------------------------------------------------------------------------
-// Globals
+// Globals (integrated with constant table for LLVM pipeline)
 // ---------------------------------------------------------------------------
 void lualike_getglobal(lua_State* L, lua_Value* dst, const char* name);
 void lualike_setglobal(lua_State* L, const char* name, const lua_Value* val);
+void lualike_gettabup(lua_Value* dst, lua_Value* upvals, lua_Value* constants, int c);
+void lualike_settabup(lua_Value* upvals, lua_Value* constants, lua_Value* val, int c);
 
 // ---------------------------------------------------------------------------
 // State lifecycle
