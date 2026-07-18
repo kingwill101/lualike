@@ -419,33 +419,23 @@ class LualikeIrToLlvm {
 
       // -- Generic for --
       case AsBxInstruction(opcode: LualikeIrOpcode.tForPrep, a: final a, sBx: final sBx): {
-        // Copy initial key from r[a+2] to r[a+3] (tForCall reads control from r[a+3])
+        // Copy initial key from r[a+2] to r[a+3]
         _writeln('  call void @lualike_copy(ptr ${_reg(a + 3)}, ptr ${_reg(a + 2)})');
         final bodyBlock = _findBlock(pc + 1);
         if (bodyBlock >= 0) {
-          // Find the real exit block: it's the body block's successor that is NOT the check block
-          // The body block's successors: the loop back edge (check block) and the exit
-          // Since we haven't emitted the check block yet, the body's successors are:
-          // the block containing tForLoop's fallthrough (which is the loop body itself)
-          // Actually, the real exit is the block after the loop body in the SSA
-          // Use the body block's first successor (which should be the exit)
-
-          
           final exitBlock = _findBlock(pc + 1 + sBx + 1);
           final checkLabel = _syntheticBlock++;
           _loopCheckLabels[bodyBlock] = checkLabel;
+          // First call to iterator (entry from b0)
+          _writeln('  call void @lualike_call(ptr %L, ptr ${_reg(a + 3)}, ptr ${_reg(a)}, ptr ${_reg(a + 1)}, i32 2)');
+          _writeln('  call void @lualike_copy(ptr ${_reg(a + 2)}, ptr ${_reg(a + 3)})');
           _writeln('  br label %b_tcheck_$checkLabel');
           _terminated = true;
           _writeln('b_tcheck_$checkLabel:');
-          // Call the iterator (next(t, key)), store result in r[a+3]
-          _writeln('  call void @lualike_call(ptr %L, ptr ${_reg(a + 3)}, ptr ${_reg(a)}, ptr ${_reg(a + 1)}, i32 2)');
-          // Copy r[a+3] to r[a+2] for next call's args
-          _writeln('  call void @lualike_copy(ptr ${_reg(a + 2)}, ptr ${_reg(a + 3)})');
-          // Check result
+          // Check result only (no iterator call - tForCall does that)
           final cont = _next(); final cond = _next();
           _writeln('  $cont = call i32 @lualike_tforloop(ptr %r, i32 $a)');
           _writeln('  $cond = icmp ne i32 $cont, 0');
-          // Find the real exit: the body block's successor that is not the body itself
           final bodySsa = ssaFunction.blocks.firstWhere(
             (b) => b.block.index == bodyBlock,
             orElse: () => ssaFunction.blocks.first,

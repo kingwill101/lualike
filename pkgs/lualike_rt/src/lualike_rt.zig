@@ -884,22 +884,19 @@ fn stdNext(_: *State, args: [*]Value, n: i32, r: [*]Value, _: i32, nr: *i32) cal
             lualike_pushnil(&r[0]); nr.* = 1;
         }
     } else {
-        // Find the entry AFTER the given key
-        // Convert key to string for comparison
         var kbuf: [64]u8 = undefined;
         const key_slice = keyToSlice(&args[1], &kbuf) catch { lualike_pushnil(&r[0]); nr.* = 1; return; };
         var found = false;
         var it = t.map.iterator();
         while (it.next()) |e| {
+            const ks = e.key_ptr.*;
             if (found) {
-                // This is the NEXT entry after the given key
-                const k_str = e.key_ptr.*;
-                pushStr(&r[0], k_str);
+                pushStr(&r[0], ks);
                 lualike_copy(&r[1], e.value_ptr);
                 nr.* = 2;
                 return;
             }
-            if (std.mem.eql(u8, e.key_ptr.*, key_slice)) {
+            if (std.mem.eql(u8, ks, key_slice)) {
                 found = true;
             }
         }
@@ -950,7 +947,7 @@ fn stdStub(_: *State, _: [*]Value, _: i32, r: [*]Value, _: i32, nr: *i32) callco
 /// Helper: push a string from a Zig slice into a Value.
 fn pushStr(r: *Value, s: []const u8) void {
     const key = String.init(s) catch { lualike_pushnil(r); return; };
-    lualike_pushcstring(r, null, @ptrCast(key.data));
+    lualike_pushstring(r, null, key.data, @as(i32, @intCast(key.len)));
     key.refcount -%= 1;
     if (key.refcount == 0) {
         Alloc.free(key.data[0..key.len]);
