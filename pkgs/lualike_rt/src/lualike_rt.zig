@@ -115,36 +115,35 @@ fn retain(v: Value) void {
 /// Decrements the reference count of the heap-allocated object held by `v`,
 /// freeing it when the count reaches zero.
 ///
+fn releaseString(s: *String) void {
+    s.refcount -%= 1;
+    if (s.refcount == 0) {
+        Alloc.free(s.data[0..s.len]);
+        Alloc.destroy(s);
+    }
+}
+fn releaseTable(t: *Table) void {
+    t.refcount -%= 1;
+    if (t.refcount == 0) {
+        var it = t.map.iterator();
+        while (it.next()) |e| { Alloc.free(e.key_ptr.*); release(e.value_ptr.*); }
+        t.map.deinit(Alloc);
+        Alloc.destroy(t);
+    }
+}
+fn releaseClosure(c: *Closure) void {
+    c.refcount -%= 1;
+    if (c.refcount == 0) {
+        Alloc.free(c.upvals[0..@as(usize, @intCast(c.nupvals))]);
+        if (c.name) |nm| Alloc.free(nm[0..std.mem.len(nm)]);
+        Alloc.destroy(c);
+    }
+}
 fn release(v: Value) void {
     const tag = @as(u32, @intFromEnum(v.type));
-    if (tag == @intFromEnum(Type.string)) {
-        if (v.payload.s) |s| {
-            s.refcount = s.refcount -% 1;
-            if (s.refcount == 0) {
-                Alloc.free(s.data[0..s.len]);
-                Alloc.destroy(s);
-            }
-        }
-    } else if (tag == @intFromEnum(Type.table)) {
-        if (v.payload.t != 0) { const t: *Table = @ptrFromInt(v.payload.t);
-            t.refcount = t.refcount -% 1;
-            if (t.refcount == 0) {
-                var it = t.map.iterator();
-                while (it.next()) |e| { Alloc.free(e.key_ptr.*); release(e.value_ptr.*); }
-                t.map.deinit(Alloc);
-                Alloc.destroy(t);
-            }
-        }
-    } else if (tag == @intFromEnum(Type.function_)) {
-        if (v.payload.fn_ptr != 0) { const f: *Closure = @ptrFromInt(v.payload.fn_ptr);
-            f.refcount = f.refcount -% 1;
-            if (f.refcount == 0) {
-                Alloc.free(f.upvals[0..@as(usize, @intCast(f.nupvals))]);
-                if (f.name) |n| Alloc.free(std.mem.sliceTo(n, 0));
-                Alloc.destroy(f);
-            }
-        }
-    }
+    if (tag == @intFromEnum(Type.string)) { if (v.payload.s) |s| releaseString(s); }
+    else if (tag == @intFromEnum(Type.table)) { if (v.payload.t != 0) releaseTable(@ptrFromInt(v.payload.t)); }
+    else if (tag == @intFromEnum(Type.function_)) { if (v.payload.fn_ptr != 0) releaseClosure(@ptrFromInt(v.payload.fn_ptr)); }
 }
 
 // ===========================================================================
@@ -310,7 +309,11 @@ export fn lualike_release(v: *Value) void {
 ///
 export fn lualike_copy(d: *Value, s: *const Value) void {
     if (d != @as(*const Value, @ptrCast(s))) {
-        release(d.*);
+        // Inline release to avoid deep stack
+        const ot = @as(u32, @intFromEnum(d.type));
+        if (ot == @intFromEnum(Type.string)) { if (d.payload.s) |sd| { sd.refcount -%= 1; if (sd.refcount == 0) { Alloc.free(sd.data[0..sd.len]); Alloc.destroy(sd); } } }
+        else if (ot == @intFromEnum(Type.table)) { if (d.payload.t != 0) { const tp: *Table = @ptrFromInt(d.payload.t); tp.refcount -%= 1; if (tp.refcount == 0) { var it = tp.map.iterator(); while (it.next()) |e| { Alloc.free(e.key_ptr.*); release(e.value_ptr.*); } tp.map.deinit(Alloc); Alloc.destroy(tp); } } }
+        else if (ot == @intFromEnum(Type.function_)) { if (d.payload.fn_ptr != 0) { const cp: *Closure = @ptrFromInt(d.payload.fn_ptr); cp.refcount -%= 1; if (cp.refcount == 0) { Alloc.free(cp.upvals[0..@as(usize, @intCast(cp.nupvals))]); if (cp.name) |nm| Alloc.free(nm[0..std.mem.len(nm)]); Alloc.destroy(cp); } } }
         d.* = s.*;
         retain(s.*);
     }
@@ -740,11 +743,8 @@ export fn lualike_call(L: ?*State, dst: ?*Value, fn_val: *const Value, args: [*]
         var nr: i32 = 0;
         cfn(L.?, args, nargs, &results, 8, &nr);
         if (nr > 0 and dst != null) {
-            const dst_arr: [*]Value = @ptrCast(dst.?);
-            lualike_copy(&dst_arr[0], &results[0]);
-            const ncopy = @min(@as(usize, @intCast(nr - 1)), 7);
-            for (0..ncopy) |j| lualike_copy(&dst_arr[j + 1], &results[j + 1]);
-            for (ncopy + 1..@as(usize, @intCast(nr))) |j| release(results[j]);
+            lualike_copy(dst.?, &results[0]);
+            for (1..@as(usize, @intCast(nr))) |j| release(results[j]);
         }
         return;
     }

@@ -466,7 +466,19 @@ class LualikeIrToLlvm {
       }
       
       case AsBxInstruction(opcode: LualikeIrOpcode.forLoop, a: final a, sBx: final sBx): {
-        final checkLabel = _loopCheckLabels[_currentBlockIndex];
+        // forLoop may be in a different SSA block than forPrep's registered
+        // body block (due to IF/break splitting). Find the MOST RECENTLY
+        // registered check label whose body block <= current block.
+        var checkLabel = _loopCheckLabels[_currentBlockIndex];
+        if (checkLabel == null) {
+          var bestBlock = -1;
+          for (final entry in _loopCheckLabels.entries) {
+            if (entry.key <= _currentBlockIndex && entry.key > bestBlock) {
+              bestBlock = entry.key;
+              checkLabel = entry.value;
+            }
+          }
+        }
         if (checkLabel != null) {
           _writeln('  br label %b_check_$checkLabel');
           _terminated = true;
