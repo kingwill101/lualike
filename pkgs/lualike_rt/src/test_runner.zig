@@ -55,13 +55,13 @@ extern fn lualike_len(L: ?*anyopaque, d: *anyopaque, a: *const anyopaque) void;
 extern fn lualike_newtable(d: *anyopaque) void;
 extern fn lualike_gettable(L: ?*anyopaque, d: *anyopaque, tbl: *const anyopaque, key: *const anyopaque) void;
 extern fn lualike_settable(L: ?*anyopaque, tbl: *anyopaque, key: *const anyopaque, val: *const anyopaque) void;
-extern fn lualike_getfield(L: ?*anyopaque, d: *anyopaque, tbl: *const anyopaque, field: [*:0]u8) void;
-extern fn lualike_setfield(L: ?*anyopaque, tbl: *anyopaque, field: [*:0]u8, val: *const anyopaque) void;
+extern fn lualike_getfield_c(L: ?*anyopaque, d: *anyopaque, tbl: *const anyopaque, field: [*:0]u8) void;
+extern fn lualike_setfield_c(L: ?*anyopaque, tbl: *anyopaque, field: [*:0]u8, val: *const anyopaque) void;
 extern fn lualike_geti(L: ?*anyopaque, d: *anyopaque, tbl: *const anyopaque, idx: i64) void;
 extern fn lualike_seti(L: ?*anyopaque, tbl: *anyopaque, idx: i64, val: *const anyopaque) void;
 extern fn lualike_forprep(r: [*]Value, a: i32) i32;
 extern fn lualike_forloop(r: [*]Value, a: i32) i32;
-extern fn lualike_newclosure(d: *anyopaque, fn_ptr: ?*anyopaque, up: [*]Value, nup: i32, name: ?[*:0]u8) void;
+extern fn lualike_newclosure(d: *anyopaque, fn_ptr: ?*anyopaque, up: [*]Value, nup: i32, name: ?[*:0]u8, constants: [*]Value, nconstants: i32) void;
 extern fn lualike_getupval(d: *anyopaque, up: [*]Value, idx: i32) void;
 extern fn lualike_setupval(up: [*]Value, idx: i32, s: *const anyopaque) void;
 extern fn lualike_call(L: ?*anyopaque, dst: ?*anyopaque, fn_val: *const anyopaque, args: [*]Value, nargs: i32) void;
@@ -263,11 +263,11 @@ export fn test_table_multi_field() i32 {
     const keys = [_][]const u8{ "alpha", "beta", "gamma", "delta", "epsilon", "zeta", "eta", "theta" };
     for (keys, 0..) |k, i| {
         var v = intV(@as(i64, @intCast(i * 10)));
-        lualike_setfield(null, @ptrCast(&t), @ptrCast(@constCast(k)), @ptrCast(&v));
+        lualike_setfield_c(null, @ptrCast(&t), @ptrCast(@constCast(k)), @ptrCast(&v));
     }
     for (keys, 0..) |k, i| {
         var r: Value = undefined;
-        lualike_getfield(null, @ptrCast(&r), @ptrCast(&t), @ptrCast(@constCast(k)));
+        lualike_getfield_c(null, @ptrCast(&r), @ptrCast(&t), @ptrCast(@constCast(k)));
         if (r.payload.n != @as(f64, @floatFromInt(i * 10))) {
             lualike_release(@ptrCast(&t));
             return @intCast(i + 1);
@@ -283,24 +283,24 @@ export fn test_table_3_keys() i32 {
     lualike_newtable(@ptrCast(&t));
 
     var v13 = intV(13);
-    lualike_setfield(null, @ptrCast(&t), @ptrCast(@constCast("ADD")), @ptrCast(&v13));
+    lualike_setfield_c(null, @ptrCast(&t), @ptrCast(@constCast("ADD")), @ptrCast(&v13));
     var v15 = intV(15);
-    lualike_setfield(null, @ptrCast(&t), @ptrCast(@constCast("BAND")), @ptrCast(&v15));
+    lualike_setfield_c(null, @ptrCast(&t), @ptrCast(@constCast("BAND")), @ptrCast(&v15));
     var vtrue = boolV(true);
-    lualike_setfield(null, @ptrCast(&t), @ptrCast(@constCast("TRUE")), @ptrCast(&vtrue));
+    lualike_setfield_c(null, @ptrCast(&t), @ptrCast(@constCast("TRUE")), @ptrCast(&vtrue));
 
     var r: Value = undefined;
-    lualike_getfield(null, @ptrCast(&r), @ptrCast(&t), @ptrCast(@constCast("ADD")));
+    lualike_getfield_c(null, @ptrCast(&r), @ptrCast(&t), @ptrCast(@constCast("ADD")));
     if (r.payload.n != 13) { lualike_release(@ptrCast(&t)); return 1; }
     lualike_release(@ptrCast(&r));
 
     var r2: Value = undefined;
-    lualike_getfield(null, @ptrCast(&r2), @ptrCast(&t), @ptrCast(@constCast("BAND")));
+    lualike_getfield_c(null, @ptrCast(&r2), @ptrCast(&t), @ptrCast(@constCast("BAND")));
     if (r2.payload.n != 15) { lualike_release(@ptrCast(&t)); return 2; }
     lualike_release(@ptrCast(&r2));
 
     var r3: Value = undefined;
-    lualike_getfield(null, @ptrCast(&r3), @ptrCast(&t), @ptrCast(@constCast("TRUE")));
+    lualike_getfield_c(null, @ptrCast(&r3), @ptrCast(&t), @ptrCast(@constCast("TRUE")));
     if (r3.type != .boolean or r3.payload.b != true) { lualike_release(@ptrCast(&t)); return 3; }
     lualike_release(@ptrCast(&r3));
 
@@ -329,11 +329,11 @@ export fn test_table_overwrite() i32 {
     var t: Value = undefined;
     lualike_newtable(@ptrCast(&t));
 
-    lualike_setfield(null, @ptrCast(&t), @ptrCast(@constCast("k")), @ptrCast(&intV(1)));
-    lualike_setfield(null, @ptrCast(&t), @ptrCast(@constCast("k")), @ptrCast(&intV(999)));
+    lualike_setfield_c(null, @ptrCast(&t), @ptrCast(@constCast("k")), @ptrCast(&intV(1)));
+    lualike_setfield_c(null, @ptrCast(&t), @ptrCast(@constCast("k")), @ptrCast(&intV(999)));
 
     var r: Value = undefined;
-    lualike_getfield(null, @ptrCast(&r), @ptrCast(&t), @ptrCast(@constCast("k")));
+    lualike_getfield_c(null, @ptrCast(&r), @ptrCast(&t), @ptrCast(@constCast("k")));
     if (r.payload.n != 999) { lualike_release(@ptrCast(&t)); return 1; }
     lualike_release(@ptrCast(&r));
 
@@ -471,7 +471,7 @@ export fn test_type_queries() i32 {
 
 export fn test_closure() i32 {
     var d: Value = undefined;
-    lualike_newclosure(@ptrCast(&d), null, undefined, 0, null);
+    lualike_newclosure(@ptrCast(&d), null, undefined, 0, null, undefined, 0);
     if (d.type != .function_) return 1;
     lualike_release(@ptrCast(&d));
     return 0;
@@ -528,11 +528,11 @@ export fn test_table_mixed_keys() i32 {
     var t: Value = undefined;
     lualike_newtable(@ptrCast(&t));
 
-    lualike_setfield(null, @ptrCast(&t), @ptrCast(@constCast("answer")), @ptrCast(&intV(42)));
+    lualike_setfield_c(null, @ptrCast(&t), @ptrCast(@constCast("answer")), @ptrCast(&intV(42)));
     lualike_seti(null, @ptrCast(&t), 1, @ptrCast(&intV(7)));
 
     var r: Value = undefined;
-    lualike_getfield(null, @ptrCast(&r), @ptrCast(&t), @ptrCast(@constCast("answer")));
+    lualike_getfield_c(null, @ptrCast(&r), @ptrCast(&t), @ptrCast(@constCast("answer")));
     if (r.payload.n != 42) { lualike_release(@ptrCast(&t)); return 1; }
     lualike_release(@ptrCast(&r));
 
@@ -563,7 +563,7 @@ fn callStdlib(L: *anyopaque, name: []const u8, args: []Value, result: *Value) i3
         break :blk buf;
     };
     const st: *State = @ptrCast(@alignCast(L));
-    lualike_getfield(null, @ptrCast(&fn_val), &st.globals, @ptrCast(&c_name));
+    lualike_getfield_c(null, @ptrCast(&fn_val), &st.globals, @ptrCast(&c_name));
     defer lualike_release(@ptrCast(&fn_val));
     
     if (fn_val.type == .nil) return 1;
@@ -579,7 +579,7 @@ export fn test_stdlib_type_on_number() i32 {
     
     var fn_val: Value = undefined;
     const st: *State = @ptrCast(@alignCast(L));
-    lualike_getfield(null, @ptrCast(&fn_val), &st.globals, @ptrCast(@constCast("type")));
+    lualike_getfield_c(null, @ptrCast(&fn_val), &st.globals, @ptrCast(@constCast("type")));
     defer lualike_release(@ptrCast(&fn_val));
     if (fn_val.type != .nativefn) return 1;
     
@@ -597,7 +597,7 @@ export fn test_stdlib_type_on_bool() i32 {
     
     var fn_val: Value = undefined;
     const st: *State = @ptrCast(@alignCast(L));
-    lualike_getfield(null, @ptrCast(&fn_val), &st.globals, @ptrCast(@constCast("type")));
+    lualike_getfield_c(null, @ptrCast(&fn_val), &st.globals, @ptrCast(@constCast("type")));
     defer lualike_release(@ptrCast(&fn_val));
     if (fn_val.type != .nativefn) return 1;
     
@@ -615,7 +615,7 @@ export fn test_stdlib_tonumber() i32 {
     
     var fn_val: Value = undefined;
     const st: *State = @ptrCast(@alignCast(L));
-    lualike_getfield(null, @ptrCast(&fn_val), &st.globals, @ptrCast(@constCast("tonumber")));
+    lualike_getfield_c(null, @ptrCast(&fn_val), &st.globals, @ptrCast(@constCast("tonumber")));
     defer lualike_release(@ptrCast(&fn_val));
     if (fn_val.type != .nativefn) return 1;
     
@@ -639,14 +639,14 @@ export fn test_stdlib_pairs() i32 {
     
     var fn_val: Value = undefined;
     const st: *State = @ptrCast(@alignCast(L));
-    lualike_getfield(null, @ptrCast(&fn_val), &st.globals, @ptrCast(@constCast("pairs")));
+    lualike_getfield_c(null, @ptrCast(&fn_val), &st.globals, @ptrCast(@constCast("pairs")));
     defer lualike_release(@ptrCast(&fn_val));
     if (fn_val.type != .nativefn) return 1;
     
     var tbl: Value = undefined;
     lualike_newtable(@ptrCast(&tbl));
     var v = numV(42);
-    lualike_setfield(null, @ptrCast(&tbl), @ptrCast(@constCast("answer")), @ptrCast(&v));
+    lualike_setfield_c(null, @ptrCast(&tbl), @ptrCast(@constCast("answer")), @ptrCast(&v));
     
     var args: [1]Value = .{tbl};
     var result: Value = undefined;
@@ -663,7 +663,7 @@ export fn test_stdlib_print() i32 {
     
     var fn_val: Value = undefined;
     const st: *State = @ptrCast(@alignCast(L));
-    lualike_getfield(null, @ptrCast(&fn_val), &st.globals, @ptrCast(@constCast("print")));
+    lualike_getfield_c(null, @ptrCast(&fn_val), &st.globals, @ptrCast(@constCast("print")));
     defer lualike_release(@ptrCast(&fn_val));
     if (fn_val.type != .nativefn) return 1;
     
@@ -683,11 +683,12 @@ export fn test_stdlib_call_each_stub() i32 {
     const st: *State = @ptrCast(@alignCast(L));
     for ([_][]const u8{ "ipairs", "select", "error", "pcall", "xpcall", "assert", "tostring", "rawget", "rawset", "rawequal", "rawlen", "getmetatable", "setmetatable", "dofile", "load", "loadfile", "require", "collectgarbage" }) |name| {
         var fn_val: Value = undefined;
-        lualike_getfield(null, @ptrCast(&fn_val), &st.globals, @ptrCast(@constCast(name)));
+        lualike_getfield_c(null, @ptrCast(&fn_val), &st.globals, @ptrCast(@constCast(name)));
         defer lualike_release(@ptrCast(&fn_val));
         if (fn_val.type != .nativefn) continue;
         var result: Value = undefined;
-        lualike_call(L, @ptrCast(&result), @ptrCast(&fn_val), undefined, 0);
+        var no_args: [1]Value = .{nilV()};
+        lualike_call(L, @ptrCast(&result), @ptrCast(&fn_val), @ptrCast(&no_args), 0);
         lualike_release(@ptrCast(&result));
     }
     return 0;

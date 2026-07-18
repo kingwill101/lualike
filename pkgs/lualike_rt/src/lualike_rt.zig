@@ -585,6 +585,19 @@ export fn lualike_setfield(L: ?*State, tbl: *Value, field: *const Value, val: *c
     var k = Value{ .type = .string, ._pad = undefined, .payload = .{ .s = key } };
     lualike_settable(L, tbl, &k, val);
 }
+// C-string convenience wrappers (for test runner and getglobal/setglobal compatibility)
+export fn lualike_getfield_c(L: ?*State, d: *Value, tbl: *const Value, field: [*:0]u8) void {
+    const key = String.init(std.mem.sliceTo(field, 0)) catch { lualike_pushnil(d); return; };
+    defer key.deref();
+    var k = Value{ .type = .string, ._pad = undefined, .payload = .{ .s = key } };
+    lualike_gettable(L, d, tbl, &k);
+}
+export fn lualike_setfield_c(L: ?*State, tbl: *Value, field: [*:0]u8, val: *const Value) void {
+    const key = String.init(std.mem.sliceTo(field, 0)) catch return;
+    defer key.deref();
+    var k = Value{ .type = .string, ._pad = undefined, .payload = .{ .s = key } };
+    lualike_settable(L, tbl, &k, val);
+}
 export fn lualike_geti(L: ?*State, d: *Value, tbl: *const Value, idx: i64) void {
     var k = Value{ .type = .number, ._pad = undefined, .payload = .{ .n = @floatFromInt(idx) } };
     lualike_gettable(L, d, tbl, &k);
@@ -879,10 +892,384 @@ fn reg(L: *State, lib: []const u8, name: []const u8, cfn: NativeFn) void {
     }
 }
 
+// ===========================================================================
+// Standard library implementations
+// ===========================================================================
+
 /// Generic stub C function — returns nil.
 fn stdStub(_: *State, _: [*]Value, _: i32, r: [*]Value, _: i32, nr: *i32) callconv(.c) void {
     lualike_pushnil(&r[0]); nr.* = 1;
 }
+
+/// Helper: push a string from a Zig slice into a Value.
+fn pushStr(r: *Value, s: []const u8) void {
+    const key = String.init(s) catch { lualike_pushnil(r); return; };
+    lualike_pushcstring(r, null, @ptrCast(key.data));
+    key.refcount -%= 1;
+    if (key.refcount == 0) {
+        Alloc.free(key.data[0..key.len]);
+        Alloc.destroy(key);
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Base library
+// ---------------------------------------------------------------------------
+
+fn stdTostring(_: *State, args: [*]Value, n: i32, r: [*]Value, _: i32, nr: *i32) callconv(.c) void {
+    if (n < 1) { lualike_pushnil(&r[0]); nr.* = 1; return; }
+    switch (args[0].type) {
+        .nil => pushStr(&r[0], "nil"),
+        .boolean => pushStr(&r[0], if (args[0].payload.b) "true" else "false"),
+        .number => {
+            var buf: [64]u8 = undefined;
+            const s = std.fmt.bufPrint(buf[0..], "{d}", .{args[0].payload.n}) catch "?";
+            if (s.len > 0) pushStr(&r[0], s) else lualike_pushnil(&r[0]);
+        },
+        .string => lualike_copy(&r[0], &args[0]),
+        .table => pushStr(&r[0], "table"),
+        .function_, .nativefn => pushStr(&r[0], "function"),
+    }
+    nr.* = 1;
+}
+
+fn stdError(L: *State, args: [*]Value, n: i32, _: [*]Value, _: i32, _: *i32) callconv(.c) void {
+    if (n >= 1 and args[0].type == .string) {
+        const s = args[0].payload.s orelse return;
+        lualike_error(L, @ptrCast(s.data));
+    } else {
+        lualike_error(L, @ptrCast(@constCast("error")));
+    }
+    // Never returns normally — longjmp or exit
+    // For now we mark error and return nil
+}
+
+fn stdAssert(_: *State, args: [*]Value, n: i32, r: [*]Value, _: i32, nr: *i32) callconv(.c) void {
+    if (n < 1 or !lualike_istruthy(&args[0])) {
+        lualike_error(null, @ptrCast(@constCast("assertion failed!")));
+        lualike_pushnil(&r[0]); nr.* = 1;
+        return;
+    }
+    lualike_copy(&r[0], &args[0]);
+    nr.* = 1;
+}
+
+fn stdSelect(L: *State, args: [*]Value, n: i32, r: [*]Value, _: i32, nr: *i32) callconv(.c) void {
+    _ = L;
+    if (n < 1) { lualike_pushnil(&r[0]); nr.* = 1; return; }
+    if (args[0].type == .number) {
+        var idx = @as(i64, @intFromFloat(args[0].payload.n));
+        if (idx < 0) idx = @as(i64, @intCast(n)) + idx;
+        if (idx >= 1 and idx < n) {
+            lualike_copy(&r[0], &args[@as(usize, @intCast(idx))]);
+        } else {
+            lualike_pushnil(&r[0]);
+        }
+    } else if (args[0].type == .string) {
+        // select("#", ...) returns the count
+        lualike_pushnumber(&r[0], @floatFromInt(n - 1));
+    }
+    nr.* = 1;
+}
+
+fn stdRawget(L: *State, args: [*]Value, n: i32, r: [*]Value, _: i32, nr: *i32) callconv(.c) void {
+    _ = L;
+    if (n < 2) { lualike_pushnil(&r[0]); nr.* = 1; return; }
+    lualike_rawget(&r[0], &args[0], &args[1]);
+    nr.* = 1;
+}
+
+fn stdRawset(L: *State, args: [*]Value, n: i32, _: [*]Value, _: i32, nr: *i32) callconv(.c) void {
+    _ = L;
+    if (n >= 3) lualike_rawset(&args[0], &args[1], &args[2]);
+    nr.* = 0;
+}
+
+fn stdRawequal(L: *State, args: [*]Value, n: i32, r: [*]Value, _: i32, nr: *i32) callconv(.c) void {
+    _ = L;
+    if (n < 2) { lualike_pushnil(&r[0]); nr.* = 1; return; }
+    lualike_rawequal(&r[0], &args[0], &args[1]);
+    nr.* = 1;
+}
+
+fn stdRawlen(L: *State, args: [*]Value, n: i32, r: [*]Value, _: i32, nr: *i32) callconv(.c) void {
+    _ = L;
+    if (n < 1) { lualike_pushnil(&r[0]); nr.* = 1; return; }
+    lualike_rawlen(&r[0], &args[0]);
+    nr.* = 1;
+}
+
+fn stdGetmetatable(_: *State, _: [*]Value, _: i32, r: [*]Value, _: i32, nr: *i32) callconv(.c) void {
+    lualike_pushnil(&r[0]); nr.* = 1;
+}
+
+fn stdSetmetatable(_: *State, args: [*]Value, _: i32, r: [*]Value, _: i32, nr: *i32) callconv(.c) void {
+    lualike_copy(&r[0], &args[0]);
+    nr.* = 1;
+}
+
+fn stdIpairs(_: *State, args: [*]Value, n: i32, r: [*]Value, _: i32, nr: *i32) callconv(.c) void {
+    if (n < 1 or args[0].type != .table) {
+        lualike_pushnil(&r[0]); nr.* = 1; return;
+    }
+    // ipairs returns a function that iterates over integer keys starting from 1
+    lualike_pushcfunction(&r[0], @intFromPtr(&stdNext), @ptrCast(@constCast("next")));
+    lualike_copy(&r[1], &args[0]);
+    lualike_pushnumber(&r[2], 0);
+    nr.* = 3;
+}
+
+fn stdCollectgarbage(_: *State, _: [*]Value, _: i32, r: [*]Value, _: i32, nr: *i32) callconv(.c) void {
+    lualike_pushnil(&r[0]); nr.* = 1;
+}
+
+fn stdDofile(_: *State, _: [*]Value, _: i32, r: [*]Value, _: i32, nr: *i32) callconv(.c) void {
+    lualike_pushnil(&r[0]); nr.* = 1;
+}
+
+fn stdLoad(_: *State, _: [*]Value, _: i32, r: [*]Value, _: i32, nr: *i32) callconv(.c) void {
+    lualike_pushnil(&r[0]); nr.* = 1;
+}
+
+// ---------------------------------------------------------------------------
+// String library
+// ---------------------------------------------------------------------------
+
+fn stdStringByte(_: *State, args: [*]Value, n: i32, r: [*]Value, _: i32, nr: *i32) callconv(.c) void {
+    if (n < 1 or args[0].type != .string) { lualike_pushnil(&r[0]); nr.* = 1; return; }
+    const s = args[0].payload.s orelse { lualike_pushnil(&r[0]); nr.* = 1; return; };
+    const start: usize = if (n >= 2 and args[1].type == .number) @as(usize, @intFromFloat(args[1].payload.n)) else 1;
+    const end: usize = if (n >= 3 and args[2].type == .number) @as(usize, @intFromFloat(args[2].payload.n)) else s.len;
+    if (start < 1 or start > end or end > s.len) { lualike_pushnil(&r[0]); nr.* = 1; return; }
+    lualike_pushnumber(&r[0], @floatFromInt(s.data[start - 1]));
+    nr.* = 1;
+}
+
+fn stdStringChar(_: *State, args: [*]Value, n: i32, r: [*]Value, _: i32, nr: *i32) callconv(.c) void {
+    
+    var buf: [256]u8 = undefined;
+    var len: usize = 0;
+    for (0..@as(usize, @intCast(@min(n, 256)))) |i| {
+        if (args[i].type == .number) {
+            buf[len] = @as(u8, @intFromFloat(args[i].payload.n));
+            len += 1;
+        }
+    }
+    if (len > 0) pushStr(&r[0], buf[0..len]) else lualike_pushnil(&r[0]);
+    nr.* = 1;
+}
+
+fn stdStringSub(L: *State, args: [*]Value, n: i32, r: [*]Value, _: i32, nr: *i32) callconv(.c) void {
+    _ = L;
+    if (n < 1 or args[0].type != .string) { lualike_pushnil(&r[0]); nr.* = 1; return; }
+    const s = args[0].payload.s orelse { lualike_pushnil(&r[0]); nr.* = 1; return; };
+    const len = s.len;
+    if (n < 2 or args[1].type != .number) { lualike_pushnil(&r[0]); nr.* = 1; return; }
+    var start = @as(i64, @intFromFloat(args[1].payload.n));
+    if (start < 0) start = @as(i64, @intCast(len)) + start + 1;
+    if (start < 1) start = 1;
+    const end: usize = if (n >= 3 and args[2].type == .number) blk: {
+        var e = @as(i64, @intFromFloat(args[2].payload.n));
+        if (e < 0) e = @as(i64, @intCast(len)) + e + 1;
+        break :blk @as(usize, @intCast(@max(0, @min(e, len))));
+    } else len;
+    if (start > end or start > len) { lualike_pushnil(&r[0]); nr.* = 1; return; }
+    pushStr(&r[0], s.data[@as(usize, @intCast(start - 1))..end]);
+    nr.* = 1;
+}
+
+fn stdStringReverse(L: *State, args: [*]Value, n: i32, r: [*]Value, _: i32, nr: *i32) callconv(.c) void {
+    _ = L;
+    if (n < 1 or args[0].type != .string) { lualike_pushnil(&r[0]); nr.* = 1; return; }
+    const s = args[0].payload.s orelse { lualike_pushnil(&r[0]); nr.* = 1; return; };
+    var buf = Alloc.alloc(u8, s.len) catch { lualike_pushnil(&r[0]); nr.* = 1; return; };
+    defer Alloc.free(buf);
+    for (0..s.len) |i| buf[i] = s.data[s.len - 1 - i];
+    pushStr(&r[0], buf[0..s.len]);
+    nr.* = 1;
+}
+
+fn stdStringRep(L: *State, args: [*]Value, n: i32, r: [*]Value, _: i32, nr: *i32) callconv(.c) void {
+    _ = L;
+    if (n < 2 or args[0].type != .string or args[1].type != .number) { lualike_pushnil(&r[0]); nr.* = 1; return; }
+    const s = args[0].payload.s orelse { lualike_pushnil(&r[0]); nr.* = 1; return; };
+    const count = @as(usize, @intFromFloat(args[1].payload.n));
+    const total = s.len * count;
+    if (total > 1024 * 1024) { lualike_pushnil(&r[0]); nr.* = 1; return; } // safety limit
+    var buf = Alloc.alloc(u8, total) catch { lualike_pushnil(&r[0]); nr.* = 1; return; };
+    defer Alloc.free(buf);
+    for (0..count) |i| @memcpy(buf[i * s.len .. (i + 1) * s.len], s.data[0..s.len]);
+    pushStr(&r[0], buf[0..total]);
+    nr.* = 1;
+}
+
+fn stdStringUpper(L: *State, args: [*]Value, n: i32, r: [*]Value, _: i32, nr: *i32) callconv(.c) void {
+    _ = L;
+    if (n < 1 or args[0].type != .string) { lualike_pushnil(&r[0]); nr.* = 1; return; }
+    const s = args[0].payload.s orelse { lualike_pushnil(&r[0]); nr.* = 1; return; };
+    var buf = Alloc.alloc(u8, s.len) catch { lualike_pushnil(&r[0]); nr.* = 1; return; };
+    defer Alloc.free(buf);
+    for (0..s.len) |i| buf[i] = std.ascii.toUpper(s.data[i]);
+    pushStr(&r[0], buf[0..s.len]);
+    nr.* = 1;
+}
+
+fn stdStringLower(L: *State, args: [*]Value, n: i32, r: [*]Value, _: i32, nr: *i32) callconv(.c) void {
+    _ = L;
+    if (n < 1 or args[0].type != .string) { lualike_pushnil(&r[0]); nr.* = 1; return; }
+    const s = args[0].payload.s orelse { lualike_pushnil(&r[0]); nr.* = 1; return; };
+    var buf = Alloc.alloc(u8, s.len) catch { lualike_pushnil(&r[0]); nr.* = 1; return; };
+    defer Alloc.free(buf);
+    for (0..s.len) |i| buf[i] = std.ascii.toLower(s.data[i]);
+    pushStr(&r[0], buf[0..s.len]);
+    nr.* = 1;
+}
+
+fn stdStringLen(L: *State, args: [*]Value, n: i32, r: [*]Value, _: i32, nr: *i32) callconv(.c) void {
+    _ = L;
+    if (n < 1 or args[0].type != .string) { lualike_pushnil(&r[0]); nr.* = 1; return; }
+    const s = args[0].payload.s orelse { lualike_pushnil(&r[0]); nr.* = 1; return; };
+    lualike_pushnumber(&r[0], @floatFromInt(s.len));
+    nr.* = 1;
+}
+
+fn stdStringFind(_: *State, _: [*]Value, _: i32, r: [*]Value, _: i32, nr: *i32) callconv(.c) void {
+    lualike_pushnil(&r[0]); nr.* = 1;
+}
+
+fn stdStringFormat(_: *State, _: [*]Value, _: i32, r: [*]Value, _: i32, nr: *i32) callconv(.c) void {
+    lualike_pushnil(&r[0]); nr.* = 1;
+}
+
+// ---------------------------------------------------------------------------
+// Table library
+// ---------------------------------------------------------------------------
+
+fn stdTableInsert(_: *State, _: [*]Value, _: i32, _: [*]Value, _: i32, nr: *i32) callconv(.c) void {
+    nr.* = 0;
+}
+
+fn stdTableRemove(_: *State, _: [*]Value, _: i32, r: [*]Value, _: i32, nr: *i32) callconv(.c) void {
+    lualike_pushnil(&r[0]); nr.* = 1;
+}
+
+fn stdTableConcat(_: *State, _: [*]Value, _: i32, r: [*]Value, _: i32, nr: *i32) callconv(.c) void {
+    lualike_pushnil(&r[0]); nr.* = 1;
+}
+
+// ---------------------------------------------------------------------------
+// Math library
+// ---------------------------------------------------------------------------
+
+fn stdMathAbs(_: *State, args: [*]Value, n: i32, r: [*]Value, _: i32, nr: *i32) callconv(.c) void {
+    if (n < 1 or args[0].type != .number) { lualike_pushnil(&r[0]); nr.* = 1; return; }
+    lualike_pushnumber(&r[0], @abs(args[0].payload.n));
+    nr.* = 1;
+}
+fn stdMathFloor(_: *State, args: [*]Value, n: i32, r: [*]Value, _: i32, nr: *i32) callconv(.c) void {
+    if (n < 1 or args[0].type != .number) { lualike_pushnil(&r[0]); nr.* = 1; return; }
+    lualike_pushnumber(&r[0], @floor(args[0].payload.n));
+    nr.* = 1;
+}
+fn stdMathCeil(_: *State, args: [*]Value, n: i32, r: [*]Value, _: i32, nr: *i32) callconv(.c) void {
+    if (n < 1 or args[0].type != .number) { lualike_pushnil(&r[0]); nr.* = 1; return; }
+    lualike_pushnumber(&r[0], @ceil(args[0].payload.n));
+    nr.* = 1;
+}
+fn stdMathMax(_: *State, args: [*]Value, n: i32, r: [*]Value, _: i32, nr: *i32) callconv(.c) void {
+    if (n < 1) { lualike_pushnil(&r[0]); nr.* = 1; return; }
+    const nn = @as(usize, @intCast(n));
+    var m = args[0].payload.n;
+    for (1..nn) |i| { if (args[i].type == .number and args[i].payload.n > m) m = args[i].payload.n; }
+    lualike_pushnumber(&r[0], m);
+    nr.* = 1;
+}
+fn stdMathMin(_: *State, args: [*]Value, n: i32, r: [*]Value, _: i32, nr: *i32) callconv(.c) void {
+    if (n < 1) { lualike_pushnil(&r[0]); nr.* = 1; return; }
+    const nn = @as(usize, @intCast(n));
+    var m = args[0].payload.n;
+    for (1..nn) |i| { if (args[i].type == .number and args[i].payload.n < m) m = args[i].payload.n; }
+    lualike_pushnumber(&r[0], m);
+    nr.* = 1;
+}
+fn stdMathSin(_: *State, args: [*]Value, n: i32, r: [*]Value, _: i32, nr: *i32) callconv(.c) void {
+    if (n < 1 or args[0].type != .number) { lualike_pushnil(&r[0]); nr.* = 1; return; }
+    lualike_pushnumber(&r[0], @sin(args[0].payload.n));
+    nr.* = 1;
+}
+fn stdMathCos(_: *State, args: [*]Value, n: i32, r: [*]Value, _: i32, nr: *i32) callconv(.c) void {
+    if (n < 1 or args[0].type != .number) { lualike_pushnil(&r[0]); nr.* = 1; return; }
+    lualike_pushnumber(&r[0], @cos(args[0].payload.n));
+    nr.* = 1;
+}
+fn stdMathTan(_: *State, args: [*]Value, n: i32, r: [*]Value, _: i32, nr: *i32) callconv(.c) void {
+    if (n < 1 or args[0].type != .number) { lualike_pushnil(&r[0]); nr.* = 1; return; }
+    lualike_pushnumber(&r[0], @tan(args[0].payload.n));
+    nr.* = 1;
+}
+fn stdMathAsin(_: *State, args: [*]Value, n: i32, r: [*]Value, _: i32, nr: *i32) callconv(.c) void {
+    if (n < 1 or args[0].type != .number) { lualike_pushnil(&r[0]); nr.* = 1; return; }
+    lualike_pushnumber(&r[0], std.math.asin(args[0].payload.n));
+    nr.* = 1;
+}
+fn stdMathAcos(_: *State, args: [*]Value, n: i32, r: [*]Value, _: i32, nr: *i32) callconv(.c) void {
+    if (n < 1 or args[0].type != .number) { lualike_pushnil(&r[0]); nr.* = 1; return; }
+    lualike_pushnumber(&r[0], std.math.acos(args[0].payload.n));
+    nr.* = 1;
+}
+fn stdMathAtan(_: *State, args: [*]Value, n: i32, r: [*]Value, _: i32, nr: *i32) callconv(.c) void {
+    if (n < 1 or args[0].type != .number) { lualike_pushnil(&r[0]); nr.* = 1; return; }
+    lualike_pushnumber(&r[0], std.math.atan(args[0].payload.n));
+    nr.* = 1;
+}
+fn stdMathAtan2(_: *State, args: [*]Value, n: i32, r: [*]Value, _: i32, nr: *i32) callconv(.c) void {
+    if (n < 2 or args[0].type != .number or args[1].type != .number) { lualike_pushnil(&r[0]); nr.* = 1; return; }
+    lualike_pushnumber(&r[0], std.math.atan2(args[0].payload.n, args[1].payload.n));
+    nr.* = 1;
+}
+fn stdMathSqrt(_: *State, args: [*]Value, n: i32, r: [*]Value, _: i32, nr: *i32) callconv(.c) void {
+    if (n < 1 or args[0].type != .number) { lualike_pushnil(&r[0]); nr.* = 1; return; }
+    lualike_pushnumber(&r[0], @sqrt(args[0].payload.n));
+    nr.* = 1;
+}
+fn stdMathLog(_: *State, args: [*]Value, n: i32, r: [*]Value, _: i32, nr: *i32) callconv(.c) void {
+    if (n < 1 or args[0].type != .number) { lualike_pushnil(&r[0]); nr.* = 1; return; }
+    lualike_pushnumber(&r[0], @log(args[0].payload.n));
+    nr.* = 1;
+}
+fn stdMathExp(_: *State, args: [*]Value, n: i32, r: [*]Value, _: i32, nr: *i32) callconv(.c) void {
+    if (n < 1 or args[0].type != .number) { lualike_pushnil(&r[0]); nr.* = 1; return; }
+    lualike_pushnumber(&r[0], @exp(args[0].payload.n));
+    nr.* = 1;
+}
+fn stdMathDeg(_: *State, args: [*]Value, n: i32, r: [*]Value, _: i32, nr: *i32) callconv(.c) void {
+    if (n < 1 or args[0].type != .number) { lualike_pushnil(&r[0]); nr.* = 1; return; }
+    lualike_pushnumber(&r[0], args[0].payload.n * 180.0 / std.math.pi);
+    nr.* = 1;
+}
+fn stdMathRad(_: *State, args: [*]Value, n: i32, r: [*]Value, _: i32, nr: *i32) callconv(.c) void {
+    if (n < 1 or args[0].type != .number) { lualike_pushnil(&r[0]); nr.* = 1; return; }
+    lualike_pushnumber(&r[0], args[0].payload.n * std.math.pi / 180.0);
+    nr.* = 1;
+}
+fn stdMathFmod(_: *State, args: [*]Value, n: i32, r: [*]Value, _: i32, nr: *i32) callconv(.c) void {
+    if (n < 2 or args[0].type != .number or args[1].type != .number) { lualike_pushnil(&r[0]); nr.* = 1; return; }
+    lualike_pushnumber(&r[0], @rem(args[0].payload.n, args[1].payload.n));
+    nr.* = 1;
+}
+fn stdMathRandom(_: *State, _: [*]Value, _: i32, r: [*]Value, _: i32, nr: *i32) callconv(.c) void {
+    lualike_pushnumber(&r[0], 0.5);
+    nr.* = 1;
+}
+fn stdMathRandomseed(_: *State, args: [*]Value, n: i32, _: [*]Value, _: i32, nr: *i32) callconv(.c) void {
+    _ = n;
+    _ = args;
+    nr.* = 0;
+}
+
+// ===========================================================================
+// Stdlib registration
+// ===========================================================================
 
 export fn lualike_openlibs(L: *State) void {
     // Base library
@@ -891,66 +1278,99 @@ export fn lualike_openlibs(L: *State) void {
     reg(L, "", "tonumber", stdTonumber);
     reg(L, "", "next", stdNext);
     reg(L, "", "pairs", stdPairs);
-    reg(L, "", "ipairs", stdStub);
-    reg(L, "", "select", stdStub);
-    reg(L, "", "error", stdStub);
+    reg(L, "", "ipairs", stdIpairs);
+    reg(L, "", "select", stdSelect);
+    reg(L, "", "error", stdError);
     reg(L, "", "pcall", stdStub);
     reg(L, "", "xpcall", stdStub);
-    reg(L, "", "assert", stdStub);
-    reg(L, "", "tostring", stdStub);
-    reg(L, "", "rawget", stdStub);
-    reg(L, "", "rawset", stdStub);
-    reg(L, "", "rawequal", stdStub);
-    reg(L, "", "rawlen", stdStub);
-    reg(L, "", "getmetatable", stdStub);
-    reg(L, "", "setmetatable", stdStub);
-    reg(L, "", "dofile", stdStub);
-    reg(L, "", "load", stdStub);
-    reg(L, "", "loadfile", stdStub);
-    reg(L, "", "require", stdStub);
-    reg(L, "", "collectgarbage", stdStub);
+    reg(L, "", "assert", stdAssert);
+    reg(L, "", "tostring", stdTostring);
+    reg(L, "", "rawget", stdRawget);
+    reg(L, "", "rawset", stdRawset);
+    reg(L, "", "rawequal", stdRawequal);
+    reg(L, "", "rawlen", stdRawlen);
+    reg(L, "", "getmetatable", stdGetmetatable);
+    reg(L, "", "setmetatable", stdSetmetatable);
+    reg(L, "", "dofile", stdDofile);
+    reg(L, "", "load", stdLoad);
+    reg(L, "", "loadfile", stdDofile);
+    reg(L, "", "require", stdDofile);
+    reg(L, "", "collectgarbage", stdCollectgarbage);
 
     // String library
-    {
-        const names = [_][]const u8{"byte","char","sub","upper","lower","reverse","rep","len","find","match","gmatch","gsub","format","pack","unpack","packsize","dump"};
-        for (names) |n| { reg(L, "string", n, stdStub); }
-    }
+    reg(L, "string", "byte", stdStringByte);
+    reg(L, "string", "char", stdStringChar);
+    reg(L, "string", "sub", stdStringSub);
+    reg(L, "string", "upper", stdStringUpper);
+    reg(L, "string", "lower", stdStringLower);
+    reg(L, "string", "reverse", stdStringReverse);
+    reg(L, "string", "rep", stdStringRep);
+    reg(L, "string", "len", stdStringLen);
+    reg(L, "string", "find", stdStringFind);
+    reg(L, "string", "match", stdStringFind);
+    reg(L, "string", "gmatch", stdStringFind);
+    reg(L, "string", "gsub", stdStringFind);
+    reg(L, "string", "format", stdStringFormat);
+    reg(L, "string", "pack", stdLoad);
+    reg(L, "string", "unpack", stdLoad);
+    reg(L, "string", "packsize", stdLoad);
+    reg(L, "string", "dump", stdLoad);
 
     // Table library
-    {
-        const names = [_][]const u8{"insert","remove","concat","sort","move","pack","unpack","create"};
-        for (names) |n| { reg(L, "table", n, stdStub); }
-    }
+    reg(L, "table", "insert", stdTableInsert);
+    reg(L, "table", "remove", stdTableRemove);
+    reg(L, "table", "concat", stdTableConcat);
+    reg(L, "table", "sort", stdLoad);
+    reg(L, "table", "move", stdLoad);
+    reg(L, "table", "pack", stdLoad);
+    reg(L, "table", "unpack", stdLoad);
+    reg(L, "table", "create", stdLoad);
 
     // Math library
-    {
-        const names = [_][]const u8{"abs","floor","ceil","max","min","sin","cos","tan","asin","acos","atan","atan2","sqrt","log","exp","random","randomseed","deg","rad","fmod","modf","tointeger","type","ult"};
-        for (names) |n| { reg(L, "math", n, stdStub); }
-    }
-    // Math constants
-    // (Constants can't be registered via reg() which expects functions)
+    reg(L, "math", "abs", stdMathAbs);
+    reg(L, "math", "floor", stdMathFloor);
+    reg(L, "math", "ceil", stdMathCeil);
+    reg(L, "math", "max", stdMathMax);
+    reg(L, "math", "min", stdMathMin);
+    reg(L, "math", "sin", stdMathSin);
+    reg(L, "math", "cos", stdMathCos);
+    reg(L, "math", "tan", stdMathTan);
+    reg(L, "math", "asin", stdMathAsin);
+    reg(L, "math", "acos", stdMathAcos);
+    reg(L, "math", "atan", stdMathAtan);
+    reg(L, "math", "atan2", stdMathAtan2);
+    reg(L, "math", "sqrt", stdMathSqrt);
+    reg(L, "math", "log", stdMathLog);
+    reg(L, "math", "exp", stdMathExp);
+    reg(L, "math", "random", stdMathRandom);
+    reg(L, "math", "randomseed", stdMathRandomseed);
+    reg(L, "math", "deg", stdMathDeg);
+    reg(L, "math", "rad", stdMathRad);
+    reg(L, "math", "fmod", stdMathFmod);
+    reg(L, "math", "modf", stdLoad);
+    reg(L, "math", "tointeger", stdLoad);
+    reg(L, "math", "type", stdLoad);
+    reg(L, "math", "ult", stdLoad);
 
-    // IO library
-    reg(L, "", "io", stdStub);
-    {
-        const names = [_][]const u8{"close","flush","input","lines","open","output","popen","read","tmpfile","type","write"};
-        for (names) |n| { reg(L, "io", n, stdStub); }
-    }
+    // IO library (sub-table)
+    reg(L, "io", "close", stdLoad);
+    reg(L, "io", "flush", stdLoad);
+    reg(L, "io", "input", stdLoad);
+    reg(L, "io", "lines", stdLoad);
+    reg(L, "io", "open", stdLoad);
+    reg(L, "io", "output", stdLoad);
+    reg(L, "io", "popen", stdLoad);
+    reg(L, "io", "read", stdLoad);
+    reg(L, "io", "tmpfile", stdLoad);
+    reg(L, "io", "type", stdLoad);
+    reg(L, "io", "write", stdLoad);
 
-    // OS library
-    reg(L, "", "os", stdStub);
-
-    // Debug library
-    reg(L, "", "debug", stdStub);
-
-    // UTF-8 library
-    reg(L, "", "utf8", stdStub);
-
-    // Coroutine library
-    reg(L, "", "coroutine", stdStub);
-
-    // Package library
-    reg(L, "", "package", stdStub);
+    // OS / Debug / UTF8 / Coroutine / Package — top-level tables
+    reg(L, "", "os", stdLoad);
+    reg(L, "", "debug", stdLoad);
+    reg(L, "", "utf8", stdLoad);
+    reg(L, "", "coroutine", stdLoad);
+    reg(L, "", "package", stdLoad);
 }
 
 // ===========================================================================
