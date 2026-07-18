@@ -394,7 +394,7 @@ test "value creation and queries" {
     lualike_pushcstring(&v, null, @ptrCast(@constCast("hello")));
     try testing.expectEqual(v.type, Type.string);
     try testing.expect(lualike_isstring(&v));
-    const s = v.payload.s orelse return error.NoString;
+    const s = v.payload.s orelse return error.NoStringing;
     try testing.expectEqual(s.len, 5);
     try testing.expect(mem.eql(u8, s.data[0..s.len], "hello"));
     release(v);
@@ -403,7 +403,7 @@ test "value creation and queries" {
 test "copy and retain/release" {
     var v1: Value = undefined;
     lualike_pushcstring(&v1, null, @ptrCast(@constCast("test")));
-    const s = v1.payload.s orelse return error.NoString;
+    const s = v1.payload.s orelse return error.NoStringing;
     try testing.expectEqual(s.refcount, 1);
     var v2: Value = undefined;
     lualike_copy(&v2, &v1);
@@ -411,4 +411,95 @@ test "copy and retain/release" {
     release(v2);
     try testing.expectEqual(s.refcount, 1);
     release(v1);
+}
+
+test "arithmetic" {
+    var d: Value = undefined;
+    const a = Value{ .type = .number, ._pad = undefined, .payload = .{ .n = 10 } };
+    const b = Value{ .type = .number, ._pad = undefined, .payload = .{ .n = 3 } };
+    lualike_add(null, &d, &a, &b); try testing.expectEqual(d.payload.n, 13);
+    lualike_sub(null, &d, &a, &b); try testing.expectEqual(d.payload.n, 7);
+    lualike_mul(null, &d, &a, &b); try testing.expectEqual(d.payload.n, 30);
+    lualike_div(null, &d, &a, &b); try testing.expectApproxEqAbs(d.payload.n, 3.333, 0.01);
+    lualike_mod(null, &d, &a, &b); try testing.expectEqual(d.payload.n, 1);
+    lualike_pow(null, &d, &a, &b); try testing.expectEqual(d.payload.n, 1000);
+    lualike_unm(null, &d, &a); try testing.expectEqual(d.payload.n, -10);
+}
+
+test "bitwise ops" {
+    var d: Value = undefined;
+    const a = Value{ .type = .number, ._pad = undefined, .payload = .{ .n = 0xFF } };
+    const b = Value{ .type = .number, ._pad = undefined, .payload = .{ .n = 0x0F } };
+    lualike_band(&d, &a, &b); try testing.expectEqual(@as(i64, @intFromFloat(d.payload.n)), 0x0F);
+    lualike_bor(&d, &a, &b);  try testing.expectEqual(@as(i64, @intFromFloat(d.payload.n)), 0xFF);
+    lualike_bxor(&d, &a, &b); try testing.expectEqual(@as(i64, @intFromFloat(d.payload.n)), 0xF0);
+}
+
+test "string concat and len" {
+    var a: Value = undefined; lualike_pushcstring(&a, null, @ptrCast(@constCast("hello "))); defer release(a);
+    var b: Value = undefined; lualike_pushcstring(&b, null, @ptrCast(@constCast("world"))); defer release(b);
+    var r: Value = undefined;
+    lualike_concat(null, &r, &a, &b); defer release(r);
+    const s = r.payload.s orelse return error.NoString;
+    try testing.expect(mem.eql(u8, s.data[0..s.len], "hello world"));
+    var l: Value = undefined;
+    lualike_len(null, &l, &r); try testing.expectEqual(l.payload.n, 11);
+}
+
+test "table — multi-field (C pairs bug regression)" {
+    var t: Value = undefined; lualike_newtable(&t); defer release(t);
+    var v: Value = undefined;
+    const keys = [_][]const u8{ "alpha", "beta", "gamma", "delta", "epsilon", "zeta" };
+    for (keys, 0..) |k, i| { lualike_pushnumber(&v, @as(f64, @floatFromInt(i * 10))); lualike_setfield(null, &t, @ptrCast(@constCast(k)), &v); }
+    for (keys, 0..) |k, i| {
+        var r: Value = undefined;
+        lualike_getfield(null, &r, &t, @ptrCast(@constCast(k)));
+        defer release(r);
+        try testing.expectEqual(r.payload.n, @as(f64, @floatFromInt(i * 10)));
+    }
+}
+
+test "table — overwrite" {
+    var t: Value = undefined; lualike_newtable(&t); defer release(t);
+    var v: Value = undefined;
+    lualike_pushnumber(&v, 1); lualike_setfield(null, &t, @ptrCast(@constCast("k")), &v);
+    lualike_pushnumber(&v, 999); lualike_setfield(null, &t, @ptrCast(@constCast("k")), &v);
+    var r: Value = undefined; lualike_getfield(null, &r, &t, @ptrCast(@constCast("k"))); defer release(r);
+    try testing.expectEqual(r.payload.n, 999);
+}
+
+test "for loop — 1+2+3+4+5 = 15" {
+    var r: [5]Value = @splat(nilV());
+    r[1].payload.n = 1; r[2].payload.n = 5; r[3].payload.n = 1;
+    _ = lualike_forprep(&r, 1);
+    var sum: f64 = 0;
+    while (lualike_forloop(&r, 1) != 0) { sum += r[4].payload.n; }
+    try testing.expectEqual(sum, 15);
+}
+
+test "stdlib registration — all 6 functions accessible" {
+    const L = lualike_newstate() orelse return error.NoState; defer lualike_freestate(L);
+    for ([_][]const u8{ "print", "type", "tonumber", "next", "pairs" }) |name| {
+        var v: Value = undefined; defer release(v);
+        lualike_getfield(null, &v, &L.globals, @ptrCast(@constCast(name)));
+        try testing.expectEqual(v.type, Type.nativefn);
+    }
+}
+
+test "call native function via lualike_call" {
+    var fn_val: Value = undefined;
+    lualike_pushcfunction(&fn_val, @intFromPtr(&stdType), @ptrCast(@constCast("type")));
+    defer release(fn_val);
+    var args: [1]Value = undefined; lualike_pushnumber(&args[0], 42);
+    var result: Value = undefined; lualike_call(null, &result, &fn_val, &args, 1); defer release(result);
+    const s = result.payload.s orelse return error.NoString;
+    try testing.expect(mem.eql(u8, s.data[0..s.len], "number"));
+}
+
+test "error handling" {
+    const L = lualike_newstate() orelse return error.NoState; defer lualike_freestate(L);
+    try testing.expectEqual(L.err, 0);
+    lualike_error(L, @ptrCast(@constCast("test error")));
+    try testing.expectEqual(L.err, 1);
+    try testing.expect(mem.eql(u8, L.msg[0..10], "test error"));
 }
