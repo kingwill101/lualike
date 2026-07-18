@@ -1,10 +1,10 @@
-/// Compile a Lua script through the lualike IR pipeline to a native executable.
+/// Compile Lua → native binary via lualike IR → LLVM IR → llc → Zig runtime
 ///
 /// Usage:
 ///   dart run tool/compile_llvm.dart luascripts/compare/01_arith.lua
 ///   ./a.out
 ///
-/// Requires: llc, clang, and a built lualike_rt (run `make` in pkgs/lualike_rt/)
+/// Requires: llc, zig, clang
 library;
 
 import 'dart:io';
@@ -32,17 +32,26 @@ Future<void> main(List<String> args) async {
   final source = await scriptFile.readAsString();
   final projectRoot = Directory.current.path;
 
-  // Find the runtime library
+  // Find the Zig runtime library — build if needed
   final rtDir = '${projectRoot}/../lualike_rt';
-  // Try to find it relative to pkgs/lualike
-  var rtLibDir = '${projectRoot}/pkgs/lualike_rt/build';
-  if (!Directory(rtLibDir).existsSync()) {
-    rtLibDir = '${projectRoot}/../lualike_rt/build';
+  var rtLib = '${rtDir}/liblualike_rt.a';
+  if (!File(rtLib).existsSync()) {
+    print('Building Zig runtime...');
+    final build = await Process.run('/usr/bin/zig', [
+      'build-lib', 'src/lualike_rt.zig', '-lc', '--name', 'lualike_rt',
+    ], workingDirectory: rtDir);
+    if (build.exitCode != 0) {
+      print('Zig build failed: ${build.stderr}');
+      exit(1);
+    }
+    rtLib = '${rtDir}/liblualike_rt.a';
+    if (!File(rtLib).existsSync()) {
+      // Try finding the .a in zig-cache
+      final find = await Process.run('find', [rtDir, '-name', 'liblualike_rt.a', '-cmin', '-1']);
+      rtLib = (find.stdout as String).trim().split('\n').firstOrNull ?? rtLib;
+    }
   }
-  if (!Directory(rtLibDir).existsSync()) {
-    print('ERROR: lualike_rt not built. Run: cd pkgs/lualike_rt && make');
-    exit(1);
-  }
+  print('Using runtime: $rtLib');
 
   // 1. Parse
   print('Parsing...');
@@ -111,7 +120,7 @@ Future<void> main(List<String> args) async {
   final ccResult = await Process.run('clang', [
     '-c',
     '-o', '${tmpDir.path}/main.o',
-    '-I${rtLibDir}/../include',
+    '-I${rtDir}/include',
     mainFile.path,
   ]);
   if (ccResult.exitCode != 0) {
@@ -126,7 +135,7 @@ Future<void> main(List<String> args) async {
     '-o', outputPath,
     '${tmpDir.path}/main.o',
     '${tmpDir.path}/module.o',
-    '${rtLibDir}/liblualike_rt.a',
+    rtLib,
     '-lm',
   ]);
   if (linkResult.exitCode != 0) {

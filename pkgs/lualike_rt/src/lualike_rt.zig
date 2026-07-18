@@ -41,18 +41,20 @@ fn retain(v: Value) void {
 }
 
 fn release(v: Value) void {
-    switch (v.type) {
-        .string => { if (v.payload.s) |s| { s.refcount = s.refcount -% 1; if (s.refcount == 0) { Alloc.free(s.data[0..s.len]); Alloc.destroy(s); } } },
-        .table => { if (v.payload.t) |t| { t.refcount = t.refcount -% 1; if (t.refcount == 0) { var it = t.map.iterator(); while (it.next()) |e| release(e.value_ptr.*); t.map.deinit(Alloc); Alloc.destroy(t); } } },
-        .function_ => { if (v.payload.fn_ptr) |f| {
+    const tag = @as(u32, @intFromEnum(v.type));
+    if (tag == @intFromEnum(Type.string)) {
+        if (v.payload.s) |s| { s.refcount = s.refcount -% 1; if (s.refcount == 0) { Alloc.free(s.data[0..s.len]); Alloc.destroy(s); } }
+    } else if (tag == @intFromEnum(Type.table)) {
+        if (v.payload.t) |t| { t.refcount = t.refcount -% 1; if (t.refcount == 0) { var it = t.map.iterator(); while (it.next()) |e| release(e.value_ptr.*); t.map.deinit(Alloc); Alloc.destroy(t); } }
+    } else if (tag == @intFromEnum(Type.function_)) {
+        if (v.payload.fn_ptr) |f| {
             f.refcount = f.refcount -% 1;
             if (f.refcount == 0) {
                 Alloc.free(f.upvals[0..@as(usize, @intCast(f.nupvals))]);
                 if (f.name) |n| Alloc.free(std.mem.sliceTo(n, 0));
                 Alloc.destroy(f);
             }
-        } },
-        else => {},
+        }
     }
 }
 
@@ -73,7 +75,7 @@ export fn lualike_freestate(s: ?*State) void { const st = s orelse return; relea
 export fn lualike_pushnil(v: *Value) void { release(v.*); v.* = nilV(); }
 export fn lualike_pushboolean(v: *Value, b: bool) void { release(v.*); v.* = .{ .type = .boolean, ._pad = undefined, .payload = .{ .b = b } }; }
 export fn lualike_pushnumber(v: *Value, n: f64) void { release(v.*); v.* = .{ .type = .number, ._pad = undefined, .payload = .{ .n = n } }; }
-export fn lualike_pushinteger(v: *Value, i: i64) void { lualike_pushnumber(v, @floatFromInt(i)); }
+export fn lualike_pushinteger(v: *Value, i: i64) void { v.* = .{ .type = .number, ._pad = undefined, .payload = .{ .n = @floatFromInt(i) } }; }
 export fn lualike_pushcstring(v: *Value, _: ?*State, s: [*:0]u8) void {
     const str = String.init(std.mem.sliceTo(s, 0)) catch { lualike_pushnil(v); return; };
     release(v.*); v.* = .{ .type = .string, ._pad = undefined, .payload = .{ .s = str } };
