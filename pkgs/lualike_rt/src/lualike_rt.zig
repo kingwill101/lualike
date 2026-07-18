@@ -116,7 +116,7 @@ fn release(v: Value) void {
             t.refcount = t.refcount -% 1;
             if (t.refcount == 0) {
                 var it = t.map.iterator();
-                while (it.next()) |e| release(e.value_ptr.*);
+                while (it.next()) |e| { Alloc.free(e.key_ptr.*); release(e.value_ptr.*); }
                 t.map.deinit(Alloc);
                 Alloc.destroy(t);
             }
@@ -171,7 +171,14 @@ export fn lualike_pushboolean(v: *Value, b: bool) void {
 /// Sets `v` to a floating-point number, releasing any previously-held reference.
 ///
 export fn lualike_pushnumber(v: *Value, n: f64) void {
-    release(v.*);
+    const old_tag = @as(u32, @intFromEnum(v.type));
+    if (old_tag == @intFromEnum(Type.string)) {
+        if (v.payload.s) |s| { s.refcount = s.refcount -% 1; if (s.refcount == 0) { Alloc.free(s.data[0..s.len]); Alloc.destroy(s); } }
+    } else if (old_tag == @intFromEnum(Type.table)) {
+        if (v.payload.t != 0) { const t: *Table = @ptrFromInt(v.payload.t); t.refcount = t.refcount -% 1; if (t.refcount == 0) { var it = t.map.iterator(); while (it.next()) |e| { Alloc.free(e.key_ptr.*); release(e.value_ptr.*); } t.map.deinit(Alloc); Alloc.destroy(t); } }
+    } else if (old_tag == @intFromEnum(Type.function_)) {
+        if (v.payload.fn_ptr != 0) { const f: *Closure = @ptrFromInt(v.payload.fn_ptr); f.refcount = f.refcount -% 1; if (f.refcount == 0) { Alloc.free(f.upvals[0..@as(usize, @intCast(f.nupvals))]); if (f.name) |nm| Alloc.free(nm[0..std.mem.len(nm)]); Alloc.destroy(f); } }
+    }
     v.* = .{ .type = .number, ._pad = undefined, .payload = .{ .n = n } };
 }
 /// Sets `v` to a number converted from a signed 64-bit integer.
@@ -501,37 +508,63 @@ export fn lualike_newtable(d: *Value) void {
     release(d.*);
     d.* = .{ .type = .table, ._pad = undefined, .payload = .{ .t = @intFromPtr(t) } };
 }
+/// Convert a Value key to a []const u8 for use as a HashMap key.
+/// String keys use their data directly. Number keys are formatted into `kbuf`.
+/// Returns an error for unsupported key types.
+fn keyToSlice(key: *const Value, kbuf: []u8) ![]const u8 {
+    if (key.type == .string) {
+        if (key.payload.s) |ks| return ks.data[0..ks.len];
+        return error.NilKey;
+    }
+    if (key.type == .number) {
+        const n = key.payload.n;
+        const i = @as(i64, @intFromFloat(n));
+        if (n == @as(f64, @floatFromInt(i))) {
+            return std.fmt.bufPrint(kbuf, "{d}", .{i}) catch "";
+        }
+        return std.fmt.bufPrint(kbuf, "{d:.14}", .{n}) catch "";
+    }
+    if (key.type == .boolean) {
+        return if (key.payload.b) "true" else "false";
+    }
+    return error.UnsupportedKey;
+}
+
 export fn lualike_gettable(_: ?*State, d: *Value, tbl: *const Value, key: *const Value) void {
     if (tbl.type != .table) {
         lualike_pushnil(d);
         return;
     }
-    if (key.type == .string) {
-        if (key.payload.s) |ks| {
-            const k = ks.data[0..ks.len];
-            if (tbl.payload.t != 0) { const t: *Table = @ptrFromInt(tbl.payload.t);
-                if (t.map.get(k)) |v| {
-                    var vv = v;
-                    lualike_copy(d, &vv);
-                    return;
-                }
-            }
+    var kbuf: [64]u8 = undefined;
+    const k = keyToSlice(key, &kbuf) catch {
+        lualike_pushnil(d);
+        return;
+    };
+    if (tbl.payload.t != 0) { const t: *Table = @ptrFromInt(tbl.payload.t);
+        if (t.map.get(k)) |v| {
+            var vv = v;
+            lualike_copy(d, &vv);
+            return;
         }
     }
     lualike_pushnil(d);
 }
 export fn lualike_settable(_: ?*State, tbl: *Value, key: *const Value, val: *const Value) void {
     if (tbl.type != .table) return;
-    if (key.type == .string) {
-        if (key.payload.s) |ks| {
-            const k = ks.data[0..ks.len];
-            if (tbl.payload.t != 0) { const t: *Table = @ptrFromInt(tbl.payload.t);
-                const r = t.map.getOrPut(Alloc, k) catch return;
-                if (r.found_existing) release(r.value_ptr.*);
-                r.value_ptr.* = val.*;
-                retain(val.*);
-            }
+    var kbuf: [64]u8 = undefined;
+    const k = keyToSlice(key, &kbuf) catch {
+        return;
+    };
+    if (tbl.payload.t != 0) { const t: *Table = @ptrFromInt(tbl.payload.t);
+        const owned_key = Alloc.dupe(u8, k) catch return;
+        // Use getOrPut for Unmanaged: (allocator, key)
+        const r = t.map.getOrPut(Alloc, owned_key) catch return;
+        if (r.found_existing) {
+            Alloc.free(r.key_ptr.*);
         }
+        r.key_ptr.* = owned_key;
+        r.value_ptr.* = val.*;
+        retain(val.*);
     }
 }
 export fn lualike_getfield(L: ?*State, d: *Value, tbl: *const Value, field: [*:0]u8) void {
@@ -581,7 +614,20 @@ export fn lualike_settabup(upvals: [*]Value, constants: [*]Value, val: *const Va
 /// SETLIST — copies register values into a table at consecutive integer keys.
 /// r[a] is the table; values are taken from r[a+1]..r[a+count].
 /// idx0 is the starting integer key (typically c from the ABC instruction).
+/// Implements Lua 5.2's SETLIST opcode.
+/// Stores values from registers into a table at sequential indices.
+/// - `tbl`: pointer to the table Value
+/// - `nvals`: number of values to store (0 means all remaining registers)
+/// - `encoded_idx`: encoded starting index from the instruction's `c` field
+/// - `first_reg`: the first register containing values (computed from table's register)
+///
+/// In Lua 5.2's VM, SETLIST stores the values `reg[first_reg+1..first_reg+nvals]`
+/// into `tbl[start_idx..start_idx+nvals-1]` where `start_idx = (encoded_idx-1)*50+1`.
+///
+/// For our LLVM IR, the raw instruction emits `lualike_setlist(L, tbl_ptr, b, c, c)`
+/// where b = nvals and c = encoded_idx (repeated for the last two params).
 export fn lualike_setlist(_: ?*State, _: *Value, _: i32, _: i32, _: i32) void {}
+
 export fn lualike_getglobal(L: ?*State, d: *Value, name: [*:0]u8) void {
     lualike_getfield(L, d, &L.?.globals, name);
 }

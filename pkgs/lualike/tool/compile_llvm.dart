@@ -89,7 +89,7 @@ Future<void> main(List<String> args) async {
   print('Linking...');
   final out = '${Directory.current.path}/a.out';
   final link = await Process.run('clang', [
-    '-o', out, '${tmpDir.path}/module.o', '${tmpDir.path}/main.o', rtLib, '-lm',
+    '-o', out, '${tmpDir.path}/module.o', '${tmpDir.path}/main.o', rtLib, '-lm', '-Wl,-z,stack-size=67108864',
   ]);
   if (link.exitCode != 0) { print('link error: ${link.stderr}'); exit(1); }
 
@@ -151,9 +151,13 @@ String _generateMainZig(LualikeIrPrototype proto) {
   buf.writeln();
 
   // Constants — allocated as Zig values, no malloc
-  buf.writeln('  // Constants (Zig-managed, no C struct mismatch)');
-  buf.writeln('  var constants: [$nc]Value = undefined;');
-  buf.writeln('  @memset(&constants, .{ .type = .nil, ._pad = undefined,');
+  // Heap-allocate constants to avoid stack overflow on large scripts
+  buf.writeln('  const alloc = @import("std").heap.c_allocator;');
+  buf.writeln('  // Constants (heap-allocated to avoid stack overflow)');
+  buf.writeln('  const constants = alloc.alloc(Value, $nc) catch |e| {');
+  buf.writeln('    @import("std").log.err("alloc fail {}", .{e}); return;');
+  buf.writeln('  };');
+  buf.writeln('  @memset(constants, .{ .type = .nil, ._pad = undefined,');
   buf.writeln('    .payload = undefined });');
   for (var i = 0; i < nc; i++) {
     final c = proto.constants[i];
@@ -186,25 +190,30 @@ String _generateMainZig(LualikeIrPrototype proto) {
   }
   buf.writeln();
 
-  // Registers
-  buf.writeln('  // Registers');
-  buf.writeln('  var regs: [$nr]Value = undefined;');
-  buf.writeln('  @memset(&regs, .{ .type = .nil, ._pad = undefined, .payload = undefined });');
+  // Registers (heap-allocated)
+  buf.writeln('  const regs = alloc.alloc(Value, $nr) catch |e| {');
+  buf.writeln('    @import("std").log.err("alloc fail {}", .{e}); return;');
+  buf.writeln('  };');
+  buf.writeln('  @memset(regs, .{ .type = .nil, ._pad = undefined, .payload = undefined });');
   buf.writeln();
 
   // Upvalues
   buf.writeln('  // Upvalues: index 0 = _ENV = globals table');
-  buf.writeln('  var upvals: [1]Value = undefined;');
-  buf.writeln('  @memset(&upvals, .{ .type = .nil, ._pad = undefined, .payload = undefined });');
+  buf.writeln('  const upvals = alloc.alloc(Value, 1) catch |e| {');
+  buf.writeln('    @import("std").log.err("alloc fail {}", .{e}); return;');
+  buf.writeln('  };');
+  buf.writeln('  @memset(upvals, .{ .type = .nil, ._pad = undefined, .payload = undefined });');
   buf.writeln('  upvals[0].type = .table;');
   buf.writeln('  upvals[0].payload.t = L.globals.payload.t;');
   buf.writeln('  lualike_retain(&L.globals);');
-  buf.writeln('  var empty_va: [1]Value = undefined;');
-  buf.writeln('  @memset(&empty_va, .{ .type = .nil, ._pad = undefined, .payload = undefined });');
+  buf.writeln('  const empty_va = alloc.alloc(Value, 1) catch |e| {');
+  buf.writeln('    @import("std").log.err("alloc fail {}", .{e}); return;');
+  buf.writeln('  };');
+  buf.writeln('  @memset(empty_va, .{ .type = .nil, ._pad = undefined, .payload = undefined });');
   buf.writeln();
 
   // Call compiled function
-  buf.writeln('  _lua_fn_0(L, &regs, $nr, &upvals, 1, &empty_va, 0, &constants, $nc);');
+  buf.writeln('  _lua_fn_0(L, regs.ptr, $nr, upvals.ptr, 1, empty_va.ptr, 0, constants.ptr, $nc);');
   buf.writeln();
 
   // Print result
@@ -225,7 +234,13 @@ String _generateMainZig(LualikeIrPrototype proto) {
   buf.writeln();
 
   // Cleanup
-  buf.writeln('  for (&regs) |*v| lualike_release(v);');
+  buf.writeln('  defer {');
+  buf.writeln('    for (regs) |*v| lualike_release(v);');
+  buf.writeln('    alloc.free(regs);');
+  buf.writeln('    alloc.free(constants);');
+  buf.writeln('    alloc.free(upvals);');
+  buf.writeln('    alloc.free(empty_va);');
+  buf.writeln('  }');
   buf.writeln('}');
   return buf.toString();
 }

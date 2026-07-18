@@ -171,6 +171,8 @@ class LualikeIrToLlvm {
       _writeln('  call void @$fn(ptr ${_reg(a)}, ptr ${_reg(b)})');
     void call3r(String fn, int a, int b, int c) =>
       _writeln('  call void @$fn(ptr ${_reg(a)}, ptr ${_reg(b)}, ptr ${_reg(c)})');
+    void call3cr(String fn, int a, int b, int c) =>
+      _writeln('  call void @$fn(ptr ${_reg(a)}, ptr ${_reg(b)}, ptr ${_const(c)})');
     void br(int target) {
       final idx = _findBlock(target);
       if (idx != null) { _writeln('  br label %${_label(idx)}'); _terminated = true; }
@@ -247,9 +249,9 @@ class LualikeIrToLlvm {
       case ABCInstruction(opcode: LualikeIrOpcode.shr,  a: final a, b: final b, c: final c): call3r('lualike_shr', a, b, c);
 
       // -- Bitwise (const) --
-      case ABCInstruction(opcode: LualikeIrOpcode.bandK, a: final a, b: final b, c: final c): call3('lualike_band', a, b, c);
-      case ABCInstruction(opcode: LualikeIrOpcode.borK,  a: final a, b: final b, c: final c): call3('lualike_bor', a, b, c);
-      case ABCInstruction(opcode: LualikeIrOpcode.bxorK, a: final a, b: final b, c: final c): call3('lualike_bxor', a, b, c);
+      case ABCInstruction(opcode: LualikeIrOpcode.bandK, a: final a, b: final b, c: final c): call3cr('lualike_band', a, b, c);
+      case ABCInstruction(opcode: LualikeIrOpcode.borK,  a: final a, b: final b, c: final c): call3cr('lualike_bor', a, b, c);
+      case ABCInstruction(opcode: LualikeIrOpcode.bxorK, a: final a, b: final b, c: final c): call3cr('lualike_bxor', a, b, c);
 
       // -- Bitwise (imm) --
       case ABCInstruction(opcode: LualikeIrOpcode.shlI, a: final a, b: final b, c: final c):
@@ -299,7 +301,13 @@ class LualikeIrToLlvm {
       case ABCInstruction(opcode: LualikeIrOpcode.setI, a: final a, b: final b, c: final c):
         _writeln('  call void @lualike_seti(ptr %L, ptr ${_reg(a)}, i64 $b, ptr ${_reg(c)})');
       case ABCInstruction(opcode: LualikeIrOpcode.setList, a: final a, b: final b, c: final c):
-        _writeln('  call void @lualike_setlist(ptr %L, ptr ${_reg(a)}, i32 $b, i32 $c, i32 $c)');
+        // Expand SETLIST into individual SETI calls
+        if (b > 0) {
+          final startIdx = (c - 1) * 50 + 1;
+          for (var i = 0; i < b; i++) {
+            _writeln('  call void @lualike_seti(ptr %L, ptr ${_reg(a)}, i64 ${startIdx + i}, ptr ${_reg(a + 1 + i)})');
+          }
+        }
 
       // -- Upvalues --
       case ABCInstruction(opcode: LualikeIrOpcode.getUpval, a: final a, b: final b):
