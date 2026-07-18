@@ -1173,9 +1173,6 @@ fn stdStringFind(L: *State, args: [*]Value, n: i32, r: [*]Value, _: i32, nr: *i3
     }
 }
 
-fn stdStringFormat(_: *State, _: [*]Value, _: i32, r: [*]Value, _: i32, nr: *i32) callconv(.c) void {
-    lualike_pushnil(&r[0]); nr.* = 1;
-}
 
 // ---------------------------------------------------------------------------
 // Table library
@@ -1360,6 +1357,110 @@ fn stdMathRandomseed(_: *State, args: [*]Value, n: i32, _: [*]Value, _: i32, nr:
     nr.* = 0;
 }
 
+
+// ===========================================================================
+// Extended stdlib implementations
+// ===========================================================================
+
+fn stdPcall(L: *State, args: [*]Value, n: i32, r: [*]Value, _: i32, nr: *i32) callconv(.c) void {
+    if (n < 1) { lualike_pushboolean(&r[0], false); nr.* = 1; return; }
+    const saved_err = L.err;
+    L.err = 0;
+    L.msg[0] = 0;
+    var result: Value = undefined;
+    const pcall_args: [*]Value = if (n > 1) args + 1 else undefined;
+    lualike_call(L, &result, &args[0], pcall_args, @as(i32, @intCast(n - 1)));
+    if (L.err != 0) {
+        lualike_pushboolean(&r[0], false);
+        lualike_pushcstring(&r[1], L, @ptrCast(@constCast(&L.msg)));
+        nr.* = 2;
+        L.err = 0;
+    } else {
+        lualike_pushboolean(&r[0], true);
+        lualike_copy(&r[1], &result);
+        nr.* = 2;
+    }
+    release(result);
+    _ = saved_err;
+}
+
+fn stdStringMatch(L: *State, args: [*]Value, n: i32, r: [*]Value, _: i32, nr: *i32) callconv(.c) void {
+    _ = L;
+    if (n < 2 or args[0].type != .string or args[1].type != .string) {
+        lualike_pushnil(&r[0]); nr.* = 1; return;
+    }
+    const haystack = args[0].payload.s orelse { lualike_pushnil(&r[0]); nr.* = 1; return; };
+    const needle = args[1].payload.s orelse { lualike_pushnil(&r[0]); nr.* = 1; return; };
+    const hs = haystack.data[0..haystack.len];
+    const nd = needle.data[0..needle.len];
+    if (nd.len == 0) { pushStr(&r[0], hs); nr.* = 1; return; }
+    const start: usize = if (n >= 3 and args[2].type == .number) blk: {
+        const si = @as(i64, @intFromFloat(args[2].payload.n));
+        break :blk if (si > 0) @as(usize, @intCast(si - 1)) else 0;
+    } else 0;
+    if (start >= hs.len) { lualike_pushnil(&r[0]); nr.* = 1; return; }
+    if (std.mem.indexOf(u8, hs[start..], nd)) |pos| {
+        pushStr(&r[0], hs[start + pos .. start + pos + nd.len]);
+    } else {
+        lualike_pushnil(&r[0]);
+    }
+    nr.* = 1;
+}
+
+fn stdStringFormat(L: *State, args: [*]Value, n: i32, r: [*]Value, _: i32, nr: *i32) callconv(.c) void {
+    _ = L;
+    if (n < 1 or args[0].type != .string) { lualike_pushnil(&r[0]); nr.* = 1; return; }
+    const fmt = args[0].payload.s orelse { lualike_pushnil(&r[0]); nr.* = 1; return; };
+    const fmt_str = fmt.data[0..fmt.len];
+    var buf: [1024]u8 = undefined;
+    var buf_pos: usize = 0;
+    var arg_idx: usize = 1;
+    var i: usize = 0;
+    while (i < fmt_str.len and buf_pos < buf.len) {
+        if (fmt_str[i] == '%' and i + 1 < fmt_str.len) {
+            const spec = fmt_str[i + 1];
+            i += 2;
+            if (arg_idx < @as(usize, @intCast(n))) {
+                const arg = &args[arg_idx];
+                arg_idx += 1;
+                if (spec == 'd' and arg.type == .number) {
+                    const s = std.fmt.bufPrint(buf[buf_pos..], "{d}", .{@as(i64, @intFromFloat(arg.payload.n))}) catch break;
+                    buf_pos += s.len;
+                } else if (spec == 'f' and arg.type == .number) {
+                    const s = std.fmt.bufPrint(buf[buf_pos..], "{d:.6}", .{arg.payload.n}) catch break;
+                    buf_pos += s.len;
+                } else if (spec == 's') {
+                    if (arg.type == .string) {
+                        if (arg.payload.s) |as| {
+                            const copy_len = @min(as.len, buf.len - buf_pos);
+                            @memcpy(buf[buf_pos..][0..copy_len], as.data[0..copy_len]);
+                            buf_pos += copy_len;
+                        }
+                    } else if (arg.type == .number) {
+                        const s = std.fmt.bufPrint(buf[buf_pos..], "{d}", .{arg.payload.n}) catch break;
+                        buf_pos += s.len;
+                    } else if (arg.type == .boolean) {
+                        const s = if (arg.payload.b) "true" else "false";
+                        const copy_len = @min(@as(usize, s.len), buf.len - buf_pos);
+                        @memcpy(buf[buf_pos..][0..copy_len], s[0..copy_len]);
+                        buf_pos += copy_len;
+                    }
+                } else if (spec == '%') {
+                    if (buf_pos < buf.len) { buf[buf_pos] = '%'; buf_pos += 1; }
+                }
+            } else {
+                if (buf_pos < buf.len) { buf[buf_pos] = '%'; buf_pos += 1; }
+                if (buf_pos < buf.len) { buf[buf_pos] = spec; buf_pos += 1; }
+            }
+        } else {
+            if (buf_pos < buf.len) { buf[buf_pos] = fmt_str[i]; buf_pos += 1; }
+            i += 1;
+        }
+    }
+    if (buf_pos > 0) pushStr(&r[0], buf[0..buf_pos]) else lualike_pushnil(&r[0]);
+    nr.* = 1;
+}
+
 // ===========================================================================
 // Stdlib registration
 // ===========================================================================
@@ -1374,8 +1475,8 @@ export fn lualike_openlibs(L: *State) void {
     reg(L, "", "ipairs", stdIpairs);
     reg(L, "", "select", stdSelect);
     reg(L, "", "error", stdError);
-    reg(L, "", "pcall", stdStub);
-    reg(L, "", "xpcall", stdStub);
+    reg(L, "", "pcall", stdPcall);
+    reg(L, "", "xpcall", stdPcall);
     reg(L, "", "assert", stdAssert);
     reg(L, "", "tostring", stdTostring);
     reg(L, "", "rawget", stdRawget);
@@ -1400,7 +1501,7 @@ export fn lualike_openlibs(L: *State) void {
     reg(L, "string", "rep", stdStringRep);
     reg(L, "string", "len", stdStringLen);
     reg(L, "string", "find", stdStringFind);
-    reg(L, "string", "match", stdStringFind);
+    reg(L, "string", "match", stdStringMatch);
     reg(L, "string", "gmatch", stdStringFind);
     reg(L, "string", "gsub", stdStringFind);
     reg(L, "string", "format", stdStringFormat);
