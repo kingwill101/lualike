@@ -1433,13 +1433,24 @@ fn stdMathFmod(_: *State, args: [*]Value, n: i32, r: [*]Value, _: i32, nr: *i32)
     lualike_pushnumber(&r[0], @rem(args[0].payload.n, args[1].payload.n));
     nr.* = 1;
 }
-fn stdMathRandom(_: *State, _: [*]Value, _: i32, r: [*]Value, _: i32, nr: *i32) callconv(.c) void {
-    lualike_pushnumber(&r[0], 0.5);
+/// Simple xorshift64 PRNG state.
+var _prng_state: u64 = 123456789;
+
+fn stdMathRandom(_: *State, args: [*]Value, n: i32, r: [*]Value, _: i32, nr: *i32) callconv(.c) void {
+    _ = args;
+    _ = n;
+    // xorshift64
+    _prng_state ^= _prng_state << 13;
+    _prng_state ^= _prng_state >> 7;
+    _prng_state ^= _prng_state << 17;
+    const val = @as(f64, @floatFromInt(_prng_state & 0x7FFFFFFFFFFFFFFF)) / @as(f64, @floatFromInt(std.math.maxInt(u64)));
+    lualike_pushnumber(&r[0], val);
     nr.* = 1;
 }
 fn stdMathRandomseed(_: *State, args: [*]Value, n: i32, _: [*]Value, _: i32, nr: *i32) callconv(.c) void {
-    _ = n;
-    _ = args;
+    if (n >= 1 and args[0].type == .number) {
+        _prng_state = @as(u64, @bitCast(args[0].payload.n));
+    }
     nr.* = 0;
 }
 
@@ -1846,27 +1857,29 @@ fn stdIoType(_: *State, _: [*]Value, _: i32, r: [*]Value, _: i32, nr: *i32) call
 // ===========================================================================
 
 fn stdOsClock(_: *State, _: [*]Value, _: i32, r: [*]Value, _: i32, nr: *i32) callconv(.c) void {
-    lualike_pushnumber(&r[0], @as(f64, @floatFromInt(std.time.microTimestamp())) / 1000000.0);
+    var ts: std.c.timespec = undefined;
+    _ = std.os.linux.clock_gettime(std.os.linux.CLOCK.MONOTONIC, &ts);
+    const sec = @as(f64, @floatFromInt(ts.sec));
+    const nsec = @as(f64, @floatFromInt(ts.nsec));
+    lualike_pushnumber(&r[0], sec + nsec / 1000000000.0);
     nr.* = 1;
 }
 
 fn stdOsDate(_: *State, _: [*]Value, _: i32, r: [*]Value, _: i32, nr: *i32) callconv(.c) void {
-    // Pure Zig date: format timestamp as ISO string
-    const ts = std.time.timestamp();
-    const epoch_seconds: i64 = @intCast(ts);
-    // Use Zig's DateTime if available, otherwise return raw timestamp
-    var buf: [32]u8 = undefined;
-    const s = std.fmt.bufPrint(&buf, "{}", .{std.fmt.epochSeconds(epoch_seconds)}) catch {
+    var ts: std.c.timespec = undefined;
+    _ = std.os.linux.clock_gettime(std.os.linux.CLOCK.REALTIME, &ts);
+    var buf: [64]u8 = undefined;
+    const s = std.fmt.bufPrint(&buf, "{}", .{ts.sec}) catch {
         lualike_pushnil(&r[0]); nr.* = 1; return;
     };
-    var out_buf: [128]u8 = undefined;
-    @memcpy(out_buf[0..s.len], s);
-    pushStr(&r[0], out_buf[0..s.len]);
+    pushStr(&r[0], s);
     nr.* = 1;
 }
 
 fn stdOsTime(_: *State, _: [*]Value, _: i32, r: [*]Value, _: i32, nr: *i32) callconv(.c) void {
-    lualike_pushnumber(&r[0], @as(f64, @floatFromInt(std.time.timestamp())));
+    var ts: std.c.timespec = undefined;
+    _ = std.os.linux.clock_gettime(std.os.linux.CLOCK.REALTIME, &ts);
+    lualike_pushnumber(&r[0], @as(f64, @floatFromInt(ts.sec)));
     nr.* = 1;
 }
 
@@ -1881,17 +1894,9 @@ fn stdOsExit(_: *State, args: [*]Value, n: i32, _: [*]Value, _: i32, _: *i32) ca
     std.process.exit(code);
 }
 
-fn stdOsGetenv(_: *State, args: [*]Value, n: i32, r: [*]Value, _: i32, nr: *i32) callconv(.c) void {
-    if (n < 1 or args[0].type != .string) { lualike_pushnil(&r[0]); nr.* = 1; return; }
-    const s = args[0].payload.s orelse { lualike_pushnil(&r[0]); nr.* = 1; return; };
-    const name = s.data[0..s.len];
-    if (std.process.getEnvVarOwned(Alloc, name)) |val| {
-        defer Alloc.free(val);
-        pushStr(&r[0], val);
-    } else |_| {
-        lualike_pushnil(&r[0]);
-    }
-    nr.* = 1;
+fn stdOsGetenv(_: *State, _: [*]Value, _: i32, r: [*]Value, _: i32, nr: *i32) callconv(.c) void {
+    // Stub — no Zig std.getenv in this version
+    lualike_pushnil(&r[0]); nr.* = 1;
 }
 
 fn stdOsTmpname(_: *State, _: [*]Value, _: i32, r: [*]Value, _: i32, nr: *i32) callconv(.c) void {
@@ -2095,9 +2100,49 @@ export fn lualike_openlibs(L: *State) void {
     reg(L, "io", "type", stdIoType);
     reg(L, "io", "write", stdIoWrite);
 
-    // OS / Debug / UTF8 / Coroutine / Package — top-level tables
-    reg(L, "", "os", stdIoFlush);
-    // Empty namespace tables
+    // OS library (table with clock, date, time, difftime, exit, getenv, tmpname)
+    reg(L, "os", "clock", stdOsClock);
+    reg(L, "os", "date", stdOsDate);
+    reg(L, "os", "time", stdOsTime);
+    reg(L, "os", "difftime", stdOsDifftime);
+    reg(L, "os", "exit", stdOsExit);
+    reg(L, "os", "getenv", stdOsGetenv);
+    reg(L, "os", "tmpname", stdOsTmpname);
+
+    // Constants
+    {
+        var v: Value = undefined;
+        lualike_pushnumber(&v, 3.141592653589793);
+        const key = String.init("pi") catch return;
+        var k = Value{ .type = .string, ._pad = undefined, .payload = .{ .s = key } };
+        lualike_setfield(null, &L.globals, &k, &v);
+    }
+    {
+        var v: Value = undefined;
+        lualike_pushnumber(&v, std.math.inf(f64));
+        const key = String.init("huge") catch return;
+        var k = Value{ .type = .string, ._pad = undefined, .payload = .{ .s = key } };
+        // store in math table: math.huge
+        var mathKey = String.init("math") catch return;
+        defer mathKey.deref();
+        var mk = Value{ .type = .string, ._pad = undefined, .payload = .{ .s = mathKey } };
+        var mathTbl: Value = undefined;
+        lualike_getfield(null, &mathTbl, &L.globals, &mk);
+        if (mathTbl.type == .table) {
+            lualike_setfield(null, &mathTbl, &k, &v);
+        }
+        release(mathTbl);
+    }
+    {
+        var v: Value = undefined;
+        lualike_pushcstring(&v, null, @ptrCast(@constCast("LuaLike 0.3")));
+        const key = String.init("_VERSION") catch return;
+        var k = Value{ .type = .string, ._pad = undefined, .payload = .{ .s = key } };
+        lualike_setfield(null, &L.globals, &k, &v);
+        release(v);
+    }
+
+    // Debug / UTF8 / Coroutine / Package — empty namespace tables
     inline for (.{"debug", "utf8", "coroutine", "package"}) |ns| {
         var t: Value = undefined;
         lualike_newtable(&t);
