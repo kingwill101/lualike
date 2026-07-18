@@ -595,11 +595,6 @@ export fn lualike_settable(_: ?*State, tbl: *Value, key: *const Value, val: *con
     }
 }
 export fn lualike_getfield(L: ?*State, d: *Value, tbl: *const Value, field: *const Value) void {
-    if (@intFromPtr(field) > 0x0000800000000000) {
-        _ = libc.fprintf(libc.stderr, "GF: field=%p d=%p tbl=%p\n", field, d, tbl);
-        lualike_pushnil(d);
-        return;
-    }
     if (field.type != .string) { lualike_pushnil(d); return; }
     const s = field.payload.s orelse { lualike_pushnil(d); return; };
     // Defensive: s.len must be sane (freed/corrupted strings have huge or zero len)
@@ -758,7 +753,10 @@ export fn lualike_call(L: ?*State, dst: ?*Value, fn_val: *const Value, args: [*]
         cfn(L.?, args, nargs, &results, 8, &nr);
         if (nr > 0 and dst != null) {
             lualike_copy(dst.?, &results[0]);
-            for (1..@as(usize, @intCast(nr))) |j| release(results[j]);
+            const ncopy = @min(@as(usize, @intCast(nr - 1)), 7);
+            const dst_arr: [*]Value = @ptrCast(dst.?);
+            for (0..ncopy) |j| lualike_copy(&dst_arr[j + 1], &results[j + 1]);
+            for (ncopy + 1..@as(usize, @intCast(nr))) |j| release(results[j]);
         }
         return;
     }

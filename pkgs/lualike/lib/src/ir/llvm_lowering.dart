@@ -559,11 +559,19 @@ class LualikeIrToLlvm {
         break;
       }
       case ABCInstruction(opcode: LualikeIrOpcode.tForCall, a: final a, c: final _, k: _): {
-        // tForCall in the body: call iterator and copy result to r[a+2]
+        // tForCall in the body: call iterator into temp buffer, then copy results
         final checkLabel = _loopCheckLabels[_currentBlockIndex];
         if (checkLabel != null) {
-          _writeln('  call void @lualike_call(ptr %L, ptr ${_reg(a + 3)}, ptr ${_reg(a)}, ptr ${_reg(a + 1)}, i32 2)');
-          _writeln('  call void @lualike_copy(ptr ${_reg(a + 2)}, ptr ${_reg(a + 3)})');
+          final tmpBuf = _next();
+          // Use temp buffer to avoid overflow from dst[1] write
+          _writeln('  $tmpBuf = alloca [2 x { i64, [2 x i64] }], i32 1');
+          _writeln('  call void @lualike_call(ptr %L, ptr $tmpBuf, ptr ${_reg(a)}, ptr ${_reg(a + 1)}, i32 2)');
+          _writeln('  call void @lualike_copy(ptr ${_reg(a + 2)}, ptr $tmpBuf)');
+          // r[a+3] = key (for tforloop nil check), r[a+4] = value (for body)
+          _writeln('  call void @lualike_copy(ptr ${_reg(a + 3)}, ptr $tmpBuf)');
+          final tmp2 = _next();
+          _writeln('  $tmp2 = getelementptr i8, ptr $tmpBuf, i32 $_valueSz');
+          _writeln('  call void @lualike_copy(ptr ${_reg(a + 4)}, ptr $tmp2)');
           _writeln('  br label %b_tcheck_$checkLabel');
           _terminated = true;
         }
