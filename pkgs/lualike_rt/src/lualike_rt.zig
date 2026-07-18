@@ -1738,6 +1738,134 @@ fn stdStringDump(_: *State, _: [*]Value, _: i32, r: [*]Value, _: i32, nr: *i32) 
     lualike_pushnil(&r[0]); nr.* = 1;
 }
 
+
+// ===========================================================================
+// IO library
+// ===========================================================================
+
+fn ioFileType(f: *std.c.FILE) []const u8 {
+    if (f == @as(*std.c.FILE, @ptrFromInt(@as(usize, @intCast(0))))) return "file";
+    if (f == @as(*std.c.FILE, @ptrFromInt(@as(usize, @intCast(1))))) return "file";
+    if (f == @as(*std.c.FILE, @ptrFromInt(@as(usize, @intCast(2))))) return "file";
+    return "file";
+}
+
+fn stdIoOpen(_: *State, _: [*]Value, _: i32, r: [*]Value, _: i32, nr: *i32) callconv(.c) void {
+    lualike_pushnil(&r[0]); nr.* = 1;
+}
+fn stdIoClose(_: *State, _: [*]Value, _: i32, r: [*]Value, _: i32, nr: *i32) callconv(.c) void {
+    lualike_pushnil(&r[0]); nr.* = 1;
+}
+fn stdIoInput(_: *State, _: [*]Value, _: i32, r: [*]Value, _: i32, nr: *i32) callconv(.c) void {
+    lualike_pushnil(&r[0]); nr.* = 1;
+}
+fn stdIoOutput(_: *State, _: [*]Value, _: i32, r: [*]Value, _: i32, nr: *i32) callconv(.c) void {
+    lualike_pushnil(&r[0]); nr.* = 1;
+}
+fn stdIoPopen(_: *State, _: [*]Value, _: i32, r: [*]Value, _: i32, nr: *i32) callconv(.c) void {
+    lualike_pushnil(&r[0]); nr.* = 1;
+}
+fn stdIoTmpfile(_: *State, _: [*]Value, _: i32, r: [*]Value, _: i32, nr: *i32) callconv(.c) void {
+    lualike_pushnil(&r[0]); nr.* = 1;
+}
+fn stdIoType(_: *State, _: [*]Value, _: i32, r: [*]Value, _: i32, nr: *i32) callconv(.c) void {
+    pushStr(&r[0], "file"); nr.* = 1;
+}
+fn stdIoRead(L: *State, args: [*]Value, n: i32, r: [*]Value, _: i32, nr: *i32) callconv(.c) void {
+    _ = L;
+    _ = args;
+    _ = n;
+    lualike_pushnil(&r[0]); nr.* = 1;
+}
+
+fn stdIoWrite(L: *State, args: [*]Value, n: i32, r: [*]Value, _: i32, nr: *i32) callconv(.c) void {
+    _ = L;
+    _ = args;
+    _ = n;
+    lualike_pushnil(&r[0]); nr.* = 1;
+}
+
+fn stdIoFlush(_: *State, _: [*]Value, _: i32, r: [*]Value, _: i32, nr: *i32) callconv(.c) void {
+    lualike_pushboolean(&r[0], true); nr.* = 1;
+}
+
+fn stdIoLines(L: *State, args: [*]Value, n: i32, r: [*]Value, _: i32, nr: *i32) callconv(.c) void {
+    _ = L;
+    _ = args;
+    _ = n;
+    lualike_pushnil(&r[0]); nr.* = 1;
+}
+// ===========================================================================
+// OS library
+// ===========================================================================
+
+fn stdOsClock(L: *State, args: [*]Value, n: i32, r: [*]Value, _: i32, nr: *i32) callconv(.c) void {
+    _ = L;
+    _ = args;
+    _ = n;
+    lualike_pushnumber(&r[0], @as(f64, @floatFromInt(std.time.microTimestamp())) / 1000000.0);
+    nr.* = 1;
+}
+
+fn stdOsDate(L: *State, args: [*]Value, n: i32, r: [*]Value, _: i32, nr: *i32) callconv(.c) void {
+    _ = L;
+    _ = n;
+    _ = args;
+    // Return current date as a string
+    var buf: [64]u8 = undefined;
+    const ts = std.time.timestamp();
+    const secs: i64 = @intCast(ts);
+    var buf2: [64]u8 = undefined;
+    const len = std.c.strftime(@ptrCast(&buf2), buf2.len, "%c", std.c.localtime(&secs));
+    if (len > 0) pushStr(&r[0], buf2[0..len]) else pushStr(&r[0], buf[0..0]);
+    nr.* = 1;
+}
+
+fn stdOsTime(L: *State, args: [*]Value, n: i32, r: [*]Value, _: i32, nr: *i32) callconv(.c) void {
+    _ = L;
+    _ = n;
+    _ = args;
+    lualike_pushnumber(&r[0], @as(f64, @floatFromInt(std.time.timestamp())));
+    nr.* = 1;
+}
+
+fn stdOsDifftime(L: *State, args: [*]Value, n: i32, r: [*]Value, _: i32, nr: *i32) callconv(.c) void {
+    _ = L;
+    if (n < 2 or args[0].type != .number or args[1].type != .number) { lualike_pushnil(&r[0]); nr.* = 1; return; }
+    lualike_pushnumber(&r[0], args[0].payload.n - args[1].payload.n);
+    nr.* = 1;
+}
+
+fn stdOsExit(L: *State, args: [*]Value, n: i32, _: [*]Value, _: i32, _: *i32) callconv(.c) void {
+    _ = L;
+    const code: u8 = if (n >= 1 and args[0].type == .number) @as(u8, @intFromFloat(args[0].payload.n)) else 0;
+    std.process.exit(code);
+}
+
+fn stdOsGetenv(L: *State, args: [*]Value, n: i32, r: [*]Value, _: i32, nr: *i32) callconv(.c) void {
+    _ = L;
+    if (n < 1 or args[0].type != .string) { lualike_pushnil(&r[0]); nr.* = 1; return; }
+    const s = args[0].payload.s orelse { lualike_pushnil(&r[0]); nr.* = 1; return; };
+    var buf: [256]u8 = undefined;
+    const copy_len = @min(s.len, buf.len - 1);
+    @memcpy(buf[0..copy_len], s.data[0..copy_len]);
+    buf[copy_len] = 0;
+    if (std.c.getenv(@ptrCast(&buf))) |val| {
+        lualike_pushcstring(&r[0], null, val);
+    } else {
+        lualike_pushnil(&r[0]);
+    }
+    nr.* = 1;
+}
+
+fn stdOsTmpname(L: *State, args: [*]Value, n: i32, r: [*]Value, _: i32, nr: *i32) callconv(.c) void {
+    _ = L;
+    _ = args;
+    _ = n;
+    pushStr(&r[0], "/tmp/lualike_tmp");
+    nr.* = 1;
+}
+
 // ===========================================================================
 // Extended stdlib implementations
 // ===========================================================================
@@ -1927,20 +2055,20 @@ export fn lualike_openlibs(L: *State) void {
     reg(L, "math", "ult", stdMathUlt);
 
     // IO library (sub-table)
-    reg(L, "io", "close", stdLoad);
-    reg(L, "io", "flush", stdLoad);
-    reg(L, "io", "input", stdLoad);
-    reg(L, "io", "lines", stdLoad);
-    reg(L, "io", "open", stdLoad);
-    reg(L, "io", "output", stdLoad);
-    reg(L, "io", "popen", stdLoad);
-    reg(L, "io", "read", stdLoad);
-    reg(L, "io", "tmpfile", stdLoad);
-    reg(L, "io", "type", stdLoad);
-    reg(L, "io", "write", stdLoad);
+    reg(L, "io", "close", stdIoClose);
+    reg(L, "io", "flush", stdIoFlush);
+    reg(L, "io", "input", stdIoInput);
+    reg(L, "io", "lines", stdIoLines);
+    reg(L, "io", "open", stdIoOpen);
+    reg(L, "io", "output", stdIoOutput);
+    reg(L, "io", "popen", stdIoPopen);
+    reg(L, "io", "read", stdIoRead);
+    reg(L, "io", "tmpfile", stdIoTmpfile);
+    reg(L, "io", "type", stdIoType);
+    reg(L, "io", "write", stdIoWrite);
 
     // OS / Debug / UTF8 / Coroutine / Package — top-level tables
-    reg(L, "", "os", stdLoad);
+    reg(L, "", "os", stdIoFlush);
     reg(L, "", "debug", stdLoad);
     reg(L, "", "utf8", stdLoad);
     reg(L, "", "coroutine", stdLoad);
