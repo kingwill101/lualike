@@ -43,6 +43,8 @@ pub const String = extern struct {
         const s = try Alloc.create(String);
         const buf = try Alloc.dupe(u8, bytes);
         s.* = .{ .refcount = 1, .len = @intCast(bytes.len), .data = buf.ptr };
+        _gc_alloc_bytes +%= @sizeOf(String) + bytes.len;
+        _gc_alloc_count +%= 1;
         return s;
     }
     fn deref(s: *String) void {
@@ -50,6 +52,8 @@ pub const String = extern struct {
         if (s.refcount == 0) {
             Alloc.free(s.data[0..s.len]);
             Alloc.destroy(s);
+            _gc_alloc_bytes -%= @sizeOf(String) + s.len;
+            _gc_alloc_count -%= 1;
         }
     }
 };
@@ -75,15 +79,19 @@ pub const Table = struct {
         const t = try Alloc.create(Table);
         t.* = .{ .refcount = 1, .map = .{} };
         try t.map.ensureTotalCapacity(Alloc, 16);
+        _gc_alloc_bytes +%= @sizeOf(Table) + 64;
+        _gc_alloc_count +%= 1;
         return t;
     }
     fn deref(t: *Table) void {
         t.refcount = t.refcount -% 1;
         if (t.refcount == 0) {
             var it = t.map.iterator();
-            while (it.next()) |e| release(e.value_ptr.*);
+            while (it.next()) |e| { Alloc.free(e.key_ptr.*); release(e.value_ptr.*); }
             t.map.deinit(Alloc);
             Alloc.destroy(t);
+            _gc_alloc_bytes -%= @sizeOf(Table) + 64;
+            _gc_alloc_count -%= 1;
         }
     }
 };
@@ -139,6 +147,8 @@ fn releaseClosure(c: *Closure) void {
         Alloc.free(c.upvals[0..n_up]);
         if (c.name) |nm| Alloc.free(nm[0..std.mem.len(nm)]);
         Alloc.destroy(c);
+        _gc_alloc_bytes -%= @sizeOf(Closure) + n_up * @sizeOf(Value);
+        _gc_alloc_count -%= 1;
     }
 }
 /// Release a Value — dispatch to releaseString/releaseTable/releaseClosure based on type tag.
@@ -737,6 +747,8 @@ export fn lualike_newclosure(d: *Value, fn_ptr: ?CompiledFn, up: [*]Value, nup: 
         .constants = constants,
         .nconstants = nconstants,
     };
+    _gc_alloc_bytes +%= @sizeOf(Closure) + @as(usize, @intCast(nup)) * @sizeOf(Value);
+    _gc_alloc_count +%= 1;
     // Initialize each upvalue slot with nil before retain — avoids
     // lualike_copy releasing uninitialized memory as a string/table/closure
     const uv_count = @as(usize, @intCast(nup));
@@ -1108,13 +1120,16 @@ fn stdIpairs(_: *State, args: [*]Value, n: i32, r: [*]Value, _: i32, nr: *i32) c
     nr.* = 3;
 }
 
+var _gc_alloc_bytes: usize = 0;
+var _gc_alloc_count: usize = 0;
+
 fn stdCollectgarbage(L: *State, args: [*]Value, n: i32, r: [*]Value, _: i32, nr: *i32) callconv(.c) void {
     _ = L;
     if (n >= 1 and args[0].type == .string) {
         const s = args[0].payload.s orelse { lualike_pushnil(&r[0]); nr.* = 1; return; };
         const opt = s.data[0..s.len];
         if (std.mem.eql(u8, opt, "count")) {
-            lualike_pushnumber(&r[0], 0); // stub — GC not implemented yet
+            lualike_pushnumber(&r[0], @as(f64, @floatFromInt(_gc_alloc_bytes)));
         } else if (std.mem.eql(u8, opt, "stop") or std.mem.eql(u8, opt, "restart")) {
             lualike_pushnil(&r[0]);
         } else {
