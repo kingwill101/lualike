@@ -2069,10 +2069,15 @@ export fn lualike_openlibs(L: *State) void {
 
     // OS / Debug / UTF8 / Coroutine / Package — top-level tables
     reg(L, "", "os", stdIoFlush);
-    reg(L, "", "debug", stdLoad);
-    reg(L, "", "utf8", stdLoad);
-    reg(L, "", "coroutine", stdLoad);
-    reg(L, "", "package", stdLoad);
+    // Empty namespace tables
+    inline for (.{"debug", "utf8", "coroutine", "package"}) |ns| {
+        var t: Value = undefined;
+        lualike_newtable(&t);
+        const key = String.init(ns) catch { release(t); return; };
+        var k = Value{ .type = .string, ._pad = undefined, .payload = .{ .s = key } };
+        lualike_setfield(null, &L.globals, &k, &t);
+        release(t);
+    }
 }
 
 // ===========================================================================
