@@ -92,6 +92,8 @@ fn nilV() Value {
 
 /// Increments the reference count of the heap-allocated object held by `v`.
 ///
+/// Increment the reference count of a heap-allocated object (string, table, or closure).
+/// Does nothing for nil, boolean, number, or nativefn values.
 fn retain(v: Value) void {
     const tag = @as(u32, @intFromEnum(v.type));
     if (tag == @intFromEnum(Type.string)) {
@@ -106,6 +108,7 @@ fn retain(v: Value) void {
 /// Decrements the reference count of the heap-allocated object held by `v`,
 /// freeing it when the count reaches zero.
 ///
+/// Release a reference to a String — decrement refcount, free data + struct at 0.
 fn releaseString(s: *String) void {
     s.refcount -%= 1;
     if (s.refcount == 0) {
@@ -113,6 +116,7 @@ fn releaseString(s: *String) void {
         Alloc.destroy(s);
     }
 }
+/// Release a reference to a Table — decrement refcount, free keys/values/map/struct at 0.
 fn releaseTable(t: *Table) void {
     t.refcount -%= 1;
     if (t.refcount == 0) {
@@ -122,6 +126,7 @@ fn releaseTable(t: *Table) void {
         Alloc.destroy(t);
     }
 }
+/// Release a reference to a Closure — decrement refcount, release upvalues + name + struct at 0.
 fn releaseClosure(c: *Closure) void {
     c.refcount -%= 1;
     if (c.refcount == 0) {
@@ -132,6 +137,7 @@ fn releaseClosure(c: *Closure) void {
         Alloc.destroy(c);
     }
 }
+/// Release a Value — dispatch to releaseString/releaseTable/releaseClosure based on type tag.
 fn release(v: Value) void {
     const tag = @as(u32, @intFromEnum(v.type));
     if (tag == @intFromEnum(Type.string)) { if (v.payload.s) |s| releaseString(s); }
@@ -380,6 +386,7 @@ export fn lualike_unm(_: ?*State, d: *Value, a: *const Value) void {
 // Bitwise
 /// Converts a [`Value`] to a signed 64-bit integer for bitwise operations.
 ///
+/// Extract a signed 64-bit integer from a Value's number payload (bitwise ops).
 fn toi(v: *const Value) i64 {
     return @intFromFloat(v.payload.n);
 }
@@ -516,6 +523,9 @@ export fn lualike_newtable(d: *Value) void {
 /// Convert a Value key to a []const u8 for use as a HashMap key.
 /// String keys use their data directly. Number keys are formatted into `kbuf`.
 /// Returns an error for unsupported key types.
+/// Convert a Value key to a []const u8 for use as a HashMap key.
+/// String keys use their data directly. Number/boolean keys are formatted into `kbuf`.
+/// Returns an error for unsupported key types.
 fn keyToSlice(key: *const Value, kbuf: []u8) ![]const u8 {
     if (key.type == .string) {
         if (key.payload.s) |ks| return ks.data[0..ks.len];
@@ -611,6 +621,8 @@ export fn lualike_seti(L: ?*State, tbl: *Value, idx: i64, val: *const Value) voi
 }
 
 // Globals
+/// Read a global variable: `dst = upvals[0][constants[c]]`.
+/// upvals[0] is _ENV (the globals table). constants[c] is the field name (a string constant).
 export fn lualike_gettabup(dst: *Value, upvals: [*]Value, constants: [*]Value, c: i32) void {
     const env = &upvals[0];
     if (env.type != .table) { lualike_pushnil(dst); return; }
@@ -621,6 +633,8 @@ export fn lualike_gettabup(dst: *Value, upvals: [*]Value, constants: [*]Value, c
     } }
     lualike_pushnil(dst);
 }
+/// Write a global variable: `upvals[0][constants[c]] = val`.
+/// upvals[0] is _ENV. constants[c] is the field name. The key is copied (owned).
 export fn lualike_settabup(upvals: [*]Value, constants: [*]Value, val: *const Value, c: i32) void {
     const env = &upvals[0];
     if (env.type != .table) return;
@@ -672,6 +686,8 @@ export fn lualike_setglobal(L: ?*State, name: [*:0]u8, v: *const Value) void {
 }
 
 // For loop
+/// Numeric for-loop preparation. Arranges r[a..a+2] for lualike_forloop.
+/// Returns 1 if the loop body should execute, 0 to skip.
 export fn lualike_forprep(r: [*]Value, a: i32) i32 {
     const base: usize = @intCast(a);
     const init = r[base].payload.n; const limit = r[base + 1].payload.n; const step = r[base + 2].payload.n;
@@ -681,6 +697,8 @@ export fn lualike_forprep(r: [*]Value, a: i32) i32 {
     const skip = if (step > 0) limit < init else init < limit;
     return if (skip) 0 else 1;
 }
+/// Numeric for-loop step: advances the loop variable, checks termination.
+/// Returns 1 if the body should execute, 0 when done.
 export fn lualike_forloop(r: [*]Value, a: i32) i32 {
     const base: usize = @intCast(a);
     const step = r[base + 1].payload.n; const limit = r[base].payload.n;
@@ -689,11 +707,14 @@ export fn lualike_forloop(r: [*]Value, a: i32) i32 {
     if (cont) r[base + 2].payload.n = next;
     return if (cont) 1 else 0;
 }
+/// Generic for-loop check: returns 1 if r[a+3] (the key result) is not nil.
 export fn lualike_tforloop(r: [*]Value, a: i32) i32 {
     return if (r[@as(usize, @intCast(a)) + 3].type != .nil) 1 else 0;
 }
 
 // Closure / upvalue
+/// Create a new closure: captures upvalues from `up[0..nup]` and wraps `fn_ptr` with
+/// the given constants table. The closure owns its upvalue copies via retain().
 export fn lualike_newclosure(d: *Value, fn_ptr: ?CompiledFn, up: [*]Value, nup: i32, name: ?[*:0]u8, constants: [*]Value, nconstants: i32) void {
     const c = Alloc.create(Closure) catch {
         lualike_pushnil(d);
@@ -727,14 +748,21 @@ export fn lualike_newclosure(d: *Value, fn_ptr: ?CompiledFn, up: [*]Value, nup: 
     }
     lualike_pushfunction(d, c);
 }
+/// Copy upvalue `idx` from the current function's upval array into `d`.
 export fn lualike_getupval(d: *Value, up: [*]Value, idx: i32) void {
     lualike_copy(d, &up[@as(usize, @intCast(idx))]);
 }
+/// Write `s` into upvalue `idx` of the current function's upval array.
 export fn lualike_setupval(up: [*]Value, idx: i32, s: *const Value) void {
     lualike_copy(&up[@as(usize, @intCast(idx))], s);
 }
 
 // Call dispatch
+/// Dispatch a function call. Handles three cases:
+/// 1. nativefn — directly calls the C ABI function pointer
+/// 2. function_ (closure) — sets up a 16-register frame, calls the compiled body
+/// 3. error — sets error state for non-function or nil-closure values
+/// Multi-return results beyond the first are written to dst[1..min(nr-1,7)].
 export fn lualike_call(L: ?*State, dst: ?*Value, fn_val: *const Value, args: [*]Value, nargs: i32) void {
     if (fn_val.type == .nativefn) {
         const cfn: NativeFn = @ptrFromInt(fn_val.payload.cfn);
@@ -775,11 +803,13 @@ export fn lualike_call(L: ?*State, dst: ?*Value, fn_val: *const Value, args: [*]
         if (dst) |d| lualike_pushnil(d);
     }
 }
+/// Tail-call: delegates to lualike_call (stack frame reuse is the caller's responsibility).
 export fn lualike_tailcall(L: ?*State, dst: ?*Value, fn_val: *const Value, args: [*]Value, nargs: i32) void {
     lualike_call(L, dst, fn_val, args, nargs);
 }
 
 // Select
+/// Lua select() — returns the i-th argument or the argument count.
 export fn lualike_select(d: *Value, args: [*]Value, nargs: i32) void {
     if (nargs < 1) {
         lualike_pushnil(d);
@@ -797,15 +827,19 @@ export fn lualike_select(d: *Value, args: [*]Value, nargs: i32) void {
 }
 
 // Raw access
+/// Raw table read (no metamethods): `d = tbl[key]`.
 export fn lualike_rawget(d: *Value, tbl: *const Value, key: *const Value) void {
     lualike_gettable(null, d, tbl, key);
 }
+/// Raw table write (no metamethods): `tbl[key] = val`.
 export fn lualike_rawset(tbl: *Value, key: *const Value, val: *const Value) void {
     lualike_settable(null, tbl, key, val);
 }
+/// Raw equality test (no metamethods): compares types only.
 export fn lualike_rawequal(d: *Value, a: *const Value, b: *const Value) void {
     lualike_pushboolean(d, a.type == b.type);
 }
+/// Raw length for strings (returns length). Returns 0 for non-strings.
 export fn lualike_rawlen(d: *Value, v: *const Value) void {
     if (v.type == .string) {
         const s = v.payload.s orelse {
@@ -928,6 +962,7 @@ fn stdPairs(_: *State, args: [*]Value, n: i32, r: [*]Value, _: i32, nr: *i32) ca
     nr.* = 3;
 }
 
+/// Register a native function in the globals table (or a library sub-table).
 fn reg(L: *State, lib: []const u8, name: []const u8, cfn: NativeFn) void {
     var fv: Value = nilV();
     lualike_pushcfunction(&fv, @intFromPtr(cfn), @ptrCast(@constCast(name)));
@@ -952,12 +987,13 @@ fn reg(L: *State, lib: []const u8, name: []const u8, cfn: NativeFn) void {
 // Standard library implementations
 // ===========================================================================
 
-/// Generic stub C function — returns nil.
+/// Generic stub native function — returns nil. Used for unimplemented stdlib functions.
 fn stdStub(_: *State, _: [*]Value, _: i32, r: [*]Value, _: i32, nr: *i32) callconv(.c) void {
     lualike_pushnil(&r[0]); nr.* = 1;
 }
 
 /// Helper: push a string from a Zig slice into a Value.
+/// Push a Zig string slice as a new string Value via lualike_pushstring.
 fn pushStr(r: *Value, s: []const u8) void {
     lualike_pushstring(r, null, @ptrCast(@constCast(s.ptr)), @as(i32, @intCast(s.len)));
 }
