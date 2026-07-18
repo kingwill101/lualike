@@ -45,7 +45,7 @@ typedef struct lua_State lua_State;
 typedef struct lua_Upvalue lua_Upvalue;
 
 // A C function callable from Lua.
-typedef void (*lua_CFunction)(lua_State* L, struct lua_Value* args, int nargs, struct lua_Value* result);
+typedef void (*lua_CFunction)(lua_State* L, struct lua_Value* args, int nargs, struct lua_Value* results, int maxresults, int* nresults);
 
 // ---------------------------------------------------------------------------
 // Lua value — tagged union
