@@ -17,7 +17,7 @@ all: $(LIB)
 $(BUILDDIR):
 	mkdir -p $(BUILDDIR)
 
-$(BUILDDIR)/lualike_rt.o: $(SRCS) $(INCDIR)/lualike_rt.h | $(BUILDDIR)
+$(BUILDDIR)/lualike_rt.o: $(SRCS) $(INCDIR)/lualike_rt.h $(SRCDIR)/lualike_stdlib.c | $(BUILDDIR)
 	$(CC) $(CFLAGS) -I$(INCDIR) -c -o $@ $<
 
 $(LIB): $(OBJS)

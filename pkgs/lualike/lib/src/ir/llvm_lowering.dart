@@ -380,23 +380,36 @@ class LualikeIrToLlvm {
       case AsBxInstruction(opcode: LualikeIrOpcode.tForPrep, a: final a, sBx: final sBx): {
         _writeln('  call void @lualike_copy(ptr ${_reg(a + 2)}, ptr ${_reg(a + 3)})');
         _writeln('  call void @lualike_copy(ptr ${_reg(a + 3)}, ptr ${_reg(a + 2)})');
-        // Same approach: emit synthetic check block
         final bodyBlock = _findBlock(pc + 1);
         if (bodyBlock >= 0) {
+          // Find the real exit block: it's the body block's successor that is NOT the check block
+          // The body block's successors: the loop back edge (check block) and the exit
+          // Since we haven't emitted the check block yet, the body's successors are:
+          // the block containing tForLoop's fallthrough (which is the loop body itself)
+          // Actually, the real exit is the block after the loop body in the SSA
+          // Use the body block's first successor (which should be the exit)
+          final bodySsa = ssaFunction.blocks.firstWhere(
+            (b) => b.block.index == bodyBlock,
+            orElse: () => ssaFunction.blocks.first,
+          );
+          final exitTarget = bodySsa.block.successors.isNotEmpty
+              ? _label(bodySsa.block.successors.first)
+              : 'b${_syntheticBlock++}';
+          
           final checkLabel = _syntheticBlock++;
+          _loopCheckLabels[bodyBlock] = checkLabel;
           final cont = _next(); final cond = _next();
           _writeln('  br label %b_tcheck_$checkLabel');
           _terminated = true;
           _writeln('b_tcheck_$checkLabel:');
           _writeln('  $cont = call i32 @lualike_tforloop(ptr %r, i32 $a)');
           _writeln('  $cond = icmp ne i32 $cont, 0');
-          _writeln('  br i1 $cond, label %${_label(bodyBlock)}, label %b_texit_$checkLabel');
-          _writeln('b_texit_$checkLabel:');
+          _writeln('  br i1 $cond, label %${_label(bodyBlock)}, label %$exitTarget');
         }
         break;
       }
       case ABCInstruction(opcode: LualikeIrOpcode.tForCall, a: final a, c: final _):
-        _writeln('  call void @lualike_call(ptr %L, ptr ${_reg(a + 3)}, ptr ${_reg(a)}, ptr ${_reg(a + 1)}, i32 1)');
+        _writeln('  call void @lualike_call(ptr %L, ptr ${_reg(a)}, ptr ${_reg(a)}, ptr ${_reg(a + 1)}, i32 2)');
       case AsBxInstruction(opcode: LualikeIrOpcode.tForLoop, a: final a, sBx: final sBx): {
         final exitBlock = _findBlock(pc + 1);
         if (exitBlock >= 0) { _writeln('  br label %${_label(exitBlock)}'); _terminated = true; }
