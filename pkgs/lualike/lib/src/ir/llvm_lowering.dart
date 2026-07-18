@@ -230,21 +230,21 @@ class LualikeIrToLlvm {
 
     switch (inst) {
       // -- Loads --
-      case ABCInstruction(opcode: LualikeIrOpcode.loadI, a: final a, b: final b):
+      case ABCInstruction(opcode: LualikeIrOpcode.loadI, a: final a, b: final b, k: _):
         pushInt(a, _se(b, 8));
       case AsBxInstruction(opcode: LualikeIrOpcode.loadI, a: final a, sBx: final sBx):
         pushInt(a, sBx);
-      case ABCInstruction(opcode: LualikeIrOpcode.loadF, a: final a, b: final b):
+      case ABCInstruction(opcode: LualikeIrOpcode.loadF, a: final a, b: final b, k: _):
         pushNum(a, _se(b, 8).toDouble());
       case AsBxInstruction(opcode: LualikeIrOpcode.loadF, a: final a, sBx: final sBx):
         pushNum(a, sBx.toDouble());
-      case ABCInstruction(opcode: LualikeIrOpcode.loadFalse, a: final a):
+      case ABCInstruction(opcode: LualikeIrOpcode.loadFalse, a: final a, k: _):
         pushBool(a, false);
-      case ABCInstruction(opcode: LualikeIrOpcode.lFalseSkip, a: final a):
+      case ABCInstruction(opcode: LualikeIrOpcode.lFalseSkip, a: final a, k: _):
         pushBool(a, false);
-      case ABCInstruction(opcode: LualikeIrOpcode.loadTrue, a: final a):
+      case ABCInstruction(opcode: LualikeIrOpcode.loadTrue, a: final a, k: _):
         pushBool(a, true);
-      case ABCInstruction(opcode: LualikeIrOpcode.loadNil, a: final a, b: final b):
+      case ABCInstruction(opcode: LualikeIrOpcode.loadNil, a: final a, b: final b, k: _):
         for (var i = 0; i <= b; i++) pushNil(a + i);
       case ABxInstruction(opcode: LualikeIrOpcode.loadK, a: final a, bx: final bx):
         _writeln('  call void @lualike_copy(ptr ${_reg(a)}, ptr ${_const(bx)})');
@@ -252,18 +252,18 @@ class LualikeIrToLlvm {
         break;
 
       // -- Move --
-      case ABCInstruction(opcode: LualikeIrOpcode.move, a: final a, b: final b):
+      case ABCInstruction(opcode: LualikeIrOpcode.move, a: final a, b: final b, k: _):
         cpy(a, b);
 
       // -- Arithmetic (reg, reg) --
-      case ABCInstruction(opcode: LualikeIrOpcode.add,  a: final a, b: final b, c: final c): call3('lualike_add', a, b, c);
-      case ABCInstruction(opcode: LualikeIrOpcode.sub,  a: final a, b: final b, c: final c): call3('lualike_sub', a, b, c);
-      case ABCInstruction(opcode: LualikeIrOpcode.mul,  a: final a, b: final b, c: final c): call3('lualike_mul', a, b, c);
-      case ABCInstruction(opcode: LualikeIrOpcode.div,  a: final a, b: final b, c: final c): call3('lualike_div', a, b, c);
-      case ABCInstruction(opcode: LualikeIrOpcode.mod,  a: final a, b: final b, c: final c): call3('lualike_mod', a, b, c);
-      case ABCInstruction(opcode: LualikeIrOpcode.pow,  a: final a, b: final b, c: final c): call3('lualike_pow', a, b, c);
-      case ABCInstruction(opcode: LualikeIrOpcode.idiv, a: final a, b: final b, c: final c): call3('lualike_idiv', a, b, c);
-      case ABCInstruction(opcode: LualikeIrOpcode.unm,  a: final a, b: final b):              call2('lualike_unm', a, b);
+      case ABCInstruction(opcode: LualikeIrOpcode.add,  a: final a, b: final b, c: final c, k: _): call3('lualike_add', a, b, c);
+      case ABCInstruction(opcode: LualikeIrOpcode.sub,  a: final a, b: final b, c: final c, k: _): call3('lualike_sub', a, b, c);
+      case ABCInstruction(opcode: LualikeIrOpcode.mul,  a: final a, b: final b, c: final c, k: _): call3('lualike_mul', a, b, c);
+      case ABCInstruction(opcode: LualikeIrOpcode.div,  a: final a, b: final b, c: final c, k: _): call3('lualike_div', a, b, c);
+      case ABCInstruction(opcode: LualikeIrOpcode.mod,  a: final a, b: final b, c: final c, k: _): call3('lualike_mod', a, b, c);
+      case ABCInstruction(opcode: LualikeIrOpcode.pow,  a: final a, b: final b, c: final c, k: _): call3('lualike_pow', a, b, c);
+      case ABCInstruction(opcode: LualikeIrOpcode.idiv, a: final a, b: final b, c: final c, k: _): call3('lualike_idiv', a, b, c);
+      case ABCInstruction(opcode: LualikeIrOpcode.unm,  a: final a, b: final b, k: _):              call2('lualike_unm', a, b);
 
       // -- Arithmetic (imm) — use stack temp to avoid overwriting r[b]
       case ABCInstruction(opcode: LualikeIrOpcode.addI, a: final a, b: final b, c: final c, k: final _): {
@@ -282,42 +282,42 @@ class LualikeIrToLlvm {
       }
 
       // -- Arithmetic (const) --
-      case ABCInstruction(opcode: LualikeIrOpcode.addK,  a: final a, b: final b, c: final c): call3c('lualike_add', a, b, c);
-      case ABCInstruction(opcode: LualikeIrOpcode.subK,  a: final a, b: final b, c: final c): call3c('lualike_sub', a, b, c);
-      case ABCInstruction(opcode: LualikeIrOpcode.mulK,  a: final a, b: final b, c: final c): call3c('lualike_mul', a, b, c);
-      case ABCInstruction(opcode: LualikeIrOpcode.divK,  a: final a, b: final b, c: final c): call3c('lualike_div', a, b, c);
-      case ABCInstruction(opcode: LualikeIrOpcode.modK,  a: final a, b: final b, c: final c): call3c('lualike_mod', a, b, c);
-      case ABCInstruction(opcode: LualikeIrOpcode.powK,  a: final a, b: final b, c: final c): call3c('lualike_pow', a, b, c);
-      case ABCInstruction(opcode: LualikeIrOpcode.idivK, a: final a, b: final b, c: final c): call3c('lualike_idiv', a, b, c);
+      case ABCInstruction(opcode: LualikeIrOpcode.addK,  a: final a, b: final b, c: final c, k: _): call3c('lualike_add', a, b, c);
+      case ABCInstruction(opcode: LualikeIrOpcode.subK,  a: final a, b: final b, c: final c, k: _): call3c('lualike_sub', a, b, c);
+      case ABCInstruction(opcode: LualikeIrOpcode.mulK,  a: final a, b: final b, c: final c, k: _): call3c('lualike_mul', a, b, c);
+      case ABCInstruction(opcode: LualikeIrOpcode.divK,  a: final a, b: final b, c: final c, k: _): call3c('lualike_div', a, b, c);
+      case ABCInstruction(opcode: LualikeIrOpcode.modK,  a: final a, b: final b, c: final c, k: _): call3c('lualike_mod', a, b, c);
+      case ABCInstruction(opcode: LualikeIrOpcode.powK,  a: final a, b: final b, c: final c, k: _): call3c('lualike_pow', a, b, c);
+      case ABCInstruction(opcode: LualikeIrOpcode.idivK, a: final a, b: final b, c: final c, k: _): call3c('lualike_idiv', a, b, c);
 
       // -- Bitwise (reg, reg) --
-      case ABCInstruction(opcode: LualikeIrOpcode.band, a: final a, b: final b, c: final c): call3r('lualike_band', a, b, c);
-      case ABCInstruction(opcode: LualikeIrOpcode.bor,  a: final a, b: final b, c: final c): call3r('lualike_bor', a, b, c);
-      case ABCInstruction(opcode: LualikeIrOpcode.bxor, a: final a, b: final b, c: final c): call3r('lualike_bxor', a, b, c);
-      case ABCInstruction(opcode: LualikeIrOpcode.bnot, a: final a, b: final b):              call2r('lualike_bnot', a, b);
-      case ABCInstruction(opcode: LualikeIrOpcode.shl,  a: final a, b: final b, c: final c): call3r('lualike_shl', a, b, c);
-      case ABCInstruction(opcode: LualikeIrOpcode.shr,  a: final a, b: final b, c: final c): call3r('lualike_shr', a, b, c);
+      case ABCInstruction(opcode: LualikeIrOpcode.band, a: final a, b: final b, c: final c, k: _): call3r('lualike_band', a, b, c);
+      case ABCInstruction(opcode: LualikeIrOpcode.bor,  a: final a, b: final b, c: final c, k: _): call3r('lualike_bor', a, b, c);
+      case ABCInstruction(opcode: LualikeIrOpcode.bxor, a: final a, b: final b, c: final c, k: _): call3r('lualike_bxor', a, b, c);
+      case ABCInstruction(opcode: LualikeIrOpcode.bnot, a: final a, b: final b, k: _):              call2r('lualike_bnot', a, b);
+      case ABCInstruction(opcode: LualikeIrOpcode.shl,  a: final a, b: final b, c: final c, k: _): call3r('lualike_shl', a, b, c);
+      case ABCInstruction(opcode: LualikeIrOpcode.shr,  a: final a, b: final b, c: final c, k: _): call3r('lualike_shr', a, b, c);
 
       // -- Bitwise (const) --
-      case ABCInstruction(opcode: LualikeIrOpcode.bandK, a: final a, b: final b, c: final c): call3cr('lualike_band', a, b, c);
-      case ABCInstruction(opcode: LualikeIrOpcode.borK,  a: final a, b: final b, c: final c): call3cr('lualike_bor', a, b, c);
-      case ABCInstruction(opcode: LualikeIrOpcode.bxorK, a: final a, b: final b, c: final c): call3cr('lualike_bxor', a, b, c);
+      case ABCInstruction(opcode: LualikeIrOpcode.bandK, a: final a, b: final b, c: final c, k: _): call3cr('lualike_band', a, b, c);
+      case ABCInstruction(opcode: LualikeIrOpcode.borK,  a: final a, b: final b, c: final c, k: _): call3cr('lualike_bor', a, b, c);
+      case ABCInstruction(opcode: LualikeIrOpcode.bxorK, a: final a, b: final b, c: final c, k: _): call3cr('lualike_bxor', a, b, c);
 
       // -- Bitwise (imm) --
-      case ABCInstruction(opcode: LualikeIrOpcode.shlI, a: final a, b: final b, c: final c):
+      case ABCInstruction(opcode: LualikeIrOpcode.shlI, a: final a, b: final b, c: final c, k: _):
         pushInt(a, c & 63); call2r('lualike_shl', a, b);
-      case ABCInstruction(opcode: LualikeIrOpcode.shrI, a: final a, b: final b, c: final c):
+      case ABCInstruction(opcode: LualikeIrOpcode.shrI, a: final a, b: final b, c: final c, k: _):
         pushInt(a, c & 63); call2r('lualike_shr', a, b);
 
       // -- Metamethod dispatch --
-      case ABCInstruction(opcode: LualikeIrOpcode.mmBin,  a: final a, b: final b, c: final c): call3('lualike_add', a, b, c);
+      case ABCInstruction(opcode: LualikeIrOpcode.mmBin,  a: final a, b: final b, c: final c, k: _): call3('lualike_add', a, b, c);
       case ABCInstruction(opcode: LualikeIrOpcode.mmBinI, a: final a, b: final b, c: final c, k: final _): call3c('lualike_add', a, b, c);
-      case ABCInstruction(opcode: LualikeIrOpcode.mmBinK, a: final a, b: final b, c: final c): call3c('lualike_add', a, b, c);
+      case ABCInstruction(opcode: LualikeIrOpcode.mmBinK, a: final a, b: final b, c: final c, k: _): call3c('lualike_add', a, b, c);
 
       // -- Comparisons --
-      case ABCInstruction(opcode: LualikeIrOpcode.eq,  a: final a, b: final b, c: final c): call3('lualike_eq', a, b, c);
-      case ABCInstruction(opcode: LualikeIrOpcode.lt,  a: final a, b: final b, c: final c): call3('lualike_lt', a, b, c);
-      case ABCInstruction(opcode: LualikeIrOpcode.le,  a: final a, b: final b, c: final c): call3('lualike_le', a, b, c);
+      case ABCInstruction(opcode: LualikeIrOpcode.eq,  a: final a, b: final b, c: final c, k: _): call3('lualike_eq', a, b, c);
+      case ABCInstruction(opcode: LualikeIrOpcode.lt,  a: final a, b: final b, c: final c, k: _): call3('lualike_lt', a, b, c);
+      case ABCInstruction(opcode: LualikeIrOpcode.le,  a: final a, b: final b, c: final c, k: _): call3('lualike_le', a, b, c);
                   case ABCInstruction(opcode: LualikeIrOpcode.eqI, a: final a, b: final b, c: final c, k: final _): {
         final tmp = _next();
         _writeln('  $tmp = alloca i64, i64 1');
@@ -355,34 +355,34 @@ class LualikeIrToLlvm {
         _writeln('  call void @lualike_le(ptr %L, ptr ${_reg(a)}, ptr $tmp, ptr ${_reg(b)})');
         break;
       }
-      case ABCInstruction(opcode: LualikeIrOpcode.eqK, a: final a, b: final b, c: final c): call3c('lualike_eq', a, b, c);
+      case ABCInstruction(opcode: LualikeIrOpcode.eqK, a: final a, b: final b, c: final c, k: _): call3c('lualike_eq', a, b, c);
 
       // -- Logical --
-      case ABCInstruction(opcode: LualikeIrOpcode.notOp, a: final a, b: final b): call2('lualike_not', a, b);
+      case ABCInstruction(opcode: LualikeIrOpcode.notOp, a: final a, b: final b, k: _): call2('lualike_not', a, b);
 
       // -- Length --
-      case ABCInstruction(opcode: LualikeIrOpcode.len, a: final a, b: final b): call2('lualike_len', a, b);
+      case ABCInstruction(opcode: LualikeIrOpcode.len, a: final a, b: final b, k: _): call2('lualike_len', a, b);
 
       // -- Concat --
-      case ABCInstruction(opcode: LualikeIrOpcode.concat, a: final a, b: final b, c: final c):
+      case ABCInstruction(opcode: LualikeIrOpcode.concat, a: final a, b: final b, c: final c, k: _):
         call3('lualike_concat', a, b, c);
 
       // -- Tables --
-      case ABCInstruction(opcode: LualikeIrOpcode.newTable, a: final a):
+      case ABCInstruction(opcode: LualikeIrOpcode.newTable, a: final a, k: _):
         _writeln('  call void @lualike_newtable(ptr ${_reg(a)})');
-      case ABCInstruction(opcode: LualikeIrOpcode.getTable, a: final a, b: final b, c: final c):
+      case ABCInstruction(opcode: LualikeIrOpcode.getTable, a: final a, b: final b, c: final c, k: _):
         call3('lualike_gettable', a, b, c);
-      case ABCInstruction(opcode: LualikeIrOpcode.setTable, a: final a, b: final b, c: final c):
+      case ABCInstruction(opcode: LualikeIrOpcode.setTable, a: final a, b: final b, c: final c, k: _):
         call3('lualike_settable', a, b, c);
-      case ABCInstruction(opcode: LualikeIrOpcode.getField, a: final a, b: final b, c: final c):
+      case ABCInstruction(opcode: LualikeIrOpcode.getField, a: final a, b: final b, c: final c, k: _):
         _writeln('  call void @lualike_getfield(ptr %L, ptr ${_reg(a)}, ptr ${_reg(b)}, ptr ${_const(c)})');
-      case ABCInstruction(opcode: LualikeIrOpcode.setField, a: final a, b: final b, c: final c):
+      case ABCInstruction(opcode: LualikeIrOpcode.setField, a: final a, b: final b, c: final c, k: _):
         _writeln('  call void @lualike_setfield(ptr %L, ptr ${_reg(a)}, ptr ${_const(b)}, ptr ${_reg(c)})');
-      case ABCInstruction(opcode: LualikeIrOpcode.getI, a: final a, b: final b, c: final c):
+      case ABCInstruction(opcode: LualikeIrOpcode.getI, a: final a, b: final b, c: final c, k: _):
         _writeln('  call void @lualike_geti(ptr %L, ptr ${_reg(a)}, ptr ${_reg(b)}, i64 $c)');
-      case ABCInstruction(opcode: LualikeIrOpcode.setI, a: final a, b: final b, c: final c):
+      case ABCInstruction(opcode: LualikeIrOpcode.setI, a: final a, b: final b, c: final c, k: _):
         _writeln('  call void @lualike_seti(ptr %L, ptr ${_reg(a)}, i64 $b, ptr ${_reg(c)})');
-      case ABCInstruction(opcode: LualikeIrOpcode.setList, a: final a, b: final b, c: final c):
+      case ABCInstruction(opcode: LualikeIrOpcode.setList, a: final a, b: final b, c: final c, k: _):
         // Expand SETLIST into individual SETI calls
         if (b > 0) {
           final startIdx = (c - 1) * 50 + 1;
@@ -392,15 +392,15 @@ class LualikeIrToLlvm {
         }
 
       // -- Upvalues --
-      case ABCInstruction(opcode: LualikeIrOpcode.getUpval, a: final a, b: final b):
+      case ABCInstruction(opcode: LualikeIrOpcode.getUpval, a: final a, b: final b, k: _):
         _writeln('  call void @lualike_getupval(ptr ${_reg(a)}, ptr %upvals, i32 $b)');
-      case ABCInstruction(opcode: LualikeIrOpcode.setUpval, a: final a, b: final b, c: final c):
+      case ABCInstruction(opcode: LualikeIrOpcode.setUpval, a: final a, b: final b, c: final c, k: _):
         _writeln('  call void @lualike_setupval(ptr %upvals, i32 $b, ptr ${_reg(c)})');
 
       // -- Globals --
-      case ABCInstruction(opcode: LualikeIrOpcode.getTabUp, a: final a, c: final c):
+      case ABCInstruction(opcode: LualikeIrOpcode.getTabUp, a: final a, c: final c, k: _):
         _writeln('  call void @lualike_gettabup(ptr ${_reg(a)}, ptr %upvals, ptr %constants, i32 $c)');
-      case ABCInstruction(opcode: LualikeIrOpcode.setTabUp, a: final a, c: final c):
+      case ABCInstruction(opcode: LualikeIrOpcode.setTabUp, a: final a, c: final c, k: _):
         _writeln('  call void @lualike_settabup(ptr %upvals, ptr %constants, ptr ${_reg(a)}, i32 $c)');
 
       // -- Closure --
@@ -448,22 +448,29 @@ class LualikeIrToLlvm {
       }
 
       // -- Self --
-      case ABCInstruction(opcode: LualikeIrOpcode.selfOp, a: final a, b: final b, c: final c):
+      case ABCInstruction(opcode: LualikeIrOpcode.selfOp, a: final a, b: final b, c: final c, k: _):
         cpy(a, b);
         _writeln('  call void @lualike_getfield(ptr %L, ptr ${_reg(a + 1)}, ptr ${_reg(b)}, ptr ${_const(c)})');
 
       // -- Calls --
-      case ABCInstruction(opcode: LualikeIrOpcode.call, a: final a, b: final b, c: final _):
-        _writeln('  call void @lualike_call(ptr %L, ptr ${_reg(a)}, ptr ${_reg(a)}, ptr ${_reg(a + 1)}, i32 ${b == 0 ? -1 : b - 1})');
-      case ABCInstruction(opcode: LualikeIrOpcode.tailCall, a: final a, b: final b):
-        _writeln('  call void @lualike_tailcall(ptr %L, ptr ${_reg(a)}, ptr ${_reg(a)}, ptr ${_reg(a + 1)}, i32 ${b == 0 ? -1 : b - 1})');
+      case ABCInstruction(opcode: LualikeIrOpcode.call, a: final a, b: final b, c: _, k: _): {
+        // B=0 means "all remaining registers" — compute actual count from %nregs
+        final nargs = b == 0 ? _callNargs(a) : (b - 1).toString();
+        _writeln('  call void @lualike_call(ptr %L, ptr ${_reg(a)}, ptr ${_reg(a)}, ptr ${_reg(a + 1)}, i32 $nargs)');
+        break;
+      }
+      case ABCInstruction(opcode: LualikeIrOpcode.tailCall, a: final a, b: final b, c: _, k: _): {
+        final nargs = b == 0 ? _callNargs(a) : (b - 1).toString();
+        _writeln('  call void @lualike_tailcall(ptr %L, ptr ${_reg(a)}, ptr ${_reg(a)}, ptr ${_reg(a + 1)}, i32 $nargs)');
+        break;
+      }
 
       // -- Returns --
-      case ABCInstruction(opcode: LualikeIrOpcode.return1, a: final a):
+      case ABCInstruction(opcode: LualikeIrOpcode.return1, a: final a, k: _):
         cpy(0, a); _writeln('  ret void'); _terminated = true;
       case LualikeIrInstruction(opcode: LualikeIrOpcode.return0):
         _writeln('  call void @lualike_pushnil(ptr %r)'); _writeln('  ret void'); _terminated = true;
-      case ABCInstruction(opcode: LualikeIrOpcode.ret, a: final a, b: final b):
+      case ABCInstruction(opcode: LualikeIrOpcode.ret, a: final a, b: final b, k: _):
         if (b > 1) cpy(0, a);
         else _writeln('  call void @lualike_pushnil(ptr %r)');
         _writeln('  ret void'); _terminated = true;
@@ -471,9 +478,9 @@ class LualikeIrToLlvm {
       // -- Varargs --
       case LualikeIrInstruction(opcode: LualikeIrOpcode.varArgPrep):
         break;
-      case ABCInstruction(opcode: LualikeIrOpcode.varArg, a: final a, b: final _):
+      case ABCInstruction(opcode: LualikeIrOpcode.varArg, a: final a, b: final _, k: _):
         cpy(a, 0);
-      case ABCInstruction(opcode: LualikeIrOpcode.getVarArg, a: final a, c: final c):
+      case ABCInstruction(opcode: LualikeIrOpcode.getVarArg, a: final a, c: final c, k: _):
         _writeln('  call void @lualike_getupval(ptr ${_reg(a)}, ptr %varargs, i32 ${c <= 1 ? 0 : c - 1})');
 
       // -- For loops --
@@ -551,7 +558,7 @@ class LualikeIrToLlvm {
         }
         break;
       }
-      case ABCInstruction(opcode: LualikeIrOpcode.tForCall, a: final a, c: final _): {
+      case ABCInstruction(opcode: LualikeIrOpcode.tForCall, a: final a, c: final _, k: _): {
         // tForCall in the body: call iterator and copy result to r[a+2]
         final checkLabel = _loopCheckLabels[_currentBlockIndex];
         if (checkLabel != null) {
@@ -630,6 +637,14 @@ class LualikeIrToLlvm {
   String _const(int i) {
     final p = _next();
     _writeln('  $p = getelementptr i8, ptr %constants, i32 ${i * _valueSz}');
+    return p;
+  }
+
+  /// Emit computation of remaining register count for B=0 calls.
+  /// Since args start at r[a+1], the count is nregs - a - 1.
+  String _callNargs(int a) {
+    final p = _next();
+    _writeln('  $p = sub i32 %nregs, ${a + 1}');
     return p;
   }
 
