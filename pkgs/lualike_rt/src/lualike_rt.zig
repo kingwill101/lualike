@@ -597,6 +597,11 @@ export fn lualike_settable(_: ?*State, tbl: *Value, key: *const Value, val: *con
 export fn lualike_getfield(L: ?*State, d: *Value, tbl: *const Value, field: *const Value) void {
     if (field.type != .string) { lualike_pushnil(d); return; }
     const s = field.payload.s orelse { lualike_pushnil(d); return; };
+    // Defensive: s.len must be sane (freed/corrupted strings have huge or zero len)
+    if (s.len == 0 or s.len > 65536) {
+        lualike_pushnil(d);
+        return;
+    }
     const key = String.init(s.data[0..s.len]) catch { lualike_pushnil(d); return; };
     defer key.deref();
     var k = Value{ .type = .string, ._pad = undefined, .payload = .{ .s = key } };
