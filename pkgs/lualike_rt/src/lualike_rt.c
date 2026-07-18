@@ -687,25 +687,33 @@ int lualike_table_len(const lua_Value* tbl) {
 // ===========================================================================
 
 int32_t lualike_forprep(lua_Value* r, int a) {
-  // FORPREP: r[a+3] = r[a]; r[a] -= r[a+2]; always enter loop
-  double initial = r[a].payload.n;
+  // FORPREP: standard Lua for loop pre-decrement
+  // Input:  r[a]=init, r[a+1]=limit, r[a+2]=step
+  // Standard: r[a] -= r[a+2]; jump past body
+  double init = r[a].payload.n;
+  double limit = r[a + 1].payload.n;
   double step = r[a + 2].payload.n;
-  r[a + 3] = r[a];  // save initial value (struct copy, no ref increment needed for numbers)
-  r[a].payload.n = initial - step;
-  return 1;  // always enter loop body
+  // Move step to r[a+1], limit to r[a], pre-decrement init in r[a+2]
+  r[a + 2].payload.n = init - step;  // pre-decremented loop variable
+  r[a + 1].payload.n = step;
+  r[a].payload.n = limit;
+  // Check if loop body will execute at least once
+  int skip = (step > 0) ? (limit < init) : (init < limit);
+  return skip ? 0 : 1;
 }
 
 int32_t lualike_forloop(lua_Value* r, int a) {
-  // FORLOOP: r[a] += r[a+2]; check r[a] against r[a+1]
-  double step = r[a + 2].payload.n;
-  double limit = r[a + 1].payload.n;
-  r[a].payload.n += step;
-  double next = r[a].payload.n;
+  // FORLOOP: advance loop variable by step, check against limit
+  double step = r[a + 1].payload.n;
+  double limit = r[a].payload.n;
+  double current = r[a + 2].payload.n;  // current (pre-decremented)
+  double next = current + step;          // next = (init-step) + step = init
   int cont = (step > 0) ? (next <= limit) : (next >= limit);
   if (cont) {
-    r[a + 3].payload.n = next;  // expose internal variable
+    r[a + 2].payload.n = next;  // update to actual current value
+    return 1;
   }
-  return cont;
+  return 0;
 }
 
 int32_t lualike_tforloop(lua_Value* r, int a) {
