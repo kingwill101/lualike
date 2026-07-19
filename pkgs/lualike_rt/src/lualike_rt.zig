@@ -1174,12 +1174,22 @@ fn stdCollectgarbage(L: *State, args: [*]Value, n: i32, r: [*]Value, _: i32, nr:
     nr.* = 1;
 }
 
-fn stdDofile(_: *State, _: [*]Value, _: i32, r: [*]Value, _: i32, nr: *i32) callconv(.c) void {
+fn stdDofile(_: *State, args: [*]Value, n: i32, r: [*]Value, _: i32, nr: *i32) callconv(.c) void {
+    // loadfile / dofile / require — need file I/O via Zig std lib
+    // For now, read from the embedded script path or return nil
+    // TODO: implement file loading with std.fs when not in restricted env
+    _ = args; _ = n;
     lualike_pushnil(&r[0]); nr.* = 1;
 }
 
-fn stdLoad(_: *State, _: [*]Value, _: i32, r: [*]Value, _: i32, nr: *i32) callconv(.c) void {
-    lualike_pushnil(&r[0]); nr.* = 1;
+fn stdLoad(L: *State, args: [*]Value, n: i32, r: [*]Value, _: i32, nr: *i32) callconv(.c) void {
+    if (n < 1 or args[0].type != .string) { lualike_pushnil(&r[0]); nr.* = 1; return; }
+    const s = args[0].payload.s orelse { lualike_pushnil(&r[0]); nr.* = 1; return; };
+    const source = s.data[0..s.len];
+    var p = parser.Parser.init(source);
+    const chunk = p.parseChunk() catch { p.deinit(); lualike_pushnil(&r[0]); nr.* = 1; return; };
+    interpMakeClosure(L, &r[0], &p, chunk);
+    nr.* = 1;
 }
 
 // ---------------------------------------------------------------------------
@@ -3205,4 +3215,133 @@ test "error handling" {
     lualike_error(L, @ptrCast(@constCast("test error")));
     try testing.expectEqual(L.err, 1);
     try testing.expect(mem.eql(u8, L.msg[0..10], "test error"));
+}
+
+test "load — return expression" {
+    const L = lualike_newstate() orelse return error.NoState;
+    defer lualike_freestate(L);
+    lualike_openlibs(L);
+
+    // Call load("return 42")
+    var fn_args: [1]Value = undefined;
+    const src_str = String.init("return 42") catch return error.NoMem;
+    fn_args[0] = Value{ .type = .string, ._pad = undefined, .payload = .{ .s = src_str } };
+    var r: [1]Value = @splat(nilV());
+    var nr: i32 = 0;
+    stdLoad(L, &fn_args, 1, &r, 1, &nr);
+    try testing.expectEqual(@as(i32, 1), nr);
+    try testing.expect(r[0].type == .interpreted);
+
+    // Call the interpreted closure
+    var call_result: [1]Value = @splat(nilV());
+    lualike_call(L, &call_result[0], &r[0], undefined, 0);
+    try testing.expectEqual(Type.number, call_result[0].type);
+    try testing.expectEqual(@as(f64, 42.0), call_result[0].payload.n);
+}
+
+test "load — arithmetic" {
+    const L = lualike_newstate() orelse return error.NoState;
+    defer lualike_freestate(L);
+    lualike_openlibs(L);
+
+    const src_str = String.init("return 2 + 3") catch return error.NoMem;
+    var fn_args: [1]Value = .{Value{ .type = .string, ._pad = undefined, .payload = .{ .s = src_str } }};
+    var r: [1]Value = @splat(nilV());
+    var nr: i32 = 0;
+    stdLoad(L, &fn_args, 1, &r, 1, &nr);
+    try testing.expectEqual(@as(i32, 1), nr);
+
+    var call_result: [1]Value = @splat(nilV());
+    lualike_call(L, &call_result[0], &r[0], undefined, 0);
+    try testing.expectEqual(Type.number, call_result[0].type);
+    try testing.expectEqual(@as(f64, 5.0), call_result[0].payload.n);
+}
+
+test "load — if statement" {
+    const L = lualike_newstate() orelse return error.NoState;
+    defer lualike_freestate(L);
+    lualike_openlibs(L);
+
+    const src_str = String.init("if true then return 1 else return 2 end") catch return error.NoMem;
+    var fn_args: [1]Value = .{Value{ .type = .string, ._pad = undefined, .payload = .{ .s = src_str } }};
+    var r: [1]Value = @splat(nilV());
+    var nr: i32 = 0;
+    stdLoad(L, &fn_args, 1, &r, 1, &nr);
+    try testing.expectEqual(@as(i32, 1), nr);
+
+    var call_result: [1]Value = @splat(nilV());
+    lualike_call(L, &call_result[0], &r[0], undefined, 0);
+    try testing.expectEqual(Type.number, call_result[0].type);
+    try testing.expectEqual(@as(f64, 1.0), call_result[0].payload.n);
+}
+
+test "load — local variables" {
+    const L = lualike_newstate() orelse return error.NoState;
+    defer lualike_freestate(L);
+    lualike_openlibs(L);
+
+    const src_str = String.init("local x = 10\nreturn x + 5") catch return error.NoMem;
+    var fn_args: [1]Value = .{Value{ .type = .string, ._pad = undefined, .payload = .{ .s = src_str } }};
+    var r: [1]Value = @splat(nilV());
+    var nr: i32 = 0;
+    stdLoad(L, &fn_args, 1, &r, 1, &nr);
+    try testing.expectEqual(@as(i32, 1), nr);
+
+    var call_result: [1]Value = @splat(nilV());
+    lualike_call(L, &call_result[0], &r[0], undefined, 0);
+    try testing.expectEqual(Type.number, call_result[0].type);
+    try testing.expectEqual(@as(f64, 15.0), call_result[0].payload.n);
+}
+
+test "load — while loop" {
+    const L = lualike_newstate() orelse return error.NoState;
+    defer lualike_freestate(L);
+    lualike_openlibs(L);
+
+    const src_str = String.init("local i = 0\nwhile i < 5 do i = i + 1 end\nreturn i") catch return error.NoMem;
+    var fn_args: [1]Value = .{Value{ .type = .string, ._pad = undefined, .payload = .{ .s = src_str } }};
+    var r: [1]Value = @splat(nilV());
+    var nr: i32 = 0;
+    stdLoad(L, &fn_args, 1, &r, 1, &nr);
+    try testing.expectEqual(@as(i32, 1), nr);
+
+    var call_result: [1]Value = @splat(nilV());
+    lualike_call(L, &call_result[0], &r[0], undefined, 0);
+    try testing.expectEqual(Type.number, call_result[0].type);
+    try testing.expectEqual(@as(f64, 5.0), call_result[0].payload.n);
+}
+
+test "load — table constructor" {
+    const L = lualike_newstate() orelse return error.NoState;
+    defer lualike_freestate(L);
+    lualike_openlibs(L);
+
+    const src_str = String.init("return {1, 2, 3}") catch return error.NoMem;
+    var fn_args: [1]Value = .{Value{ .type = .string, ._pad = undefined, .payload = .{ .s = src_str } }};
+    var r: [1]Value = @splat(nilV());
+    var nr: i32 = 0;
+    stdLoad(L, &fn_args, 1, &r, 1, &nr);
+    try testing.expectEqual(@as(i32, 1), nr);
+
+    var call_result: [1]Value = @splat(nilV());
+    lualike_call(L, &call_result[0], &r[0], undefined, 0);
+    try testing.expectEqual(Type.table, call_result[0].type);
+}
+
+test "load — print call" {
+    const L = lualike_newstate() orelse return error.NoState;
+    defer lualike_freestate(L);
+    lualike_openlibs(L);
+
+    const src_str = String.init("print(\"hello\")") catch return error.NoMem;
+    var fn_args: [1]Value = .{Value{ .type = .string, ._pad = undefined, .payload = .{ .s = src_str } }};
+    var r: [1]Value = @splat(nilV());
+    var nr: i32 = 0;
+    stdLoad(L, &fn_args, 1, &r, 1, &nr);
+    try testing.expectEqual(@as(i32, 1), nr);
+
+    var call_result: [1]Value = @splat(nilV());
+    lualike_call(L, &call_result[0], &r[0], undefined, 0);
+    // print returns nil
+    try testing.expectEqual(Type.nil, call_result[0].type);
 }
