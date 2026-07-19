@@ -1,6 +1,7 @@
 const std = @import("std");
 const mem = std.mem;
 const pattern = @import("pattern.zig");
+const parser = @import("parser.zig");
 
 /// Allocator. Uses c_allocator (backs to malloc/free via -lc).
 const Alloc = std.heap.c_allocator;
@@ -11,7 +12,7 @@ const std_c_getenv: *const fn ([*:0]u8) callconv(.c) ?[*:0]u8 = @ptrCast(&@exter
 
 /// Discriminant tag for the lualike value system.
 ///
-pub const Type = enum(u32) { nil = 0, boolean = 1, number = 2, string = 3, table = 4, function_ = 5, nativefn = 6 };
+pub const Type = enum(u32) { nil = 0, boolean = 1, number = 2, string = 3, table = 4, function_ = 5, nativefn = 6, interpreted = 7 };
 
 /// Function signature for native (C ABI) functions that can be called from lualike.
 ///
@@ -262,7 +263,7 @@ export fn lualike_istable(v: *const Value) bool {
 }
 /// Returns `true` if `v` is any kind of function (compiled closure or native).
 export fn lualike_isfunction(v: *const Value) bool {
-    return v.type == .function_ or v.type == .nativefn;
+    return v.type == .function_ or v.type == .nativefn or v.type == .interpreted;
 }
 /// Extracts the numeric payload of `v`, returning `0` if `v` is not a number.
 export fn lualike_tonumber(v: *const Value) f64 {
@@ -291,7 +292,7 @@ export fn lualike_type_str(d: *Value, v: *const Value) void {
         .number => "number",
         .string => "string",
         .table => "table",
-        .function_, .nativefn => "function",
+        .function_, .nativefn, .interpreted => "function",
     };
     lualike_pushcstring(d, null, @ptrCast(@constCast(name)));
 }
@@ -794,6 +795,34 @@ export fn lualike_call(L: ?*State, dst: ?*Value, fn_val: *const Value, args: [*]
         }
         return;
     }
+    if (fn_val.type == .interpreted) {
+        // Interpreted closure — tree-walk the AST
+        const sc: *SavedChunk = @ptrFromInt(fn_val.payload.t);
+        var vm = Ivm.init(L.?);
+        defer vm.deinit();
+        if (sc.params.len > 0) {
+            vm.push() catch { if (dst) |d| lualike_pushnil(d); return; };
+            if (vm.cur()) |f| {
+                var i: usize = 0;
+                while (i < sc.params.len and i < @as(usize, @intCast(nargs))) {
+                    retain(args[i]);
+                    f.set(sc.params[i], args[i]) catch {};
+                    i += 1;
+                }
+            }
+            const result = vm.execChunk(sc.chunk) catch { if (dst) |d| lualike_pushnil(d); return; };
+            if (dst) |d| lualike_copy(d, &result);
+        } else {
+            vm.push() catch { if (dst) |d| lualike_pushnil(d); return; };
+            vm.execBlock(sc.chunk.stats) catch {};
+            if (vm.cur()) |f| {
+                if (f.return_pending and f.return_vals.len > 0) {
+                    if (dst) |d| lualike_copy(d, &f.return_vals[0]);
+                } else if (dst) |d| lualike_pushnil(d);
+            } else if (dst) |d| lualike_pushnil(d);
+        }
+        return;
+    }
     if (fn_val.type != .function_) {
         lualike_error(L, @ptrCast(@constCast("call non-function")));
         if (dst) |d| lualike_pushnil(d);
@@ -1030,7 +1059,7 @@ fn stdTostring(_: *State, args: [*]Value, n: i32, r: [*]Value, _: i32, nr: *i32)
         },
         .string => lualike_copy(&r[0], &args[0]),
         .table => pushStr(&r[0], "table"),
-        .function_, .nativefn => pushStr(&r[0], "function"),
+        .function_, .nativefn, .interpreted => pushStr(&r[0], "function"),
     }
     nr.* = 1;
 }
@@ -2659,6 +2688,339 @@ export fn lualike_openlibs(L: *State) void {
         lualike_setfield(null, &L.globals, &k, &t);
         release(t);
     }
+}
+
+// ===========================================================================
+// Tree-walk interpreter (for load() / dofile() support)
+// ===========================================================================
+
+/// An arena-allocated parsed chunk kept alive for the interpreter.
+const SavedChunk = struct {
+    arena: std.heap.ArenaAllocator,
+    chunk: parser.Chunk,
+    params: [][]const u8,
+};
+
+/// Maximum number of concurrently live interpreted closures.
+const MAX_SAVED = 64;
+var saved_chunks: [MAX_SAVED]?*SavedChunk = .{null} ** MAX_SAVED;
+
+/// Call frame for the tree-walk interpreter.
+const IFlag = struct {
+    locals: std.StringHashMapUnmanaged(Value),
+    break_pending: bool = false,
+    return_pending: bool = false,
+    return_vals: []const Value = &.{},
+
+    fn init() IFlag {
+        return .{ .locals = .{} };
+    }
+    fn deinit(self: *IFlag) void {
+        var it = self.locals.iterator();
+        while (it.next()) |e| { Alloc.free(e.key_ptr.*); release(e.value_ptr.*); }
+        self.locals.deinit(Alloc);
+    }
+    fn set(self: *IFlag, name: []const u8, v: Value) !void {
+        const gop = try self.locals.getOrPut(Alloc, name);
+        if (gop.found_existing) {
+            release(gop.value_ptr.*);
+        } else {
+            gop.key_ptr.* = try Alloc.dupe(u8, name);
+        }
+        gop.value_ptr.* = v;
+        retain(v);
+    }
+    fn get(self: *IFlag, name: []const u8) ?Value {
+        return self.locals.get(name);
+    }
+};
+
+/// Interpreter virtual machine.
+const Ivm = struct {
+    L: *State,
+    frames: std.ArrayList(IFlag) = .{ .items = &.{}, .capacity = 0 },
+
+    fn init(L: *State) Ivm { return .{ .L = L }; }
+    fn deinit(self: *Ivm) void {
+        for (self.frames.items) |*f| f.deinit();
+        self.frames.deinit(Alloc);
+    }
+    fn push(self: *Ivm) !void { try self.frames.append(Alloc, IFlag.init()); }
+    fn pop(self: *Ivm) void {
+        if (self.frames.items.len == 0) return;
+        self.frames.items[self.frames.items.len - 1].deinit();
+        self.frames.shrinkAndFree(Alloc, self.frames.items.len - 1);
+    }
+    fn cur(self: *Ivm) ?*IFlag {
+        if (self.frames.items.len == 0) return null;
+        return &self.frames.items[self.frames.items.len - 1];
+    }
+
+    fn execBlock(self: *Ivm, ss: []const *parser.Stat) std.mem.Allocator.Error!void {
+        for (ss) |s| {
+            try self.execStat(s);
+            if (self.cur()) |f| if (f.return_pending or f.break_pending) return;
+        }
+    }
+
+    fn execChunk(self: *Ivm, c: parser.Chunk) std.mem.Allocator.Error!Value {
+        self.execBlock(c.stats) catch {};
+        if (self.cur()) |f| if (f.return_pending and f.return_vals.len > 0) return f.return_vals[0];
+        return nilV();
+    }
+
+    fn execStat(self: *Ivm, st: *const parser.Stat) std.mem.Allocator.Error!void {
+        switch (st.*) {
+            .ret_stmt => |r| {
+                var buf: [256]Value = @splat(nilV());
+                var n: usize = 0;
+                for (r.vals) |v| { if (n >= 256) break; buf[n] = try self.eval(v); n += 1; }
+                if (self.cur()) |f| { f.return_pending = true; f.return_vals = buf[0..n]; }
+            },
+            .break_stmt => { if (self.cur()) |f| f.break_pending = true; },
+            .expr_call => |c| { const r = try self.eval(c); release(r); },
+            .local_assign => |la| {
+                var buf: [256]Value = @splat(nilV());
+                var n: usize = 0;
+                for (la.vals) |v| { if (n >= 256) break; buf[n] = try self.eval(v); n += 1; }
+                if (self.cur()) |f| for (la.names, 0..) |nm, i| try f.set(nm, if (i < n) buf[i] else nilV());
+            },
+            .assign => |a| {
+                var buf: [256]Value = @splat(nilV());
+                var n: usize = 0;
+                for (a.vals) |v| { if (n >= 256) break; buf[n] = try self.eval(v); n += 1; }
+                for (a.vars, 0..) |ve, i| try self.setVar(ve, if (i < n) buf[i] else nilV());
+            },
+            .if_stmt => |is| {
+                const c = try self.eval(is.cond);
+                defer release(c);
+                if (lualike_toboolean(&c)) try self.execBlock(is.then_block)
+                else if (is.else_block) |eb| try self.execBlock(eb);
+                if (self.cur()) |f| if (f.return_pending or f.break_pending) return;
+            },
+            .while_stmt => |w| while (true) {
+                const c = try self.eval(w.cond);
+                defer release(c);
+                if (!lualike_toboolean(&c)) break;
+                try self.execBlock(w.body);
+                if (self.cur()) |f| { if (f.break_pending) { f.break_pending = false; break; } if (f.return_pending) return; }
+            },
+            .repeat_stmt => |r| while (true) {
+                try self.execBlock(r.body);
+                if (self.cur()) |f| { if (f.break_pending) { f.break_pending = false; break; } if (f.return_pending) return; }
+                const c = try self.eval(r.cond);
+                defer release(c);
+                if (lualike_toboolean(&c)) break;
+            },
+            .for_stmt => |fs| {
+                const sv = try self.eval(fs.start); defer release(sv);
+                const ev = try self.eval(fs.end); defer release(ev);
+                var stp: f64 = 1.0;
+                if (fs.step) |s| { const sv2 = try self.eval(s); defer release(sv2); stp = lualike_tonumber(&sv2); }
+                var i = lualike_tonumber(&sv);
+                const end = lualike_tonumber(&ev);
+                if (self.cur()) |f| while ((stp >= 0 and i <= end) or (stp < 0 and i >= end)) {
+                    try f.set(fs.var_name, .{ .type = .number, ._pad = undefined, .payload = .{ .n = i } });
+                    try self.execBlock(fs.body);
+                    if (f.break_pending) { f.break_pending = false; break; }
+                    if (f.return_pending) return;
+                    i += stp;
+                };
+            },
+            .foreach_stmt => |fe| { const it = try self.eval(fe.iter); release(it); },
+            .block => |b| try self.execBlock(b),
+            .func_def => {},
+            .local_func_def => {},
+        }
+    }
+
+    fn setVar(self: *Ivm, ve: *const parser.Exp, v: Value) std.mem.Allocator.Error!void {
+        switch (ve.*) {
+            .var_name => |nm| {
+                if (self.cur()) |f| {
+                    if (f.locals.contains(nm)) {
+                        try f.set(nm, v);
+                        return;
+                    }
+                }
+                const ks = String.init(nm) catch return;
+                var k = Value{ .type = .string, ._pad = undefined, .payload = .{ .s = ks } };
+                defer release(k);
+                lualike_setfield(null, &self.L.globals, &k, &v);
+            },
+            .index => |ix| { var o = try self.eval(ix.obj); defer release(o); const k = try self.eval(ix.key); defer release(k); lualike_setfield(null, &o, &k, &v); },
+            .dot => |d| { var o = try self.eval(d.obj); defer release(o); const ks = String.init(d.key) catch return; var k = Value{ .type = .string, ._pad = undefined, .payload = .{ .s = ks } }; defer release(k); lualike_setfield(null, &o, &k, &v); },
+            else => {},
+        }
+    }
+
+    fn call(self: *Ivm, fv: Value, args: []Value) std.mem.Allocator.Error!Value {
+        if (fv.type == .nativefn) {
+            const cfn: NativeFn = @ptrFromInt(fv.payload.cfn);
+            var rr: [8]Value = @splat(nilV());
+            var nr: i32 = 0;
+            cfn(self.L, args.ptr, @intCast(args.len), &rr, 8, &nr);
+            if (nr > 0) return rr[0];
+            return nilV();
+        }
+        if (fv.type == .function_) {
+            const c: *Closure = @ptrFromInt(fv.payload.fn_ptr);
+            if (c.fn_ptr) |cfn| {
+                var regs: [16]Value = @splat(nilV());
+                const na = @min(@as(usize, @intCast(args.len)), @as(usize, 16));
+                for (0..na) |i| { regs[i] = args[i]; retain(regs[i]); }
+                defer for (&regs) |*r| release(r.*);
+                var ev: [1]Value = @splat(nilV());
+                cfn(self.L, &regs, 16, c.upvals, c.nupvals, &ev, 0, c.constants, c.nconstants);
+                return regs[0];
+            }
+        }
+        if (fv.type == .interpreted) {
+            const sc: *SavedChunk = @ptrFromInt(fv.payload.t);
+            self.push() catch return nilV();
+            for (sc.params, 0..) |p, i| {
+                if (i < args.len) { retain(args[i]); self.cur().?.set(p, args[i]) catch {}; }
+            }
+            const r = self.execChunk(sc.chunk);
+            self.pop();
+            return r;
+        }
+        return nilV();
+    }
+
+    fn eval(self: *Ivm, e: *const parser.Exp) !Value {
+        switch (e.*) {
+            .nil_literal => return nilV(),
+            .bool_literal => |b| { var v: Value = undefined; lualike_pushboolean(&v, b); return v; },
+            .number_literal => |n| { var v: Value = undefined; lualike_pushnumber(&v, n); return v; },
+            .integer_literal => |i| { var v: Value = undefined; lualike_pushinteger(&v, i); return v; },
+            .string_literal => |s| { const str = String.init(s) catch return nilV(); return Value{ .type = .string, ._pad = undefined, .payload = .{ .s = str } }; },
+            .var_name => |nm| {
+                if (self.cur()) |f| if (f.get(nm)) |v| return v;
+                const ks = String.init(nm) catch return nilV();
+                var k = Value{ .type = .string, ._pad = undefined, .payload = .{ .s = ks } };
+                defer release(k);
+                var r: Value = undefined;
+                lualike_getfield(null, &r, &self.L.globals, &k);
+                return r;
+            },
+            .unop => |u| {
+                const rh = try self.eval(u.rhs);
+                defer release(rh);
+                var r: Value = undefined;
+                switch (u.op) {
+                    .minus => lualike_unm(null, &r, &rh),
+                    .not_op => { lualike_pushboolean(&r, !lualike_toboolean(&rh)); },
+                    .len => lualike_len(null, &r, &rh),
+                    .bnot => lualike_bnot(&r, &rh),
+                }
+                return r;
+            },
+            .binop => |b| {
+                if (b.op == .and_op) { const lh = try self.eval(b.lhs); defer release(lh); if (!lualike_toboolean(&lh)) return lh; return self.eval(b.rhs); }
+                if (b.op == .or_op) { const lh = try self.eval(b.lhs); defer release(lh); if (lualike_toboolean(&lh)) return lh; return self.eval(b.rhs); }
+                const lh = try self.eval(b.lhs); defer release(lh);
+                const rh = try self.eval(b.rhs); defer release(rh);
+                var r: Value = undefined;
+                switch (b.op) {
+                    .add => lualike_add(null, &r, &lh, &rh),
+                    .sub => lualike_sub(null, &r, &lh, &rh),
+                    .mul => lualike_mul(null, &r, &lh, &rh),
+                    .div => lualike_div(null, &r, &lh, &rh),
+                    .mod => lualike_mod(null, &r, &lh, &rh),
+                    .pow => lualike_pow(null, &r, &lh, &rh),
+                    .idiv => lualike_idiv(null, &r, &lh, &rh),
+                    .band => lualike_band(&r, &lh, &rh),
+                    .bor => lualike_bor(&r, &lh, &rh),
+                    .bxor => lualike_bxor(&r, &lh, &rh),
+                    .shl => lualike_shl(&r, &lh, &rh),
+                    .shr => lualike_shr(&r, &lh, &rh),
+                    .concat => lualike_concat(null, &r, &lh, &rh),
+                    .lt => lualike_lt(null, &r, &lh, &rh),
+                    .gt => lualike_lt(null, &r, &rh, &lh),
+                    .le => lualike_le(null, &r, &lh, &rh),
+                    .ge => lualike_le(null, &r, &rh, &lh),
+                    .eq => lualike_eq(null, &r, &lh, &rh),
+                    .ne => { lualike_eq(null, &r, &lh, &rh); r.payload.b = !r.payload.b; },
+                    .and_op, .or_op => unreachable,
+                }
+                return r;
+            },
+            .call => |c| {
+                const fv = try self.eval(c.func); defer release(fv);
+                var aa: [256]Value = @splat(nilV());
+                var n: usize = 0;
+                for (c.args) |a| { if (n >= 256) break; aa[n] = try self.eval(a); n += 1; }
+                defer for (aa[0..n]) |*a| release(a.*);
+                return try self.call(fv, aa[0..n]);
+            },
+            .table => |t| {
+                const tb = Table.init() catch return nilV();
+                var tv = Value{ .type = .table, ._pad = undefined, .payload = .{ .t = @intFromPtr(tb) } };
+                var idx: i64 = 1;
+                for (t.fields) |fe| switch (fe.*) {
+                    .field => |f| {
+                        const k = try self.eval(f.key); defer release(k);
+                        const v = try self.eval(f.value); defer release(v);
+                        lualike_setfield(null, &tv, &k, &v);
+                    },
+                    else => {
+                        const v = try self.eval(fe); defer release(v);
+                        var k: Value = undefined; lualike_pushnumber(&k, @as(f64, @floatFromInt(idx))); defer release(k);
+                        lualike_setfield(null, &tv, &k, &v);
+                        idx += 1;
+                    },
+                };
+                return tv;
+            },
+            .field => return nilV(),
+            .index => |ix| {
+                const o = try self.eval(ix.obj); defer release(o);
+                const k = try self.eval(ix.key); defer release(k);
+                var r: Value = undefined; lualike_getfield(null, &r, &o, &k); return r;
+            },
+            .dot => |d| {
+                const o = try self.eval(d.obj); defer release(o);
+                const ks = String.init(d.key) catch return nilV();
+                var k = Value{ .type = .string, ._pad = undefined, .payload = .{ .s = ks } }; defer release(k);
+                var r: Value = undefined; lualike_getfield(null, &r, &o, &k); return r;
+            },
+            .method_call => |m| {
+                const o = try self.eval(m.obj); defer release(o);
+                const ks = String.init(m.method) catch return nilV();
+                var mk = Value{ .type = .string, ._pad = undefined, .payload = .{ .s = ks } }; defer release(mk);
+                var mv: Value = undefined; lualike_getfield(null, &mv, &o, &mk); defer release(mv);
+                var aa: [256]Value = undefined;
+                var n: usize = 0;
+                aa[n] = o; retain(o); n += 1;
+                for (m.args) |a| { if (n >= 256) break; aa[n] = try self.eval(a); n += 1; }
+                defer for (aa[0..n]) |*a| release(a.*);
+                return try self.call(mv, aa[0..n]);
+            },
+            .function => |f| {
+                const sc = Alloc.create(SavedChunk) catch return nilV();
+                sc.* = .{ .arena = std.heap.ArenaAllocator.init(Alloc), .chunk = .{ .stats = &.{} }, .params = &.{} };
+                sc.params = sc.arena.allocator().dupe([]const u8, f.params) catch { Alloc.destroy(sc); return nilV(); };
+                sc.chunk.stats = sc.arena.allocator().dupe(*parser.Stat, f.body) catch { sc.arena.deinit(); Alloc.destroy(sc); return nilV(); };
+                var idx: usize = 0;
+                while (idx < MAX_SAVED and saved_chunks[idx] != null) idx += 1;
+                if (idx >= MAX_SAVED) { sc.arena.deinit(); Alloc.destroy(sc); return nilV(); }
+                saved_chunks[idx] = sc;
+                return Value{ .type = .interpreted, ._pad = undefined, .payload = .{ .t = @intFromPtr(sc) } };
+            },
+        }
+    }
+};
+
+/// Create an interpreted closure from a parsed chunk.
+fn interpMakeClosure(_: *State, dst: *Value, p: *parser.Parser, chunk: parser.Chunk) void {
+    const sc = Alloc.create(SavedChunk) catch { p.deinit(); lualike_pushnil(dst); return; };
+    sc.* = .{ .arena = p.arena, .chunk = chunk, .params = &.{} };
+    var idx: usize = 0;
+    while (idx < MAX_SAVED and saved_chunks[idx] != null) idx += 1;
+    if (idx >= MAX_SAVED) { sc.arena.deinit(); Alloc.destroy(sc); lualike_pushnil(dst); return; }
+    saved_chunks[idx] = sc;
+    dst.* = Value{ .type = .interpreted, ._pad = undefined, .payload = .{ .t = @intFromPtr(sc) } };
 }
 
 // ===========================================================================
