@@ -28,7 +28,7 @@ Future<Object?> luaCallRaw(
   List<String> path, [
   List<Object?> args = const <Object?>[],
 ]) async {
-  return luaResolveCallResultRaw(luaRawFunction(runtime, path).call(args));
+  return _luaResolveRawCallResult(luaRawFunction(runtime, path).call(args));
 }
 
 Future<Object?> luaCallRawList(
@@ -36,7 +36,7 @@ Future<Object?> luaCallRawList(
   List<String> path, [
   List<Object?> args = const <Object?>[],
 ]) async {
-  return luaResolveCallResultRawList(luaRawFunction(runtime, path).call(args));
+  return luaCallRaw(runtime, path, args);
 }
 
 Future<Object?> luaExecute(LuaLike lua, String code, {String? scriptPath}) {
@@ -79,7 +79,7 @@ Future<Object?> luaCallMethodRaw(
   String method, [
   List<Object?> args = const <Object?>[],
 ]) async {
-  return luaResolveCallResultRaw(
+  return _luaResolveRawCallResult(
     luaRawMethod(receiver, method).call(<Object?>[receiver, ...args]),
   );
 }
@@ -89,9 +89,7 @@ Future<Object?> luaCallMethodRawList(
   String method, [
   List<Object?> args = const <Object?>[],
 ]) async {
-  return luaResolveCallResultRawList(
-    luaRawMethod(receiver, method).call(<Object?>[receiver, ...args]),
-  );
+  return luaCallMethodRaw(receiver, method, args);
 }
 
 BuiltinFunction luaRawFunction(Object runtime, List<String> path) {
@@ -124,14 +122,6 @@ BuiltinFunction luaRawMethod(Object? receiver, String method) {
   };
 }
 
-Future<Object?> luaResolveRawCallResult(Object? result) async {
-  final resolved = result is Future<Object?> ? await result : result;
-  if (resolved case final Value wrapped when wrapped.isMulti) {
-    return List<Object?>.from(wrapped.raw as List<Object?>, growable: false);
-  }
-  return resolved;
-}
-
 Future<Object?> luaResolveCallResult(Object? result) {
   return _luaResolveCallResult(result, unwrapValue: luaUnwrapValue);
 }
@@ -144,22 +134,9 @@ Future<Object?> luaResolveCallResultList(Object? result) {
   );
 }
 
-Future<Object?> luaResolveCallResultRaw(Object? result) {
-  return _luaResolveCallResult(result, unwrapValue: luaUnwrapRawValue);
-}
-
-Future<Object?> luaResolveCallResultRawList(Object? result) {
-  return _luaResolveCallResult(
-    result,
-    unwrapValue: luaUnwrapRawValue,
-    unwrapPlainListResults: true,
-  );
-}
-
 Object? luaUnwrapValue(Object? value) =>
     value is Value ? value.unwrap() : value;
 
-Object? luaUnwrapRawValue(Object? value) => value is Value ? value.raw : value;
 
 LuaRuntime _luaRuntime(Object runtime) {
   return switch (runtime) {
@@ -171,6 +148,17 @@ LuaRuntime _luaRuntime(Object runtime) {
       'Expected a LoveScriptRuntime or LuaRuntime',
     ),
   };
+}
+
+Future<Object?> _luaResolveRawCallResult(Object? result) async {
+  final resolved = result is Future<Object?> ? await result : result;
+  if (resolved case final Value wrapped when wrapped.isMulti) {
+    return List<Object?>.from(wrapped.raw as List<Object?>, growable: false);
+  }
+  if (resolved is LuaResults) {
+    return List<Object?>.from(resolved.values, growable: false);
+  }
+  return resolved;
 }
 
 Future<Object?> _luaResolveCallResult(
