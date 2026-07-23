@@ -1,464 +1,221 @@
-import 'instruction.dart';
+import 'instruction_mode.dart';
 
-final class LuaBytecodeOpcodeInfo {
-  const LuaBytecodeOpcodeInfo({
-    required this.code,
-    required this.name,
-    required this.mode,
-  });
+/// Lua bytecode opcode enum.
+///
+/// The enum values mirror Lua's opcode names and numeric codes. A thin
+/// compatibility wrapper ([LuaBytecodeOpcodes]) remains for callers that still
+/// expect the legacy lookup API.
+enum Opcode {
+  move(0, 'MOVE', LuaBytecodeInstructionMode.iabc),
+  loadI(1, 'LOADI', LuaBytecodeInstructionMode.iasbx),
+  loadF(2, 'LOADF', LuaBytecodeInstructionMode.iasbx),
+  loadK(3, 'LOADK', LuaBytecodeInstructionMode.iabx),
+  loadKx(4, 'LOADKX', LuaBytecodeInstructionMode.iabx),
+  loadFalse(5, 'LOADFALSE', LuaBytecodeInstructionMode.iabc),
+  lFalseSkip(6, 'LFALSESKIP', LuaBytecodeInstructionMode.iabc),
+  loadTrue(7, 'LOADTRUE', LuaBytecodeInstructionMode.iabc),
+  loadNil(8, 'LOADNIL', LuaBytecodeInstructionMode.iabc),
+  getUpval(9, 'GETUPVAL', LuaBytecodeInstructionMode.iabc),
+  setUpval(10, 'SETUPVAL', LuaBytecodeInstructionMode.iabc),
+  getTabUp(11, 'GETTABUP', LuaBytecodeInstructionMode.iabc),
+  getTable(12, 'GETTABLE', LuaBytecodeInstructionMode.iabc),
+  getI(13, 'GETI', LuaBytecodeInstructionMode.iabc),
+  getField(14, 'GETFIELD', LuaBytecodeInstructionMode.iabc),
+  setTabUp(15, 'SETTABUP', LuaBytecodeInstructionMode.iabc),
+  setTable(16, 'SETTABLE', LuaBytecodeInstructionMode.iabc),
+  setI(17, 'SETI', LuaBytecodeInstructionMode.iabc),
+  setField(18, 'SETFIELD', LuaBytecodeInstructionMode.iabc),
+  newTable(19, 'NEWTABLE', LuaBytecodeInstructionMode.ivabc),
+  self(20, 'SELF', LuaBytecodeInstructionMode.iabc),
+  addI(21, 'ADDI', LuaBytecodeInstructionMode.iabc),
+  addK(22, 'ADDK', LuaBytecodeInstructionMode.iabc),
+  subK(23, 'SUBK', LuaBytecodeInstructionMode.iabc),
+  mulK(24, 'MULK', LuaBytecodeInstructionMode.iabc),
+  modK(25, 'MODK', LuaBytecodeInstructionMode.iabc),
+  powK(26, 'POWK', LuaBytecodeInstructionMode.iabc),
+  divK(27, 'DIVK', LuaBytecodeInstructionMode.iabc),
+  idivK(28, 'IDIVK', LuaBytecodeInstructionMode.iabc),
+  bandK(29, 'BANDK', LuaBytecodeInstructionMode.iabc),
+  borK(30, 'BORK', LuaBytecodeInstructionMode.iabc),
+  bxorK(31, 'BXORK', LuaBytecodeInstructionMode.iabc),
+  shlI(32, 'SHLI', LuaBytecodeInstructionMode.iabc),
+  shrI(33, 'SHRI', LuaBytecodeInstructionMode.iabc),
+  add(34, 'ADD', LuaBytecodeInstructionMode.iabc),
+  sub(35, 'SUB', LuaBytecodeInstructionMode.iabc),
+  mul(36, 'MUL', LuaBytecodeInstructionMode.iabc),
+  mod(37, 'MOD', LuaBytecodeInstructionMode.iabc),
+  pow(38, 'POW', LuaBytecodeInstructionMode.iabc),
+  div(39, 'DIV', LuaBytecodeInstructionMode.iabc),
+  idiv(40, 'IDIV', LuaBytecodeInstructionMode.iabc),
+  band(41, 'BAND', LuaBytecodeInstructionMode.iabc),
+  bor(42, 'BOR', LuaBytecodeInstructionMode.iabc),
+  bxor(43, 'BXOR', LuaBytecodeInstructionMode.iabc),
+  shl(44, 'SHL', LuaBytecodeInstructionMode.iabc),
+  shr(45, 'SHR', LuaBytecodeInstructionMode.iabc),
+  mmBin(46, 'MMBIN', LuaBytecodeInstructionMode.iabc),
+  mmBinI(47, 'MMBINI', LuaBytecodeInstructionMode.iabc),
+  mmBinK(48, 'MMBINK', LuaBytecodeInstructionMode.iabc),
+  unm(49, 'UNM', LuaBytecodeInstructionMode.iabc),
+  bnot(50, 'BNOT', LuaBytecodeInstructionMode.iabc),
+  notOp(51, 'NOT', LuaBytecodeInstructionMode.iabc),
+  len(52, 'LEN', LuaBytecodeInstructionMode.iabc),
+  concat(53, 'CONCAT', LuaBytecodeInstructionMode.iabc),
+  close(54, 'CLOSE', LuaBytecodeInstructionMode.iabc),
+  tbc(55, 'TBC', LuaBytecodeInstructionMode.iabc),
+  jmp(56, 'JMP', LuaBytecodeInstructionMode.isj),
+  eq(57, 'EQ', LuaBytecodeInstructionMode.iabc),
+  lt(58, 'LT', LuaBytecodeInstructionMode.iabc),
+  le(59, 'LE', LuaBytecodeInstructionMode.iabc),
+  eqK(60, 'EQK', LuaBytecodeInstructionMode.iabc),
+  eqI(61, 'EQI', LuaBytecodeInstructionMode.iabc),
+  ltI(62, 'LTI', LuaBytecodeInstructionMode.iabc),
+  leI(63, 'LEI', LuaBytecodeInstructionMode.iabc),
+  gtI(64, 'GTI', LuaBytecodeInstructionMode.iabc),
+  geI(65, 'GEI', LuaBytecodeInstructionMode.iabc),
+  test(66, 'TEST', LuaBytecodeInstructionMode.iabc),
+  testSet(67, 'TESTSET', LuaBytecodeInstructionMode.iabc),
+  call(68, 'CALL', LuaBytecodeInstructionMode.iabc),
+  tailCall(69, 'TAILCALL', LuaBytecodeInstructionMode.iabc),
+  return_(70, 'RETURN', LuaBytecodeInstructionMode.iabc),
+  return0(71, 'RETURN0', LuaBytecodeInstructionMode.iabc),
+  return1(72, 'RETURN1', LuaBytecodeInstructionMode.iabc),
+  forLoop(73, 'FORLOOP', LuaBytecodeInstructionMode.iabx),
+  forPrep(74, 'FORPREP', LuaBytecodeInstructionMode.iabx),
+  tForPrep(75, 'TFORPREP', LuaBytecodeInstructionMode.iabx),
+  tForCall(76, 'TFORCALL', LuaBytecodeInstructionMode.iabc),
+  tForLoop(77, 'TFORLOOP', LuaBytecodeInstructionMode.iabx),
+  setList(78, 'SETLIST', LuaBytecodeInstructionMode.ivabc),
+  closure(79, 'CLOSURE', LuaBytecodeInstructionMode.iabx),
+  varArg(80, 'VARARG', LuaBytecodeInstructionMode.iabc),
+  getVarArg(81, 'GETVARG', LuaBytecodeInstructionMode.iabc),
+  errNNil(82, 'ERRNNIL', LuaBytecodeInstructionMode.iabx),
+  varArgPrep(83, 'VARARGPREP', LuaBytecodeInstructionMode.iabc),
+  extraArg(84, 'EXTRAARG', LuaBytecodeInstructionMode.iax),
+  checkGlobal(85, 'CHECKGLOBAL', LuaBytecodeInstructionMode.iabx);
+
+  const Opcode(this.code, this.luaName, this.mode);
 
   final int code;
-  final String name;
+  final String luaName;
   final LuaBytecodeInstructionMode mode;
-}
 
-abstract final class LuaBytecodeOpcodes {
-  static const List<LuaBytecodeOpcodeInfo> table = <LuaBytecodeOpcodeInfo>[
-    LuaBytecodeOpcodeInfo(
-      code: 0,
-      name: 'MOVE',
-      mode: LuaBytecodeInstructionMode.iabc,
-    ),
-    LuaBytecodeOpcodeInfo(
-      code: 1,
-      name: 'LOADI',
-      mode: LuaBytecodeInstructionMode.iasbx,
-    ),
-    LuaBytecodeOpcodeInfo(
-      code: 2,
-      name: 'LOADF',
-      mode: LuaBytecodeInstructionMode.iasbx,
-    ),
-    LuaBytecodeOpcodeInfo(
-      code: 3,
-      name: 'LOADK',
-      mode: LuaBytecodeInstructionMode.iabx,
-    ),
-    LuaBytecodeOpcodeInfo(
-      code: 4,
-      name: 'LOADKX',
-      mode: LuaBytecodeInstructionMode.iabx,
-    ),
-    LuaBytecodeOpcodeInfo(
-      code: 5,
-      name: 'LOADFALSE',
-      mode: LuaBytecodeInstructionMode.iabc,
-    ),
-    LuaBytecodeOpcodeInfo(
-      code: 6,
-      name: 'LFALSESKIP',
-      mode: LuaBytecodeInstructionMode.iabc,
-    ),
-    LuaBytecodeOpcodeInfo(
-      code: 7,
-      name: 'LOADTRUE',
-      mode: LuaBytecodeInstructionMode.iabc,
-    ),
-    LuaBytecodeOpcodeInfo(
-      code: 8,
-      name: 'LOADNIL',
-      mode: LuaBytecodeInstructionMode.iabc,
-    ),
-    LuaBytecodeOpcodeInfo(
-      code: 9,
-      name: 'GETUPVAL',
-      mode: LuaBytecodeInstructionMode.iabc,
-    ),
-    LuaBytecodeOpcodeInfo(
-      code: 10,
-      name: 'SETUPVAL',
-      mode: LuaBytecodeInstructionMode.iabc,
-    ),
-    LuaBytecodeOpcodeInfo(
-      code: 11,
-      name: 'GETTABUP',
-      mode: LuaBytecodeInstructionMode.iabc,
-    ),
-    LuaBytecodeOpcodeInfo(
-      code: 12,
-      name: 'GETTABLE',
-      mode: LuaBytecodeInstructionMode.iabc,
-    ),
-    LuaBytecodeOpcodeInfo(
-      code: 13,
-      name: 'GETI',
-      mode: LuaBytecodeInstructionMode.iabc,
-    ),
-    LuaBytecodeOpcodeInfo(
-      code: 14,
-      name: 'GETFIELD',
-      mode: LuaBytecodeInstructionMode.iabc,
-    ),
-    LuaBytecodeOpcodeInfo(
-      code: 15,
-      name: 'SETTABUP',
-      mode: LuaBytecodeInstructionMode.iabc,
-    ),
-    LuaBytecodeOpcodeInfo(
-      code: 16,
-      name: 'SETTABLE',
-      mode: LuaBytecodeInstructionMode.iabc,
-    ),
-    LuaBytecodeOpcodeInfo(
-      code: 17,
-      name: 'SETI',
-      mode: LuaBytecodeInstructionMode.iabc,
-    ),
-    LuaBytecodeOpcodeInfo(
-      code: 18,
-      name: 'SETFIELD',
-      mode: LuaBytecodeInstructionMode.iabc,
-    ),
-    LuaBytecodeOpcodeInfo(
-      code: 19,
-      name: 'NEWTABLE',
-      mode: LuaBytecodeInstructionMode.ivabc,
-    ),
-    LuaBytecodeOpcodeInfo(
-      code: 20,
-      name: 'SELF',
-      mode: LuaBytecodeInstructionMode.iabc,
-    ),
-    LuaBytecodeOpcodeInfo(
-      code: 21,
-      name: 'ADDI',
-      mode: LuaBytecodeInstructionMode.iabc,
-    ),
-    LuaBytecodeOpcodeInfo(
-      code: 22,
-      name: 'ADDK',
-      mode: LuaBytecodeInstructionMode.iabc,
-    ),
-    LuaBytecodeOpcodeInfo(
-      code: 23,
-      name: 'SUBK',
-      mode: LuaBytecodeInstructionMode.iabc,
-    ),
-    LuaBytecodeOpcodeInfo(
-      code: 24,
-      name: 'MULK',
-      mode: LuaBytecodeInstructionMode.iabc,
-    ),
-    LuaBytecodeOpcodeInfo(
-      code: 25,
-      name: 'MODK',
-      mode: LuaBytecodeInstructionMode.iabc,
-    ),
-    LuaBytecodeOpcodeInfo(
-      code: 26,
-      name: 'POWK',
-      mode: LuaBytecodeInstructionMode.iabc,
-    ),
-    LuaBytecodeOpcodeInfo(
-      code: 27,
-      name: 'DIVK',
-      mode: LuaBytecodeInstructionMode.iabc,
-    ),
-    LuaBytecodeOpcodeInfo(
-      code: 28,
-      name: 'IDIVK',
-      mode: LuaBytecodeInstructionMode.iabc,
-    ),
-    LuaBytecodeOpcodeInfo(
-      code: 29,
-      name: 'BANDK',
-      mode: LuaBytecodeInstructionMode.iabc,
-    ),
-    LuaBytecodeOpcodeInfo(
-      code: 30,
-      name: 'BORK',
-      mode: LuaBytecodeInstructionMode.iabc,
-    ),
-    LuaBytecodeOpcodeInfo(
-      code: 31,
-      name: 'BXORK',
-      mode: LuaBytecodeInstructionMode.iabc,
-    ),
-    LuaBytecodeOpcodeInfo(
-      code: 32,
-      name: 'SHLI',
-      mode: LuaBytecodeInstructionMode.iabc,
-    ),
-    LuaBytecodeOpcodeInfo(
-      code: 33,
-      name: 'SHRI',
-      mode: LuaBytecodeInstructionMode.iabc,
-    ),
-    LuaBytecodeOpcodeInfo(
-      code: 34,
-      name: 'ADD',
-      mode: LuaBytecodeInstructionMode.iabc,
-    ),
-    LuaBytecodeOpcodeInfo(
-      code: 35,
-      name: 'SUB',
-      mode: LuaBytecodeInstructionMode.iabc,
-    ),
-    LuaBytecodeOpcodeInfo(
-      code: 36,
-      name: 'MUL',
-      mode: LuaBytecodeInstructionMode.iabc,
-    ),
-    LuaBytecodeOpcodeInfo(
-      code: 37,
-      name: 'MOD',
-      mode: LuaBytecodeInstructionMode.iabc,
-    ),
-    LuaBytecodeOpcodeInfo(
-      code: 38,
-      name: 'POW',
-      mode: LuaBytecodeInstructionMode.iabc,
-    ),
-    LuaBytecodeOpcodeInfo(
-      code: 39,
-      name: 'DIV',
-      mode: LuaBytecodeInstructionMode.iabc,
-    ),
-    LuaBytecodeOpcodeInfo(
-      code: 40,
-      name: 'IDIV',
-      mode: LuaBytecodeInstructionMode.iabc,
-    ),
-    LuaBytecodeOpcodeInfo(
-      code: 41,
-      name: 'BAND',
-      mode: LuaBytecodeInstructionMode.iabc,
-    ),
-    LuaBytecodeOpcodeInfo(
-      code: 42,
-      name: 'BOR',
-      mode: LuaBytecodeInstructionMode.iabc,
-    ),
-    LuaBytecodeOpcodeInfo(
-      code: 43,
-      name: 'BXOR',
-      mode: LuaBytecodeInstructionMode.iabc,
-    ),
-    LuaBytecodeOpcodeInfo(
-      code: 44,
-      name: 'SHL',
-      mode: LuaBytecodeInstructionMode.iabc,
-    ),
-    LuaBytecodeOpcodeInfo(
-      code: 45,
-      name: 'SHR',
-      mode: LuaBytecodeInstructionMode.iabc,
-    ),
-    LuaBytecodeOpcodeInfo(
-      code: 46,
-      name: 'MMBIN',
-      mode: LuaBytecodeInstructionMode.iabc,
-    ),
-    LuaBytecodeOpcodeInfo(
-      code: 47,
-      name: 'MMBINI',
-      mode: LuaBytecodeInstructionMode.iabc,
-    ),
-    LuaBytecodeOpcodeInfo(
-      code: 48,
-      name: 'MMBINK',
-      mode: LuaBytecodeInstructionMode.iabc,
-    ),
-    LuaBytecodeOpcodeInfo(
-      code: 49,
-      name: 'UNM',
-      mode: LuaBytecodeInstructionMode.iabc,
-    ),
-    LuaBytecodeOpcodeInfo(
-      code: 50,
-      name: 'BNOT',
-      mode: LuaBytecodeInstructionMode.iabc,
-    ),
-    LuaBytecodeOpcodeInfo(
-      code: 51,
-      name: 'NOT',
-      mode: LuaBytecodeInstructionMode.iabc,
-    ),
-    LuaBytecodeOpcodeInfo(
-      code: 52,
-      name: 'LEN',
-      mode: LuaBytecodeInstructionMode.iabc,
-    ),
-    LuaBytecodeOpcodeInfo(
-      code: 53,
-      name: 'CONCAT',
-      mode: LuaBytecodeInstructionMode.iabc,
-    ),
-    LuaBytecodeOpcodeInfo(
-      code: 54,
-      name: 'CLOSE',
-      mode: LuaBytecodeInstructionMode.iabc,
-    ),
-    LuaBytecodeOpcodeInfo(
-      code: 55,
-      name: 'TBC',
-      mode: LuaBytecodeInstructionMode.iabc,
-    ),
-    LuaBytecodeOpcodeInfo(
-      code: 56,
-      name: 'JMP',
-      mode: LuaBytecodeInstructionMode.isj,
-    ),
-    LuaBytecodeOpcodeInfo(
-      code: 57,
-      name: 'EQ',
-      mode: LuaBytecodeInstructionMode.iabc,
-    ),
-    LuaBytecodeOpcodeInfo(
-      code: 58,
-      name: 'LT',
-      mode: LuaBytecodeInstructionMode.iabc,
-    ),
-    LuaBytecodeOpcodeInfo(
-      code: 59,
-      name: 'LE',
-      mode: LuaBytecodeInstructionMode.iabc,
-    ),
-    LuaBytecodeOpcodeInfo(
-      code: 60,
-      name: 'EQK',
-      mode: LuaBytecodeInstructionMode.iabc,
-    ),
-    LuaBytecodeOpcodeInfo(
-      code: 61,
-      name: 'EQI',
-      mode: LuaBytecodeInstructionMode.iabc,
-    ),
-    LuaBytecodeOpcodeInfo(
-      code: 62,
-      name: 'LTI',
-      mode: LuaBytecodeInstructionMode.iabc,
-    ),
-    LuaBytecodeOpcodeInfo(
-      code: 63,
-      name: 'LEI',
-      mode: LuaBytecodeInstructionMode.iabc,
-    ),
-    LuaBytecodeOpcodeInfo(
-      code: 64,
-      name: 'GTI',
-      mode: LuaBytecodeInstructionMode.iabc,
-    ),
-    LuaBytecodeOpcodeInfo(
-      code: 65,
-      name: 'GEI',
-      mode: LuaBytecodeInstructionMode.iabc,
-    ),
-    LuaBytecodeOpcodeInfo(
-      code: 66,
-      name: 'TEST',
-      mode: LuaBytecodeInstructionMode.iabc,
-    ),
-    LuaBytecodeOpcodeInfo(
-      code: 67,
-      name: 'TESTSET',
-      mode: LuaBytecodeInstructionMode.iabc,
-    ),
-    LuaBytecodeOpcodeInfo(
-      code: 68,
-      name: 'CALL',
-      mode: LuaBytecodeInstructionMode.iabc,
-    ),
-    LuaBytecodeOpcodeInfo(
-      code: 69,
-      name: 'TAILCALL',
-      mode: LuaBytecodeInstructionMode.iabc,
-    ),
-    LuaBytecodeOpcodeInfo(
-      code: 70,
-      name: 'RETURN',
-      mode: LuaBytecodeInstructionMode.iabc,
-    ),
-    LuaBytecodeOpcodeInfo(
-      code: 71,
-      name: 'RETURN0',
-      mode: LuaBytecodeInstructionMode.iabc,
-    ),
-    LuaBytecodeOpcodeInfo(
-      code: 72,
-      name: 'RETURN1',
-      mode: LuaBytecodeInstructionMode.iabc,
-    ),
-    LuaBytecodeOpcodeInfo(
-      code: 73,
-      name: 'FORLOOP',
-      mode: LuaBytecodeInstructionMode.iabx,
-    ),
-    LuaBytecodeOpcodeInfo(
-      code: 74,
-      name: 'FORPREP',
-      mode: LuaBytecodeInstructionMode.iabx,
-    ),
-    LuaBytecodeOpcodeInfo(
-      code: 75,
-      name: 'TFORPREP',
-      mode: LuaBytecodeInstructionMode.iabx,
-    ),
-    LuaBytecodeOpcodeInfo(
-      code: 76,
-      name: 'TFORCALL',
-      mode: LuaBytecodeInstructionMode.iabc,
-    ),
-    LuaBytecodeOpcodeInfo(
-      code: 77,
-      name: 'TFORLOOP',
-      mode: LuaBytecodeInstructionMode.iabx,
-    ),
-    LuaBytecodeOpcodeInfo(
-      code: 78,
-      name: 'SETLIST',
-      mode: LuaBytecodeInstructionMode.ivabc,
-    ),
-    LuaBytecodeOpcodeInfo(
-      code: 79,
-      name: 'CLOSURE',
-      mode: LuaBytecodeInstructionMode.iabx,
-    ),
-    LuaBytecodeOpcodeInfo(
-      code: 80,
-      name: 'VARARG',
-      mode: LuaBytecodeInstructionMode.iabc,
-    ),
-    LuaBytecodeOpcodeInfo(
-      code: 81,
-      name: 'GETVARG',
-      mode: LuaBytecodeInstructionMode.iabc,
-    ),
-    LuaBytecodeOpcodeInfo(
-      code: 82,
-      name: 'ERRNNIL',
-      mode: LuaBytecodeInstructionMode.iabx,
-    ),
-    LuaBytecodeOpcodeInfo(
-      code: 83,
-      name: 'VARARGPREP',
-      mode: LuaBytecodeInstructionMode.iabc,
-    ),
-    LuaBytecodeOpcodeInfo(
-      code: 84,
-      name: 'EXTRAARG',
-      mode: LuaBytecodeInstructionMode.iax,
-    ),
-    LuaBytecodeOpcodeInfo(
-      code: 85,
-      name: 'CHECKGLOBAL',
-      mode: LuaBytecodeInstructionMode.iabx,
-    ),
-  ];
-
-  static LuaBytecodeOpcodeInfo byCode(int code) {
+  @pragma('vm:prefer-inline')
+  static Opcode fromCode(int code) {
+    final table = values;
     if (code < 0 || code >= table.length) {
       throw RangeError.range(code, 0, table.length - 1, 'code');
     }
     return table[code];
   }
 
-  static LuaBytecodeOpcodeInfo byName(String name) {
-    for (final opcode in table) {
-      if (opcode.name == name) {
-        return opcode;
-      }
-    }
-    throw ArgumentError.value(name, 'name', 'Unknown lua bytecode opcode');
-  }
+  static Opcode fromName(String name) => switch (name) {
+    'MOVE' => move,
+    'LOADI' => loadI,
+    'LOADF' => loadF,
+    'LOADK' => loadK,
+    'LOADKX' => loadKx,
+    'LOADFALSE' => loadFalse,
+    'LFALSESKIP' => lFalseSkip,
+    'LOADTRUE' => loadTrue,
+    'LOADNIL' => loadNil,
+    'GETUPVAL' => getUpval,
+    'SETUPVAL' => setUpval,
+    'GETTABUP' => getTabUp,
+    'GETTABLE' => getTable,
+    'GETI' => getI,
+    'GETFIELD' => getField,
+    'SETTABUP' => setTabUp,
+    'SETTABLE' => setTable,
+    'SETI' => setI,
+    'SETFIELD' => setField,
+    'NEWTABLE' => newTable,
+    'SELF' => self,
+    'ADDI' => addI,
+    'ADDK' => addK,
+    'SUBK' => subK,
+    'MULK' => mulK,
+    'MODK' => modK,
+    'POWK' => powK,
+    'DIVK' => divK,
+    'IDIVK' => idivK,
+    'BANDK' => bandK,
+    'BORK' => borK,
+    'BXORK' => bxorK,
+    'SHLI' => shlI,
+    'SHRI' => shrI,
+    'ADD' => add,
+    'SUB' => sub,
+    'MUL' => mul,
+    'MOD' => mod,
+    'POW' => pow,
+    'DIV' => div,
+    'IDIV' => idiv,
+    'BAND' => band,
+    'BOR' => bor,
+    'BXOR' => bxor,
+    'SHL' => shl,
+    'SHR' => shr,
+    'MMBIN' => mmBin,
+    'MMBINI' => mmBinI,
+    'MMBINK' => mmBinK,
+    'UNM' => unm,
+    'BNOT' => bnot,
+    'NOT' => notOp,
+    'LEN' => len,
+    'CONCAT' => concat,
+    'CLOSE' => close,
+    'TBC' => tbc,
+    'JMP' => jmp,
+    'EQ' => eq,
+    'LT' => lt,
+    'LE' => le,
+    'EQK' => eqK,
+    'EQI' => eqI,
+    'LTI' => ltI,
+    'LEI' => leI,
+    'GTI' => gtI,
+    'GEI' => geI,
+    'TEST' => test,
+    'TESTSET' => testSet,
+    'CALL' => call,
+    'TAILCALL' => tailCall,
+    'RETURN' => return_,
+    'RETURN0' => return0,
+    'RETURN1' => return1,
+    'FORLOOP' => forLoop,
+    'FORPREP' => forPrep,
+    'TFORPREP' => tForPrep,
+    'TFORCALL' => tForCall,
+    'TFORLOOP' => tForLoop,
+    'SETLIST' => setList,
+    'CLOSURE' => closure,
+    'VARARG' => varArg,
+    'GETVARG' => getVarArg,
+    'ERRNNIL' => errNNil,
+    'VARARGPREP' => varArgPrep,
+    'EXTRAARG' => extraArg,
+    'CHECKGLOBAL' => checkGlobal,
+    _ => throw ArgumentError.value(name, 'name', 'Unknown lua bytecode opcode'),
+  };
+}
+
+@Deprecated('Use Opcode directly')
+final class LuaBytecodeOpcodeInfo {
+  const LuaBytecodeOpcodeInfo(this.opcode);
+
+  final Opcode opcode;
+
+  int get code => opcode.code;
+  String get name => opcode.luaName;
+  LuaBytecodeInstructionMode get mode => opcode.mode;
+}
+
+abstract final class LuaBytecodeOpcodes {
+  static const List<Opcode> table = Opcode.values;
+
+  static LuaBytecodeOpcodeInfo byCode(int code) =>
+      LuaBytecodeOpcodeInfo(Opcode.fromCode(code));
+
+  static LuaBytecodeOpcodeInfo byName(String name) =>
+      LuaBytecodeOpcodeInfo(Opcode.fromName(name));
 }

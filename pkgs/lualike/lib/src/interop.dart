@@ -9,6 +9,7 @@ import 'package:lualike/src/interpreter/interpreter.dart';
 import 'package:lualike/src/lua_error.dart';
 import 'package:lualike/src/logging/logger.dart';
 import 'package:lualike/src/parse.dart';
+import 'package:lualike/src/compile/pipeline.dart';
 import 'package:lualike/src/lua_bytecode/runtime.dart';
 import 'package:lualike/src/runtime/lua_runtime.dart';
 import 'package:lualike/src/runtime/lua_slot.dart';
@@ -237,6 +238,50 @@ class LuaLike {
 
   /// Internal constructor
   LuaLike._internal(LuaRuntime runtime, this.engineMode) : vm = runtime;
+
+  /// Compiles Lua source code to bytecode and returns a [LuaLike] instance
+  /// ready to execute it.
+  ///
+  /// The returned instance uses a [LuaBytecodeRuntime] with the compiled
+  /// bytecode pre-loaded. Call [execute] with an empty string to run it,
+  /// or use [call] to invoke specific functions.
+  ///
+  /// ```dart
+  /// final lua = await LuaLike.compile('''
+  ///   local M = {}
+  ///   function M.add(a, b) return a + b end
+  ///   return M
+  /// ''');
+  /// final result = await lua.call('add', [1, 2]);
+  /// ```
+  static Future<LuaLike> compile(
+    String source, {
+    String? moduleName,
+    bool enableConstantFolding = true,
+    bool enablePeephole = true,
+  }) async {
+    final runtime = LuaBytecodeRuntime();
+    final program = parse(source, url: moduleName ?? '=(compile)');
+
+    final pipeline = CompilePipeline(
+      config: enablePeephole
+          ? CompilePipelineConfig.luaBytecodeOptimized()
+          : CompilePipelineConfig(
+              target: CompileBackend.luaBytecode,
+              enableConstantFolding: enableConstantFolding,
+              enablePeephole: false,
+            ),
+    );
+
+    final artifact = pipeline.compile(program) as LuaBytecodeArtifact;
+    final chunk = await runtime.loadBytecode(
+      artifact.serializedBytes,
+      moduleName: moduleName ?? '=(compiled)',
+    );
+    await runtime.callFunction(chunk, const <Object?>[]);
+
+    return LuaLike._internal(runtime, EngineMode.luaBytecode);
+  }
 
   /// Register a Dart function to be callable from LuaLike
   void expose(String name, Function function) {

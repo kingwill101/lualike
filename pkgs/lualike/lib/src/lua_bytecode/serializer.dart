@@ -5,14 +5,19 @@ import '../number_limits.dart';
 import '../number_utils.dart';
 import '../byte_data.dart' as b64;
 
-Uint8List serializeLuaBytecodeChunk(LuaBytecodeBinaryChunk chunk) {
-  final writer = _LuaBytecodeWriter();
+
+
+Uint8List serializeLuaBytecodeChunk(LuaBytecodeBinaryChunk chunk, {bool stripDebug = false}) {
+  final writer = LuaBytecodeWriter(stripDebug: stripDebug);
   writer.writeChunk(chunk);
   return writer.takeBytes();
 }
 
-final class _LuaBytecodeWriter {
+final class LuaBytecodeWriter {
+  final bool _stripDebug;
   final BytesBuilder _bytes = BytesBuilder(copy: false);
+
+  LuaBytecodeWriter({bool stripDebug = false}) : _stripDebug = stripDebug;
   final Map<String, int> _savedStrings = <String, int>{};
   var _length = 0;
   var _nextStringIndex = 1;
@@ -75,35 +80,43 @@ final class _LuaBytecodeWriter {
 
     _writeString(prototype.source);
 
-    _writeVarint(prototype.lineInfo.length);
-    for (final delta in prototype.lineInfo) {
-      _writeByte(delta & 0xff);
-    }
-
-    _writeVarint(prototype.absoluteLineInfo.length);
-    if (prototype.absoluteLineInfo.isNotEmpty) {
-      _alignTo(header.intSize);
-      for (final info in prototype.absoluteLineInfo) {
-        _writeSignedFixedInt(info.pc, header.intSize);
-        _writeSignedFixedInt(info.line, header.intSize);
+    if (_stripDebug) {
+      // Stripped: write zero-length debug sections, parser still expects them.
+      _writeVarint(0); // lineInfo (empty)
+      _writeVarint(0); // absoluteLineInfo (empty)
+      _writeVarint(0); // localVariables (empty)
+      _writeVarint(0); // upvalueNames (empty)
+    } else {
+      _writeVarint(prototype.lineInfo.length);
+      for (final delta in prototype.lineInfo) {
+        _writeByte(delta & 0xff);
       }
-    }
 
-    _writeVarint(prototype.localVariables.length);
-    for (final local in prototype.localVariables) {
-      _writeString(local.name);
-      _writeVarint(local.startPc);
-      _writeVarint(local.endPc);
-    }
+      _writeVarint(prototype.absoluteLineInfo.length);
+      if (prototype.absoluteLineInfo.isNotEmpty) {
+        _alignTo(header.intSize);
+        for (final info in prototype.absoluteLineInfo) {
+          _writeSignedFixedInt(info.pc, header.intSize);
+          _writeSignedFixedInt(info.line, header.intSize);
+        }
+      }
 
-    if (prototype.upvalueNames.isEmpty) {
-      _writeVarint(0);
-      return;
-    }
+      _writeVarint(prototype.localVariables.length);
+      for (final local in prototype.localVariables) {
+        _writeString(local.name);
+        _writeVarint(local.startPc);
+        _writeVarint(local.endPc);
+      }
 
-    _writeVarint(prototype.upvalueNames.length);
-    for (final upvalueName in prototype.upvalueNames) {
-      _writeString(upvalueName);
+      if (prototype.upvalueNames.isEmpty) {
+        _writeVarint(0);
+        return;
+      }
+
+      _writeVarint(prototype.upvalueNames.length);
+      for (final upvalueName in prototype.upvalueNames) {
+        _writeString(upvalueName);
+      }
     }
   }
 

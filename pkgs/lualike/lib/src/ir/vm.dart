@@ -1657,8 +1657,12 @@ class LualikeIrVm {
     if (arg is LualikeIrClosure) {
       return _ensureValue(arg);
     }
-    if (arg is List && arg is! Value) {
-      return arg.map(_prepareCallArgument).toList();
+    if (arg is List) {
+      final activeRuntime = runtime ?? environment.interpreter;
+      return valueFromOptionalLuaSlot(
+        activeRuntime,
+        Value.listToLuaTable(arg),
+      );
     }
     return _ensureValue(arg);
   }
@@ -2398,7 +2402,7 @@ class LualikeIrVm {
       final preparedArgs = args.isEmpty
           ? const <Object?>[]
           : args.map(_prepareCallArgument).toList(growable: false);
-      final raw = callable.unwrap();
+      final raw = rawLuaSlot(callable);
       if (raw is Function) {
         final result = raw(preparedArgs);
         final awaited = result is Future ? await result : result;
@@ -2844,6 +2848,16 @@ class LoopIrVm {
   ) {
     final left = registers[instr.b];
     final right = registers[instr.c];
+    // Integer fast path: when both operands are raw ints, skip double/coercion
+    if (left is int && right is int) {
+      registers[instr.a] = switch (operation) {
+        '+' => left + right,
+        '-' => left - right,
+        '*' => left * right,
+        _ => _applyBinaryOperation(left, right, operation),
+      };
+      return;
+    }
     registers[instr.a] = _applyBinaryOperation(left, right, operation);
   }
 

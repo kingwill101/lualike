@@ -1,3 +1,8 @@
+## 0.1.3
+
+- Bump `lualike` dependency to `^0.4.0`.
+- Keep the filesystem adapter aligned with the updated core runtime.
+
 ## 0.1.2
 
 - Re-export `CompositeFileSystemBackend` from `package:lualike` for

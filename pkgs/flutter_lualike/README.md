@@ -1,67 +1,94 @@
 # flutter_lualike
 
-Flutter [AssetBundle](https://api.flutter.dev/flutter/services/AssetBundle-class.html)
-filesystem backend for [lualike](https://github.com/kingwill101/lualike). Provides
-transparent read-only file access for `dofile()` and module loading from Flutter
-assets.
+Flutter integration for `lualike`.
+
+This package gives you two things:
+
+1. **A Flutter asset-bundle filesystem backend** for `require()`, `dofile()`,
+   and `io.open()`.
+2. **A hooks re-export** so Flutter projects can write build hooks without
+   depending on `lualike_hooks` directly.
+
+## What it solves
+
+Use `flutter_lualike` when you want Lua scripts to live inside a Flutter app,
+loaded from assets, while still using the same `lualike` runtime on Dart and
+Flutter.
 
 ## Install
 
 ```yaml
 dependencies:
-  flutter_lualike: ^0.1.0
-  lualike: ^0.3.0
+  flutter_lualike:
+    path: path/to/flutter_lualike
 ```
 
-Then run:
+## Runtime setup
 
-```bash
-flutter pub get
-```
-
-## Usage
+Configure `lualike` to read from Flutter assets:
 
 ```dart
+import 'package:flutter/services.dart';
 import 'package:flutter_lualike/flutter_lualike.dart';
 
-await useAssetBundle(rootBundle, assetRoot: 'assets');
-
-// Now dofile('config.lua') resolves to assets/config.lua
+await useAssetBundle(rootBundle, assetRoot: 'build/lua');
 ```
 
-## Desktop (local filesystem fallback)
+After that, `require('hello')` and `dofile('script.lua')` resolve from the
+asset bundle.
+
+## Build hooks
+
+`flutter_lualike` re-exports `lualike_hooks`, so your `hook/build.dart` can be:
 
 ```dart
-import 'package:file/local.dart';
-import 'package:file_lualike/file_lualike.dart';
-import 'package:flutter_lualike/flutter_lualike.dart';
-import 'package:lualike/lualike.dart';
+import 'package:hooks/hooks.dart';
+import 'package:flutter_lualike/hooks.dart';
 
-final backend = CompositeFileSystemBackend([
-  AssetBundleFileSystemBackend(rootBundle, assetRoot: 'assets'),
-  PackageFileSystemBackend(LocalFileSystem()),
-]);
-setFileSystemBackend(backend);
+void main(List<String> args) async {
+  await build(args, (input, output) async {
+    final builder = LuaBuilder(
+      sources: ['assets/lua/'],
+      mode: CompileMode.bytecode,
+    );
+    await builder.run(input: input, output: output, logger: null);
+  });
+}
 ```
 
-## How it works
+## Asset layout
 
-Two integration points are wired when you call `useAssetBundle()`:
+A typical Flutter project looks like this:
 
-1. **`FileSystemProvider`** — `io.open()` creates `AssetBundleIODevice` instances
-   that read from the bundle (read-only, mode `"r"` only).
+```text
+my_app/
+  assets/
+    lua/
+      hello.lua
+  hook/
+    build.dart
+  lib/
+    main.dart
+  pubspec.yaml
+```
 
-2. **`FileSystemBackend`** — `dofile()`, `require()`, `os.remove()` and other
-   metadata operations delegate to `AssetBundleFileSystemBackend`, which resolves
-   paths via the asset manifest.
+And `pubspec.yaml` should include the compiled output:
 
-## Components
+```yaml
+flutter:
+  assets:
+    - build/lua/
+```
 
-| Class | Purpose |
-|---|---|
-| `AssetBundleFileSystemBackend` | `FileSystemBackend` backed by `AssetBundle` + `AssetManifest` |
-| `AssetBundleIODevice` | Read-only `IODevice` for `io.open()` |
-| `useAssetBundle()` | One-call setup for both integration points |
+## Modes
 
-For writable storage, combine with `CompositeFileSystemBackend` from core lualike
-and `PackageFileSystemBackend` from `file_lualike`.
+The re-exported hooks API supports:
+
+- `CompileMode.bytecode` -- compile to bytecode files in `build/lua/`
+- `CompileMode.dartSource` -- generate Dart source files
+- `CompileMode.dartEmbed` -- generate Dart files with embedded bytecode bytes
+
+## Example
+
+See [`example/`](example/) for a full Flutter app using `flutter_lualike`
+with hooks and runtime execution.

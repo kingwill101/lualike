@@ -4,6 +4,7 @@ import 'dart:typed_data';
 import 'package:lualike/src/ast.dart';
 import 'package:lualike/src/builtin_function.dart';
 import 'package:lualike/src/call_stack.dart';
+import 'package:lualike/src/compile/pipeline.dart';
 import 'package:lualike/src/coroutine.dart';
 import 'package:lualike/src/environment.dart';
 import 'package:lualike/src/file_manager.dart';
@@ -11,11 +12,13 @@ import 'package:lualike/src/gc/gc.dart';
 import 'package:lualike/src/gc/generational_gc.dart';
 import 'package:lualike/src/goto_validator.dart';
 import 'package:lualike/src/interpreter/interpreter.dart';
+import 'package:lualike/src/lua_bytecode/vm_value_helpers.dart';
 import 'package:lualike/src/lua_error.dart';
 import 'package:lualike/src/lua_bytecode/chunk.dart';
 import 'package:lualike/src/lua_bytecode/emitter.dart';
 import 'package:lualike/src/lua_bytecode/parser.dart';
 import 'package:lualike/src/lua_bytecode/serializer.dart';
+import 'package:lualike/src/lua_bytecode/vm_support.dart';
 import 'package:lualike/src/lua_bytecode/vm.dart';
 import 'package:lualike/src/lua_string.dart';
 import 'package:lualike/src/parse.dart';
@@ -31,6 +34,15 @@ import 'package:lualike/src/stdlib/library.dart';
 import 'package:lualike/src/stdlib/metatables.dart';
 import 'package:lualike/src/value.dart';
 
+/// Whether [bytes] begin with an official Lua binary chunk header.
+///
+/// Sniffs signature, version, format, and `luac` data, and rejects known
+/// legacy AST/source payload markers. Used by the CLI and loaders so
+/// precompiled files are recognized **by content**, not by file extension.
+///
+/// When this returns `true`, callers should load and run via the bytecode
+/// VM only (see [tryLoadLuaBytecodeArtifact]) and must not recompile
+/// through the IR/SSA pipeline.
 bool looksLikeTrackedLuaBytecodeBytes(List<int> bytes) {
   if (bytes.length < 12) {
     return false;
@@ -97,6 +109,14 @@ bool _matchesLegacyPayloadMarker(
   return true;
 }
 
+/// Parses official Lua bytecode from [request] and returns a callable chunk.
+///
+/// Returns `null` when the payload is not a tracked binary chunk. On success,
+/// the result is a [Value] wrapping a bytecode closure ready for
+/// [LuaRuntime.callFunction] — no IR emission or SSA passes run.
+///
+/// Requires `b` in [LuaChunkLoadRequest.mode]. Format errors become a
+/// failed [LuaChunkLoadResult].
 LuaChunkLoadResult? tryLoadLuaBytecodeArtifact(
   LuaRuntime runtime,
   LuaChunkLoadRequest request,
@@ -258,9 +278,11 @@ class LuaBytecodeRuntime implements LuaRuntime {
     initializeStandardLibrary(vm: this);
     _ensureEnvironmentBinding(runtimeEnv);
     _interpreter.fileManager.setInterpreter(this);
+    _bytecodeVm = LuaBytecodeVm(this);
   }
 
   final Interpreter _interpreter;
+  late final LuaBytecodeVm _bytecodeVm;
   late final Environment _globalEnvironment;
   late final LibraryRegistry _libraryRegistry;
   final List<LuaBytecodeGCRootProvider> _activeFrameRoots =
@@ -332,10 +354,13 @@ class LuaBytecodeRuntime implements LuaRuntime {
     if (semanticError != null) {
       throw Exception(semanticError);
     }
-    final artifact = const LuaBytecodeEmitter().compileProgram(
-      ast,
-      chunkName: chunkName,
+    // Prefer IR pipeline (same as executeCode / --lua-bytecode). Keep the
+    // direct emitter as a private escape hatch only if the pipeline throws
+    // IrRegisterBudgetExceeded during development of new SSA features.
+    final pipeline = CompilePipeline(
+      config: CompilePipelineConfig.luaBytecodeOptimized(),
     );
+    final artifact = pipeline.compile(ast) as LuaBytecodeArtifact;
     final env = getCurrentEnv();
     _ensureEnvironmentBinding(env);
     final closure = LuaBytecodeClosure.main(
@@ -355,6 +380,29 @@ class LuaBytecodeRuntime implements LuaRuntime {
     return runAst([returnStatement]);
   }
 
+  /// Fast path for calling a bytecode closure with exactly two Value
+  /// arguments. `table.sort` hits this in a tight inner loop, so we avoid the
+  /// generic `List<Object?>`/`Value` rebuild and keep the comparator hot path
+  /// as small as possible.
+  Future<Object?> callBytecodeClosureDirect(
+    LuaBytecodeClosure closure,
+    Value arg0,
+    Value arg1, {
+    String? debugName,
+  }) async {
+    final results = await _bytecodeVm.invoke(
+      closure,
+      <Object?>[arg0, arg1],
+      functionValue: closure.callableValue,
+      callName: debugName ?? closure.chunkName,
+      callNameWhat: '',
+      isEntryFrame: true,
+    );
+    if (results.isEmpty) return null;
+    if (results.length == 1) return results.single;
+    return LuaResults(results);
+  }
+
   @override
   Future<Object?> callFunction(
     Value function,
@@ -368,8 +416,7 @@ class LuaBytecodeRuntime implements LuaRuntime {
     _ensureValueInterpreter(callee);
     _attachInterpreterToArgs(args);
     if (rawLuaSlot(callee) case final LuaBytecodeClosure closure) {
-      final vm = LuaBytecodeVm(this);
-      final results = await vm.invoke(
+      final results = await _bytecodeVm.invoke(
         closure,
         args,
         functionValue: callee,
@@ -403,6 +450,30 @@ class LuaBytecodeRuntime implements LuaRuntime {
         callStack.pop();
       }
     }
+  }
+
+  @override
+  final Map<String, Value> moduleBytecodeCache = <String, Value>{};
+
+  @override
+  Future<Value> loadBytecode(
+    List<int> bytes, {
+    required String moduleName,
+  }) async {
+    final result = await loadChunk(
+      LuaChunkLoadRequest(
+        source: Value.primitive(bytes),
+        chunkName: moduleName,
+        mode: 'b',
+      ),
+    );
+    if (!result.isSuccess) {
+      throw Exception(
+        'Failed to load bytecode module \'$moduleName\': '
+        '${result.errorMessage}',
+      );
+    }
+    return result.chunk!;
   }
 
   @override
@@ -697,7 +768,13 @@ class LuaBytecodeRuntime implements LuaRuntime {
     List<Object?> args,
   ) {
     var callee = original;
-    var normalizedArgs = List<Object?>.from(args, growable: false);
+    var normalizedArgs = args
+        .map(
+          (arg) => arg is List
+              ? valueFromLuaSlot(this, Value.listToLuaTable(arg))
+              : arg,
+        )
+        .toList(growable: false);
     var extraArgs = 0;
 
     while (true) {

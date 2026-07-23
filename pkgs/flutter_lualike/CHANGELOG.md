@@ -1,8 +1,11 @@
-## 0.1.0
+## 0.2.1
 
-- Initial release.
-- `AssetBundleFileSystemBackend` — `FileSystemBackend` backed by `AssetBundle` + `AssetManifest`.
-- `AssetBundleIODevice` — read-only `IODevice` for `io.open()` from Flutter assets.
-- `useAssetBundle()` — one-call setup wiring both integration points into the lualike runtime.
-- `CompositeFileSystemBackend` for layering `AssetBundle` with local filesystem fallback.
-- Support for `dofile()`, `require()`, `io.open()`, and module loading from Flutter assets.
+- Bump `lualike` dependency to `^0.4.0`.
+- Bump `lualike_hooks` dependency to `^0.1.0`.
+- Add `hooks.dart` re-export for Flutter build hooks.
+- Add Flutter example and docs for runtime asset loading.
+
+## 0.2.0
+
+- Flutter asset-bundle backend for `require()`, `dofile()`, and `io.open()`.
+- Composite backend support for desktop/local fallback workflows.

@@ -17,6 +17,7 @@ import 'package:lualike/src/lua_bytecode/runtime.dart';
 import 'package:lualike/src/lua_bytecode/chunk.dart';
 import 'package:lualike/src/lua_bytecode/serializer.dart';
 import 'package:lualike/src/lua_bytecode/vm.dart';
+import 'package:lualike/src/lua_bytecode/vm_value_helpers.dart';
 import 'package:lualike/src/lua_string.dart';
 import 'package:lualike/src/runtime/compiled_artifact_support.dart';
 import 'package:lualike/src/runtime/chunk_loading_support.dart';
@@ -26,6 +27,10 @@ import 'package:lualike/src/runtime/lua_slot.dart';
 import 'package:lualike/src/semantic_checker.dart';
 import 'package:lualike/src/stack.dart';
 import 'package:lualike/src/stdlib/init.dart';
+import 'package:lualike/src/ir/ssa.dart';
+import 'package:lualike/src/ir/ssa_type_analysis.dart';
+import 'package:lualike/src/ir/llvm_lowering.dart';
+import 'package:lualike/src/ir/dart_lowering.dart';
 import 'package:lualike/src/stdlib/library.dart';
 import 'package:lualike/src/stdlib/metatables.dart';
 import 'package:lualike/src/value.dart';
@@ -43,9 +48,11 @@ class LualikeIrRuntime implements LuaRuntime {
     initializeStandardLibrary(vm: this);
     _ensureEnvironmentBinding(runtimeEnv);
     _interpreter.fileManager.setInterpreter(this);
+    _bytecodeVm = LuaBytecodeVm(this);
   }
 
   final Interpreter _interpreter;
+  late final LuaBytecodeVm _bytecodeVm;
   late final Environment _globalEnvironment;
   late final LibraryRegistry _libraryRegistry;
 
@@ -83,7 +90,8 @@ class LualikeIrRuntime implements LuaRuntime {
     }
     final chunk = LualikeIrCompiler().compile(ast);
     _dumpDisassemblyIfEnabled(chunk);
-    if (LuaLikeConfig().dumpIr) {
+    final cfg = LuaLikeConfig();
+    if (cfg.dumpIr || cfg.emitLlvm || cfg.emitDart) {
       return null;
     }
     return _executeChunk(chunk);
@@ -111,8 +119,7 @@ class LualikeIrRuntime implements LuaRuntime {
     _attachInterpreterToArgs(args);
     final raw = rawLuaSlot(callee);
     if (raw is LuaBytecodeClosure) {
-      final vm = LuaBytecodeVm(this);
-      final results = await vm.invoke(
+      final results = await _bytecodeVm.invoke(
         raw,
         args,
         functionValue: callee,
@@ -129,6 +136,30 @@ class LualikeIrRuntime implements LuaRuntime {
       return LuaResults(results);
     }
     return callee.call(args);
+  }
+
+  @override
+  final Map<String, Value> moduleBytecodeCache = <String, Value>{};
+
+  @override
+  Future<Value> loadBytecode(
+    List<int> bytes, {
+    required String moduleName,
+  }) async {
+    final result = await loadChunk(
+      LuaChunkLoadRequest(
+        source: Value.primitive(bytes),
+        chunkName: moduleName,
+        mode: 'b',
+      ),
+    );
+    if (!result.isSuccess) {
+      throw Exception(
+        'Failed to load bytecode module \'$moduleName\': '
+        '${result.errorMessage}',
+      );
+    }
+    return result.chunk!;
   }
 
   @override
@@ -457,19 +488,55 @@ class LualikeIrRuntime implements LuaRuntime {
   }
 
   void _dumpDisassemblyIfEnabled(LualikeIrChunk chunk) {
-    if (!LuaLikeConfig().dumpIr) {
-      return;
+    final cfg = LuaLikeConfig();
+    if (cfg.dumpIr) {
+      _dumpIr(chunk);
     }
+    if (cfg.emitLlvm) {
+      _emitLlvm(chunk);
+    }
+    if (cfg.emitDart) {
+      _emitDart(chunk);
+    }
+  }
 
+  void _dumpIr(LualikeIrChunk chunk) {
     final formatted = formatLualikeIrChunk(chunk);
-    if (formatted.isEmpty) {
-      return;
-    }
-
-    // Use print so output is visible even when logging is disabled.
+    if (formatted.isEmpty) return;
     print('--- Lualike IR ---');
     print(formatted);
     print('--- End Lualike IR ---');
+  }
+
+  void _emitLlvm(LualikeIrChunk chunk) {
+    final prototype = chunk.mainPrototype;
+    final ssaFunction =
+        LualikeIrSsaFunction.fromPrototype(prototype).simplifyTrivialPhis();
+    final typeAnalysis = analyzeLualikeIrSsaTypes(prototype, ssaFunction);
+
+    final emitter = LualikeIrToLlvm(
+      prototype: prototype,
+      ssaFunction: ssaFunction,
+      typeAnalysis: typeAnalysis,
+    );
+
+    final llvm = emitter.generateModule();
+    if (llvm.isEmpty) return;
+
+    print('--- Lualike LLVM IR ---');
+    print(llvm);
+    print('--- End Lualike LLVM IR ---');
+  }
+
+  void _emitDart(LualikeIrChunk chunk) {
+    final emitter = LualikeIrToDart(chunk: chunk);
+
+    final dart = emitter.generateStandalone();
+    if (dart.isEmpty) return;
+
+    print('--- Lualike Dart ---');
+    print(dart);
+    print('--- End Lualike Dart ---');
   }
 
   LuaChunkLoadResult? _loadIrArtifact(LuaChunkLoadRequest request) {

@@ -37,3 +37,4 @@ benchmarks/parser_profiles/*
 !benchmarks/parser_profiles/*-latest-*.json
 !benchmarks/parser_profiles/*-comparison-*.json
 !benchmarks/parser_profiles/*-comparison-*.md
+a.out

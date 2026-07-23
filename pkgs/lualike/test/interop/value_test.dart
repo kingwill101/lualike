@@ -706,4 +706,196 @@ void main() {
       expect(result.raw, equals(double.infinity));
     });
   });
+
+  group('Value List ↔ Lua Table Conversion', () {
+    test('wrap converts Dart List to 1-based Lua table', () {
+      final v = Value.wrap([10, 20, 30]);
+      expect(v.raw, isA<Map>());
+      final map = v.raw as Map;
+      expect(map[1], equals(10));
+      expect(map[2], equals(20));
+      expect(map[3], equals(30));
+      expect(map.length, equals(3));
+    });
+
+    test('wrap converts empty List to empty Map', () {
+      final v = Value.wrap(<dynamic>[]);
+      expect(v.raw, isA<Map>());
+      expect((v.raw as Map).isEmpty, isTrue);
+    });
+
+    test('wrap recursively wraps List elements', () {
+      final v = Value.wrap([1, 'two', true, null]);
+      final map = v.raw as Map;
+      expect(map[1], equals(1));
+      expect(map[2], equals('two'));
+      expect(map[3], equals(true));
+      expect(map[4], isNull);
+    });
+
+    test('wrap converts nested Lists inside Maps', () {
+      final v = Value.wrap({
+        'items': [1, 2, 3],
+      });
+      final inner = (v.raw as Map)['items'];
+      expect(inner, isA<Value>());
+      final innerMap = (inner as Value).raw as Map;
+      expect(innerMap[1], equals(1));
+      expect(innerMap[2], equals(2));
+      expect(innerMap[3], equals(3));
+    });
+
+    test('wrap converts Lists nested inside Lists', () {
+      final v = Value.wrap([
+        [1, 2],
+        [3, 4],
+      ]);
+      final map = v.raw as Map;
+      // First inner list
+      final inner1 = (map[1] as Value).raw as Map;
+      expect(inner1[1], equals(1));
+      expect(inner1[2], equals(2));
+      // Second inner list
+      final inner2 = (map[2] as Value).raw as Map;
+      expect(inner2[1], equals(3));
+      expect(inner2[2], equals(4));
+    });
+
+    test('unwrap converts 1-based int-keyed Map back to List', () {
+      final v = Value({1: 10, 2: 20, 3: 30});
+      final result = v.unwrap();
+      expect(result, isA<List>());
+      expect(result, equals([10, 20, 30]));
+    });
+
+    test('unwrap returns Map for non-sequential keys', () {
+      final v = Value({'a': 1, 'b': 2});
+      final result = v.unwrap();
+      expect(result, isA<Map>());
+      expect(result['a'], equals(1));
+    });
+
+    test('unwrap returns Map for 0-based int keys', () {
+      final v = Value({0: 'a', 1: 'b', 2: 'c'});
+      final result = v.unwrap();
+      expect(result, isA<Map>());
+    });
+
+    test('unwrap returns Map for sparse int keys', () {
+      final v = Value({1: 'a', 3: 'c'});
+      final result = v.unwrap();
+      expect(result, isA<Map>());
+    });
+
+    test('round-trip wrap/unwrap preserves List', () {
+      final original = [1, 'two', 3.0, true];
+      final wrapped = Value.wrap(original);
+      final unwrapped = wrapped.unwrap();
+      expect(unwrapped, equals(original));
+    });
+
+    test('round-trip preserves nested Lists', () {
+      final original = {
+        'data': [1, 2, 3],
+        'name': 'test',
+      };
+      final wrapped = Value.wrap(original);
+      final unwrapped = wrapped.unwrap();
+      expect(unwrapped['name'], equals('test'));
+      expect(unwrapped['data'], equals([1, 2, 3]));
+    });
+
+    test('listToLuaTable produces correct 1-based keys', () {
+      final table = Value.listToLuaTable(['a', 'b', 'c']);
+      expect((table[1]), equals('a'));
+      expect((table[2]), equals('b'));
+      expect((table[3]), equals('c'));
+      expect(table.length, equals(3));
+    });
+
+    test('wrap does not double-wrap a Value containing a List', () {
+      // A Value that already has a Map raw should be returned as-is
+      final v = Value.wrap(Value({1: 10}));
+      expect(v.raw, isA<Map>());
+    });
+  });
+
+  group('Value List in Lua Integration', () {
+    test('setGlobal with Dart List creates accessible Lua table', () async {
+      final lualike = LuaLike();
+      lualike.setGlobal('items', [10, 20, 30]);
+      await lualike.execute('result = items[1] + items[2] + items[3]');
+      final result = lualike.getGlobal('result') as Value;
+      expect(result.raw, equals(60));
+    });
+
+    test('setGlobal with nested List creates deep Lua table', () async {
+      final lualike = LuaLike();
+      lualike.setGlobal('data', {
+        'matrix': [
+          [1, 2],
+          [3, 4],
+        ],
+      });
+      await lualike.execute('result = data.matrix[1][1] + data.matrix[2][2]');
+      final result = lualike.getGlobal('result') as Value;
+      expect(result.raw, equals(5));
+    });
+
+    test('Dart List works with Lua # operator', () async {
+      final lualike = LuaLike();
+      lualike.setGlobal('fruits', ['apple', 'banana', 'cherry']);
+      await lualike.execute('result = #fruits');
+      final result = lualike.getGlobal('result') as Value;
+      expect(result.raw, equals(3));
+    });
+
+    test('Dart List works with Lua ipairs', () async {
+      final lualike = LuaLike();
+      lualike.setGlobal('nums', [10, 20, 30]);
+      await lualike.execute('''
+        local sum = 0
+        for _, v in ipairs(nums) do
+          sum = sum + v
+        end
+        result = sum
+      ''');
+      final result = lualike.getGlobal('result') as Value;
+      expect(result.raw, equals(60));
+    });
+
+    test('Dart List works with table.insert', () async {
+      final lualike = LuaLike();
+      lualike.setGlobal('items', [1, 2, 3]);
+      await lualike.execute('table.insert(items, 4)');
+      await lualike.execute('result = #items');
+      final result = lualike.getGlobal('result') as Value;
+      expect(result.raw, equals(4));
+    });
+
+    test('Dart List works with table.remove', () async {
+      final lualike = LuaLike();
+      lualike.setGlobal('items', [10, 20, 30]);
+      await lualike.execute('table.remove(items, 2)');
+      await lualike.execute('result = #items');
+      final result = lualike.getGlobal('result') as Value;
+      expect(result.raw, equals(2));
+    });
+
+    test('empty Dart List creates empty Lua table', () async {
+      final lualike = LuaLike();
+      lualike.setGlobal('empty', <int>[]);
+      await lualike.execute('result = #empty');
+      final result = lualike.getGlobal('result') as Value;
+      expect(result.raw, equals(0));
+    });
+
+    test('Dart List with nil holes preserves length', () async {
+      final lualike = LuaLike();
+      lualike.setGlobal('items', [1, null, 3]);
+      await lualike.execute('result = #items');
+      final result = lualike.getGlobal('result') as Value;
+      expect(result.raw, equals(3));
+    });
+  });
 }

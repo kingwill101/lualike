@@ -1,28 +1,29 @@
-/// Flutter AssetBundle filesystem backend for lualike.
+/// Flutter integration for lualike.
 ///
-/// Provides transparent read-only file access for `dofile()`, `require()`,
-/// `io.open()`, and module loading from Flutter's asset bundle.
+/// Provides:
+/// - AssetBundle filesystem backend for `require()`, `dofile()`, `io.open()`
+/// - Build hook for compiling Lua scripts at build time
 ///
 /// ## Quick start
+///
 /// ```dart
 /// import 'package:flutter_lualike/flutter_lualike.dart';
 ///
-/// await useAssetBundle(rootBundle, assetRoot: 'assets');
-///
-/// // Now dofile('config.lua') resolves to assets/config.lua
+/// await useAssetBundle(rootBundle, assetRoot: 'build/lua');
 /// ```
 ///
-/// ## Composite backend (desktop)
-/// On desktop, plugins may live on the local filesystem or in assets.
-/// Use [CompositeFileSystemBackend] from `package:lualike/lualike.dart`
-/// to check both:
-/// ```dart
-/// import 'package:lualike/lualike.dart';
-/// import 'package:flutter_lualike/flutter_lualike.dart';
+/// ## Build hook
 ///
-/// final assetBackend = AssetBundleFileSystemBackend(rootBundle);
-/// final localBackend = PackageFileSystemBackend(LocalFileSystem());
-/// setFileSystemBackend(CompositeFileSystemBackend([assetBackend, localBackend]));
+/// ```dart
+/// // hook/build.dart
+/// import 'package:flutter_lualike/hooks.dart';
+///
+/// void main(List<String> args) async {
+///   await build(args, (input, output) async {
+///     final builder = LuaBuilder(sources: ['assets/lua/']);
+///     await builder.run(input: input, output: output, logger: null);
+///   });
+/// }
 /// ```
 library;
 

@@ -1,6 +1,14 @@
+/// Binary parser for official Lua 5.5 chunks and lualike-serialized ones.
+///
+/// After reading prototypes, local debug entries are post-processed with
+/// [prototypeWithInferredLocalRegisters] because the official format does not
+/// store stack registers for locals.
+library;
+
 import 'dart:typed_data';
 
 import 'chunk.dart';
+import 'debug_local_caches.dart';
 import 'instruction.dart';
 import '../number_limits.dart';
 import '../number_utils.dart';
@@ -13,17 +21,20 @@ typedef _PrototypeDebugInfo = ({
   List<String?> upvalueNames,
 });
 
+/// Thin façade over [LuaBytecodeReader].
 final class LuaBytecodeParser {
   const LuaBytecodeParser();
 
+  /// Parses [bytes] into a [LuaBytecodeBinaryChunk] with inferred local registers.
   LuaBytecodeBinaryChunk parse(List<int> bytes) {
-    final reader = _LuaBytecodeReader(bytes);
+    final reader = LuaBytecodeReader(bytes);
     return reader.readChunk();
   }
 }
 
-final class _LuaBytecodeReader {
-  _LuaBytecodeReader(List<int> bytes)
+/// Streaming reader for a single Lua bytecode payload.
+final class LuaBytecodeReader {
+  LuaBytecodeReader(List<int> bytes)
     : _bytes = bytes is Uint8List ? bytes : Uint8List.fromList(bytes),
       _savedStrings = <String?>[null] {
     _byteData = ByteData.sublistView(_bytes);
@@ -34,10 +45,17 @@ final class _LuaBytecodeReader {
   late final ByteData _byteData;
   var _offset = 0;
 
+  /// Reads the full chunk and recovers local registers for debug tooling.
+  ///
+  /// Local vars in the binary are `(name, startPc, endPc)` only; see
+  /// local-register inference. Skipping inference breaks `debug.getlocal` after
+  /// any serialize → load path (including `CompilePipeline` + `--fold`).
   LuaBytecodeBinaryChunk readChunk() {
     final header = _readHeader();
     final rootUpvalueCount = _readByte();
-    final mainPrototype = _readPrototype(header);
+    final mainPrototype = prototypeWithInferredLocalRegisters(
+      _readPrototype(header),
+    );
     if (_offset != _bytes.length) {
       throw _formatError('Trailing bytes after Lua chunk payload');
     }

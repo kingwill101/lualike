@@ -1712,8 +1712,8 @@ class NextFunction extends BuiltinFunction {
       // However, during the finalization phase, Lua semantics allow weak-keys
       // to be observed by __gc finalizers before keys are removed. Therefore,
       // we do NOT skip dead keys if GC is currently finalizing.
-      if (table.tableWeakMode != null &&
-          (table.hasWeakKeys || table.isAllWeak)) {
+      final weakMode = table.tableWeakMode;
+      if (weakMode != null && (weakMode.contains('k'))) {
         final vm = interpreter!;
         // During finalization, keep observation of weak-keys intact.
         if (!vm.gc.isFinalizing) {
@@ -1735,14 +1735,12 @@ class NextFunction extends BuiltinFunction {
       // and GC logging is enabled, emit the produced key/value to aid
       // diagnosing gc.lua failures around pairs(a) assertions.
       try {
-        if (Logger.enabled &&
-            table.tableWeakMode != null &&
-            (table.hasWeakKeys || table.hasWeakValues || table.isAllWeak)) {
+        if (Logger.enabled && weakMode != null && weakMode.isNotEmpty) {
           final rawNextKey = rawLuaSlot(nextKey);
           final rawNextValue = rawLuaSlot(nextValue);
           Logger.debugLazy(
             () =>
-                'next(pair): weak table (${table.tableWeakMode}) -> k=$rawNextKey (${rawNextKey.runtimeType}) v=$rawNextValue (${rawNextValue.runtimeType})',
+                'next(pair): weak table ($weakMode) -> k=$rawNextKey (${rawNextKey.runtimeType}) v=$rawNextValue (${rawNextValue.runtimeType})',
             category: 'GC',
           );
         }
@@ -1892,8 +1890,8 @@ class NextFunction extends BuiltinFunction {
       valueFromLuaSlot(interpreter!, value);
 
   bool _shouldSkipWeakKey(Value table, Value nextKey) {
-    if (table.tableWeakMode == null ||
-        (!table.hasWeakKeys && !table.isAllWeak)) {
+    final weakMode = table.tableWeakMode;
+    if (weakMode == null || !weakMode.contains('k')) {
       return false;
     }
 
@@ -2791,7 +2789,8 @@ class RequireFunction extends BuiltinFunction {
     // require must error out (attrib.lua test expects this).
     {
       final searchersEntry = rawPackageTable['searchers'];
-      if (searchersEntry is! Value || rawLuaSlot(searchersEntry) is! List) {
+      final searchersRaw = searchersEntry is Value ? rawLuaSlot(searchersEntry) : null;
+      if (searchersRaw is! List && searchersRaw is! Map) {
         throw LuaError("package.searchers must be a table");
       }
     }
@@ -2885,18 +2884,27 @@ class RequireFunction extends BuiltinFunction {
       throw LuaError("package.searchers must be a table");
     }
     final searchersRaw = rawLuaSlot(searchersEntry);
-    if (searchersRaw is! List) {
+
+    // Searchers can be a Dart List (legacy) or a proper Lua TableStorage.
+    Iterable<Object?> searcherValues;
+    if (searchersRaw is List) {
+      searcherValues = searchersRaw;
+    } else if (searchersRaw is Map) {
+      searcherValues = searchersRaw.values;
+    } else {
       throw LuaError("package.searchers must be a table");
     }
 
-    for (var index = 0; index < searchersRaw.length; index++) {
-      final searcher = searchersRaw[index];
+    var searcherIndex = 0;
+    for (final searcher in searcherValues) {
+      searcherIndex++;
       if (searcher is! Value || !searcher.isCallable()) {
         continue;
       }
 
       Logger.debugLazy(
-        () => "RequireFunction: Trying searcher #$index for '$moduleName'",
+        () =>
+            "RequireFunction: Trying searcher #$searcherIndex for '$moduleName'",
         category: 'Require',
       );
 
@@ -2916,7 +2924,7 @@ class RequireFunction extends BuiltinFunction {
           ]);
         }
       } catch (error) {
-        errors.add("searcher #$index error: $error");
+        errors.add("searcher #$searcherIndex error: $error");
         continue;
       }
 
@@ -2963,18 +2971,16 @@ class RequireFunction extends BuiltinFunction {
         }
 
         final ret = loaded[moduleName];
-        if (loaderData is Value && !isLuaNilSlot(loaderData)) {
-          final rawLoaderData = rawLuaSlot(loaderData);
-          if (rawLoaderData is String) {
-            final normalizedLoaderData = valueFromLuaSlot(
-              interpreter!,
-              path.normalize(rawLoaderData),
-            );
-            return (found: true, result: [ret, normalizedLoaderData]);
-          }
-          return (found: true, result: [ret, loaderData]);
-        }
-        return (found: true, result: ret);
+        // Lua 5.4 returns the loader data as require's second result. Use
+        // LuaResults so single-value contexts still observe only the module.
+        final rawLoaderData = rawLuaSlot(loaderData);
+        final returnedLoaderData = rawLoaderData is String
+            ? valueFromLuaSlot(interpreter!, path.normalize(rawLoaderData))
+            : loaderData;
+        return (
+          found: true,
+          result: LuaResults([ret, returnedLoaderData]),
+        );
       } else if (result is String) {
         errors.add(result);
       } else if (result is Value && rawLuaSlot(result) is String) {

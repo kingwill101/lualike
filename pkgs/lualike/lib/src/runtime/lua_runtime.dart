@@ -154,4 +154,18 @@ abstract interface class LuaRuntime {
     Object? error,
     AstNode? node,
   });
+
+  /// Convenience to load a precompiled bytecode module.
+  ///
+  /// The bytecode can be either Lua 5.4 binary chunks (starting with `\x1b`)
+  /// or lualike IR serialized chunks.
+  Future<Value> loadBytecode(List<int> bytes, {required String moduleName});
+
+  /// Cache of compiled bytecode keyed by source path.
+  ///
+  /// When `require("mod")` loads a file, the compiled result is stored
+  /// here so subsequent requires of the same module skip parsing and
+  /// compilation.  The cache is invalidated when the source file changes
+  /// (checked by stat mtime, though not all backends support this).
+  Map<String, Value> get moduleBytecodeCache;
 }

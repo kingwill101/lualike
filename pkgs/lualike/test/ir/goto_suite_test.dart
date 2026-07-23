@@ -4,7 +4,6 @@ library;
 import 'dart:io';
 
 import 'package:lualike/lualike.dart';
-import 'package:lualike/src/ir/runtime.dart';
 import 'package:test/test.dart';
 
 import '../helpers/package_paths.dart';

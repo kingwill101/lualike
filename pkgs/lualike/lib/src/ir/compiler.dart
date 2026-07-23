@@ -1,6 +1,7 @@
 import 'dart:math' as math;
 
 import 'package:lualike/src/ast.dart';
+import 'package:lualike/src/compile/fold_result.dart';
 import 'package:lualike/src/lua_bytecode/instruction.dart';
 
 import 'chunk_builder.dart';
@@ -16,10 +17,44 @@ import 'prototype.dart';
 /// the lualike IR infrastructure. Coverage will expand incrementally as we port
 /// additional interpreter features.
 class LualikeIrCompiler {
+  /// Optional constant folding result that marks nodes whose values can be
+  /// precomputed at compile time.
+  final ConstantFoldingResult? foldingResult;
+
+  /// Whether to unroll constant-bounded for-loops.
+  ///
+  /// Unrolling increases IR instruction count (slow in the IR interpreter)
+  /// but produces tighter bytecode for the bytecode VM.
+  final bool enableLoopUnrolling;
+
+  /// Whether compilation must preserve source-level debug frame semantics.
+  ///
+  /// Loop unrolling currently duplicates lexical scopes, so it is only safe
+  /// when debug metadata will be stripped from the final bytecode.
+  final bool preserveDebug;
+
+  LualikeIrCompiler({
+    this.foldingResult,
+    this.enableLoopUnrolling = false,
+    this.preserveDebug = true,
+  });
+
   LualikeIrChunk compile(Program program) {
     final chunkBuilder = LualikeIrChunkBuilder();
     final prototypeBuilder = chunkBuilder.mainPrototypeBuilder;
-    final context = _PrototypeContext(prototypeBuilder, isVararg: true);
+    // Root _ENV is part of the finalized IR closure shape. Lowering must not
+    // synthesize captures that are absent from the IR prototype.
+    prototypeBuilder.upvalueDescriptors.add(
+      const LualikeIrUpvalueDescriptor(inStack: 1, index: 0),
+    );
+    prototypeBuilder.upvalueNames.add('_ENV');
+    final context = _PrototypeContext(
+      prototypeBuilder,
+      isVararg: true,
+      foldingResult: foldingResult,
+      enableLoopUnrolling: enableLoopUnrolling,
+      preserveDebug: preserveDebug,
+    );
 
     context._emitBlock(program.statements, useNewScope: false);
 
@@ -116,6 +151,9 @@ class _PrototypeContext {
     this.parent,
     List<String> parameterNames = const <String>[],
     this.isVararg = false,
+    this.foldingResult,
+    this.enableLoopUnrolling = false,
+    this.preserveDebug = true,
   }) : emitter = LualikeIrEmitter(builder),
        _localScopes = <Map<String, int>>[<String, int>{}],
        _globalBindingScopes = <Set<String>>[<String>{}],
@@ -140,6 +178,15 @@ class _PrototypeContext {
   final LualikeIrEmitter emitter;
   final _PrototypeContext? parent;
   final bool isVararg;
+
+  /// Optional constant folding result.
+  final ConstantFoldingResult? foldingResult;
+
+  /// Whether to unroll constant-bounded for-loops.
+  final bool enableLoopUnrolling;
+
+  /// Whether source-level debug frame semantics must remain observable.
+  final bool preserveDebug;
 
   bool hasExplicitReturn = false;
 
@@ -403,6 +450,12 @@ class _PrototypeContext {
   }
 
   int? _resolveUpvalueIndex(String name) {
+    // The root environment is represented by prototype metadata and accessed
+    // directly by GETTABUP/SETTABUP. Treating it as a captured lookup here
+    // would materialize _ENV into a register for every global access.
+    if (name == '_ENV' && parent == null) {
+      return null;
+    }
     final existing = _upvalues[name];
     if (existing != null) {
       return existing;
@@ -588,7 +641,12 @@ class _PrototypeContext {
         return;
       }
 
-      final reg = _emitExpression(expression, target: 0);
+      // Emit the expression into its natural register, then return from it.
+      // Passing target: 0 here is counterproductive when reg0 is occupied
+      // by a local (e.g. `return a + b` inside function(a,b)) — the extra
+      // MOVE adds an instruction that the bytecode peephole can't always
+      // eliminate safely.
+      final reg = _emitExpression(expression);
       emitter.emitABC(opcode: LualikeIrOpcode.return1, a: reg, b: 0, c: 0);
       return;
     }
@@ -601,6 +659,17 @@ class _PrototypeContext {
       final isLast = i == node.expr.length - 1;
 
       if (!isLast) {
+        // Simple identifier reads: use the local's register directly.
+        // _emitExpression would allocate a temp + MOVE, which is harmless
+        // but wasteful when we're about to return from these registers.
+        if (expr is Identifier) {
+          final binding = _resolveCurrentFunctionBinding(expr.name);
+          final localReg = binding.register;
+          if (localReg != null) {
+            valueRegs.add(localReg);
+            continue;
+          }
+        }
         final reg = _emitExpression(expr);
         valueRegs.add(reg);
         continue;
@@ -627,44 +696,91 @@ class _PrototypeContext {
         continue;
       }
 
+      // Last expression: also use local register directly for simple reads.
+      if (expr is Identifier) {
+        final binding = _resolveCurrentFunctionBinding(expr.name);
+        final localReg = binding.register;
+        if (localReg != null) {
+          valueRegs.add(localReg);
+          continue;
+        }
+      }
       final reg = _emitExpression(expr);
       valueRegs.add(reg);
     }
 
-    var returnBase = valueRegs.first;
+    // Open-result last expression (`f()` / `...`): fixed prefix values must
+    // sit in consecutive registers immediately before the open window so
+    // `RETURN A, 0` yields a contiguous multi-return list. Evaluating
+    // `return a, b, rawget(...)` into scattered regs and returning from the
+    // first reg was leaking holes (and leftover stack values) into results.
     if (capturesAll) {
+      final openBase = valueRegs.last;
       final fixedCount = valueRegs.length - 1;
-      emitter.emitABC(
-        opcode: LualikeIrOpcode.ret,
-        a: returnBase,
-        b: 0,
-        c: fixedCount,
-      );
+      final returnBase = openBase - fixedCount;
+      if (returnBase < 0) {
+        throw StateError(
+          'IR return packing: open base $openBase cannot hold '
+          '$fixedCount fixed results',
+        );
+      }
+      // Move high indices first so we do not clobber still-needed sources.
+      for (var i = fixedCount - 1; i >= 0; i--) {
+        final sourceReg = valueRegs[i];
+        final targetReg = returnBase + i;
+        if (sourceReg == targetReg) {
+          continue;
+        }
+        emitter.emitABC(
+          opcode: LualikeIrOpcode.move,
+          a: targetReg,
+          b: sourceReg,
+          c: 0,
+        );
+      }
+      emitter.emitABC(opcode: LualikeIrOpcode.ret, a: returnBase, b: 0, c: 0);
       return;
     }
 
     final valueCount = valueRegs.length;
-    final packedBase = _allocateRegister();
-    if (valueCount > 1) {
-      _ensureRegister(packedBase + valueCount - 1);
-    }
-    for (var i = 0; i < valueCount; i++) {
-      final sourceReg = valueRegs[i];
-      final targetReg = packedBase + i;
-      if (sourceReg == targetReg) {
-        continue;
+
+    // Fast path: when all result values sit in a contiguous block of
+    // registers (e.g. computed by sequential arithmetic ops), return
+    // directly from that block instead of MOVing everything to a fresh
+    // base.  luac55 always uses this form.
+    bool isContiguous(List<int> regs) {
+      if (regs.isEmpty) return false;
+      for (var i = 1; i < regs.length; i++) {
+        if (regs[i] != regs[i - 1] + 1) return false;
       }
-      emitter.emitABC(
-        opcode: LualikeIrOpcode.move,
-        a: targetReg,
-        b: sourceReg,
-        c: 0,
-      );
+      return true;
     }
-    returnBase = packedBase;
+
+    final packedBase = isContiguous(valueRegs)
+        ? valueRegs.first
+        : _allocateRegister();
+
+    if (!isContiguous(valueRegs)) {
+      if (valueCount > 1) {
+        _ensureRegister(packedBase + valueCount - 1);
+      }
+      for (var i = 0; i < valueCount; i++) {
+        final sourceReg = valueRegs[i];
+        final targetReg = packedBase + i;
+        if (sourceReg == targetReg) {
+          continue;
+        }
+        emitter.emitABC(
+          opcode: LualikeIrOpcode.move,
+          a: targetReg,
+          b: sourceReg,
+          c: 0,
+        );
+      }
+    }
     emitter.emitABC(
       opcode: LualikeIrOpcode.ret,
-      a: returnBase,
+      a: packedBase,
       b: valueCount + 1,
       c: 0,
     );
@@ -672,17 +788,28 @@ class _PrototypeContext {
 
   int _emitExpression(AstNode node, {int? target}) {
     _trackSource(node);
+
+    // If the constant folding pass determined this node's value at compile
+    // time, emit a loadK / loadI directly instead of lowering the full
+    // expression tree.
+    //
+    // Tables (Map) are mutable identity values: each evaluation of `{}` or
+    // `{...}` must allocate a fresh table. Folding may still use the Map to
+    // resolve field reads, but emission must fall through to NEWTABLE.
+    if (foldingResult != null && foldingResult!.isConstant(node)) {
+      final folded = foldingResult!.getValue(node);
+      if (folded is! Map) {
+        return _emitFoldedConstant(node, folded, target: target);
+      }
+    }
+
     if (node is BinaryExpression && node.op == '..') {
       return _emitConcatenation(node, target: target);
     }
     switch (node) {
       case NumberLiteral(:final value):
         final reg = _materializeRegister(target);
-        final constant = value is int
-            ? IntegerConstant(value)
-            : NumberConstant(value.toDouble());
-        final index = builder.addConstant(constant);
-        emitter.emitABx(opcode: LualikeIrOpcode.loadK, a: reg, bx: index);
+        _emitNumericConstant(reg, value);
         return reg;
       case BooleanLiteral(:final value):
         final reg = _materializeRegister(target);
@@ -1067,7 +1194,12 @@ class _PrototypeContext {
       final register = _allocateRegister();
       targets.add((name: identifier.name, register: register));
     }
-    final result = _emitAssignmentValues(node.exprs, nameCount);
+    final targetRegs = [for (final t in targets) t.register];
+    final result = _emitAssignmentValues(
+      node.exprs,
+      nameCount,
+      targetRegisters: targetRegs,
+    );
     for (var i = 0; i < nameCount; i++) {
       final target = targets[i];
       _declareLocal(target.name, target.register);
@@ -1182,25 +1314,118 @@ class _PrototypeContext {
       return;
     }
 
-    // The lowered main prototype synthesizes `_ENV` as upvalue 0.
-    final envValueReg = _allocateRegister();
-    emitter.emitABC(
-      opcode: LualikeIrOpcode.getUpval,
-      a: envValueReg,
-      b: 0,
-      c: 0,
-    );
-    emitter.emitABx(
-      opcode: LualikeIrOpcode.checkGlobal,
-      a: envValueReg,
-      bx: constantIndex,
-    );
-    _releaseRegister(envValueReg);
+    if (parent == null &&
+        builder.upvalueDescriptors.isNotEmpty &&
+        builder.upvalueNames.first == '_ENV') {
+      final envValueReg = _allocateRegister();
+      emitter.emitABC(
+        opcode: LualikeIrOpcode.getUpval,
+        a: envValueReg,
+        b: 0,
+        c: 0,
+      );
+      emitter.emitABx(
+        opcode: LualikeIrOpcode.checkGlobal,
+        a: envValueReg,
+        bx: constantIndex,
+      );
+      _releaseRegister(envValueReg);
+      return;
+    }
+
+    throw StateError('global declaration check requires an _ENV binding');
   }
 
   bool _emitDoBlock(DoBlock node) {
     _trackSource(node);
     return _emitBlock(node.body);
+  }
+
+  /// Emit a load instruction for a compile-time folded constant.
+  ///
+  /// This is the mechanism by which the constant folding pass feeds its
+  /// results into the IR: instead of emitting the full expression tree,
+  /// we emit a single [loadK] / [loadI] / [loadNil] / [loadTrue] / [loadFalse]
+  /// instruction with the precomputed value.
+  int _emitFoldedConstant(AstNode node, Object? value, {int? target}) {
+    final reg = _materializeRegister(target);
+
+    if (value == ConstantFoldingResult.constantNil) {
+      emitter.emitABC(opcode: LualikeIrOpcode.loadNil, a: reg, b: 0, c: 0);
+      return reg;
+    }
+
+    if (value is bool) {
+      emitter.emitABC(
+        opcode: value ? LualikeIrOpcode.loadTrue : LualikeIrOpcode.loadFalse,
+        a: reg,
+        b: 0,
+        c: 0,
+      );
+      return reg;
+    }
+
+    if (value is int) {
+      _emitNumericConstant(reg, value);
+      return reg;
+    }
+
+    if (value is double) {
+      _emitNumericConstant(reg, value);
+      return reg;
+    }
+
+    if (value is BigInt) {
+      final intValue = value.toInt();
+      if (_fitsSignedImmediate(intValue)) {
+        emitter.emitAsBx(opcode: LualikeIrOpcode.loadI, a: reg, sBx: intValue);
+        return reg;
+      }
+      final constant = IntegerConstant(intValue);
+      final index = builder.addConstant(constant);
+      emitter.emitABx(opcode: LualikeIrOpcode.loadK, a: reg, bx: index);
+      return reg;
+    }
+
+    if (value is num) {
+      final intValue = value.toInt();
+      if (_fitsSignedImmediate(intValue)) {
+        emitter.emitAsBx(opcode: LualikeIrOpcode.loadI, a: reg, sBx: intValue);
+        return reg;
+      }
+      final constant = NumberConstant(value.toDouble());
+      final index = builder.addConstant(constant);
+      emitter.emitABx(opcode: LualikeIrOpcode.loadK, a: reg, bx: index);
+      return reg;
+    }
+
+    if (value is List<int>) {
+      // Folded string constant.
+      final text = String.fromCharCodes(value);
+      final constant = text.length <= 40
+          ? ShortStringConstant(text)
+          : LongStringConstant(text);
+      final index = builder.addConstant(constant);
+      emitter.emitABx(opcode: LualikeIrOpcode.loadK, a: reg, bx: index);
+      return reg;
+    }
+
+    if (value is String) {
+      final constant = value.length <= 40
+          ? ShortStringConstant(value)
+          : LongStringConstant(value);
+      final index = builder.addConstant(constant);
+      emitter.emitABx(opcode: LualikeIrOpcode.loadK, a: reg, bx: index);
+      return reg;
+    }
+
+    // Maps are handled by the caller (skip fold → NEWTABLE). Other unknown
+    // folded types must not silently become nil — that produced empty-table
+    // bugs (`local mt = {}` → LOADNIL) under constant folding.
+    throw StateError(
+      'unsupported folded constant type ${value.runtimeType} '
+      'for ${node.runtimeType}',
+    );
   }
 
   void _emitAssignmentIndexAccessExpr(AssignmentIndexAccessExpr node) {
@@ -1318,23 +1543,37 @@ class _PrototypeContext {
           } else {
             keyReg = _emitExpression(key);
           }
-          final valueReg = _emitExpression(entry.value);
-          if (fieldIndex != null) {
+          // Check if value is a literal that can be inlined as Kst.
+          final constantIndex = _tryLiteralConstant(entry.value);
+          if (fieldIndex != null && constantIndex != null) {
+            // SETFIELD with k=true: C is a Kst constant index.
             emitter.emitABC(
               opcode: LualikeIrOpcode.setField,
               a: tableReg,
               b: fieldIndex,
-              c: valueReg,
+              c: constantIndex,
+              k: true,
             );
             _releaseDownTo(tableReg + 1);
           } else {
-            emitter.emitABC(
-              opcode: LualikeIrOpcode.setTable,
-              a: tableReg,
-              b: keyReg!,
-              c: valueReg,
-            );
-            _releaseDownTo(tableReg + 1);
+            final valueReg = _emitExpression(entry.value);
+            if (fieldIndex != null) {
+              emitter.emitABC(
+                opcode: LualikeIrOpcode.setField,
+                a: tableReg,
+                b: fieldIndex,
+                c: valueReg,
+              );
+              _releaseDownTo(tableReg + 1);
+            } else {
+              emitter.emitABC(
+                opcode: LualikeIrOpcode.setTable,
+                a: tableReg,
+                b: keyReg!,
+                c: valueReg,
+              );
+              _releaseDownTo(tableReg + 1);
+            }
           }
           break;
         case IndexedTableEntry():
@@ -1519,7 +1758,11 @@ class _PrototypeContext {
     }
 
     if (localReg != null) {
-      final valueReg = _emitExpression(valueNode);
+      // Pass the local register as target so _emitBinaryExpression (and
+      // other expression forms) can write directly into it.  For a simple
+      // `sum = sum + i` this eliminates three MOVEs that would otherwise
+      // copy operands to temps and copy the result back.
+      final valueReg = _emitExpression(valueNode, target: localReg);
       if (valueReg != localReg) {
         emitter.emitABC(
           opcode: LualikeIrOpcode.move,
@@ -1646,6 +1889,13 @@ class _PrototypeContext {
 
   bool _emitIfStatement(IfStatement node) {
     _trackSource(node);
+
+    // Dead branch elimination: if the condition is a compile-time constant,
+    // emit only the live branch and skip dead code entirely.
+    if (foldingResult != null && foldingResult!.isConstant(node.cond)) {
+      return _emitIfStatementFolded(node);
+    }
+
     final exitJumps = <int>[];
     final falseJump = _emitConditionJump(node.cond, jumpWhenTrue: false);
     final thenReturns = _emitBlock(node.thenBlock);
@@ -1680,8 +1930,99 @@ class _PrototypeContext {
     return allBranchesReturn;
   }
 
+  /// Dead branch elimination for if-statements with a compile-time constant
+  /// condition.  Only the live branch is emitted.
+  bool _emitIfStatementFolded(IfStatement node) {
+    final condValue = foldingResult!.getValue(node.cond);
+    final truthy = _isFoldedTruthy(condValue);
+
+    if (truthy) {
+      // Condition is truthy — only the then-branch is reachable.
+      return _emitBlock(node.thenBlock);
+    }
+
+    // Condition is falsy — walk the else-if chain.
+    for (final clause in node.elseIfs) {
+      if (foldingResult!.isConstant(clause.cond)) {
+        if (_isFoldedTruthy(foldingResult!.getValue(clause.cond))) {
+          return _emitBlock(clause.thenBlock);
+        }
+        // else-if condition is also falsy — continue checking.
+      } else {
+        // Non-const else-if: can't eliminate, emit normally.
+        return _emitIfStatementWithSkip(node, clause);
+      }
+    }
+
+    // All conditions falsy — only else-block is reachable.
+    if (node.elseBlock.isNotEmpty) {
+      return _emitBlock(node.elseBlock);
+    }
+
+    return false;
+  }
+
+  /// Helper for when we have a falsy condition but non-const else-ifs.
+  /// Emits the first non-const else-if clause's then-block followed by the
+  /// remaining branches.
+  bool _emitIfStatementWithSkip(IfStatement node, ElseIfClause firstNonConst) {
+    final exitJumps = <int>[];
+    var foundFirst = false;
+
+    for (final clause in node.elseIfs) {
+      if (!foundFirst) {
+        if (identical(clause, firstNonConst)) {
+          foundFirst = true;
+          final clauseFalseJump = _emitConditionJump(
+            clause.cond,
+            jumpWhenTrue: false,
+          );
+          _emitBlock(clause.thenBlock);
+          exitJumps.add(_emitJumpPlaceholder());
+          _patchJump(clauseFalseJump, _currentInstructionIndex);
+        }
+        // Earlier falsy-const else-ifs are skipped entirely.
+      } else {
+        final clauseFalseJump = _emitConditionJump(
+          clause.cond,
+          jumpWhenTrue: false,
+        );
+        _emitBlock(clause.thenBlock);
+        exitJumps.add(_emitJumpPlaceholder());
+        _patchJump(clauseFalseJump, _currentInstructionIndex);
+      }
+    }
+
+    if (node.elseBlock.isNotEmpty) {
+      _emitBlock(node.elseBlock);
+    }
+
+    final endIndex = _currentInstructionIndex;
+    for (final jump in exitJumps) {
+      _patchJump(jump, endIndex);
+    }
+    return false;
+  }
+
+  /// Whether a folded value is truthy (following Lua semantics).
+  bool _isFoldedTruthy(Object? value) {
+    if (value == null || value == ConstantFoldingResult.constantNil) {
+      return false;
+    }
+    if (value is bool) return value;
+    return true;
+  }
+
   void _emitWhileStatement(WhileStatement node) {
     _trackSource(node);
+
+    // If the condition is a compile-time false, the loop body is dead code.
+    if (foldingResult != null &&
+        foldingResult!.isConstant(node.cond) &&
+        !_isFoldedTruthy(foldingResult!.getValue(node.cond))) {
+      return; // Entire loop is dead code.
+    }
+
     final loop = _beginLoop();
     final loopStart = _currentInstructionIndex;
     final exitJump = _emitConditionJump(node.cond, jumpWhenTrue: false);
@@ -1721,8 +2062,39 @@ class _PrototypeContext {
     _endLoop(loop);
   }
 
+  /// Maximum number of iterations to unroll for a constant-bounded for loop.
+  static const int _maxUnrollCount = 64;
+
   void _emitForLoop(ForLoop node) {
     _trackSource(node);
+
+    // Keep this disabled for debug-preserving builds until duplicated lexical
+    // scopes can be represented without changing debug.getlocal/getinfo.
+    if (enableLoopUnrolling &&
+        !preserveDebug &&
+        _canSafelyUnrollBlock(node.body) &&
+        foldingResult != null &&
+        foldingResult!.isConstant(node.start) &&
+        foldingResult!.isConstant(node.endExpr) &&
+        foldingResult!.isConstant(node.stepExpr)) {
+      final startVal = _numericFoldedValue(foldingResult!.getValue(node.start));
+      final endVal = _numericFoldedValue(foldingResult!.getValue(node.endExpr));
+      final stepVal = _numericFoldedValue(
+        foldingResult!.getValue(node.stepExpr),
+      );
+
+      if (startVal != null && endVal != null && stepVal != null) {
+        final iterCount = _constantForIterationCount(startVal, endVal, stepVal);
+        if (iterCount != null &&
+            iterCount > 0 &&
+            iterCount <= _maxUnrollCount) {
+          _emitUnrolledForLoop(node, startVal, stepVal, iterCount);
+          return;
+        }
+      }
+    }
+
+    // Normal for-loop emission.
     final loop = _beginLoop();
     final base = _allocateRegister();
     final limitReg = _allocateRegister();
@@ -1774,6 +2146,147 @@ class _PrototypeContext {
 
     _endLoop(loop);
     _releaseDownTo(base);
+  }
+
+  /// Unroll a for-loop with constant bounds into N sequential copies of
+  /// the loop body, each with the loop variable bound to its iteration value.
+  void _emitUnrolledForLoop(
+    ForLoop node,
+    num startVal,
+    num stepVal,
+    int iterCount,
+  ) {
+    for (var i = 0; i < iterCount; i++) {
+      final iterValue = startVal + i * stepVal;
+      final reg = _allocateRegister();
+
+      _pushLocalScope();
+      _declareLocal(node.varName.name, reg);
+      _emitLoadConstantTo(reg, iterValue);
+      _emitBlock(node.body, useNewScope: false);
+      _popLocalScope();
+      // The body may declare additional locals. Reclaim the complete copied
+      // scope so all iterations reuse the same slots instead of growing
+      // maxstack linearly with the iteration count.
+      _releaseDownTo(reg);
+    }
+  }
+
+  int? _constantForIterationCount(num start, num end, num step) {
+    if (!start.isFinite || !end.isFinite || !step.isFinite || step == 0) {
+      return null;
+    }
+    if ((step > 0 && start > end) || (step < 0 && start < end)) {
+      return 0;
+    }
+    final span = (end - start) / step;
+    if (!span.isFinite || span < 0) {
+      return null;
+    }
+    return span.floor() + 1;
+  }
+
+  /// Returns whether duplicating [statements] preserves runtime semantics.
+  ///
+  /// Non-local control flow, declarations with identity, closures, nested
+  /// loops, and attributed locals stay on the normal loop path. This is
+  /// intentionally a whitelist: unsupported shapes cost an optimization, not
+  /// correctness.
+  bool _canSafelyUnrollBlock(List<AstNode> statements) {
+    for (final statement in statements) {
+      final safe = switch (statement) {
+        Assignment() ||
+        AssignmentIndexAccessExpr() ||
+        ExpressionStatement() => !_containsFunctionLiteral(statement),
+        LocalDeclaration(:final attributes) =>
+          attributes.every((attribute) => attribute.isEmpty) &&
+              !_containsFunctionLiteral(statement),
+        IfStatement(
+          :final cond,
+          :final thenBlock,
+          :final elseIfs,
+          :final elseBlock,
+        ) =>
+          !_containsFunctionLiteral(cond) &&
+              _canSafelyUnrollBlock(thenBlock) &&
+              elseIfs.every(
+                (clause) =>
+                    !_containsFunctionLiteral(clause.cond) &&
+                    _canSafelyUnrollBlock(clause.thenBlock),
+              ) &&
+              _canSafelyUnrollBlock(elseBlock),
+        DoBlock(:final body) => _canSafelyUnrollBlock(body),
+        _ => false,
+      };
+      if (!safe) {
+        return false;
+      }
+    }
+    return true;
+  }
+
+  bool _containsFunctionLiteral(AstNode node) {
+    if (node is FunctionLiteral || node is! Dumpable) {
+      return true;
+    }
+
+    bool inspect(Object? value) {
+      if (value is Map) {
+        if (value['type'] == 'FunctionLiteral' || value['type'] == 'Unknown') {
+          return true;
+        }
+        return value.values.any(inspect);
+      }
+      if (value is Iterable) {
+        return value.any(inspect);
+      }
+      return false;
+    }
+
+    return inspect((node as Dumpable).dump());
+  }
+
+  /// Emit a numeric load into a specific register.
+  void _emitLoadConstantTo(int reg, num value) {
+    _emitNumericConstant(reg, value);
+  }
+
+  bool _fitsSignedImmediate(int value) {
+    final limit = LuaBytecodeInstructionLayout.offsetSBx;
+    return value >= -limit && value <= limit;
+  }
+
+  void _emitNumericConstant(int reg, num value) {
+    if (value is int && _fitsSignedImmediate(value)) {
+      emitter.emitAsBx(opcode: LualikeIrOpcode.loadI, a: reg, sBx: value);
+      return;
+    }
+    if (value is double) {
+      final intValue = value.toInt();
+      if (value == intValue.toDouble() && _fitsSignedImmediate(intValue)) {
+        emitter.emitAsBx(opcode: LualikeIrOpcode.loadF, a: reg, sBx: intValue);
+        return;
+      }
+    }
+
+    final constant = value is int
+        ? IntegerConstant(value)
+        : NumberConstant(value.toDouble());
+    final index = builder.addConstant(constant);
+    emitter.emitABx(opcode: LualikeIrOpcode.loadK, a: reg, bx: index);
+  }
+
+  /// Extract a numeric value from a folded value, or null if not numeric.
+  num? _numericFoldedValue(Object? value) {
+    if (value is num) return value;
+    if (value is BigInt) {
+      try {
+        return value.toInt();
+      } on UnsupportedError {
+        return null;
+      }
+    }
+    return null;
   }
 
   void _emitForInLoop(ForInLoop node) {
@@ -2085,6 +2598,9 @@ class _PrototypeContext {
       parent: this,
       parameterNames: positionalParams,
       isVararg: body.isVararg,
+      foldingResult: foldingResult,
+      enableLoopUnrolling: enableLoopUnrolling,
+      preserveDebug: preserveDebug,
     );
     for (final name in declaredGlobals) {
       childContext._declareGlobalBinding(name);
@@ -2503,10 +3019,17 @@ class _PrototypeContext {
     }
   }
 
+  /// Emit expressions for an assignment or local declaration.
+  ///
+  /// If [targetRegisters] is provided, each expression tries to write
+  /// directly into its slot, avoiding a followup MOVE.  Simple literals
+  /// (LOADI, LOADK, etc.) honor this directly; complex expressions may
+  /// fall back to a temp and rely on the caller's MOVE that follows.
   _ExpressionListResult _emitAssignmentValues(
     List<AstNode> exprs,
-    int targetCount,
-  ) {
+    int targetCount, {
+    List<int>? targetRegisters,
+  }) {
     final registers = <int>[];
     final temporaries = <int>[];
 
@@ -2515,6 +3038,9 @@ class _PrototypeContext {
       final isLast = i == exprs.length - 1;
       final needValue = registers.length < targetCount;
       final remainingTargets = targetCount - registers.length;
+      final preferredReg = targetRegisters != null && i < targetRegisters.length
+          ? targetRegisters[i]
+          : null;
 
       if (!needValue) {
         _emitExpressionAndDiscard(expr);
@@ -2522,7 +3048,13 @@ class _PrototypeContext {
       }
 
       if (isLast && expr is FunctionCall) {
-        final call = _emitFunctionCall(expr, resultCount: remainingTargets);
+        // Pass preferredReg as base so results land directly in the
+        // named variable registers (eliminates MOVEs from temp to target).
+        final call = _emitFunctionCall(
+          expr,
+          resultCount: remainingTargets,
+          baseRegister: preferredReg,
+        );
         final base = call.base;
         if (remainingTargets > 1) {
           _ensureRegister(base + remainingTargets - 1);
@@ -2559,7 +3091,7 @@ class _PrototypeContext {
         continue;
       }
 
-      final reg = _emitExpression(expr);
+      final reg = _emitExpression(expr, target: preferredReg);
       registers.add(reg);
       temporaries.add(reg);
     }
@@ -2596,8 +3128,13 @@ class _PrototypeContext {
       '<=',
       '>=',
     }.contains(node.op);
-    final canWriteDirectlyToTarget =
-        !isComparison && target != null && !_isRegisterOccupiedByLocal(target);
+    // Target register is safe to use as output: the bytecode VM reads B
+    // and C operands before writing to A, so ADD 0,0,1 is always correct
+    // even when A overlaps a source register.  The Identifier expression
+    // handler still creates temp copies for multi-expression sequences
+    // (return a+b, a-1) so expression evaluation won't trample shared
+    // variable registers.
+    final canWriteDirectlyToTarget = !isComparison && target != null;
 
     final leftReg = isComparison
         ? _emitExpression(node.left)
@@ -2657,7 +3194,10 @@ class _PrototypeContext {
         }
       }
 
-      final rightReg = _emitExpression(node.right);
+      // A local comparison operand is read-only, so use its binding directly.
+      // Materializing it into leftReg would overwrite the left operand before
+      // EQ/LT/LE reads it.
+      final rightReg = _emitReadOnlyComparisonOperand(node.right);
       switch (node.op) {
         case '==':
           emitter.emitABC(
@@ -2665,6 +3205,7 @@ class _PrototypeContext {
             a: resultReg,
             b: leftReg,
             c: rightReg,
+            k: true,
           );
           break;
         case '~=':
@@ -2674,12 +3215,7 @@ class _PrototypeContext {
             a: resultReg,
             b: leftReg,
             c: rightReg,
-          );
-          emitter.emitABC(
-            opcode: LualikeIrOpcode.notOp,
-            a: resultReg,
-            b: resultReg,
-            c: 0,
+            k: false,
           );
           break;
         case '<':
@@ -2688,6 +3224,7 @@ class _PrototypeContext {
             a: resultReg,
             b: leftReg,
             c: rightReg,
+            k: true,
           );
           break;
         case '>':
@@ -2696,6 +3233,7 @@ class _PrototypeContext {
             a: resultReg,
             b: rightReg,
             c: leftReg,
+            k: true,
           );
           break;
         case '<=':
@@ -2704,6 +3242,7 @@ class _PrototypeContext {
             a: resultReg,
             b: leftReg,
             c: rightReg,
+            k: true,
           );
           break;
         case '>=':
@@ -2712,6 +3251,7 @@ class _PrototypeContext {
             a: resultReg,
             b: rightReg,
             c: leftReg,
+            k: true,
           );
           break;
       }
@@ -2742,6 +3282,47 @@ class _PrototypeContext {
           a: leftReg,
           b: leftReg,
           c: intLiteral & 0x1FF,
+        );
+        final finalReg = _finalizeBinaryResult(
+          leftReg,
+          target: target,
+          canWriteDirectlyToTarget: canWriteDirectlyToTarget,
+        );
+        _releaseDownTo(_releaseFloorForResult(finalReg));
+        return finalReg;
+      }
+    }
+
+    // Prefer ADDI (luac55) for encodable integer immediates before ADDK.
+    if (literalInfo.isLiteral && literalValue is int && node.op == '+') {
+      final imm = literalValue;
+      if (LuaBytecodeInstructionLayout.fitsSignedArgC(imm)) {
+        emitter.emitABC(
+          opcode: LualikeIrOpcode.addI,
+          a: leftReg,
+          b: leftReg,
+          c: imm,
+          k: true,
+        );
+        final finalReg = _finalizeBinaryResult(
+          leftReg,
+          target: target,
+          canWriteDirectlyToTarget: canWriteDirectlyToTarget,
+        );
+        _releaseDownTo(_releaseFloorForResult(finalReg));
+        return finalReg;
+      }
+    }
+    // `x - n` as SUBI with n when it fits (lowered to ADDI + __sub event).
+    if (literalInfo.isLiteral && literalValue is int && node.op == '-') {
+      final imm = literalValue;
+      if (LuaBytecodeInstructionLayout.fitsSignedArgC(imm)) {
+        emitter.emitABC(
+          opcode: LualikeIrOpcode.subI,
+          a: leftReg,
+          b: leftReg,
+          c: imm,
+          k: true,
         );
         final finalReg = _finalizeBinaryResult(
           leftReg,
@@ -2830,21 +3411,19 @@ class _PrototypeContext {
           a: leftReg,
           b: leftReg,
           c: rightReg,
+          k: true,
         );
         break;
       case '~=':
       case '!=':
+        // Inverted EQ (k=false): skip next when condition IS true,
+        // giving `not equal` semantics without a separate NOT instruction.
         emitter.emitABC(
           opcode: LualikeIrOpcode.eq,
           a: leftReg,
           b: leftReg,
           c: rightReg,
-        );
-        emitter.emitABC(
-          opcode: LualikeIrOpcode.notOp,
-          a: leftReg,
-          b: leftReg,
-          c: 0,
+          k: false,
         );
         break;
       case '<':
@@ -2915,6 +3494,20 @@ class _PrototypeContext {
     final dest = _materializeRegister(target);
     emitter.emitABC(opcode: LualikeIrOpcode.move, a: dest, b: valueReg, c: 0);
     return dest;
+  }
+
+  /// Returns a comparison source without clobbering another live operand.
+  ///
+  /// Local identifiers can be read from their binding register. Other
+  /// expressions still need normal evaluation into a temporary register.
+  int _emitReadOnlyComparisonOperand(AstNode node) {
+    if (node case Identifier(:final name)) {
+      final localReg = _resolveCurrentFunctionBinding(name).register;
+      if (localReg != null) {
+        return localReg;
+      }
+    }
+    return _emitExpression(node);
   }
 
   int _releaseFloorForResult(int resultReg) {
@@ -3061,12 +3654,16 @@ class _PrototypeContext {
     Object? value, {
     required bool negate,
   }) {
+    // k=true for `==` (skip JMP when NOT equal, i.e. condition FALSE).
+    // k=false for `~=` (skip JMP when equal, i.e. condition TRUE).
+    // The lowering passes instruction.k through instead of hardcoding true.
     if (value is int && _fitsInlineCompareInteger(value)) {
       emitter.emitABC(
         opcode: LualikeIrOpcode.eqI,
         a: resultReg,
         b: leftReg,
         c: value,
+        k: !negate,
       );
     } else {
       final constantIndex = _ensureConstantIndex(value);
@@ -3075,15 +3672,7 @@ class _PrototypeContext {
         a: resultReg,
         b: leftReg,
         c: constantIndex,
-      );
-    }
-
-    if (negate) {
-      emitter.emitABC(
-        opcode: LualikeIrOpcode.notOp,
-        a: resultReg,
-        b: resultReg,
-        c: 0,
+        k: !negate,
       );
     }
 
@@ -3099,7 +3688,13 @@ class _PrototypeContext {
     if (value is! int || !_fitsInlineCompareInteger(value)) {
       return false;
     }
-    emitter.emitABC(opcode: opcode, a: resultReg, b: leftReg, c: value);
+    emitter.emitABC(
+      opcode: opcode,
+      a: resultReg,
+      b: leftReg,
+      c: value,
+      k: true,
+    );
     return true;
   }
 
@@ -3116,6 +3711,24 @@ class _PrototypeContext {
       expr = TableFieldAccess(expr, Identifier(path[i].name));
     }
     return expr;
+  }
+
+  /// If [node] is a literal (number, string, bool, nil) return its
+  /// constant pool index.  Used by SETFIELD to inline the value as a
+  /// Kst instead of emitting a LOADI + register reference.
+  int? _tryLiteralConstant(AstNode node) {
+    return switch (node) {
+      NumberLiteral(:final value) when value is int => _ensureConstantIndex(
+        value,
+      ),
+      NumberLiteral(:final value) => _ensureConstantIndex(value.toDouble()),
+      StringLiteral(:final bytes) => _ensureConstantIndex(
+        String.fromCharCodes(bytes),
+      ),
+      BooleanLiteral(:final value) => _ensureConstantIndex(value),
+      NilValue() => _ensureConstantIndex(null),
+      _ => null,
+    };
   }
 
   int _ensureConstantIndex(Object? value) {
@@ -3298,14 +3911,32 @@ class _PrototypeContext {
       return;
     }
 
-    // Only emit an implicit CLOSE if there are active implicit TBC registers.
-    // The close instruction index is recorded so _resolveGoto can replace it
-    // with a no-op if the goto turns out to stay within the same TBC scope.
-    int? closeIndex;
+    // Snapshot closable registers before a forward target can pop their scopes.
+    // Resolution uses the snapshot to close only scopes crossed by the goto.
+    final closeRegisterByScopeId = <int, int>{};
+    for (var i = 0; i < _scopeIdStack.length; i++) {
+      if (_lowestToBeClosedRegisterForScope(i) case final closeFrom?) {
+        closeRegisterByScopeId[_scopeIdStack[i]] = closeFrom;
+      }
+    }
     if (_activeImplicitToBeClosedRegisters.isNotEmpty) {
+      final implicitCloseFrom = _activeImplicitToBeClosedRegisters.reduce(
+        math.min,
+      );
+      final scopeId = _scopeIdStack.last;
+      final explicitCloseFrom = closeRegisterByScopeId[scopeId];
+      closeRegisterByScopeId[scopeId] = explicitCloseFrom == null
+          ? implicitCloseFrom
+          : math.min(explicitCloseFrom, implicitCloseFrom);
+    }
+
+    int? closeIndex;
+    if (closeRegisterByScopeId.values case final closeRegisters
+        when closeRegisters.isNotEmpty) {
+      final closeFrom = closeRegisters.reduce(math.min);
       closeIndex = emitter.emitABC(
         opcode: LualikeIrOpcode.close,
-        a: _activeImplicitToBeClosedRegisters.reduce(math.min),
+        a: closeFrom,
         b: 0,
         c: 0,
       );
@@ -3316,6 +3947,9 @@ class _PrototypeContext {
         label: node.label.name,
         jumpIndex: jumpIndex,
         visibleScopeIds: List<int>.unmodifiable(List<int>.from(_scopeIdStack)),
+        closeRegisterByScopeId: Map<int, int>.unmodifiable(
+          closeRegisterByScopeId,
+        ),
         closeIndex: closeIndex,
       ),
     );
@@ -3336,7 +3970,6 @@ class _PrototypeContext {
   void _resolveGoto(String label, {int? targetScopeId}) {
     int? resolvedTarget;
     int? resolvedScopeId;
-    int? resolvedScopeIndex;
     if (targetScopeId != null) {
       final scopeIndex = _scopeIdStack.indexOf(targetScopeId);
       if (scopeIndex != -1) {
@@ -3344,7 +3977,6 @@ class _PrototypeContext {
         if (target != null) {
           resolvedTarget = target;
           resolvedScopeId = targetScopeId;
-          resolvedScopeIndex = scopeIndex;
         }
       }
     } else {
@@ -3353,7 +3985,6 @@ class _PrototypeContext {
         if (target != null) {
           resolvedTarget = target;
           resolvedScopeId = _scopeIdStack[i];
-          resolvedScopeIndex = i;
           break;
         }
       }
@@ -3369,19 +4000,39 @@ class _PrototypeContext {
         i += 1;
         continue;
       }
-      // If we emitted an implicit CLOSE before the JMP, check whether it was
-      // actually needed. When the goto stays within the same TBC scope (i.e.,
-      // no explicit close local is hidden), replace the CLOSE with a no-op JMP
-      // (sJ=0 = fall through to the next instruction).
+      // Resolve against the goto-site snapshot: exited scopes may no longer be
+      // present in the compiler's active scope stacks at this point.
       if (entry.closeIndex case final closeIdx?) {
-        final closeNeeded = _lowestLocalRegisterHiddenByGoto(
-          target,
-          resolvedScopeIndex!,
+        final targetScopeIndex = entry.visibleScopeIds.indexOf(
+          resolvedScopeId!,
         );
+        int? closeNeeded;
+        for (
+          var scopeIndex = targetScopeIndex + 1;
+          scopeIndex < entry.visibleScopeIds.length;
+          scopeIndex++
+        ) {
+          final register =
+              entry.closeRegisterByScopeId[entry.visibleScopeIds[scopeIndex]];
+          if (register != null &&
+              (closeNeeded == null || register < closeNeeded)) {
+            closeNeeded = register;
+          }
+        }
         if (closeNeeded == null) {
           builder.replaceInstruction(
             closeIdx,
             AsJInstruction(opcode: LualikeIrOpcode.jmp, sJ: 0),
+          );
+        } else {
+          builder.replaceInstruction(
+            closeIdx,
+            ABCInstruction(
+              opcode: LualikeIrOpcode.close,
+              a: closeNeeded,
+              b: 0,
+              c: 0,
+            ),
           );
         }
       }
@@ -3500,11 +4151,16 @@ class _ActiveLocalDebug {
   final int startPc;
 }
 
+/// A forward goto whose label position and exited scopes are not known yet.
+///
+/// Closable registers are captured at the goto site because scope stacks may
+/// be popped before the label is defined.
 class _PendingGoto {
   const _PendingGoto({
     required this.label,
     required this.jumpIndex,
     required this.visibleScopeIds,
+    required this.closeRegisterByScopeId,
     this.closeIndex,
   });
 
@@ -3512,8 +4168,10 @@ class _PendingGoto {
   final int jumpIndex;
   final List<int> visibleScopeIds;
 
-  /// Index of a CLOSE instruction emitted just before the JMP, or null if
-  /// no implicit-TBC close was emitted for this goto.
+  /// The lowest closable register owned by each visible lexical scope.
+  final Map<int, int> closeRegisterByScopeId;
+
+  /// Index of a provisional CLOSE immediately before the pending jump.
   final int? closeIndex;
 }
 

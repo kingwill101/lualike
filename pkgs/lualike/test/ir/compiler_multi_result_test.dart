@@ -32,7 +32,9 @@ return a, helper()
 
       expect(retInstruction.opcode, LualikeIrOpcode.ret);
       expect(retInstruction.b, equals(0));
-      expect(retInstruction.c, equals(1)); // one fixed value before the call
+      // Return packing moves fixed values into consecutive registers before
+      // the open call window so there are no holes (c is always 0).
+      expect(retInstruction.c, equals(0));
     });
 
     test('multi-target assignment requests sufficient call results', () {

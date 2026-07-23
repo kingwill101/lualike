@@ -21,8 +21,10 @@ class MemoryCredits {
 
   static final MemoryCredits instance = MemoryCredits._();
 
-  final Expando<int> _objectCredits = Expando<int>('gcCredits');
-  final Set<GCObject> _excludedObjects = HashSet<GCObject>.identity();
+  /// When true, bookkeeping uses fields on [GCObject] instead of Expando / Set
+  /// side tables. The fast path is the new default for performance-sensitive
+  /// apps, but callers can disable it to preserve the older bookkeeping shape.
+  static bool useDirectObjectTracking = true;
 
   // Debug: Track allocation stack traces
   static bool enableStackTraces = false;
@@ -30,6 +32,8 @@ class MemoryCredits {
     'objectStackTraces',
   );
   final List<GCObject> _trackedObjects = [];
+  final Expando<int> _objectCredits = Expando<int>('gcCredits');
+  final Set<GCObject> _excludedObjects = HashSet<GCObject>.identity();
 
   int _total = 0;
   int _young = 0;
@@ -39,23 +43,44 @@ class MemoryCredits {
   int get youngCredits => _young;
   int get oldCredits => _old;
 
-  bool _isExcluded(GCObject obj) => _excludedObjects.contains(obj);
+  bool _isExcluded(GCObject obj) =>
+      useDirectObjectTracking ? obj.gcExcluded : _excludedObjects.contains(obj);
+
+  int? _creditsOf(GCObject obj) =>
+      useDirectObjectTracking ? obj.gcCredits : _objectCredits[obj];
+
+  void _setCredits(GCObject obj, int? credits) {
+    if (useDirectObjectTracking) {
+      obj.gcCredits = credits;
+    } else {
+      _objectCredits[obj] = credits;
+    }
+  }
+
+  void _setExcluded(GCObject obj, bool value) {
+    if (useDirectObjectTracking) {
+      obj.gcExcluded = value;
+    } else if (value) {
+      _excludedObjects.add(obj);
+    } else {
+      _excludedObjects.remove(obj);
+    }
+  }
 
   /// Records a freshly allocated object.
   void onAllocate(GCObject obj, {required GCGenerationSpace space}) {
-    // Check if object already has credits assigned - if so, skip to avoid double-counting
-    final existingCredits = _objectCredits[obj];
+    // Check if object already has credits assigned - if so, skip to avoid double-counting.
+    final existingCredits = _creditsOf(obj);
     if (existingCredits != null) {
-      // Object already tracked - just update space if needed
-      final existingSpace = obj.gcSpace;
-      if (existingSpace != space) {
+      _setExcluded(obj, false);
+      if (obj.gcSpace != space) {
         obj.gcSpace = space;
       }
       return;
     }
 
     if (_isExcluded(obj)) {
-      _excludedObjects.remove(obj);
+      _setExcluded(obj, false);
       onAllocate(obj, space: space);
       return;
     }
@@ -88,7 +113,7 @@ class MemoryCredits {
       );
     }
 
-    _objectCredits[obj] = credits;
+    _setCredits(obj, credits);
     obj.gcSpace = space;
     _total += credits;
     if (space == GCGenerationSpace.young) {
@@ -108,7 +133,8 @@ class MemoryCredits {
   /// [reconcileGenerations], while the zero credit keeps them out of the
   /// collector's accounting totals.
   void onTrackExcluded(GCObject obj, {required GCGenerationSpace space}) {
-    _excludedObjects.add(obj);
+    _setExcluded(obj, true);
+    obj.gcSpace = space;
   }
 
   /// Adjusts the tracked credits when an object is promoted.
@@ -117,7 +143,7 @@ class MemoryCredits {
       return;
     }
 
-    final credits = _objectCredits[obj];
+    final credits = _creditsOf(obj);
     if (credits == null) {
       return;
     }
@@ -133,11 +159,13 @@ class MemoryCredits {
   /// Updates bookkeeping after an object has been reclaimed.
   void onFree(GCObject obj) {
     if (_isExcluded(obj)) {
-      _excludedObjects.remove(obj);
+      _setExcluded(obj, false);
+      _setCredits(obj, null);
+      obj.gcSpace = null;
       return;
     }
 
-    final credits = _objectCredits[obj];
+    final credits = _creditsOf(obj);
     if (credits == null) {
       return;
     }
@@ -150,7 +178,7 @@ class MemoryCredits {
     }
     _total -= credits;
 
-    _objectCredits[obj] = null;
+    _setCredits(obj, null);
     obj.gcSpace = null;
   }
 
@@ -165,13 +193,13 @@ class MemoryCredits {
     if (space == null) {
       return;
     }
-    final previous = _objectCredits[obj] ?? 0;
+    final previous = _creditsOf(obj) ?? 0;
     final updated = obj.estimatedSize;
     if (updated == previous) {
       return;
     }
     final diff = updated - previous;
-    _objectCredits[obj] = updated;
+    _setCredits(obj, updated);
     _total += diff;
     if (space == GCGenerationSpace.young) {
       _young += diff;
@@ -197,11 +225,13 @@ class MemoryCredits {
         recalculatedYoung += credits;
       }
       if (excluded) {
-        _objectCredits[obj] = null;
+        _setCredits(obj, null);
         obj.gcSpace = null;
+        _setExcluded(obj, true);
       } else {
-        _objectCredits[obj] = credits;
+        _setCredits(obj, credits);
         obj.gcSpace = GCGenerationSpace.young;
+        _setExcluded(obj, false);
       }
     }
 
@@ -212,11 +242,13 @@ class MemoryCredits {
         recalculatedOld += credits;
       }
       if (excluded) {
-        _objectCredits[obj] = null;
+        _setCredits(obj, null);
         obj.gcSpace = null;
+        _setExcluded(obj, true);
       } else {
-        _objectCredits[obj] = credits;
+        _setCredits(obj, credits);
         obj.gcSpace = GCGenerationSpace.old;
+        _setExcluded(obj, false);
       }
     }
 
@@ -245,7 +277,7 @@ class MemoryCredits {
     // Group by type
     final byType = <String, List<GCObject>>{};
     for (final obj in snapshot) {
-      final credits = _objectCredits[obj];
+      final credits = _creditsOf(obj);
       if (credits != null && credits > 0) {
         String typeName;
         if (obj is Value) {
@@ -263,11 +295,11 @@ class MemoryCredits {
       ..sort((a, b) {
         final aTotal = a.value.fold<int>(
           0,
-          (sum, obj) => sum + (_objectCredits[obj] ?? 0),
+          (sum, obj) => sum + (_creditsOf(obj) ?? 0),
         );
         final bTotal = b.value.fold<int>(
           0,
-          (sum, obj) => sum + (_objectCredits[obj] ?? 0),
+          (sum, obj) => sum + (_creditsOf(obj) ?? 0),
         );
         return bTotal.compareTo(aTotal);
       });
@@ -277,7 +309,7 @@ class MemoryCredits {
       final objects = entry.value;
       final totalCredits = objects.fold<int>(
         0,
-        (sum, obj) => sum + (_objectCredits[obj] ?? 0),
+        (sum, obj) => sum + (_creditsOf(obj) ?? 0),
       );
 
       buffer.writeln(
@@ -287,12 +319,12 @@ class MemoryCredits {
       // Show top 3 instances with stack traces
       final sortedObjs = objects.toList()
         ..sort(
-          (a, b) => (_objectCredits[b] ?? 0).compareTo(_objectCredits[a] ?? 0),
+          (a, b) => (_creditsOf(b) ?? 0).compareTo(_creditsOf(a) ?? 0),
         );
 
       for (var i = 0; i < sortedObjs.length && i < 3; i++) {
         final obj = sortedObjs[i];
-        final credits = _objectCredits[obj] ?? 0;
+        final credits = _creditsOf(obj) ?? 0;
 
         // Add useful object info to the output
         String objInfo = '#${obj.hashCode}: $credits credits';

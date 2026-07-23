@@ -26,6 +26,7 @@ class MetaTable {
   final Map<String, ValueClass> _typeMetatables = {};
   final Map<String, Value?> _typeMetatableRefs = {};
   bool _numberMetatableEnabled = false;
+  int _defaultMetatableGeneration = 0;
   LuaRuntime? _interpreter;
 
   // Cache for stdlib methods to avoid repeated lookups and wrapper creation
@@ -421,19 +422,19 @@ class MetaTable {
       },
       '__len': (List<Object?> args) {
         final table = args[0] as Value;
+        final raw = rawLuaSlot(table);
         Logger.debugLazy(
           () =>
               'Userdata __len metamethod called for userdata:${table.hashCode}',
           category: 'Metatables',
         );
 
-        return switch (table.unwrap().runtimeType) {
-          (const (Map)) => table.unwrap().length,
-          (const (List)) => table.unwrap().length,
-          (const (List<Object?>)) => table.unwrap().length,
-          (const (LuaString)) => (table.unwrap() as LuaString).length,
+        return switch (raw) {
+          final Map map => map.length,
+          final List list => list.length,
+          final LuaString string => string.length,
           _ => throw LuaError(
-            "attempt to get length of unknown value ${table.unwrap().runtimeType}",
+            "attempt to get length of unknown value ${raw.runtimeType}",
           ),
         };
       },
@@ -514,6 +515,8 @@ class MetaTable {
     _ => _typeMetatables.containsKey(type),
   };
 
+  int get defaultMetatableGeneration => _defaultMetatableGeneration;
+
   /// Register a default metatable for a type. If [metatable] is null, any
   /// existing default metatable for the type will be removed.
   void registerDefaultMetatable(
@@ -531,6 +534,7 @@ class MetaTable {
       if (type == 'number') {
         _numberMetatableEnabled = false;
       }
+      _defaultMetatableGeneration++;
       return;
     }
 
@@ -539,6 +543,7 @@ class MetaTable {
     if (type == 'number') {
       _numberMetatableEnabled = true;
     }
+    _defaultMetatableGeneration++;
   }
 
   /// Applies the default metatable for a value based on its type.
@@ -564,6 +569,7 @@ class MetaTable {
     // Tables do not receive a default metatable. Numbers only receive one
     // after debug.setmetatable registers it.
     if (type == 'table' || (type == 'number' && !_numberMetatableEnabled)) {
+      value.defaultMetatableGeneration = _defaultMetatableGeneration;
       Logger.debugLazy(
         () => 'Not applying default metatable to $type - defaults are nil',
         category: 'Metatables',
@@ -579,7 +585,9 @@ class MetaTable {
       );
       value.setMetatable(metatable.metamethods);
       value.metatableRef = _typeMetatableRefs[type];
+      value.defaultMetatableGeneration = _defaultMetatableGeneration;
     } else {
+      value.defaultMetatableGeneration = _defaultMetatableGeneration;
       Logger.debugLazy(
         () => 'No default metatable found for type: $type',
         category: 'Metatables',

@@ -1,11 +1,12 @@
+export 'instruction_mode.dart';
+import 'opcode.dart';
+
 typedef LuaBytecodeAbcFields = ({int a, int b, int c, bool k});
 typedef LuaBytecodeVAbcFields = ({int a, int b, int c, bool k});
 typedef LuaBytecodeAbxFields = ({int a, int bx});
 typedef LuaBytecodeAsBxFields = ({int a, int sBx});
 typedef LuaBytecodeAxFields = ({int ax});
 typedef LuaBytecodeSjFields = ({int sJ});
-
-enum LuaBytecodeInstructionMode { iabc, ivabc, iabx, iasbx, iax, isj }
 
 abstract final class LuaBytecodeInstructionLayout {
   static const int sizeOp = 7;
@@ -42,7 +43,21 @@ abstract final class LuaBytecodeInstructionLayout {
   static const int offsetSJ = maxArgSJ >> 1;
   static const int offsetSC = maxArgC >> 1;
   static const int offsetSB = maxArgB >> 1;
+
+  /// Lowest signed immediate represented by the offset-encoded C field.
+  ///
+  /// The eight-bit field uses [offsetSC] as its zero point, yielding the
+  /// intentionally asymmetric inclusive range `-127..128`.
+  static const int minSignedArgC = -offsetSC;
+
+  /// Highest signed immediate represented by the offset-encoded C field.
+  static const int maxSignedArgC = maxArgC - offsetSC;
+
   static const int wordMask = 0xffffffff;
+
+  /// Whether [value] can be encoded as a signed C-field immediate.
+  static bool fitsSignedArgC(int value) =>
+      value >= minSignedArgC && value <= maxSignedArgC;
 }
 
 extension type const LuaBytecodeInstructionWord(int value) {
@@ -219,11 +234,14 @@ extension type const LuaBytecodeInstructionWord(int value) {
   }
 
   int get rawValue => value & LuaBytecodeInstructionLayout.wordMask;
-  int get opcodeValue => _getBits(
-    rawValue,
-    LuaBytecodeInstructionLayout.posOp,
-    LuaBytecodeInstructionLayout.sizeOp,
-  );
+
+  /// Opcode field is at bit 0 ([LuaBytecodeInstructionLayout.posOp] == 0).
+  @pragma('vm:prefer-inline')
+  int get opcodeValue => value & LuaBytecodeInstructionLayout.maxOpcode;
+
+  /// Prefer [LuaBytecodePrototype.opcodesByPc] in hot loops.
+  @pragma('vm:prefer-inline')
+  Opcode get opcode => Opcode.fromCode(opcodeValue);
   int get a => _getBits(
     rawValue,
     LuaBytecodeInstructionLayout.posA,

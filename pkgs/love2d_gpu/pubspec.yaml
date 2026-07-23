@@ -1,0 +1,29 @@
+name: love2d_gpu
+description: Experimental Flutter GPU rendering backend for package:love2d.
+version: 0.1.0
+publish_to: none
+repository: https://github.com/kingwill101/lualike
+
+environment:
+  sdk: ^3.10.0
+  flutter: '>=3.35.0'
+
+dependencies:
+  flutter:
+    sdk: flutter
+  flutter_gpu:
+    sdk: flutter
+  flutter_gpu_shaders: ^0.5.1
+  hooks: ^2.0.2
+  love2d:
+    path: ../love2d
+  vector_math: ^2.2.0
+
+flutter:
+  assets:
+    - assets/love2d_gpu.shaderbundle
+
+dev_dependencies:
+  flutter_lints: ^6.0.0
+  flutter_test:
+    sdk: flutter

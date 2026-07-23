@@ -40,7 +40,7 @@ Add LuaLike to your `pubspec.yaml`:
 
 ```yaml
 dependencies:
-  lualike: ^0.0.1-alpha.2
+  lualike: ^0.4.0
 ```
 
 Then run:
@@ -185,7 +185,8 @@ to decide when a source label should be treated like a path.
 ## Exchange values with Dart
 
 LuaLike wraps script values in `Value`. When you read globals or receive
-results, unwrap them before using them as plain Dart values.
+results, unwrap them before using them as plain Dart values. Array-like Lua
+tables unwrap to Dart `List`s, while maps unwrap to Dart `Map`s.
 
 ```dart
 final result = await executeCode('return {name = "LuaLike", version = 1}');

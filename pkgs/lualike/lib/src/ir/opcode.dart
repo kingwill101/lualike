@@ -2,7 +2,7 @@ import 'package:meta/meta.dart';
 
 /// Enumeration of the lualike IR instructions supported by the lualike VM.
 ///
-/// The ordering and naming mirrors the Lua 5.4 instruction set (lopcodes.h)
+/// The ordering and naming mirrors the Lua 5.5 instruction set (`lopcodes.h`)
 /// so that documentation and upstream tooling remain applicable. Not every
 /// opcode will be implemented in the first iteration, but the enum provides
 /// a stable surface for the emitter and VM.
@@ -32,7 +32,7 @@ class LualikeIrOpcode {
   static const LualikeIrOpcode getField = LualikeIrOpcode._('GETFIELD');
   static const LualikeIrOpcode setTabUp = LualikeIrOpcode._('SETTABUP');
 
-  /// A lualike IR extension opcode — not present in the Lua 5.4 instruction
+  /// A lualike IR extension opcode — not present in the Lua 5.5 instruction
   /// set. `CHECKGLOBAL` enforces `global <const> *` declarations by verifying
   /// that a global variable write is permitted at the call site. Consumers of
   /// [values] or [byName] that assume a strict mirror of upstream Lua bytecode
@@ -44,6 +44,7 @@ class LualikeIrOpcode {
   static const LualikeIrOpcode newTable = LualikeIrOpcode._('NEWTABLE');
   static const LualikeIrOpcode selfOp = LualikeIrOpcode._('SELF');
   static const LualikeIrOpcode addI = LualikeIrOpcode._('ADDI');
+  static const LualikeIrOpcode subI = LualikeIrOpcode._('SUBI');
   static const LualikeIrOpcode addK = LualikeIrOpcode._('ADDK');
   static const LualikeIrOpcode subK = LualikeIrOpcode._('SUBK');
   static const LualikeIrOpcode mulK = LualikeIrOpcode._('MULK');
@@ -131,6 +132,7 @@ class LualikeIrOpcode {
     newTable,
     selfOp,
     addI,
+    subI,
     addK,
     subK,
     mulK,

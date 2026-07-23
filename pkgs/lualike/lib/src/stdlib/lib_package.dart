@@ -2,6 +2,7 @@ import 'package:lualike/lualike.dart';
 
 import 'package:lualike/src/runtime/lua_results.dart';
 import 'package:lualike/src/runtime/lua_slot.dart';
+import 'package:lualike/src/table_storage.dart';
 import 'package:lualike/src/utils/platform_utils.dart' as platform;
 import 'package:path/path.dart' as path_lib;
 import 'library.dart';
@@ -52,9 +53,9 @@ class PackageLib {
       'cpath': vm.constantDartStringValue(_defaultCPath),
       'config': vm.constantDartStringValue(_getConfig()),
       'searchers': Value(
-        _createDefaultSearchers(),
+        _createDefaultSearchersTable(),
         interpreter: vm,
-      ), // Populate with default searchers
+      ), // Populate with default searchers as a proper Lua table
     };
   }
 
@@ -67,6 +68,14 @@ class PackageLib {
       isWindowsPlatform ? '!' : '', // Executable directory marker
       '-', // Native module ignore mark
     ].join('\n');
+  }
+
+  TableStorage _createDefaultSearchersTable() {
+    final table = TableStorage();
+    for (var i = 0; i < _createDefaultSearchers().length; i++) {
+      table[i + 1] = _createDefaultSearchers()[i];
+    }
+    return table;
   }
 
   List<Value> _createDefaultSearchers() {

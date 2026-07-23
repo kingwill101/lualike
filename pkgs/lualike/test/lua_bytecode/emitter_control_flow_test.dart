@@ -10,6 +10,7 @@ import 'package:lualike/src/interpreter/interpreter.dart';
 import 'package:lualike/src/lua_bytecode/chunk.dart';
 import 'package:lualike/src/lua_bytecode/disassembler.dart';
 import 'package:lualike/src/lua_bytecode/emitter.dart';
+import 'package:lualike/src/lua_bytecode/runtime.dart';
 import 'package:lualike/src/lua_bytecode/parser.dart';
 import 'package:lualike/src/lua_string.dart';
 import 'package:lualike/src/parse.dart';
@@ -444,7 +445,7 @@ Future<List<Object?>> executeEmitted(
   String? prelude,
   String chunkName = '=(emitter control flow)',
 }) async {
-  final runtime = Interpreter();
+  final runtime = LuaBytecodeRuntime();
   await runPrelude(runtime, prelude);
   final artifact = const LuaBytecodeEmitter().compileSource(
     source,
@@ -482,7 +483,7 @@ Future<List<Object?>> executeSourceWithPrelude(
   }
 }
 
-Future<void> runPrelude(Interpreter runtime, String? prelude) async {
+Future<void> runPrelude(LuaRuntime runtime, String? prelude) async {
   if (prelude == null || prelude.isEmpty) {
     return;
   }
@@ -498,7 +499,7 @@ List<String> opcodeNames(LuaBytecodeBinaryChunk chunk) {
   final disassembly = const LuaBytecodeDisassembler().disassemble(chunk);
   return [
     for (final instruction in disassembly.mainPrototype.instructions)
-      instruction.opcode.name,
+      instruction.opcode.luaName,
   ];
 }
 
@@ -508,7 +509,7 @@ List<List<String>> childOpcodeNames(LuaBytecodeBinaryChunk chunk) {
     for (final prototype in disassembly.mainPrototype.children)
       [
         for (final instruction in prototype.instructions)
-          instruction.opcode.name,
+          instruction.opcode.luaName,
       ],
   ];
 }

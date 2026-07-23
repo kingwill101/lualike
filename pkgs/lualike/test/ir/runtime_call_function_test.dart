@@ -1,8 +1,7 @@
 @Tags(['ir'])
 library;
 
-import 'package:lualike/src/ir/runtime.dart';
-import 'package:lualike/src/lua_bytecode/vm.dart';
+import 'package:lualike/src/lua_bytecode/vm_value_helpers.dart';
 import 'package:lualike_test/test.dart';
 
 void main() {

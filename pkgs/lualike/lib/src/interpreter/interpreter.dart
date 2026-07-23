@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:collection';
+import 'dart:typed_data';
 
 import 'package:lualike/src/ast.dart';
 import 'package:lualike/src/builtin_function.dart';
@@ -111,8 +112,12 @@ class Interpreter extends AstVisitor<Object?>
   final Set<WeakReference<Coroutine>> _activeCoroutines = {};
   final Expando<WeakReference<Coroutine>> _activeCoroutineRefs =
       Expando<WeakReference<Coroutine>>('activeCoroutineRefs');
+  int _pruneCounter = 0;
 
+  /// Only prune dead refs every 256 calls to avoid removeWhere overhead on
+  /// every getMainThread() invocation (called once per bytecode instruction).
   void _pruneDeadCoroutineRefs() {
+    if (++_pruneCounter & 0xFF != 0) return;
     _activeCoroutines.removeWhere((ref) => ref.target == null);
   }
 
@@ -123,6 +128,9 @@ class Interpreter extends AstVisitor<Object?>
   /// Per-interpreter set of open (non-standard) file Value wrappers.
   /// Included in the GC root set so the lualike collector never finalizes
   /// a handle that is still open, regardless of environment reachability.
+  @override
+  final Map<String, Value> moduleBytecodeCache = <String, Value>{};
+
   @override
   final Set<Value> openFiles = HashSet<Value>(
     equals: identical,
@@ -236,13 +244,43 @@ class Interpreter extends AstVisitor<Object?>
   Value? _cachedTrueValue;
   Value? _cachedFalseValue;
   final Map<int, Value> _cachedIntValues = <int, Value>{};
-  final Map<BigInt, Value> _cachedDoubleValues = <BigInt, Value>{};
+
+  /// Cache of shared [Value] wrappers for [double] constants, keyed by the
+  /// raw IEEE-754 bit pattern split into two 32-bit halves.
+  ///
+  /// We **cannot** use [double] itself as the map key because IEEE 754
+  /// equality conflates values that have different bit patterns but
+  /// distinct Lua semantics:
+  ///
+  ///   | value      | -0.0 == 0.0 | NaN == NaN |
+  ///   |------------|-------------|-------------|
+  ///   | IEEE 754   | true        | false       |
+  ///   | Lua need   | distinct    | distinct    |
+  ///
+  /// Using a `(int, int)` record from the raw 64-bit bit pattern avoids the
+  /// [BigInt] allocation that a full [NumberUtils.doubleToRawBits] round-trip
+  /// would incur (the profiler showed `BigInt.from` on the hot path).
+  final Map<(int, int), Value> _cachedDoubleValues = <(int, int), Value>{};
   final Map<BigInt, Value> _cachedBigIntValues = <BigInt, Value>{};
+
+  /// Scratch buffer shared across all [_doubleToKey] calls.
+  static final ByteData _doubleKeyScratch = ByteData(8);
+
+  /// Converts a [double] to a `(int, int)` record for the double-value cache.
+  ///
+  /// Uses the raw IEEE-754 bit pattern split into two 32-bit halves via the
+  /// shared scratch buffer.  This avoids both the [BigInt] allocation that
+  /// [NumberUtils.doubleToRawBits] would incur and the IEEE-754 equality
+  /// pitfalls of using [double] directly as a map key.
+  static (int, int) _doubleToKey(double value) {
+    final data = _doubleKeyScratch..setFloat64(0, value, Endian.big);
+    return (data.getUint32(0, Endian.big), data.getUint32(4, Endian.big));
+  }
 
   @override
   Value constantPrimitiveValue(Object? raw) {
     Value create(Object? value) =>
-        Value.primitive(value, isSharedPrimitive: true);
+        Value.primitive(value, isSharedPrimitive: true, isRawPrimitive: true);
 
     final cached = switch (raw) {
       null => _cachedNilValue ??= create(null),
@@ -253,7 +291,7 @@ class Interpreter extends AstVisitor<Object?>
         () => create(value),
       ),
       final double value => _cachedDoubleValues.putIfAbsent(
-        NumberUtils.doubleToRawBits(value),
+        _doubleToKey(value),
         () => create(value),
       ),
       final BigInt value => _cachedBigIntValues.putIfAbsent(
@@ -262,7 +300,10 @@ class Interpreter extends AstVisitor<Object?>
       ),
       _ => throw ArgumentError.value(raw, 'raw', 'Not a cached primitive'),
     };
-    _syncCachedTypeMetatable(cached, type: _cachedPrimitiveType(raw));
+    final metatableGeneration = MetaTable().defaultMetatableGeneration;
+    if (cached.defaultMetatableGeneration != metatableGeneration) {
+      _syncCachedTypeMetatable(cached, type: _cachedPrimitiveType(raw));
+    }
     return cached;
   }
 
@@ -863,7 +904,13 @@ class Interpreter extends AstVisitor<Object?>
 
   @override
   void popExternalGcRoots(Iterable<Object?> Function() provider) {
-    _externalGcRootProviders.remove(provider);
+    // push/pop are always LIFO (push on frame enter, pop on frame exit).
+    // removeLast avoids O(n) scan that remove() performs.
+    if (_externalGcRootProviders.last == provider) {
+      _externalGcRootProviders.removeLast();
+    } else {
+      _externalGcRootProviders.remove(provider);
+    }
   }
 
   @override
@@ -1731,6 +1778,22 @@ class Interpreter extends AstVisitor<Object?>
   }
 
   /// Explicitly call a function with the given arguments
+  @override
+  @override
+  Future<Value> loadBytecode(List<int> bytes, {required String moduleName}) async {
+    final result = await loadChunk(LuaChunkLoadRequest(
+      source: Value.primitive(bytes),
+      chunkName: moduleName,
+      mode: 'b',
+    ));
+    if (!result.isSuccess) {
+      throw Exception('Failed to load bytecode module \'$moduleName\': '
+          '${result.errorMessage}');
+    }
+    moduleBytecodeCache[moduleName] = result.chunk!;
+    return result.chunk!;
+  }
+
   @override
   Future<Object?> callFunction(
     Value function,

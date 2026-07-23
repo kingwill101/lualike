@@ -12,6 +12,10 @@ lua
 debug_*.lua
 test_*.lua
 !pkgs/love2d/example/assets/scripts/test_bed.lua
+!pkgs/lualike_hooks/examples/example_dart/lua/
+!pkgs/lualike_hooks/examples/example_dart/lua/**
+!pkgs/lualike_hooks/examples/example_dart_data_assets/lua/
+!pkgs/lualike_hooks/examples/example_dart_data_assets/lua/**
 *_test.lua
 .cursor/
 .idea/
@@ -37,3 +41,18 @@ build/
 pkgs/lualike/luac.out
 luac.out
 third_party/
+
+# FVM-per-project Flutter SDK symlinks (not real projects)
+.fvm/
+pkgs/love2d/.fvm/
+pkgs/love2d/example/.fvm/
+!pkgs/lualike_hooks/examples/example_dart_data_assets/.fvm/
+!pkgs/lualike_hooks/examples/example_dart_data_assets/.fvm/fvm_config.json
+
+# Build artifacts
+*.o
+*.a
+*.so
+a.out
+test_runner
+/tmp/lualike_test_runner

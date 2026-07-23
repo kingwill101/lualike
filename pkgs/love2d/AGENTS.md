@@ -80,3 +80,43 @@ Use the shared helpers in `test/test_support/lua_api_test_helpers.dart`.
 - Keep docs and tests in sync with behavior changes.
 - When you remove duplicated infrastructure, leave one clear shared home for the replacement.
 - Avoid hidden behavior changes in bulk cleanup passes; verify a representative sample after refactors.
+
+## FVM & Render Backend
+
+### FVM (Flutter Version Management)
+
+Love2D uses FVM to manage Flutter SDK versions per-project:
+
+| Project | FVM Channel | Purpose |
+|---|---|---|
+| `pkgs/love2d/` | `master` | GPU renderer experiments (`flutter_gpu`) |
+| `pkgs/love2d/example/` | `master` | Matches love2d requirement |
+
+**Commands:**
+```bash
+# Switch love2d to FVM master (already configured)
+fvm flutter pub get
+fvm flutter test
+
+# Run the example with GPU support
+fvm flutter config --enable-native-assets
+fvm flutter run --enable-impeller --enable-flutter-gpu
+```
+
+### Render Backend Architecture
+
+The rendering pipeline is abstracted through `LoveRenderBackend`:
+
+- **`LoveCanvasRenderBackend`** — default, uses Flutter `Canvas` 2D API. Always available.
+- **`LoveGpuRenderBackend`** — experimental, uses `package:flutter_gpu`. Requires master channel. Lives in `pkgs/love2d_gpu/`.
+
+When working on GPU rendering:
+1. The concrete implementation lives in `pkgs/love2d_gpu/`, not `pkgs/love2d/`.
+2. The `love2d_gpu` package depends on `flutter_gpu` and `love2d`.
+3. Do not add `flutter_gpu` as a dependency of `pkgs/love2d` itself.
+
+Key files:
+- `lib/src/runtime/renderer/love_render_backend.dart` — abstract interface
+- `lib/src/runtime/renderer/love_canvas_render_backend.dart` — Canvas backend
+- `lib/src/runtime/renderer/love_gpu_render_backend.dart` — stub (always returns `isAvailable: false`)
+- `pkgs/love2d_gpu/lib/src/love2d_gpu_render_backend.dart` — real GPU implementation

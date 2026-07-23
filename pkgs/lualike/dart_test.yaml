@@ -2,6 +2,9 @@
 timeout: 30s
 #reporter: expanded
 #
+paths:
+  - test
+
 tags:
   # Artifact-family tags
   ir: {}

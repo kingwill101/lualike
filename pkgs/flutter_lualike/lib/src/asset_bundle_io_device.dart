@@ -11,8 +11,6 @@ import 'package:flutter/services.dart' show AssetBundle;
 import 'package:lualike/lualike.dart'
     show BaseIODevice, LuaError, LuaString, ReadResult, SeekWhence, WriteResult;
 
-/// Mirrors [BaseIODevice.normalizeReadFormat] — kept separate because the
-/// base class method is not accessible from outside its library.
 String _normalizeReadFormat(String format) {
   if (format.startsWith('*')) return format.substring(1);
   return format == 'all' ? 'a' : format;

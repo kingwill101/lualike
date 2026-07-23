@@ -177,7 +177,11 @@ class GenerationalGCManager {
   /// Incremental GC state tracking
   GCPhase _currentPhase = GCPhase.idle;
   List<GCObject> _objectsToMark = [];
-  final Set<GCObject> _queuedToMark = HashSet<GCObject>();
+  // Use identity-based hashing for the marking queue: we only need to
+  // check whether a specific object has been enqueued, which is an
+  // identity comparison.  Value.hashCode (Lua-aware) is expensive and
+  // unnecessary here (see doc/decisions.md).
+  final Set<GCObject> _queuedToMark = HashSet<GCObject>.identity();
   int _markingIndex = 0;
   List<GCObject> _objectsToSweep = [];
   int _sweepingIndex = 0;
@@ -185,9 +189,6 @@ class GenerationalGCManager {
 
   /// Public getter for allocation debt (used by interpreter to trigger GC at safe points)
   int get allocationDebt => _simulatedAllocationDebt;
-  int _manualStepDebtKb = 0;
-  // Removed: _manualStepProgress (unused)
-  // Deprecated: previous multi-step tracking target (unused)
 
   /// Expose current GC phase for observation-sensitive behaviors (e.g.,
   /// iteration over weak-keys tables during finalization should still see
@@ -340,9 +341,13 @@ class GenerationalGCManager {
   /// The old generation containing objects that have survived at least one collection.
   final Generation oldGen = Generation();
 
+  /// Remembered set for write barriers: old-gen objects that may contain
+  /// references to young-gen objects. Scanned during minor collections.
+  final Set<GCObject> _rememberedSet = HashSet<GCObject>.identity();
+
   // New fields for finalization logic
-  final Set<GCObject> _toBeFinalized = {};
-  final Set<GCObject> _alreadyFinalized = {};
+  final Set<GCObject> _toBeFinalized = HashSet<GCObject>.identity();
+  final Set<GCObject> _alreadyFinalized = HashSet<GCObject>.identity();
 
   // Weak table tracking for major collections (package-private for testing)
   final List<Value> weakValuesTables = [];
@@ -355,6 +360,13 @@ class GenerationalGCManager {
       HashMap<Value, Set<dynamic>>.identity();
   // Removed: _pendingAllWeakRemovals (unused)
   final List<Future<void>> _pendingAsyncFinalizers = <Future<void>>[];
+
+  /// Record a write barrier: [oldObj] (old generation) now references
+  /// a young-generation object. The [oldObj] is added to the remembered
+  /// set so it will be scanned during the next minor collection.
+  void recordWriteBarrier(GCObject oldObj) {
+    _rememberedSet.add(oldObj);
+  }
 
   /// Multiplicative factor applied to the allocation debt threshold before
   /// automatic collection is requested. This prevents small, frequent
@@ -493,42 +505,18 @@ class GenerationalGCManager {
     return cycleComplete;
   }
 
+  /// Performs one bounded manual collection slice of approximately [sizeKb].
+  ///
+  /// The return value is `true` only when this slice completes a collection
+  /// cycle. Automatic collection may be stopped while manual steps continue to
+  /// work, matching `collectgarbage("step", size)` behavior.
   bool performManualStep(int sizeKb) {
-    // Lua treats the argument as kilobytes of work to perform. Use it to scale
-    // the incremental budget, so smaller requests need more iterations.
     final requestedKb = math.max(1, sizeKb);
-    _manualStepDebtKb += requestedKb;
-
-    // Clamp debt so extremely large requests do not overflow work units. Keep
-    // debt in kilobytes; convert to work units below.
-    const maxDebtKb = 1 << 20; // ~1GB equivalent budget ceiling
-    _manualStepDebtKb = math.min(_manualStepDebtKb, maxDebtKb);
-
-    // Scale KB into work units. Each unit corresponds to one object processed
-    // in marking/sweeping. A modest scale factor keeps behaviour close to Lua.
-    const workScale = 16; // Tuned to align with Lua step pacing
-    final workUnits = math.min(
-      math.max(1, _manualStepDebtKb * workScale),
-      1 << 20,
-    );
-
-    var cycleComplete = false;
-    var attempts = 0;
-    while (!cycleComplete && attempts < 8) {
-      final budget = workUnits * (attempts + 1);
-      cycleComplete = performIncrementalStep(budget);
-      if (!cycleComplete && _currentPhase == GCPhase.idle) {
-        cycleComplete = true;
-      }
-      attempts++;
-    }
-
-    if (cycleComplete) {
-      _manualStepDebtKb = 0;
-    } else {
-      // Reduce debt gradually so repeated calls progress toward completion.
-      _manualStepDebtKb = math.max(1, _manualStepDebtKb ~/ 2);
-    }
+    // One API call performs one bounded slice. Retrying internally can finish
+    // the whole cycle regardless of size, which erases Lua's step-size pacing.
+    const workScale = 16;
+    final workUnits = math.min(requestedKb * workScale, 1 << 20);
+    final cycleComplete = performIncrementalStep(workUnits);
 
     if (_simulatedAllocationDebt > 0) {
       final reductionBytes = requestedKb * 1024;
@@ -1068,27 +1056,38 @@ class GenerationalGCManager {
     }
   }
 
+  /// Adds [obj] to its current generation if it was created unregistered.
+  ///
+  /// Late registration uses the same Lua-visible memory classification as
+  /// normal allocation. This is important for transient scalar wrappers:
+  /// tracking them for reachability must not make `collectgarbage("count")`
+  /// report memory that allocation-time registration would have excluded.
   void ensureTracked(GCObject obj) {
     if (obj.gcSpace != null) {
       return;
     }
 
-    // Check if this object should be counted for memory credits
-    bool shouldCount = true;
-    if (obj is Value) {
-      // Respect the isTempKey and isMulti flags
-      shouldCount = !(obj.isTempKey || obj.isMulti);
-    }
+    final shouldCount = obj is! Value || obj.shouldCountGcAllocation;
 
     if (obj.isOld) {
       _trackOld(obj);
       if (shouldCount) {
         MemoryCredits.instance.onAllocate(obj, space: GCGenerationSpace.old);
+      } else {
+        MemoryCredits.instance.onTrackExcluded(
+          obj,
+          space: GCGenerationSpace.old,
+        );
       }
     } else {
       _trackYoung(obj);
       if (shouldCount) {
         MemoryCredits.instance.onAllocate(obj, space: GCGenerationSpace.young);
+      } else {
+        MemoryCredits.instance.onTrackExcluded(
+          obj,
+          space: GCGenerationSpace.young,
+        );
       }
     }
     _considerTrackedObjectDuringMarking(obj);
@@ -1429,27 +1428,27 @@ class GenerationalGCManager {
       }
 
       if (obj.marked) {
-        if (obj is Value &&
-            obj.isTable &&
-            (obj.tableWeakMode != null &&
-                (_inMajorCollection || obj.tableWeakMode == 'kv'))) {
-          _handleTableTraversal(obj);
+        if (obj is Value && obj.isTable) {
+          final weakMode = obj.tableWeakMode;
+          if (weakMode != null && (_inMajorCollection || weakMode == 'kv')) {
+            _handleTableTraversal(obj);
+          }
         }
         return;
       }
 
       obj.marked = true;
 
-      if (obj is Value &&
-          obj.isTable &&
-          (obj.tableWeakMode != null &&
-              (_inMajorCollection || obj.tableWeakMode == 'kv'))) {
-        Logger.debugLazy(
-          () => 'Mark table ${obj.hashCode} weakMode=${obj.tableWeakMode}',
-          category: 'GC',
-        );
-        _handleTableTraversal(obj);
-        return;
+      if (obj is Value && obj.isTable) {
+        final weakMode = obj.tableWeakMode;
+        if (weakMode != null && (_inMajorCollection || weakMode == 'kv')) {
+          Logger.debugLazy(
+            () => 'Mark table ${obj.hashCode} weakMode=$weakMode',
+            category: 'GC',
+          );
+          _handleTableTraversal(obj);
+          return;
+        }
       }
 
       for (final ref in obj.getReferences()) {
@@ -2412,10 +2411,14 @@ class GenerationalGCManager {
       );
     }
 
-    // In a real generational GC, we'd need a write barrier to track pointers
-    // from the old generation to the young generation. For now, we'll just
-    // consider all old-gen objects as roots for the minor collection mark phase.
-    final minorRoots = [...roots, ...oldGen.objects];
+    // Use the remembered set (write barrier) instead of scanning all old-gen
+    // objects. If the remembered set is empty, fall back to scanning all old
+    // objects to remain safe.
+    final remembered = _rememberedSet.toList(growable: false);
+    _rememberedSet.clear();
+    final minorRoots = remembered.isNotEmpty
+        ? [...roots, ...remembered]
+        : [...roots, ...oldGen.objects];
 
     // Mark from roots
     _markGeneration(youngGen, minorRoots);

@@ -1,4 +1,5 @@
 import 'instruction.dart';
+import 'opcode.dart';
 
 abstract final class LuaBytecodeChunkSentinels {
   static const List<int> signature = <int>[0x1b, 0x4c, 0x75, 0x61];
@@ -197,6 +198,13 @@ final class LuaBytecodeAbsLineInfo {
   final int line;
 }
 
+/// Debug metadata for one local variable in a prototype.
+///
+/// Official Lua chunks serialize only name / startPc / endPc.
+/// [register] is lualike-only in-memory state: the direct emitter and IR
+/// lowering set it, but parse starts with `null` until
+/// `inferLocalRegisters` (in `debug_local_caches.dart`) fills it.
+/// Debug tables skip null-register entries — always infer after load.
 final class LuaBytecodeLocalVariableDebugInfo {
   const LuaBytecodeLocalVariableDebugInfo({
     required this.name,
@@ -205,9 +213,18 @@ final class LuaBytecodeLocalVariableDebugInfo {
     this.register,
   });
 
+  /// Source name, or a synthetic name like `(temporary)`.
   final String? name;
+
+  /// First PC where this local is active (inclusive).
   final int startPc;
+
+  /// First PC where this local is dead (exclusive), matching Lua LocVar.endpc.
   final int endPc;
+
+  /// Stack slot holding the local, or `null` until inferred/assigned.
+  ///
+  /// Not present in the official binary format.
   final int? register;
 }
 
@@ -256,6 +273,9 @@ final class LuaBytecodePrototype {
   /// Returns the cached source-line map for each bytecode PC.
   List<int?> get linesByPc => _linesByPcFor(this);
 
+  /// Returns the cached decoded opcode for each bytecode PC.
+  List<Opcode> get opcodesByPc => _opcodesByPcFor(this);
+
   /// Returns the cached source line for [pc].
   ///
   /// The VM consults this in the main dispatch loop, so precomputing the
@@ -288,10 +308,18 @@ final class LuaBytecodePrototype {
     }
     return lines;
   }
+
+  List<Opcode> _buildOpcodesByPc() {
+    return List<Opcode>.unmodifiable([for (final word in code) word.opcode]);
+  }
 }
 
 final Expando<List<int?>> _prototypeLinesByPc = Expando<List<int?>>(
   'luaBytecodePrototypeLinesByPc',
+);
+
+final Expando<List<Opcode>> _prototypeOpcodesByPc = Expando<List<Opcode>>(
+  'luaBytecodePrototypeOpcodesByPc',
 );
 
 List<int?> _linesByPcFor(LuaBytecodePrototype prototype) {
@@ -301,6 +329,16 @@ List<int?> _linesByPcFor(LuaBytecodePrototype prototype) {
   }
   final built = List<int?>.unmodifiable(prototype._buildLinesByPc());
   _prototypeLinesByPc[prototype] = built;
+  return built;
+}
+
+List<Opcode> _opcodesByPcFor(LuaBytecodePrototype prototype) {
+  final cached = _prototypeOpcodesByPc[prototype];
+  if (cached != null) {
+    return cached;
+  }
+  final built = prototype._buildOpcodesByPc();
+  _prototypeOpcodesByPc[prototype] = built;
   return built;
 }
 

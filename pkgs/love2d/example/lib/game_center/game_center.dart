@@ -34,6 +34,8 @@ const loveExampleBrowserEntryAsset = 'assets/love_example_browser/main.lua';
 const pocketBomberEntryAsset = 'assets/pocket_bomber/main.lua';
 const shaderExplorerEntryAsset = 'assets/shader_explorer/main.lua';
 const relicBreachEntryAsset = 'assets/relic_breach/main.lua';
+const snakeEntryAsset = 'assets/snake/main.lua';
+const spaceInvadersEntryAsset = 'assets/space_invaders/main.lua';
 
 const _relicBreachWarmupImages = <String>[
   'assets/relic_breach/art/kenney_roguelike_rpg_pack/Spritesheet/roguelikeSheet_runtime.png',
@@ -125,6 +127,63 @@ const _shaderExplorerVirtualPad = LoveTouchControlsConfig(
   hint: 'Left and right change shaders. Up and down adjust control.',
 );
 
+const _snakeVirtualPad = LoveTouchControlsConfig(
+  leftJoystick: LoveTouchJoystickConfig(
+    side: LoveTouchControlSide.left,
+    directions: LoveTouchDirectionBindings(
+      up: LoveTouchKeyBinding(label: 'Up', key: 'up'),
+      down: LoveTouchKeyBinding(label: 'Down', key: 'down'),
+      left: LoveTouchKeyBinding(label: 'Left', key: 'left'),
+      right: LoveTouchKeyBinding(label: 'Right', key: 'right'),
+    ),
+  ),
+  buttons: <LoveTouchButtonConfig>[
+    LoveTouchButtonConfig(
+      binding: LoveTouchKeyBinding(label: 'Restart', key: 'r'),
+      alignment: Alignment.bottomRight,
+      margin: EdgeInsets.only(right: 12, bottom: 12),
+      visual: LoveTouchButtonVisual.utility,
+      fillColor: Color(0xCC1F3B08),
+      glowColor: Color(0x223B82F6),
+      borderColor: Color(0xFF84CC16),
+    ),
+  ],
+  hint: 'Swipe or use the pad to steer. Tap Restart to begin again.',
+);
+
+const _spaceInvadersVirtualPad = LoveTouchControlsConfig(
+  leftJoystick: LoveTouchJoystickConfig(
+    side: LoveTouchControlSide.left,
+    directions: LoveTouchDirectionBindings(
+      left: LoveTouchKeyBinding(label: 'Left', key: 'left'),
+      right: LoveTouchKeyBinding(label: 'Right', key: 'right'),
+    ),
+    deadzone: 0.1,
+    zoneWidthFactor: 0.65,
+  ),
+  buttons: <LoveTouchButtonConfig>[
+    LoveTouchButtonConfig(
+      binding: LoveTouchKeyBinding(label: 'Fire', key: 'space'),
+      alignment: Alignment.bottomRight,
+      margin: EdgeInsets.only(right: 12, bottom: 12),
+      visual: LoveTouchButtonVisual.action,
+      fillColor: Color(0xCC1F3B08),
+      glowColor: Color(0x33F59E0B),
+      borderColor: Color(0xFFFDE047),
+    ),
+    LoveTouchButtonConfig(
+      binding: LoveTouchKeyBinding(label: 'Restart', key: 'r'),
+      alignment: Alignment.bottomRight,
+      margin: EdgeInsets.only(right: 126, bottom: 12),
+      visual: LoveTouchButtonVisual.utility,
+      fillColor: Color(0xCC1F3B08),
+      glowColor: Color(0x223B82F6),
+      borderColor: Color(0xFF84CC16),
+    ),
+  ],
+  hint: 'Move with the pad. Fire with the button or tap the screen.',
+);
+
 const _relicBreachVirtualPad = LoveTouchControlsConfig(
   leftJoystick: LoveTouchJoystickConfig(
     side: LoveTouchControlSide.left,
@@ -186,6 +245,20 @@ const kDemoEntries = <GameEntry>[
     entryAsset: shaderExplorerEntryAsset,
     accentColor: Color(0xFF8B5CF6),
     virtualPad: _shaderExplorerVirtualPad,
+  ),
+  GameEntry(
+    title: 'Snake 3310',
+    description: 'Monochrome Nokia-style snake.',
+    entryAsset: snakeEntryAsset,
+    accentColor: Color(0xFF84CC16),
+    virtualPad: _snakeVirtualPad,
+  ),
+  GameEntry(
+    title: 'Space Invaders',
+    description: 'Monochrome arcade alien shooter.',
+    entryAsset: spaceInvadersEntryAsset,
+    accentColor: Color(0xFF84CC16),
+    virtualPad: _spaceInvadersVirtualPad,
   ),
   GameEntry(
     title: 'Relic Breach',
