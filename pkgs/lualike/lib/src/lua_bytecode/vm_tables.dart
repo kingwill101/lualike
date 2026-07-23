@@ -44,8 +44,6 @@ extension LuaBytecodeVmTables on LuaBytecodeVm {
   }
 
   Value? _tryFastTableGet(Value table, Value key) {
-    table.interpreter ??= runtime;
-    key.interpreter ??= runtime;
     final rawTable = rawLuaSlot(table);
     if (_canFastPathGlobalProxyTableGet(table, key)) {
       final result = (rawTable as Map)[_plainTableStorageKey(key)];
@@ -72,7 +70,6 @@ extension LuaBytecodeVmTables on LuaBytecodeVm {
   }
 
   Value? _tryFastTableGetStringKey(Value table, String rawKey) {
-    table.interpreter ??= runtime;
     final rawTable = rawLuaSlot(table);
     if (rawTable is Map &&
         table.globalProxyEnvironment != null &&
@@ -120,8 +117,6 @@ extension LuaBytecodeVmTables on LuaBytecodeVm {
   }
 
   bool _tryFastTableSetStringKey(Value table, String rawKey, Value value) {
-    table.interpreter ??= runtime;
-    value.interpreter ??= runtime;
     final rawTable = rawLuaSlot(table);
     final rawValue = rawLuaSlot(value);
     final hasWeakMode = table.tableWeakMode != null;
@@ -161,9 +156,6 @@ extension LuaBytecodeVmTables on LuaBytecodeVm {
   }
 
   bool _tryFastTableSet(Value table, Value key, Value value) {
-    table.interpreter ??= runtime;
-    key.interpreter ??= runtime;
-    value.interpreter ??= runtime;
     _writeBarrier(table, value);
     final rawTable = rawLuaSlot(table);
     final rawValue = rawLuaSlot(value);

@@ -5,7 +5,6 @@ library;
 import 'dart:io';
 import 'dart:typed_data';
 
-import 'package:lualike/src/interpreter/interpreter.dart';
 import 'package:lualike/src/lua_bytecode/disassembler.dart';
 import 'package:lualike/src/lua_bytecode/emitter.dart';
 import 'package:lualike/src/lua_bytecode/parser.dart';
@@ -70,6 +69,23 @@ void main() {
         parsed.mainPrototype.localVariables.map((local) => local.name).toList(),
         equals(<String?>['x', 'y']),
       );
+    });
+
+    test('renders luac-style prototype metadata tables', () {
+      final artifact = const LuaBytecodeEmitter().compileSource(
+        'local message = "hello\\nworld"\nprint(message)\n',
+        chunkName: '/tmp/disassembly_metadata.lua',
+      );
+      final parsed = const LuaBytecodeParser().parse(artifact.bytes);
+      final rendered = const LuaBytecodeDisassembler().render(parsed);
+
+      expect(rendered, contains('0+ params'));
+      expect(rendered, contains('constants (2):'));
+      expect(rendered, contains('S\t"hello\\nworld"'));
+      expect(rendered, contains('locals (1):'));
+      expect(rendered, contains('\t0\tmessage\t'));
+      expect(rendered, contains('upvalues (1):'));
+      expect(rendered, contains('\t0\t_ENV\t1\t0'));
     });
 
     test('matches luac opcode shape for stable foundation programs', () {

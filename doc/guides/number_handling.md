@@ -18,7 +18,7 @@ This guide covers how numbers work in LuaLike, focusing on the `NumberUtils` cla
 
 ### Lua Number Types
 
-Lua 5.4 has two number types with automatic selection:
+Lualike follows Lua 5.5's two number types with automatic selection:
 
 ```dart
 // Integers (64-bit signed)

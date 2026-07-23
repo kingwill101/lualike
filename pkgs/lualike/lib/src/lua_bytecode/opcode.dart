@@ -99,11 +99,13 @@ enum Opcode {
   final String luaName;
   final LuaBytecodeInstructionMode mode;
 
+  @pragma('vm:prefer-inline')
   static Opcode fromCode(int code) {
-    if (code < 0 || code >= values.length) {
-      throw RangeError.range(code, 0, values.length - 1, 'code');
+    final table = values;
+    if (code < 0 || code >= table.length) {
+      throw RangeError.range(code, 0, table.length - 1, 'code');
     }
-    return values[code];
+    return table[code];
   }
 
   static Opcode fromName(String name) => switch (name) {

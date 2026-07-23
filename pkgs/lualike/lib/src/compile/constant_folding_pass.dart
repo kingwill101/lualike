@@ -1,4 +1,3 @@
-
 /// AST-level constant folding pass for lualike.
 ///
 /// Determines which expressions can be precomputed at compile time by
@@ -40,8 +39,6 @@ final class _KnownFunction {
     required this.body,
   });
 }
-
-
 
 /// Walks the AST before bytecode emission and annotates nodes whose values
 /// can be precomputed at compile time.
@@ -92,8 +89,7 @@ class ConstantFoldingPass extends CompilerPass {
 
   /// Stack of scopes mapping `<const>`-declared local names to their folded
   /// values (or [ConstantFoldingResult.constantNil] for const-nil locals).
-  final List<Map<String, Object?>> _constLocalScopes =
-      [<String, Object?>{}];
+  final List<Map<String, Object?>> _constLocalScopes = [<String, Object?>{}];
 
   /// Stack tracking whether each scope is inside a function boundary.
   /// When we enter a function, we start a fresh const-local scope.
@@ -104,8 +100,9 @@ class ConstantFoldingPass extends CompilerPass {
   ///
   /// Keyed by function name, scoped so inner function bodies can shadow outer
   /// ones.  Uses the same scope-chain walk as [_lookupConstLocal].
-  final List<Map<String, _KnownFunction>> _knownFunctionsScopes =
-      [<String, _KnownFunction>{}];
+  final List<Map<String, _KnownFunction>> _knownFunctionsScopes = [
+    <String, _KnownFunction>{},
+  ];
 
   /// Recursion guard: max depth for inlined calls.
   static const int _maxInlineDepth = 8;
@@ -157,7 +154,10 @@ class ConstantFoldingPass extends CompilerPass {
 
   /// Register a known function in the current scope.
   void _declareKnownFunction(
-      String name, List<Identifier> parameters, FunctionBody body) {
+    String name,
+    List<Identifier> parameters,
+    FunctionBody body,
+  ) {
     _knownFunctionsScopes.last[name] = _KnownFunction(
       parameterNames: parameters.map((p) => p.name).toList(),
       varargName: body.varargName?.name,
@@ -248,7 +248,11 @@ class ConstantFoldingPass extends CompilerPass {
         body: final body,
       ):
         _foldFor(start, end, step, body);
-      case ForInLoop(names: final _, iterators: final iterators, body: final body):
+      case ForInLoop(
+        names: final _,
+        iterators: final iterators,
+        body: final body,
+      ):
         for (final iter in iterators) {
           _foldNode(iter);
         }
@@ -293,7 +297,11 @@ class ConstantFoldingPass extends CompilerPass {
         }
       case FunctionCall(name: final name, args: final args):
         _foldFunctionCall(node, name, args);
-      case MethodCall(prefix: final prefix, methodName: final methodName, args: final args):
+      case MethodCall(
+        prefix: final prefix,
+        methodName: final methodName,
+        args: final args,
+      ):
         _foldNode(prefix);
         _foldMethodCall(node, prefix, methodName, args);
       case VarArg():
@@ -496,8 +504,7 @@ class ConstantFoldingPass extends CompilerPass {
     }
   }
 
-  void _foldBigIntBinary(
-      AstNode node, String op, Object? lv, Object? rv) {
+  void _foldBigIntBinary(AstNode node, String op, Object? lv, Object? rv) {
     final l = lv is BigInt ? lv : BigInt.from((lv as num).toInt());
     final r = rv is BigInt ? rv : BigInt.from((rv as num).toInt());
 
@@ -548,10 +555,11 @@ class ConstantFoldingPass extends CompilerPass {
   }
 
   void _foldLocalDeclaration(
-      AstNode node,
-      List<Identifier> names,
-      List<String> attributes,
-      List<AstNode> exprs) {
+    AstNode node,
+    List<Identifier> names,
+    List<String> attributes,
+    List<AstNode> exprs,
+  ) {
     // Fold the initializer expressions first.
     for (final expr in exprs) {
       _foldNode(expr);
@@ -588,8 +596,12 @@ class ConstantFoldingPass extends CompilerPass {
     // Assignment can't introduce new const bindings.
   }
 
-  void _foldIf(AstNode cond, List<AstNode> thenBlock,
-      List<ElseIfClause> elseIfs, List<AstNode> elseBlock) {
+  void _foldIf(
+    AstNode cond,
+    List<AstNode> thenBlock,
+    List<ElseIfClause> elseIfs,
+    List<AstNode> elseBlock,
+  ) {
     _foldNode(cond);
 
     for (final clause in elseIfs) {
@@ -689,8 +701,9 @@ class ConstantFoldingPass extends CompilerPass {
           if (result.isConstant(key) && result.isConstant(value)) {
             final keyValue = result.getValue(key);
             if (keyValue is List<int>) {
-              foldedMap[String.fromCharCodes(keyValue)] =
-                  result.getValue(value);
+              foldedMap[String.fromCharCodes(keyValue)] = result.getValue(
+                value,
+              );
             } else if (keyValue is String) {
               foldedMap[keyValue] = result.getValue(value);
             } else {
@@ -710,8 +723,7 @@ class ConstantFoldingPass extends CompilerPass {
   }
 
   /// Fold a table field access where the table is a folded constant.
-  void _foldTableFieldAccess(
-      AstNode node, AstNode table, String fieldName) {
+  void _foldTableFieldAccess(AstNode node, AstNode table, String fieldName) {
     final tableValue = result.getValue(table);
     if (tableValue is! Map) return;
 
@@ -722,8 +734,7 @@ class ConstantFoldingPass extends CompilerPass {
   }
 
   /// Fold a table index access where both table and index are folded.
-  void _foldTableIndexAccess(
-      AstNode node, AstNode table, AstNode index) {
+  void _foldTableIndexAccess(AstNode node, AstNode table, AstNode index) {
     final tableValue = result.getValue(table);
     if (tableValue is! Map) return;
 
@@ -764,14 +775,22 @@ class ConstantFoldingPass extends CompilerPass {
   /// When all arguments are constant, we create a fresh scope, bind parameter
   /// names to the constant argument values, walk the function body through
   /// the folding pass, and check whether the body returns a constant.
+  ///
+  /// The walk must not leave specialized fold values on the **definition**
+  /// body's AST nodes. Those nodes are shared with the real function that
+  /// will still be compiled for non-const call sites.
   bool _tryInlineFunction(
-      AstNode node, String fnName, List<Object?> constArgs) {
+    AstNode node,
+    String fnName,
+    List<Object?> constArgs,
+  ) {
     final known = _lookupKnownFunction(fnName);
     if (known == null) return false;
     if (known.body.body.isEmpty) return false;
     if (_inlineDepth >= _maxInlineDepth) return false;
 
     _inlineDepth++;
+    final foldSnapshot = result.snapshot();
     try {
       // Create a scope with parameters bound to arguments.
       _enterScope();
@@ -782,7 +801,9 @@ class ConstantFoldingPass extends CompilerPass {
           _declareConstLocal(known.parameterNames[i], constArgs[i]);
         } else {
           _declareConstLocal(
-              known.parameterNames[i], ConstantFoldingResult.constantNil);
+            known.parameterNames[i],
+            ConstantFoldingResult.constantNil,
+          );
         }
       }
 
@@ -794,6 +815,10 @@ class ConstantFoldingPass extends CompilerPass {
       // Find the last ReturnStatement that was resolved to a constant by
       // dead-branch elimination in the folding pass.
       final returnValue = _findInlinedReturnValue(known.body.body);
+
+      // Restore definition AST folds; keep only the call-site constant.
+      result.restore(foldSnapshot);
+
       if (returnValue != null) {
         result.setValue(node, returnValue);
         _exitScope();
@@ -802,6 +827,9 @@ class ConstantFoldingPass extends CompilerPass {
 
       _exitScope();
       return false;
+    } catch (_) {
+      result.restore(foldSnapshot);
+      rethrow;
     } finally {
       _inlineDepth--;
     }
@@ -810,7 +838,11 @@ class ConstantFoldingPass extends CompilerPass {
   /// Fold a method call by trying to convert to a module.function call
   /// (e.g. `("hello"):len()` → `string.len("hello")`).
   void _foldMethodCall(
-      AstNode node, AstNode prefix, AstNode methodName, List<AstNode> args) {
+    AstNode node,
+    AstNode prefix,
+    AstNode methodName,
+    List<AstNode> args,
+  ) {
     _foldFunctionCallArgs(args);
 
     if (!result.isConstant(prefix)) return;
@@ -832,7 +864,11 @@ class ConstantFoldingPass extends CompilerPass {
   /// Try to fold a known built-in function call.
   /// Returns `true` if folding succeeded.
   bool _tryFoldBuiltin(
-      AstNode node, String name, String? module, List<Object?> args) {
+    AstNode node,
+    String name,
+    String? module,
+    List<Object?> args,
+  ) {
     switch ((module, name)) {
       // ---- type() ----
       case (null, 'type'):
@@ -859,7 +895,6 @@ class ConstantFoldingPass extends CompilerPass {
 
       // ---- math.* / string.* (via runtime stdlib) ----
 
-
       case (final String module, final String fn):
         if (_foldViaRuntime(module, fn, node, args)) return true;
       default:
@@ -878,7 +913,10 @@ class ConstantFoldingPass extends CompilerPass {
   /// This is fully scalable — any function registered in the stdlib is
   /// automatically available for folding without per-function registration.
   bool _foldViaRuntime(
-    String module, String name, AstNode node, List<Object?> args,
+    String module,
+    String name,
+    AstNode node,
+    List<Object?> args,
   ) {
     final rt = _runtime ??= Interpreter();
     try {
@@ -956,6 +994,7 @@ class ConstantFoldingPass extends CompilerPass {
         }
       }
     }
+
     walk(body);
     return lastValue;
   }
@@ -1020,8 +1059,8 @@ class ConstantFoldingPass extends CompilerPass {
     return exp == exp.truncate().toDouble()
         ? _intPow(base, exp.toInt()).toDouble()
         : base == base.truncate().toDouble()
-            ? _intPow(base.toInt(), exp.toInt()).toDouble()
-            : base; // Can't really fold general pow at compile time.
+        ? _intPow(base.toInt(), exp.toInt()).toDouble()
+        : base; // Can't really fold general pow at compile time.
   }
 
   int _intBitAnd(num l, num r) => (l.toInt() & r.toInt());

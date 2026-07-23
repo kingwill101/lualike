@@ -13,6 +13,12 @@
 
 include: package:lints/recommended.yaml
 analyzer:
+  exclude:
+    # Scratch scripts and generated local example package artifacts are not
+    # part of the root package's analysis surface.
+    - .tmp/**
+    - tool/tmp_*.dart
+    - example/builder_demo/**
   errors:
     collection_methods_unrelated_type: ignore
 

@@ -146,7 +146,8 @@ class TableStorage extends MapBase<dynamic, dynamic> {
     if (arrayIdx != null) {
       if (arrayIdx < _array.length) {
         if (arrayIdx < _occupied.length && _occupied[arrayIdx] != 0) {
-          return _array[arrayIdx];
+          final value = _array[arrayIdx];
+          return isLuaListHole(value) ? null : value;
         }
       }
       return _hash[key];
@@ -345,7 +346,7 @@ class TableStorage extends MapBase<dynamic, dynamic> {
       if (arrayIdx == _array.length - 1) {
         _trimArray();
       }
-      return current;
+      return isLuaListHole(current) ? null : current;
     }
     return _removeHashKey(key);
   }
@@ -418,7 +419,8 @@ class TableStorage extends MapBase<dynamic, dynamic> {
     final idx = oneBasedIndex - 1;
     if (idx < _array.length && idx < _occupied.length) {
       if (_occupied[idx] != 0) {
-        return _array[idx];
+        final value = _array[idx];
+        return isLuaListHole(value) ? null : value;
       }
     }
     return _hash[oneBasedIndex];
@@ -428,7 +430,10 @@ class TableStorage extends MapBase<dynamic, dynamic> {
     if (oneBasedIndex <= 0) return null;
     final idx = oneBasedIndex - 1;
     if (idx < _array.length && idx < _occupied.length) {
-      return _occupied[idx] != 0 ? _array[idx] : null;
+      if (_occupied[idx] != 0) {
+        final value = _array[idx];
+        return isLuaListHole(value) ? null : value;
+      }
     }
     return null;
   }

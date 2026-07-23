@@ -8,64 +8,29 @@
 [![Pub Version](https://img.shields.io/pub/v/file_lualike)](https://pub.dev/packages/file_lualike)
 [![Pub Version](https://img.shields.io/pub/v/process_lualike)](https://pub.dev/packages/process_lualike)
 
-LuaLike is an embeddable **Lua 5.5-compatible** runtime, bytecode compiler, and tooling package for Dart.
+LuaLike is an embeddable **Lua 5.5-compatible** runtime and tooling package for Dart.
 
-It includes a high-level bridge for running scripts from Dart, a multi-pass optimizing bytecode compiler, AST parsing APIs, low-level parser utilities, and the same standard-library registration surface used by the built-in `string`, `table`, `math`, and `debug` libraries. The bytecode VM can run both `lualike --compile` output and bytecode produced by the official Lua 5.5 `luac55` compiler.
+It provides a high-level bridge for running scripts from Dart, AST parsing APIs, parser helpers, and access to the built-in Lua standard libraries.
 
 ## CLI and Compiler
 
-LuaLike ships as a standalone binary that can execute Lua scripts directly
-or compile them to optimized bytecode.
+LuaLike ships as a standalone binary that can run scripts or compile them to
+bytecode.
 
 ```sh
 # Run a Lua script
 lualike myscript.lua
 
-# Compile to bytecode (all optimizations enabled)
-lualike --compile myscript.lua -o myscript.lub
+# Compile to a binary chunk (--output is required; any path is fine)
+lualike --compile myscript.lua -o myscript.out
 
-# Run compiled bytecode
-lualike --lua-bytecode myscript.lub
+# Run that binary (header-detected)
+lualike myscript.out
+lualike --lua-bytecode myscript.out
 ```
 
-### Multi-pass optimizing compiler
-
-When `--compile` is used, lualike runs a 10-pass optimization pipeline:
-
-```
-Source → [Bundler] → [Analyzer] → [ConstPropagation] → [TypeNarrowing]
-  → [MetatableFolding] → [InliningHeuristics] → [ConstantFolding]
-  → [Simplifier] → [DeadCodeElimination] → [Peephole] → Bytecode
-```
-
-Key optimizations include:
-- **Constant folding** — arithmetic, string concatenation, comparisons,
-  boolean logic with short-circuit awareness
-- **Function inlining** — user-defined functions with all-const arguments
-  are evaluated at compile time
-- **Dead branch elimination** — `if true then A else B end` → only A compiled
-- **Type narrowing** — after `type(x) == "number"`, x is known to be a number
-- **Const propagation** — single-assignment locals forwarded without `local x <const>`
-- **Builtin folding** — `math.sin(0)`, `string.len("hi")`, `type(42)` via actual stdlib
-- **Peephole optimization** — redundant MOVE, LOADK, LOADNIL removed from IR
-- **Dead code elimination** — unused module exports tree-shaken
-- **Bundling** — static `require("path")` resolved at compile time
-
-See [doc/cli.md](pkgs/lualike/doc/cli.md) for the full CLI reference.
-
-### Cross-compatibility
-
-The bytecode format is fully compatible with Lua 5.5:
-
-```sh
-# lualike bytecode → official Lua 5.5
-lualike --compile script.lua -o script.lub
-lua55 script.lub
-
-# official luac55 bytecode → lualike VM
-luac55 -o script.lub script.lua
-lualike --lua-bytecode script.lub
-```
+For CLI flags, compiler workflow, and advanced runtime details, see the guides
+in `doc/guides/`.
 
 ## What this package exposes
 
@@ -80,7 +45,7 @@ lualike --lua-bytecode script.lub
 
 ```yaml
 dependencies:
-  lualike: ^0.3.0
+  lualike: ^0.4.0
 ```
 
 Then run:
@@ -118,7 +83,7 @@ Future<void> main() async {
 
 ### Dart ↔ Lua interop
 
-Expose Dart functions and call them from Lua, or call Lua functions from Dart. Share complex data structures like maps, lists, and tables between the two languages.
+Expose Dart functions and call them from Lua, or call Lua functions from Dart. Share complex data structures like maps, lists, and tables between the two languages, with Lua array tables round-tripping as Dart `List`s.
 
 ```dart
 lualike.expose('getCurrentTime', () => DateTime.now().toString());
@@ -132,9 +97,9 @@ await lualike.execute('''
 
 See [example/interop_example.dart](example/interop_example.dart).
 
-### Lua tables as Dart maps
+### Lua tables as Dart maps and lists
 
-Lua tables are exposed as Dart `Map` objects, so you can read, write, and pass them back and forth seamlessly.
+Lua tables are exposed as Dart `Map` objects, and array-like tables round-trip as Dart `List`s, so you can read, write, and pass them back and forth seamlessly.
 
 ```dart
 // Send a config map to Lua
@@ -332,7 +297,7 @@ Future<void> main() async {
 }
 ```
 
-This is the same registration path used by the built-in libraries in the repository. Add inline `FunctionDoc` metadata via `context.describe()` to power IDE completions and documentation generation (see [doc/lsp.md](doc/lsp.md)).
+This is the same registration path used by the built-in libraries in the repository. Add inline `FunctionDoc` metadata via `context.describe()` to power IDE completions and documentation generation (see [doc/guides/lsp.md](../../doc/guides/lsp.md)).
 
 ### Generate table schema docs from Dart annotations
 
@@ -468,8 +433,8 @@ Future<void> main() async {
 ```
 
 Then point your LuaLS workspace library at the generated file. See
-[doc/lsp.md](doc/lsp.md) for editor-specific configuration (Neovim, VS Code,
-`.luarc.json`).
+[doc/guides/lsp.md](../../doc/guides/lsp.md) for editor-specific configuration
+(Neovim, VS Code, `.luarc.json`).
 
 ## Guides and reference material
 
@@ -489,13 +454,25 @@ Examples and source:
 - [Standard library implementations](https://github.com/kingwill101/lualike/tree/master/pkgs/lualike/lib/src/stdlib)
 - [Bytecode engine tests and examples](https://github.com/kingwill101/lualike/tree/master/pkgs/lualike/test/lua_bytecode)
 
-## Companion packages
+## Workspace packages
 
-- [file_lualike](https://pub.dev/packages/file_lualike) — bridges `package:file` filesystems (SFTP, in-memory, local) into lualike so `io.open()`, `os.remove()`, `dofile()`, and module loading all delegate to a remote/backend filesystem.
-- [process_lualike](https://pub.dev/packages/process_lualike) — bridges remote process execution into lualike so `os.execute()` runs over SSH, Docker, or any custom backend without changing Lua code.
+| Package | Badge | What it does |
+|---|---|---|
+| [`lualike`](https://pub.dev/packages/lualike) | [![Pub Version](https://img.shields.io/pub/v/lualike)](https://pub.dev/packages/lualike) | Core runtime, compiler, parser helpers, and standard-library bridge. |
+| [`flutter_lualike`](https://pub.dev/packages/flutter_lualike) | [![Pub Version](https://img.shields.io/pub/v/flutter_lualike)](https://pub.dev/packages/flutter_lualike) | Flutter integration for loading Lua assets and build hooks. |
+| [`file_lualike`](https://pub.dev/packages/file_lualike) | [![Pub Version](https://img.shields.io/pub/v/file_lualike)](https://pub.dev/packages/file_lualike) | Bridges `package:file` filesystems into lualike. |
+| [`process_lualike`](https://pub.dev/packages/process_lualike) | [![Pub Version](https://img.shields.io/pub/v/process_lualike)](https://pub.dev/packages/process_lualike) | Bridges remote process execution into lualike. |
+| [`lualike_ffi`](https://pub.dev/packages/lualike_ffi) | [![Pub Version](https://img.shields.io/pub/v/lualike_ffi)](https://pub.dev/packages/lualike_ffi) | Native FFI backend for calling trusted shared libraries. |
+| [`lualike_hooks`](https://pub.dev/packages/lualike_hooks) | [![Pub Version](https://img.shields.io/pub/v/lualike_hooks)](https://pub.dev/packages/lualike_hooks) | Build hooks for compiling Lua scripts and bundling generated assets. |
+
+The remaining workspace packages (`love2d`, `lualike_rt`, `love2d_gpu`, and `test`) are internal or support packages and are not listed here.
 
 ## Notes on public API stability
 
 The supported API surface is the set of symbols exported by `package:lualike/lualike.dart`, `package:lualike/parsers.dart`, and `package:lualike/library_builder.dart`.
 
 The `lib/src/` tree is still visible in the repository for people who want to study or borrow implementations, but those files should be treated as internal details unless they are re-exported through one of the public libraries above.
+
+## More details
+
+For deeper implementation notes and advanced workflows, see the guides in `doc/guides/` and the source tree under `pkgs/lualike/`.

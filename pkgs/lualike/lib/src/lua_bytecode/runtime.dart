@@ -4,6 +4,7 @@ import 'dart:typed_data';
 import 'package:lualike/src/ast.dart';
 import 'package:lualike/src/builtin_function.dart';
 import 'package:lualike/src/call_stack.dart';
+import 'package:lualike/src/compile/pipeline.dart';
 import 'package:lualike/src/coroutine.dart';
 import 'package:lualike/src/environment.dart';
 import 'package:lualike/src/file_manager.dart';
@@ -33,6 +34,15 @@ import 'package:lualike/src/stdlib/library.dart';
 import 'package:lualike/src/stdlib/metatables.dart';
 import 'package:lualike/src/value.dart';
 
+/// Whether [bytes] begin with an official Lua binary chunk header.
+///
+/// Sniffs signature, version, format, and `luac` data, and rejects known
+/// legacy AST/source payload markers. Used by the CLI and loaders so
+/// precompiled files are recognized **by content**, not by file extension.
+///
+/// When this returns `true`, callers should load and run via the bytecode
+/// VM only (see [tryLoadLuaBytecodeArtifact]) and must not recompile
+/// through the IR/SSA pipeline.
 bool looksLikeTrackedLuaBytecodeBytes(List<int> bytes) {
   if (bytes.length < 12) {
     return false;
@@ -99,6 +109,14 @@ bool _matchesLegacyPayloadMarker(
   return true;
 }
 
+/// Parses official Lua bytecode from [request] and returns a callable chunk.
+///
+/// Returns `null` when the payload is not a tracked binary chunk. On success,
+/// the result is a [Value] wrapping a bytecode closure ready for
+/// [LuaRuntime.callFunction] — no IR emission or SSA passes run.
+///
+/// Requires `b` in [LuaChunkLoadRequest.mode]. Format errors become a
+/// failed [LuaChunkLoadResult].
 LuaChunkLoadResult? tryLoadLuaBytecodeArtifact(
   LuaRuntime runtime,
   LuaChunkLoadRequest request,
@@ -336,10 +354,13 @@ class LuaBytecodeRuntime implements LuaRuntime {
     if (semanticError != null) {
       throw Exception(semanticError);
     }
-    final artifact = const LuaBytecodeEmitter().compileProgram(
-      ast,
-      chunkName: chunkName,
+    // Prefer IR pipeline (same as executeCode / --lua-bytecode). Keep the
+    // direct emitter as a private escape hatch only if the pipeline throws
+    // IrRegisterBudgetExceeded during development of new SSA features.
+    final pipeline = CompilePipeline(
+      config: CompilePipelineConfig.luaBytecodeOptimized(),
     );
+    final artifact = pipeline.compile(ast) as LuaBytecodeArtifact;
     final env = getCurrentEnv();
     _ensureEnvironmentBinding(env);
     final closure = LuaBytecodeClosure.main(
@@ -439,11 +460,13 @@ class LuaBytecodeRuntime implements LuaRuntime {
     List<int> bytes, {
     required String moduleName,
   }) async {
-    final result = await loadChunk(LuaChunkLoadRequest(
-      source: Value.primitive(bytes),
-      chunkName: moduleName,
-      mode: 'b',
-    ));
+    final result = await loadChunk(
+      LuaChunkLoadRequest(
+        source: Value.primitive(bytes),
+        chunkName: moduleName,
+        mode: 'b',
+      ),
+    );
     if (!result.isSuccess) {
       throw Exception(
         'Failed to load bytecode module \'$moduleName\': '
@@ -745,7 +768,13 @@ class LuaBytecodeRuntime implements LuaRuntime {
     List<Object?> args,
   ) {
     var callee = original;
-    var normalizedArgs = List<Object?>.from(args, growable: false);
+    var normalizedArgs = args
+        .map(
+          (arg) => arg is List
+              ? valueFromLuaSlot(this, Value.listToLuaTable(arg))
+              : arg,
+        )
+        .toList(growable: false);
     var extraArgs = 0;
 
     while (true) {

@@ -25,8 +25,7 @@ extension DynamicValueExtension on Object? {
         final rawMap = raw.map((k, v) => MapEntry(k, v.toValue()));
         return Value(rawMap, metatable: val.metatable);
       } else if (raw is List) {
-        final rawList = raw.map((e) => e.toValue()).toList();
-        return Value(rawList, metatable: val.metatable);
+        return Value(Value.listToLuaTable(raw), metatable: val.metatable);
       }
 
       return val;
@@ -35,7 +34,7 @@ extension DynamicValueExtension on Object? {
       return Value(map);
     } else if (this is List) {
       final list = (this as List).map((e) => e.toValue()).toList();
-      return Value(list);
+      return Value(Value.listToLuaTable(list));
     }
     return Value.wrap(this);
   }

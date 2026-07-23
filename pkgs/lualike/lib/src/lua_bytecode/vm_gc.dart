@@ -21,7 +21,9 @@ Future<void>? _runGcLoopSafePoint(LuaRuntime runtime, LuaBytecodeFrame frame) {
     return _runGcLoopSafePointSlow(runtime, frame);
   }
   // Rescue: proactively run a short step so the collector doesn't stall.
-  if (debt <= 0 && loopCounter >= 8192 && loopCounter % 8192 == 0) {
+  // Coarser cadence (16384): fine-grained rescue showed multi-percent
+  // overhead on allocation-heavy bytecode workloads under profiling.
+  if (debt <= 0 && loopCounter >= 16384 && loopCounter % 16384 == 0) {
     gc.performGenerationalStep(runtime.getRoots());
   }
   if (gc.shouldForceAsyncLoopRescue(loopCounter, debt, threshold) ||

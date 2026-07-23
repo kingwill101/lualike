@@ -1,29 +1,27 @@
 /// SSA-based dead code elimination pass for the lualike IR.
 ///
-/// Uses the SSA form's `unusedDefinitions` to identify instructions whose
-/// result register is never consumed, and removes them when safe.
-///
-/// This pass runs on `LualikeIrPrototype` (post-emission) and works by:
-///   1. Building SSA form for the prototype
-///   2. Scanning for pure instructions whose output is never used
-///   3. Removing those instructions from the instruction list
-///   4. Iterating until no more dead code is found
+/// Uses SSA `unusedDefinitions` to drop pure instructions whose results are
+/// never consumed. Iterates until a fixed point.
 ///
 /// ## Safety
 ///
-/// Only instructions with no side effects are eliminated:
-///   - Loads (LOADI, LOADF, LOADK, LOADKX, LOADNIL, LOADTRUE, LOADFALSE, LFALSESKIP)
-///   - Moves (MOVE)
-///   - Arithmetic (ADD, SUB, MUL, DIV, MOD, POW, IDIV, etc. + K/I variants)
-///   - Unary (UNM, BNOT, NOT)
-///   - Length (LEN) — generally pure; metamethod fallback ok to drop
-///   - Concat (CONCAT) — pure string concat
+/// Only pure opcodes in [_pureOpcodes] are removed. Calls, stores, jumps, etc.
+/// are never eliminated.
 ///
-/// Side-effecting instructions (calls, table stores, upvalue writes, jumps, etc.)
-/// are never removed.
+/// ## Debug locals (do not regress)
+///
+/// `debug.getlocal` observes named locals even when the Lua program never
+/// *reads* them. Example:
+/// ```lua
+/// local a = 10
+/// print(debug.getlocal(1, 1))  -- needs the store of 10
+/// ```
+/// Treating that store as dead leaves the name visible but the value nil.
+/// [_debugLiveRegisters] therefore pins registers listed in IR debug
+/// [LocalDebugEntry]s so their defining pure stores survive DCE.
 library;
 
-import 'instruction.dart';
+import 'instruction_compact.dart';
 import 'opcode.dart';
 import 'prototype.dart';
 import 'ssa.dart';
@@ -47,6 +45,7 @@ final _pureOpcodes = <LualikeIrOpcode>{
   LualikeIrOpcode.getField,
   LualikeIrOpcode.selfOp,
   LualikeIrOpcode.addI,
+  LualikeIrOpcode.subI,
   LualikeIrOpcode.addK,
   LualikeIrOpcode.subK,
   LualikeIrOpcode.mulK,
@@ -106,39 +105,60 @@ LualikeIrPrototype eliminateDeadCode(LualikeIrPrototype prototype) {
   }
 }
 
+/// Registers that hold named locals for debug.getlocal visibility.
+///
+/// Even if the program never reads them, debug metadata can observe their
+/// values, so pure stores into these registers must not be DCE'd away.
+Set<int> _debugLiveRegisters(LualikeIrPrototype prototype) {
+  final locals = prototype.debugInfo?.localNames;
+  if (locals == null || locals.isEmpty) {
+    return const <int>{};
+  }
+  return <int>{
+    for (final local in locals)
+      if (local.register case final register? when register >= 0) register,
+  };
+}
+
 /// Try to eliminate dead instructions once. Returns `null` if no change.
 LualikeIrPrototype? _eliminateOnce(LualikeIrPrototype prototype) {
   if (prototype.instructions.isEmpty) return null;
 
-  final ssa = LualikeIrSsaFunction.fromPrototype(prototype).simplifyTrivialPhis();
+  final ssa = LualikeIrSsaFunction.fromPrototype(
+    prototype,
+  ).simplifyTrivialPhis();
   final unusedByPc = <int, Set<int>>{};
+  final debugLiveRegisters = _debugLiveRegisters(prototype);
 
   for (final value in ssa.unusedDefinitions) {
     final pc = value.definingPc;
     if (pc == null) continue;
+    // Keep definitions of named locals so debug.getlocal still sees values.
+    if (debugLiveRegisters.contains(value.register)) {
+      continue;
+    }
     unusedByPc.putIfAbsent(pc, () => <int>{}).add(value.register);
   }
 
   if (unusedByPc.isEmpty) return null;
 
   final instructions = prototype.instructions;
-  final kept = <int>[];
-  var removed = false;
-
+  final removePcs = <int>{};
   for (var i = 0; i < instructions.length; i++) {
     if (_pureOpcodes.contains(instructions[i].opcode) &&
         unusedByPc.containsKey(i)) {
-      removed = true;
-      continue;
+      removePcs.add(i);
     }
-    kept.add(i);
   }
 
-  if (!removed) return null;
+  if (removePcs.isEmpty) return null;
 
-  final newInstructions = <LualikeIrInstruction>[
-    for (final i in kept) instructions[i],
-  ];
+  final newInstructions = compactIrInstructions(instructions, removePcs);
+  final newDebug = remapDebugInfoAfterCompact(
+    prototype.debugInfo,
+    instructions.length,
+    removePcs,
+  );
 
   // Recurse into sub-prototypes
   final newPrototypes = <LualikeIrPrototype>[
@@ -151,11 +171,12 @@ LualikeIrPrototype? _eliminateOnce(LualikeIrPrototype prototype) {
     registerCount: prototype.registerCount,
     paramCount: prototype.paramCount,
     isVararg: prototype.isVararg,
+    namedVarargRegister: prototype.namedVarargRegister,
     upvalueDescriptors: prototype.upvalueDescriptors,
     prototypes: newPrototypes,
     lineDefined: prototype.lineDefined,
     lastLineDefined: prototype.lastLineDefined,
-    debugInfo: prototype.debugInfo,
+    debugInfo: newDebug,
     registerConstFlags: prototype.registerConstFlags,
     constSealPoints: prototype.constSealPoints,
   );

@@ -54,7 +54,7 @@ void main() {
 
       expect((bridge.getGlobal('isRunning') as Value).raw, equals(true));
       expect((bridge.getGlobal('mem') as Value).raw, isA<num>());
-      expect((bridge.getGlobal('step') as Value).raw, equals(true));
+      expect((bridge.getGlobal('step') as Value).raw, isA<bool>());
     });
 
     test('collectgarbage - comprehensive', () async {

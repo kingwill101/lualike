@@ -3,13 +3,13 @@ import 'dart:convert';
 
 import 'package:lualike/src/ast.dart';
 import 'package:lualike/src/builtin_function.dart';
-import 'package:lualike/src/compile/pipeline.dart';
 import 'package:lualike/src/config.dart';
 import 'package:lualike/src/executor.dart';
 import 'package:lualike/src/interpreter/interpreter.dart';
 import 'package:lualike/src/lua_error.dart';
 import 'package:lualike/src/logging/logger.dart';
 import 'package:lualike/src/parse.dart';
+import 'package:lualike/src/compile/pipeline.dart';
 import 'package:lualike/src/lua_bytecode/runtime.dart';
 import 'package:lualike/src/runtime/lua_runtime.dart';
 import 'package:lualike/src/runtime/lua_slot.dart';
@@ -264,11 +264,13 @@ class LuaLike {
     final program = parse(source, url: moduleName ?? '=(compile)');
 
     final pipeline = CompilePipeline(
-      config: CompilePipelineConfig(
-        target: CompileBackend.luaBytecode,
-        enableConstantFolding: enableConstantFolding,
-        enablePeephole: enablePeephole,
-      ),
+      config: enablePeephole
+          ? CompilePipelineConfig.luaBytecodeOptimized()
+          : CompilePipelineConfig(
+              target: CompileBackend.luaBytecode,
+              enableConstantFolding: enableConstantFolding,
+              enablePeephole: false,
+            ),
     );
 
     final artifact = pipeline.compile(program) as LuaBytecodeArtifact;

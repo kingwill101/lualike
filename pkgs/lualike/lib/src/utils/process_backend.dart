@@ -1,6 +1,6 @@
 /// Pluggable backend for process execution.
 ///
-/// Allows customizing how [os.execute] and [io.popen] run external commands.
+/// Allows customizing how `os.execute` and `io.popen` run external commands.
 /// Useful for remote execution (SSH, Docker, container exec), mocking in
 /// tests, or restricting execution in sandboxed environments.
 abstract class ProcessBackend {

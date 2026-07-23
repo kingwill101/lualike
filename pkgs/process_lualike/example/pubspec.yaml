@@ -1,0 +1,20 @@
+name: process_lualike_example
+description: Example CLI app using process_lualike.
+version: 1.0.0
+publish_to: none
+
+environment:
+  sdk: ^3.10.0
+
+dependencies:
+  lualike:
+    path: ../../lualike
+  process_lualike:
+    path: ..
+
+dependency_overrides:
+  lualike:
+    path: ../../lualike
+
+dev_dependencies:
+  lints: ^6.1.0

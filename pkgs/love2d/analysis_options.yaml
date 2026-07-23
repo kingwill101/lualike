@@ -3,3 +3,10 @@ include: package:flutter_lints/flutter.yaml
 analyzer:
   exclude:
     - third_party/flutter_shader_examples/**
+    - build/**
+    - android/**
+    - ios/**
+    - web/**
+    - windows/**
+    - macos/**
+    - linux/**

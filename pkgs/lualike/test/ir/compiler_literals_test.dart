@@ -4,7 +4,6 @@ library;
 import 'package:lualike/src/ir/compiler.dart';
 import 'package:lualike/src/ir/instruction.dart';
 import 'package:lualike/src/ir/opcode.dart';
-import 'package:lualike/src/ir/prototype.dart';
 import 'package:lualike/src/parse.dart';
 import 'package:test/test.dart';
 
@@ -16,11 +15,7 @@ void main() {
       final proto = chunk.mainPrototype;
 
       expect(proto.registerCount, equals(1));
-      expect(proto.constants, hasLength(1));
-      expect(
-        proto.constants.first,
-        isA<IntegerConstant>().having((c) => c.value, 'value', 42),
-      );
+      expect(proto.constants, isEmpty);
 
       expect(proto.instructions, hasLength(3));
       expect(
@@ -28,10 +23,10 @@ void main() {
         equals(LualikeIrOpcode.varArgPrep),
       );
 
-      final load = proto.instructions[1] as ABxInstruction;
-      expect(load.opcode, LualikeIrOpcode.loadK);
+      final load = proto.instructions[1] as AsBxInstruction;
+      expect(load.opcode, LualikeIrOpcode.loadI);
       expect(load.a, equals(0));
-      expect(load.bx, equals(0));
+      expect(load.sBx, equals(42));
 
       final ret = proto.instructions[2] as ABCInstruction;
       expect(ret.opcode, LualikeIrOpcode.return1);

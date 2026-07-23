@@ -118,6 +118,12 @@ local my_list = { "a", "b", "c" }
 print(my_list[1]) -- Prints: a
 ```
 > Note: By convention, arrays in LuaLike are 1-based.
+>
+> When you bring an array-like table back into Dart, `Value.unwrap()` returns a Dart `List`.
+> ```dart
+> final value = Value({1: "a", 2: "b", 3: "c"});
+> print(value.unwrap()); // [a, b, c]
+> ```
 
 **As a dictionary:**
 ```lua

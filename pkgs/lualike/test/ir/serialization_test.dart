@@ -2,12 +2,6 @@
 library;
 
 import 'package:lualike/lualike.dart';
-import 'package:lualike/src/ir/bytecode_lowering.dart';
-import 'package:lualike/src/ir/compiler.dart';
-import 'package:lualike/src/ir/disassembler.dart';
-import 'package:lualike/src/ir/prototype.dart';
-import 'package:lualike/src/ir/runtime.dart';
-import 'package:lualike/src/ir/serialization.dart';
 import 'package:lualike/src/lua_bytecode/runtime.dart';
 import 'package:lualike/src/lua_bytecode/vm_value_helpers.dart';
 import 'package:test/test.dart';

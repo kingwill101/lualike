@@ -4,7 +4,6 @@
 /// and load the result into the Lua 5.5 VM — all from Dart code.
 library;
 
-import 'dart:io';
 
 import 'package:lualike/src/compile/compiler_pass.dart';
 import 'package:lualike/src/compile/constant_folding_pass.dart';

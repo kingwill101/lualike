@@ -46,6 +46,26 @@ return sum
     );
 
     test(
+      'ADDI nested calls use signed immediate (sync + async path)',
+      () async {
+        // x+1 emits ADDI; nested CALL hits trySync with signed C, not Kst.
+        // sum_{i=1..5} ((i+1)+(i+2)) = sum (2i+3) = 45.
+        final result = await executeCode('''
+local function f(x) return x + 1 end
+assert(f(10) == 11)
+assert(f(-1) == 0)
+local s = 0
+for i = 1, 5 do
+  s = s + f(i) + f(i + 1)
+end
+return s
+''', mode: EngineMode.luaBytecode);
+
+        expect(_unwrap(result), equals(45));
+      },
+    );
+
+    test(
       'executeCode runs supported labels and goto via emitted chunks',
       () async {
         final result = await executeCode('''

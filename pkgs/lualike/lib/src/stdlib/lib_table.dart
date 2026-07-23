@@ -3,7 +3,6 @@ import 'dart:typed_data';
 import 'package:lualike/lualike.dart';
 
 import 'package:lualike/src/runtime/lua_results.dart';
-import 'package:lualike/src/lua_bytecode/runtime.dart';
 import 'package:lualike/src/lua_bytecode/vm_value_helpers.dart';
 import 'package:lualike/src/runtime/lua_slot.dart';
 import 'package:lualike/src/runtime/runtime_hints.dart';

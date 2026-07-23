@@ -1,7 +1,7 @@
 /// IO abstractions that work safely on both native and web platforms
 ///
 /// Provides a [ProcessBackend] injection point so callers can replace process
-/// execution (used by [os.execute] etc.) with custom backends such as SSH,
+/// execution (used by `os.execute` etc.) with custom backends such as SSH,
 /// Docker, or test mocks.
 library;
 

@@ -1,6 +1,6 @@
 # Lualike Intermediate Representation (IR) Format
 
-This guide describes the Lualike Intermediate Representation (IR), the internal bytecode format used by the Lualike VM. The IR is designed to be a register-based instruction set that closely mirrors Lua 5.4's bytecode (lopcodes.h), while providing extensibility for Dart-specific features.
+This guide describes the Lualike Intermediate Representation (IR), the internal bytecode format used by the Lualike VM. The IR is designed to be a register-based instruction set that closely mirrors Lua 5.5 bytecode (`lopcodes.h`), while providing extensibility for lualike-specific features.
 
 ## Overview
 
@@ -193,7 +193,7 @@ Debug info provides metadata for tooling and error reporting:
 - **Local Names**: Metadata for local variables, including their name, start PC, end PC, and register index.
 - **Upvalue Names**: Names of upvalues defined in this prototype.
 - **Preferred Name**: `preferred_name` and `preferred_name_what` (e.g., "local", "field") used to provide better function names in stack traces.
-- **To-Be-Closed Names**: Mapping of PC to variable names that are marked for automatic closing (per Lua 5.4 `<close>`).
+- **To-Be-Closed Names**: Mapping of PC to variable names that are marked for automatic closing with the Lua-compatible `<close>` attribute.
 
 ## Interpretation Example
 

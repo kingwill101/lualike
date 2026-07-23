@@ -15,7 +15,9 @@
 library;
 
 import 'dart:async';
+import 'dart:io';
 
+import 'package:flutter/foundation.dart' show debugPrint, kDebugMode;
 import 'package:flutter/services.dart' show AssetBundle, AssetManifest;
 import 'package:lualike/lualike.dart' show FileSystemBackend;
 
@@ -34,6 +36,9 @@ class AssetBundleFileSystemBackend implements FileSystemBackend {
   final String? assetRoot;
 
   List<String>? _cachedManifest;
+
+  /// Content hashes for hot-reload change detection (debug mode only).
+  final Map<String, int> _hashes = {};
 
   /// Creates a backend backed by [bundle].
   ///
@@ -92,10 +97,49 @@ class AssetBundleFileSystemBackend implements FileSystemBackend {
   Future<String?> readFileAsString(String path) async {
     try {
       final resolved = _resolve(path);
-      return await bundle.loadString(resolved);
+
+      // Debug mode: check if the on-disk file changed (hot-reload support).
+      // This lets developers edit Lua files and see changes immediately
+      // after a Flutter hot reload, without restarting the app.
+      if (kDebugMode) {
+        final disk = await _tryDisk(resolved);
+        if (disk != null) return disk;
+      }
+
+      final content = await bundle.loadString(resolved);
+      if (kDebugMode) _hashes[resolved] = content.hashCode;
+      return content;
     } catch (_) {
       return null;
     }
+  }
+
+  /// In debug mode, reads [resolved] from the filesystem if the content has
+  /// changed since it was last cached. Returns `null` if the file hasn't
+  /// changed or can't be read from disk.
+  Future<String?> _tryDisk(String resolved) async {
+    try {
+      // Strip the asset root prefix to get a project-relative path.
+      // E.g. "assets/plugins/dropbox/plugin.lua" → "plugins/dropbox/plugin.lua"
+      final devPath = assetRoot != null && resolved.startsWith('$assetRoot/')
+          ? resolved.substring(assetRoot!.length + 1)
+          : resolved;
+      final file = File(devPath);
+      if (!await file.exists()) return null;
+
+      final diskContent = await file.readAsString();
+      final diskHash = diskContent.hashCode;
+      final cachedHash = _hashes[resolved];
+
+      if (cachedHash == null || diskHash != cachedHash) {
+        debugPrint('[flutter_lualike] hot-reload: $resolved changed on disk');
+        _hashes[resolved] = diskHash;
+        return diskContent;
+      }
+    } catch (_) {
+      // Ignore filesystem errors (e.g., file not found, permission denied).
+    }
+    return null;
   }
 
   @override

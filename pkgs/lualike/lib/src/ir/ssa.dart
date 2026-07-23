@@ -821,13 +821,34 @@ Set<int> _usedRegistersForInstruction(
       {...single(b), ...single(c)},
     ABCInstruction(opcode: LualikeIrOpcode.getI, b: final b) => single(b),
     ABCInstruction(opcode: LualikeIrOpcode.getField, b: final b) => single(b),
+    // Stores *read* the table (and often key/value regs). Missing A here
+    // makes DCE drop GETTABUP/MOVE that only feed SETFIELD table slots —
+    // e.g. `package.path = "x"` lost the load of `package` (nil index).
     ABCInstruction(opcode: LualikeIrOpcode.setUpval, c: final c) => single(c),
-    ABCInstruction(opcode: LualikeIrOpcode.setTable, b: final b, c: final c) =>
-      {...single(b), ...single(c)},
-    ABCInstruction(opcode: LualikeIrOpcode.setI, c: final c) => single(c),
-    ABCInstruction(opcode: LualikeIrOpcode.setField, c: final c) => single(c),
+    ABCInstruction(opcode: LualikeIrOpcode.setTabUp, c: final c) => single(c),
+    ABCInstruction(
+      opcode: LualikeIrOpcode.setTable,
+      a: final a,
+      b: final b,
+      c: final c,
+    ) =>
+      {...single(a), ...single(b), ...single(c)},
+    ABCInstruction(opcode: LualikeIrOpcode.setI, a: final a, c: final c) => {
+      ...single(a),
+      ...single(c),
+    },
+    ABCInstruction(opcode: LualikeIrOpcode.setField, a: final a, c: final c) =>
+      {...single(a), ...single(c)},
+    // SETLIST reads R(A) (table) and R(A+1)..R(A+B) (or open to top when B==0).
+    // Missing this lets DCE drop LOADI/MOVE into the SETLIST window — array
+    // constructors become empty tables (`{10,9}` → nils).
+    ABCInstruction(opcode: LualikeIrOpcode.setList, a: final a, b: final b) =>
+      b == 0
+          ? {...single(a), ...range(a + 1, registerCount - (a + 1))}
+          : {...single(a), ...range(a + 1, b)},
     ABCInstruction(opcode: LualikeIrOpcode.selfOp, b: final b) => single(b),
     ABCInstruction(opcode: LualikeIrOpcode.addI, b: final b) => single(b),
+    ABCInstruction(opcode: LualikeIrOpcode.subI, b: final b) => single(b),
     ABCInstruction(opcode: LualikeIrOpcode.addK, b: final b) => single(b),
     ABCInstruction(opcode: LualikeIrOpcode.subK, b: final b) => single(b),
     ABCInstruction(opcode: LualikeIrOpcode.mulK, b: final b) => single(b),
@@ -903,6 +924,23 @@ Set<int> _usedRegistersForInstruction(
     ABCInstruction(opcode: LualikeIrOpcode.return1, a: final a) => single(a),
     ABCInstruction(opcode: LualikeIrOpcode.test, a: final a) => single(a),
     ABCInstruction(opcode: LualikeIrOpcode.testSet, b: final b) => single(b),
+    // IR compares: A=result (def), B/C = operand registers / imm.
+    ABCInstruction(
+      opcode: LualikeIrOpcode.eq || LualikeIrOpcode.lt || LualikeIrOpcode.le,
+      b: final b,
+      c: final c,
+    ) =>
+      {...single(b), ...single(c)},
+    ABCInstruction(
+      opcode: LualikeIrOpcode.eqI ||
+          LualikeIrOpcode.ltI ||
+          LualikeIrOpcode.leI ||
+          LualikeIrOpcode.gtI ||
+          LualikeIrOpcode.geI ||
+          LualikeIrOpcode.eqK,
+      b: final b,
+    ) =>
+      single(b),
     ABCInstruction(opcode: LualikeIrOpcode.varArg, b: final b, a: final a) =>
       b == 0 ? const <int>{} : range(a, b - 1),
     ABCInstruction(opcode: LualikeIrOpcode.getVarArg) => const <int>{},
@@ -970,6 +1008,7 @@ Set<int> _definedRegistersForInstruction(
     ABCInstruction(opcode: LualikeIrOpcode.selfOp, a: final a) => range(a, 2),
     ABCInstruction(
       opcode: LualikeIrOpcode.addI ||
+          LualikeIrOpcode.subI ||
           LualikeIrOpcode.addK ||
           LualikeIrOpcode.subK ||
           LualikeIrOpcode.mulK ||
@@ -1009,7 +1048,22 @@ Set<int> _definedRegistersForInstruction(
     ABCInstruction(opcode: LualikeIrOpcode.call, a: final a, c: final c) =>
       (c == 0 ? range(a, registerCount - a) : range(a, c - 1)),
     ABCInstruction(opcode: LualikeIrOpcode.testSet, a: final a) => single(a),
+    // Compare ops write the result register A (materialized bool / IR result).
+    ABCInstruction(
+      opcode: LualikeIrOpcode.eq ||
+          LualikeIrOpcode.lt ||
+          LualikeIrOpcode.le ||
+          LualikeIrOpcode.eqI ||
+          LualikeIrOpcode.ltI ||
+          LualikeIrOpcode.leI ||
+          LualikeIrOpcode.gtI ||
+          LualikeIrOpcode.geI ||
+          LualikeIrOpcode.eqK,
+      a: final a,
+    ) =>
+      single(a),
     ABCInstruction(opcode: LualikeIrOpcode.forLoop, a: final a) => range(a, 4),
+    AsBxInstruction(opcode: LualikeIrOpcode.forLoop, a: final a) => range(a, 4),
     AsBxInstruction(opcode: LualikeIrOpcode.forPrep, a: final a) => range(a, 4),
     ABCInstruction(opcode: LualikeIrOpcode.tForCall, a: final a, c: final c) =>
       range(a + 3, c + 1),

@@ -11,23 +11,35 @@ import 'compile/pipeline.dart';
 import 'ir/runtime.dart';
 import 'lua_error.dart';
 import 'lua_bytecode/runtime.dart';
+import 'lua_bytecode/vm_value_helpers.dart';
 import 'lua_string.dart';
 import 'runtime/lua_slot.dart';
 import 'value.dart';
 
 typedef RuntimeSetupCallback = void Function(LuaRuntime);
 
-/// Executes source code using the specified execution mode.
+/// Executes **source** text using the selected engine.
 ///
-/// [sourceCode] - The source code to execute
-/// [mode] - Whether to use AST interpretation or IR compilation
-/// [environment] - Optional environment for variable scope
-/// [fileManager] - Optional file manager for I/O operations
-/// [url] - Optional chunk source name or file path used for parser context
-/// [foldEnabled] - Whether to enable constant folding (bytecode modes only).
-///   Defaults to [LuaLikeConfig.foldEnabled].
+/// This is the text path only. Precompiled binary chunks are handled by the
+/// CLI or [LuaRuntime.loadChunk] after a header sniff
+/// (`looksLikeTrackedLuaBytecodeBytes`); those paths invoke the bytecode VM
+/// directly and must not call this function.
 ///
-/// Returns the result of executing the code.
+/// Engine routing for [mode]:
+/// * [EngineMode.luaBytecode] — always IR + SSA + mechanical lower, then
+///   the bytecode VM (shared with `--compile` via
+///   `CompilePipelineConfig.luaBytecodeOptimized`).
+/// * [EngineMode.ir] with [foldEnabled] — IR pipeline without SSA.
+/// * [EngineMode.ast] — AST interpreter.
+///
+/// Top-level bytecode pipeline results share the live global environment so
+/// stdlib and prior `-e` mutations remain visible.
+///
+/// [url] is the chunk source name or file path used for parser context.
+/// [foldEnabled] defaults to [LuaLikeConfig.foldEnabled] and only affects
+/// IR-mode folding; lua-bytecode always uses the full optimized pipeline.
+///
+/// Returns the public execution result (scalars unwrapped where applicable).
 Future<Object?> executeCode(
   String sourceCode, {
   FileManager? fileManager,
@@ -59,29 +71,29 @@ Future<Object?> executeCode(
       throw Exception(semanticError);
     }
 
-    // When constant folding is enabled for bytecode engines, compile through
-    // the multi-pass pipeline instead of the runtime's built-in runAst.
+    // Engine routing:
+    // * luaBytecode → always IR pipeline + SSA + mechanical lower (default).
+    // * ir + fold → IR pipeline without SSA (IR VM cannot run post-SSA shapes).
+    // * ast → direct AST interpreter.
+    //
+    // Pipeline path depends on register budget checks, local register
+    // inference after serialize, and main lineDefined=0. See doc/decisions.md.
     final folding = foldEnabled ?? LuaLikeConfig().foldEnabled;
-    if (folding && selectedMode != EngineMode.ast) {
-      final backend = switch (selectedMode) {
-        EngineMode.luaBytecode => CompileBackend.luaBytecode,
-        EngineMode.ir => CompileBackend.lualikeIR,
-        _ => CompileBackend.luaBytecode,
-      };
-      final enableSsa = backend == CompileBackend.luaBytecode;
+    final useBytecodePipeline = selectedMode == EngineMode.luaBytecode;
+    final useIrPipeline = folding && selectedMode == EngineMode.ir;
+
+    if (useBytecodePipeline || useIrPipeline) {
       final pipeline = CompilePipeline(
-        config: CompilePipelineConfig(
-          enableConstantFolding: true,
-          enablePeephole: enableSsa,
-          enableSsaDeadCodeElimination: enableSsa,
-          enableSsaGlobalValueNumbering: enableSsa,
-          enableSsaSccp: enableSsa,
-          enableSsaLicm: true,
-          enableSsaCoalesce: true,
-          enableSsaEscape: true,
-          dumpIr: LuaLikeConfig().dumpIr,
-          target: backend,
-        ),
+        config: useBytecodePipeline
+            ? CompilePipelineConfig.luaBytecodeOptimized(
+                dumpIr: LuaLikeConfig().dumpIr,
+              )
+            : CompilePipelineConfig(
+                enableConstantFolding: true,
+                enablePeephole: false,
+                dumpIr: LuaLikeConfig().dumpIr,
+                target: CompileBackend.lualikeIR,
+              ),
       );
       final artifact = pipeline.compile(program);
 
@@ -95,12 +107,30 @@ Future<Object?> executeCode(
         stderr.writeln('--- End Lualike SSA ---');
       }
 
+      // Top-level scripts must share the live global environment (stdlib,
+      // package.path from prior -e snippets). loadBytecode() isolates env for
+      // load(); do not use it for entry chunks.
+      if (runtime is LuaBytecodeRuntime && artifact is LuaBytecodeArtifact) {
+        final env = runtime.getCurrentEnv();
+        final closure = LuaBytecodeClosure.main(
+          runtime: runtime,
+          chunk: artifact.chunk,
+          chunkName: url?.toString() ?? '=(pipeline)',
+          environment: env,
+        );
+        final function = Value(closure)..interpreter = runtime;
+        return _publicExecutionResult(
+          await runtime.callFunction(function, const <Object?>[]),
+        );
+      }
+
       final chunk = await runtime.loadBytecode(
         artifact.serializedBytes,
         moduleName: url?.toString() ?? '=(pipeline)',
       );
-      await runtime.callFunction(chunk, const <Object?>[]);
-      return null;
+      return _publicExecutionResult(
+        await runtime.callFunction(chunk, const <Object?>[]),
+      );
     }
 
     return _publicExecutionResult(await runtime.runAst(program.statements));

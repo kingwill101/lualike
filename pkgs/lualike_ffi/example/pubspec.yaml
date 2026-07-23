@@ -1,0 +1,18 @@
+name: lualike_ffi_example
+description: Example CLI app using lualike_ffi.
+version: 1.0.0
+publish_to: none
+
+environment:
+  sdk: ^3.10.0
+
+dependencies:
+  lualike_ffi:
+    path: ..
+
+dependency_overrides:
+  lualike:
+    path: ../../lualike
+
+dev_dependencies:
+  lints: ^6.1.0

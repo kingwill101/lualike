@@ -10,13 +10,20 @@ import 'utils.dart';
 
 /// Result of a smart compilation attempt.
 final class SmartCompileResult {
-  const SmartCompileResult({required this.success, required this.recompiled});
+  const SmartCompileResult({
+    required this.success,
+    required this.recompiled,
+    this.executablePath,
+  });
 
   /// Whether the binary is usable after the operation.
   final bool success;
 
   /// Whether this call actually rebuilt the binary.
   final bool recompiled;
+
+  /// Executable that callers should launch after a successful build.
+  final String? executablePath;
 }
 
 /// Smart compilation system that only recompiles when source files change
@@ -31,7 +38,13 @@ class SmartCompiler {
     required this.projectRoot,
     this.cacheDir = '.build_cache',
     String binaryName = 'lualike',
-    this.sourceDirectories = const ['bin', 'lib'],
+    this.sourceDirectories = const [
+      'bin',
+      'lib',
+      '../lualike_ffi/lib',
+      '../lualike_ffi/native',
+      '../lualike_ffi/hook',
+    ],
     String dartPath = 'dart',
   }) : binaryName = getExecutableName(binaryName),
        dartPath = getExecutableName(dartPath);
@@ -57,7 +70,12 @@ class SmartCompiler {
 
   String get _hashFilePath => path.join(_cachePath, 'source_hash.txt');
 
-  String get _binaryPath => path.join(projectRoot, binaryName);
+  String get _bundleOutputPath => path.join(_cachePath, 'native_build');
+
+  String get _binaryPath =>
+      path.join(_bundleOutputPath, 'bundle', 'bin', getExecutableName('main'));
+
+  String get _launcherPath => _resolvedBinaryPath;
 
   String get _compileTimeFilePath => path.join(_cachePath, 'compile_time.txt');
 
@@ -76,7 +94,7 @@ class SmartCompiler {
       var dirFileCount = 0;
       if (await dir.exists()) {
         await for (final entity in dir.list(recursive: true)) {
-          if (entity is File && entity.path.endsWith('.dart')) {
+          if (entity is File && _isTrackedSource(entity.path)) {
             files.add(entity);
             totalFiles++;
             dirFileCount++;
@@ -188,7 +206,7 @@ class SmartCompiler {
         final dir = Directory(path.join(projectRoot, dirName));
         if (await dir.exists()) {
           await for (final entity in dir.list(recursive: true)) {
-            if (entity is File && entity.path.endsWith('.dart')) {
+            if (entity is File && _isTrackedSource(entity.path)) {
               final fileStat = await entity.stat();
               if (fileStat.modified.isAfter(binaryStat.modified)) {
                 return false;
@@ -215,14 +233,34 @@ class SmartCompiler {
     console.writeln(dartPath);
 
     final stopwatch = Stopwatch()..start();
+    final environment = Map<String, String>.from(Platform.environment);
+    for (final name in const ['TMP', 'TEMP', 'TMPDIR']) {
+      final configured = environment[name];
+      if (configured == null ||
+          configured.isEmpty ||
+          path.isAbsolute(configured)) {
+        continue;
+      }
+      final absolute = path.absolute(projectRoot, configured);
+      Directory(absolute).createSync(recursive: true);
+      environment[name] = absolute;
+    }
 
-    final process = await Process.start(dartPath, [
-      'compile',
-      'exe',
-      '--output',
-      binaryName,
-      path.join('bin', 'main.dart'),
-    ], workingDirectory: projectRoot);
+    final process = await Process.start(
+      dartPath,
+      [
+        'build',
+        'cli',
+        '--output',
+        _bundleOutputPath,
+        '--target',
+        path.join('bin', 'main.dart'),
+        '--verbosity',
+        'warning',
+      ],
+      workingDirectory: projectRoot,
+      environment: environment,
+    );
 
     // Stream output in real-time
     process.stdout
@@ -243,6 +281,7 @@ class SmartCompiler {
     stopwatch.stop();
 
     if (exitCode == 0) {
+      await _installLauncher();
       console.writeln(
         Style()
             .foreground(Colors.green)
@@ -256,6 +295,32 @@ class SmartCompiler {
         Style().foreground(Colors.red).render('✗ Compilation failed'),
       );
       return false;
+    }
+  }
+
+  /// Keeps the historical output path as a launcher for the native bundle.
+  Future<void> _installLauncher() async {
+    final launcherPath = path.absolute(_launcherPath);
+    final bundledPath = path.absolute(_binaryPath);
+    if (launcherPath == bundledPath) {
+      return;
+    }
+
+    final launcherType = FileSystemEntity.typeSync(
+      launcherPath,
+      followLinks: false,
+    );
+    if (launcherType == FileSystemEntityType.link) {
+      await Link(launcherPath).delete();
+    } else if (launcherType != FileSystemEntityType.notFound) {
+      await File(launcherPath).delete();
+    }
+
+    await Directory(path.dirname(launcherPath)).create(recursive: true);
+    if (Platform.isWindows) {
+      await File(bundledPath).copy(launcherPath);
+    } else {
+      await Link(launcherPath).create(bundledPath);
     }
   }
 
@@ -274,7 +339,11 @@ class SmartCompiler {
         await _saveCachedCompileTime(compileStopwatch.elapsed);
         _logStats(stats, compileTime: compileStopwatch.elapsed);
       }
-      return SmartCompileResult(success: success, recompiled: true);
+      return SmartCompileResult(
+        success: success,
+        recompiled: true,
+        executablePath: success ? path.absolute(_binaryPath) : null,
+      );
     }
 
     console.writeln(
@@ -309,6 +378,7 @@ class SmartCompiler {
     if (currentHash == cachedHash) {
       // Additional check: ensure binary exists and is up to date
       if (await _isBinaryUpToDate()) {
+        await _installLauncher();
         final style = Style().foreground(Colors.green);
         console.write(
           style.render('✓ Source files unchanged, using existing binary'),
@@ -319,7 +389,11 @@ class SmartCompiler {
           );
         }
         console.writeln('');
-        return const SmartCompileResult(success: true, recompiled: false);
+        return SmartCompileResult(
+          success: true,
+          recompiled: false,
+          executablePath: path.absolute(_binaryPath),
+        );
       } else {
         console.writeln(
           Style()
@@ -344,7 +418,17 @@ class SmartCompiler {
       await _saveCachedCompileTime(compileStopwatch.elapsed);
     }
 
-    return SmartCompileResult(success: success, recompiled: true);
+    return SmartCompileResult(
+      success: success,
+      recompiled: true,
+      executablePath: success ? path.absolute(_binaryPath) : null,
+    );
+  }
+
+  bool _isTrackedSource(String filePath) {
+    return filePath.endsWith('.dart') ||
+        filePath.endsWith('.c') ||
+        filePath.endsWith('.h');
   }
 
   /// Log compilation statistics

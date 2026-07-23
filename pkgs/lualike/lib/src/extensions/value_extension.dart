@@ -40,7 +40,7 @@ dynamic fromLuaValue(dynamic obj) {
 
       return unwrappedMap;
     }
-    // 2) If the underlying raw is a List, then recursively unwrap each element.
+    // If the underlying raw is a List (legacy/internal), unwrap each element.
     else if (raw is List) {
       return raw.map((e) => fromLuaValue(e)).toList();
     }
@@ -83,9 +83,9 @@ Value toLuaValue(dynamic dy) {
     final map = (dy).map((k, v) => MapEntry(k, toLuaValue(v)));
     return Value(map);
   } else if (dy is List) {
-    // Recursively convert list elements.
+    // Recursively convert list elements and wrap as a 1-based Lua table.
     final list = (dy).map((e) => toLuaValue(e)).toList();
-    return Value(list);
+    return Value(Value.listToLuaTable(list));
   }
   // For any other type, simply wrap it.
   return Value.wrap(dy);

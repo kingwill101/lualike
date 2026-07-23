@@ -59,7 +59,7 @@ class AnalyzerPass extends CompilerPass {
   ) {
     for (final stmt in stmts) {
       switch (stmt) {
-        case LocalDeclaration(:final names, :final attributes, :final exprs):
+        case LocalDeclaration(:final names, :final exprs):
           _pushScopeIfNeeded(scopes);
           for (var i = 0; i < names.length; i++) {
             final type = _typeOfExpr(i < exprs.length ? exprs[i] : null, fold);
@@ -78,12 +78,12 @@ class AnalyzerPass extends CompilerPass {
             }
           }
 
-        case ForLoop(:final varName, :final start, :final endExpr, :final stepExpr):
+        case ForLoop(:final varName):
           // Loop variable is a number.
           _pushScopeIfNeeded(scopes);
           _recordType(varName.name, InferredType.number, scopes);
 
-        case IfStatement(:final cond, :final thenBlock, :final elseIfs, :final elseBlock):
+        case IfStatement(:final thenBlock, :final elseIfs, :final elseBlock):
           _pushScopeIfNeeded(scopes);
           _analyze(thenBlock, fold, scopes);
           _maybePopScope(scopes);

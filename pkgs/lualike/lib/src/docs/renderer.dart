@@ -1,3 +1,7 @@
+/// In-memory renderers for lualike library documentation.
+///
+/// This library produces HTML fragments and pages, JSON manifests, and LuaLS
+/// annotation stubs from the same registered-library metadata.
 library;
 
 import 'dart:convert';
@@ -21,15 +25,19 @@ import '../stdlib/library.dart' show Library;
 
 /// Result of rendering documentation to HTML fragments.
 class DocHtmlResult {
-  final String sidebar;
-  final String content;
-
+  /// Creates rendered HTML fragments for navigation and reference content.
   const DocHtmlResult({required this.sidebar, required this.content});
+
+  /// Navigation markup containing library and function links.
+  final String sidebar;
+
+  /// Main reference markup containing documented library members.
+  final String content;
 }
 
 /// Options for rendering the shared LuaLike documentation page shell.
 class DocPageOptions {
-  /// Creates shared documentation page options.
+  /// Creates options for the complete HTML documentation page.
   const DocPageOptions({
     this.title = 'LuaLike API Reference',
     this.brandName = 'LuaLike',

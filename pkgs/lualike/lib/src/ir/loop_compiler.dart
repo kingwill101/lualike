@@ -44,7 +44,7 @@ class LoopIrCompiler {
 
     // Reserve _ENV upvalue.
     protoBuilder.upvalueDescriptors.add(
-      const LualikeIrUpvalueDescriptor(inStack: 0, index: 0),
+      const LualikeIrUpvalueDescriptor(inStack: 1, index: 0),
     );
     protoBuilder.upvalueNames.add('_ENV');
 

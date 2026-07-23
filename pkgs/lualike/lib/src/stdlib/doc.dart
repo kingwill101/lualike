@@ -305,7 +305,7 @@ class FunctionDoc {
   ///
   /// When non-null, the LuaLS renderer uses this directly instead of inferring
   /// from the free-text [returns]. Use comma-separated values for multi-return
-  /// functions (e.g. `'string, integer'` for [string.gsub]).
+  /// functions (e.g. `'string, integer'` for `string.gsub`).
   ///
   /// The [returns] text is still used as the trailing `# description` on the
   /// first `---@return` line.

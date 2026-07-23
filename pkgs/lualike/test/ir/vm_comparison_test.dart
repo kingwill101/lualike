@@ -24,6 +24,13 @@ void main() {
       expect(await executeCode('return 3 ~= 4', mode: EngineMode.ir), isTrue);
     });
 
+    test('does not overwrite a register comparison operand', () async {
+      const source = 'local a = 1; local b = 2; return a == b';
+
+      expect(await executeCode(source, mode: EngineMode.ir), isFalse);
+      expect(await executeCode(source, mode: EngineMode.luaBytecode), isFalse);
+    });
+
     test('executes equality with string literal', () async {
       final env = EnvironmentFactory.stringEnv('foo');
       expect(

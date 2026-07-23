@@ -3,8 +3,13 @@ import 'opcode.dart';
 
 /// Instruction-level opcode analysis helpers for the bytecode VM.
 extension LuaBytecodeInstructionWordAnalysis on LuaBytecodeInstructionWord {
+  /// Whether this instruction carries the payload for a preceding opcode.
   bool get isExtraArg => opcode == Opcode.extraArg;
 
+  /// Whether this instruction reads [register] before completing.
+  ///
+  /// This includes implicit register windows used by calls, returns, and loop
+  /// opcodes, not only registers encoded as ordinary operands.
   bool readsRegister(int register) => switch (opcode) {
     Opcode.move => b == register,
     Opcode.loadI ||
@@ -74,21 +79,23 @@ extension LuaBytecodeInstructionWordAnalysis on LuaBytecodeInstructionWord {
       _ => register >= a && register < a + (b - 1),
     },
     Opcode.return0 || Opcode.return1 => false,
-    Opcode.forLoop => register >= a && register <= a + 3,
+    Opcode.forLoop => register >= a && register <= a + 2,
     Opcode.forPrep => register >= a && register <= a + 2,
-    Opcode.tForPrep => a == register,
-    Opcode.tForCall => switch (c) {
-      0 => register >= a,
-      _ => register >= a && register < a + c + 1,
-    },
-    Opcode.tForLoop => a == register,
+    Opcode.tForPrep => register >= a && register <= a + 3,
+    Opcode.tForCall => register == a || register == a + 1 || register == a + 3,
+    // A..A+2 remain live across the backedge for the next TFORCALL.
+    Opcode.tForLoop => register >= a && register <= a + 3,
     Opcode.setList => register >= a && register <= a + b,
     Opcode.close || Opcode.tbc => false,
-    Opcode.mmBin || Opcode.mmBinI || Opcode.mmBinK =>
-      a == register || b == register,
+    Opcode.mmBin ||
+    Opcode.mmBinI ||
+    Opcode.mmBinK => a == register || b == register,
     Opcode.extraArg || Opcode.checkGlobal || Opcode.errNNil => false,
   };
 
+  /// Whether this instruction writes [register].
+  ///
+  /// This includes every result in variable-width call and load windows.
   bool writesRegister(int register) => switch (opcode) {
     Opcode.move ||
     Opcode.loadI ||

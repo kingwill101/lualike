@@ -5,6 +5,7 @@ import 'package:lualike/src/exceptions.dart';
 import 'package:lualike/src/gc/gc.dart';
 import 'package:lualike/src/lua_bytecode/chunk.dart';
 import 'package:lualike/src/lua_bytecode/debug_local_caches.dart';
+import 'package:lualike/src/lua_bytecode/instruction_analysis.dart';
 import 'package:lualike/src/lua_bytecode/vm_support.dart';
 import 'package:lualike/src/lua_bytecode/vm_value_helpers.dart';
 
@@ -137,26 +138,7 @@ final class LuaBytecodeFrame implements LuaBytecodeGCRootProvider {
     final nilConst = _nilConst;
     final parameterCount = closure.prototype.parameterCount;
     final argCount = arguments.length;
-
-    // Normalize arguments — Values pass through, other types get wrapped.
-    // Small arg counts use a growable list to avoid the fixed-size allocation.
-    late final List<Value> args;
-    if (argCount <= 4) {
-      final small = <Value>[];
-      for (var index = 0; index < argCount; index++) {
-        final arg = arguments[index];
-        small.add(arg is Value ? arg : runtimeValue(runtime, arg));
-      }
-      args = small;
-    } else {
-      final fixed = List<Value>.filled(argCount, nilConst, growable: false);
-      for (var index = 0; index < argCount; index++) {
-        final arg = arguments[index];
-        fixed[index] = arg is Value ? arg : runtimeValue(runtime, arg);
-      }
-      args = fixed;
-    }
-    callArgs = args;
+    final regLen = regs.length;
 
     pc = 0;
     top = parameterCount;
@@ -180,21 +162,54 @@ final class LuaBytecodeFrame implements LuaBytecodeGCRootProvider {
     _varargStart = 0;
     _varargCount = 0;
 
-    // Fast init: direct register assignment without setRegister overhead.
-    // setRegister does bounds checks, cloning, GC tracking, etc. which are
-    // all unnecessary during frame construction (registers are fresh).
-    for (var index = 0; index < regs.length; index++) {
-      regs[index] = nilConst;
+    // Hot path (nested BC CALL): args are already Values (FrameArgsView /
+    // List<Value>). Write params directly and nil the rest in one pass —
+    // no intermediate growable list (profiler: call entry).
+    final needsArgList =
+        closure.prototype.isVararg || closure.prototype.needsVarargTable;
+    List<Value>? argsList;
+    if (needsArgList) {
+      if (argCount <= 4) {
+        final small = <Value>[];
+        for (var index = 0; index < argCount; index++) {
+          final arg = arguments[index];
+          small.add(arg is Value ? arg : runtimeValue(runtime, arg));
+        }
+        argsList = small;
+      } else {
+        final fixed = List<Value>.filled(argCount, nilConst, growable: false);
+        for (var index = 0; index < argCount; index++) {
+          final arg = arguments[index];
+          fixed[index] = arg is Value ? arg : runtimeValue(runtime, arg);
+        }
+        argsList = fixed;
+      }
+      callArgs = argsList;
+    } else {
+      callArgs = const <Value>[];
+    }
+
+    final fillTo = regLen;
+    for (var index = 0; index < fillTo; index++) {
+      if (index < parameterCount) {
+        final Value value;
+        if (argsList != null) {
+          value = index < argsList.length ? argsList[index] : nilConst;
+        } else if (index < argCount) {
+          final arg = arguments[index];
+          value = arg is Value ? arg : runtimeValue(runtime, arg);
+        } else {
+          value = nilConst;
+        }
+        value.interpreter ??= runtime;
+        regs[index] = value;
+      } else {
+        regs[index] = nilConst;
+      }
       _lastRegisterWritePc[index] = -1;
     }
-    for (var index = 0; index < parameterCount; index++) {
-      final value = index < args.length
-          ? args[index]
-          : nilConst;
-      value.interpreter ??= runtime;
-      regs[index] = value;
-    }
     if (closure.prototype.isVararg) {
+      final args = argsList!;
       _varargStart = parameterCount;
       _varargCount = args.length > parameterCount
           ? args.length - parameterCount
@@ -214,8 +229,8 @@ final class LuaBytecodeFrame implements LuaBytecodeGCRootProvider {
     }
   }
 
-  // Wipe transient references before a frame re-enters the pool so GC doesn't
-  // retain arguments, locals, or coroutine state from the previous call.
+  // Drop transient refs before pooling. Register wipe is left to the next
+  // [reset] so we only nil registers once per call (was clear + reset).
   void clearForPool() {
     functionValue = null;
     callName = null;
@@ -244,11 +259,6 @@ final class LuaBytecodeFrame implements LuaBytecodeGCRootProvider {
     forceNextLineHook = false;
     _varargStart = 0;
     _varargCount = 0;
-    final nilConst = _nilConst;
-    for (var index = 0; index < registers.length; index++) {
-      registers[index] = nilConst;
-      _lastRegisterWritePc[index] = -1;
-    }
   }
 
   int get effectiveTop => openTop ?? top;
@@ -328,7 +338,7 @@ final class LuaBytecodeFrame implements LuaBytecodeGCRootProvider {
     if (index < registers.length) {
       return registers[index];
     }
-    return runtime.constantPrimitiveValue(null);
+    return _nilConst;
   }
 
   void setRegister(int index, Value value) {
@@ -338,11 +348,7 @@ final class LuaBytecodeFrame implements LuaBytecodeGCRootProvider {
     if (index >= registers.length) {
       final fillCount = index - registers.length + 1;
       registers.addAll(
-        List<Value>.generate(
-          fillCount,
-          (_) => runtime.constantPrimitiveValue(null),
-          growable: false,
-        ),
+        List<Value>.generate(fillCount, (_) => _nilConst, growable: false),
       );
       lastRegisterWritePc.addAll(
         List<int>.filled(index - lastRegisterWritePc.length + 1, -1),
@@ -385,6 +391,40 @@ final class LuaBytecodeFrame implements LuaBytecodeGCRootProvider {
     if (gc.isCycleActive) {
       gc.noteRootWrite(storedValue);
     }
+    if (index < trackedRegisterWriteFlags.length &&
+        trackedRegisterWriteFlags[index]) {
+      lastRegisterWritePc[index] = pc;
+    }
+    if (index + 1 > top) {
+      top = index + 1;
+    }
+  }
+
+  /// Direct register store when [value] is already frame-safe (no clone).
+  @pragma('vm:prefer-inline')
+  void storeRegisterRaw(int index, Value value) {
+    final registers = this.registers;
+    final lastRegisterWritePc = _lastRegisterWritePc;
+    final trackedRegisterWriteFlags = _trackedRegisterWriteFlags;
+    if (index >= registers.length) {
+      final fillCount = index - registers.length + 1;
+      registers.addAll(
+        List<Value>.generate(fillCount, (_) => _nilConst, growable: false),
+      );
+      lastRegisterWritePc.addAll(
+        List<int>.filled(index - lastRegisterWritePc.length + 1, -1),
+      );
+      trackedRegisterWriteFlags.addAll(
+        List<bool>.filled(
+          index - trackedRegisterWriteFlags.length + 1,
+          false,
+          growable: false,
+        ),
+      );
+    }
+    value.interpreter ??= runtime;
+    registers[index] = value;
+    debugStateVersion++;
     if (index < trackedRegisterWriteFlags.length &&
         trackedRegisterWriteFlags[index]) {
       lastRegisterWritePc[index] = pc;
@@ -559,6 +599,9 @@ final class LuaBytecodeFrame implements LuaBytecodeGCRootProvider {
     for (final (:register, :endPc) in registersToClear) {
       final registerIndex = register;
       if (registerIndex >= registers.length) {
+        continue;
+      }
+      if (closure.prototype.code[currentPc].readsRegister(registerIndex)) {
         continue;
       }
       if (_toBeClosedRegisters.contains(registerIndex)) {

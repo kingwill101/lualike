@@ -12,7 +12,10 @@ extension LuaBytecodeVmArithmetic on LuaBytecodeVm {
   }) {
     final fastPath = _tryBinaryFastPath(operation, left, right);
     if (fastPath != null) {
-      frame.setRegister(targetRegister, fastPath);
+      // Fast path returns private transients (not the constant pool).
+      // storeRegisterRaw skips setRegister reboxing — ADD/SUB dominate
+      // LUALIKE_PROFILE_BYTECODE pure-arith micros after FORLOOP.
+      frame.storeRegisterRaw(targetRegister, fastPath);
       _skipBinaryMetamethodFollowup(frame);
       return;
     }
@@ -206,40 +209,54 @@ extension LuaBytecodeVmArithmetic on LuaBytecodeVm {
     final rightRaw = rawLuaSlot(right);
     if (leftRaw is int && rightRaw is int) {
       return switch (operation) {
-        LuaBinaryOperation.add =>
-          transientPrimitiveValue(runtime, leftRaw + rightRaw),
-        LuaBinaryOperation.sub =>
-          transientPrimitiveValue(runtime, leftRaw - rightRaw),
-        LuaBinaryOperation.mul =>
-          transientPrimitiveValue(runtime, leftRaw * rightRaw),
+        LuaBinaryOperation.add => transientPrimitiveValue(
+          runtime,
+          leftRaw + rightRaw,
+        ),
+        LuaBinaryOperation.sub => transientPrimitiveValue(
+          runtime,
+          leftRaw - rightRaw,
+        ),
+        LuaBinaryOperation.mul => transientPrimitiveValue(
+          runtime,
+          leftRaw * rightRaw,
+        ),
         _ => runtimeValue(
-            runtime,
-            NumberUtils.performArithmetic(
-              operation.operatorSymbol,
-              leftRaw,
-              rightRaw,
-            ),
+          runtime,
+          NumberUtils.performArithmetic(
+            operation.operatorSymbol,
+            leftRaw,
+            rightRaw,
           ),
+        ),
       };
     }
     if (leftRaw is num && rightRaw is num) {
       return switch (operation) {
-        LuaBinaryOperation.add =>
-          transientPrimitiveValue(runtime, leftRaw + rightRaw),
-        LuaBinaryOperation.sub =>
-          transientPrimitiveValue(runtime, leftRaw - rightRaw),
-        LuaBinaryOperation.mul =>
-          transientPrimitiveValue(runtime, leftRaw * rightRaw),
-        LuaBinaryOperation.div =>
-          transientPrimitiveValue(runtime, leftRaw / rightRaw),
+        LuaBinaryOperation.add => transientPrimitiveValue(
+          runtime,
+          leftRaw + rightRaw,
+        ),
+        LuaBinaryOperation.sub => transientPrimitiveValue(
+          runtime,
+          leftRaw - rightRaw,
+        ),
+        LuaBinaryOperation.mul => transientPrimitiveValue(
+          runtime,
+          leftRaw * rightRaw,
+        ),
+        LuaBinaryOperation.div => transientPrimitiveValue(
+          runtime,
+          leftRaw / rightRaw,
+        ),
         _ => runtimeValue(
-            runtime,
-            NumberUtils.performArithmetic(
-              operation.operatorSymbol,
-              leftRaw,
-              rightRaw,
-            ),
+          runtime,
+          NumberUtils.performArithmetic(
+            operation.operatorSymbol,
+            leftRaw,
+            rightRaw,
           ),
+        ),
       };
     }
     final rawResult = switch (operation) {

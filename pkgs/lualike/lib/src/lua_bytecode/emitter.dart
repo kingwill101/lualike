@@ -1189,9 +1189,13 @@ final class LuaBytecodeStructuredCompiler {
       () {
         // If the constant folding pass determined this node's value at
         // compile time, emit a LOADK / LOADI directly.
+        // Tables (Map) are mutable identity values — never replace allocation.
         if (foldingResult != null && foldingResult!.isConstant(node)) {
-          _emitFoldedConstant(node, foldingResult!.getValue(node), targetRegister);
-          return;
+          final folded = foldingResult!.getValue(node);
+          if (folded is! Map) {
+            _emitFoldedConstant(node, folded, targetRegister);
+            return;
+          }
         }
 
         final savedTemp = _nextTemp;
@@ -1347,9 +1351,11 @@ final class LuaBytecodeStructuredCompiler {
       return;
     }
 
-    // Unrecognized folded value type — should not happen in practice.
-    // Emit nil as a safe default to avoid infinite recursion.
-    _prototype.emitLoadNil(target: targetRegister);
+    // Maps are skipped by the caller so TableConstructor still allocates.
+    throw StateError(
+      'unsupported folded constant type ${value.runtimeType} '
+      'for ${node.runtimeType}',
+    );
   }
 
   void _emitIdentifierToRegister(String name, int targetRegister) {
@@ -1702,35 +1708,40 @@ final class LuaBytecodeStructuredCompiler {
       }
     }
 
-    final operandBase = _reserveTempBlock(2);
+    // luac55-style: evaluate left into the destination, right into one
+    // scratch, then ARITH dest,dest,scratch (no temp result + MOVE).
+    // Safe when the destination is not live in [right] as a source that
+    // must be read after left overwrites it — for the common `s = s + x`
+    // / `t = s + x` shapes left is fully evaluated first (Lua order).
     final operatorLine = _multilineBinaryOperatorLine(expression);
     _withStickySourceLine(
       operatorLine,
       () => _emitExpressionToRegister(
         left,
-        operandBase,
+        targetRegister,
         lineOverride: operatorLine,
       ),
     );
-    _emitExpressionToRegister(right, operandBase + 1);
-    _withSourceLine(operatorLine, () {
-      _prototype.emitAbc(
-        _binaryOpcodeFor(op),
-        a: operandBase,
-        b: operandBase,
-        c: operandBase + 1,
-      );
-      _prototype.emitAbc(
-        'MMBIN',
-        a: operandBase,
-        b: operandBase + 1,
-        c: _binaryMetamethodEventFor(op),
-      );
-      if (operandBase != targetRegister) {
-        _prototype.emitMove(target: targetRegister, source: operandBase);
-      }
-    });
-    _releaseTempBlock(operandBase, 2);
+    final scratch = _reserveTempBlock(1);
+    try {
+      _emitExpressionToRegister(right, scratch);
+      _withSourceLine(operatorLine, () {
+        _prototype.emitAbc(
+          _binaryOpcodeFor(op),
+          a: targetRegister,
+          b: targetRegister,
+          c: scratch,
+        );
+        _prototype.emitAbc(
+          'MMBIN',
+          a: targetRegister,
+          b: scratch,
+          c: _binaryMetamethodEventFor(op),
+        );
+      });
+    } finally {
+      _releaseTempBlock(scratch, 1);
+    }
   }
 
   void _collectLeftLinearBinaryOperands(
@@ -3047,10 +3058,7 @@ final class LuaBytecodeStructuredCompiler {
     final local = _lookupLocal(name);
     if (local != null) {
       _capturedLocals.add(local);
-      return LuaBytecodeStructuredCapture(
-        index: local.register,
-        inStack: true,
-      );
+      return LuaBytecodeStructuredCapture(index: local.register, inStack: true);
     }
 
     final existing = _upvaluesByName[name];
@@ -3623,10 +3631,7 @@ final class LuaBytecodeStructuredLocal {
 }
 
 final class LuaBytecodeStructuredUpvalue {
-  const LuaBytecodeStructuredUpvalue({
-    required this.name,
-    required this.index,
-  });
+  const LuaBytecodeStructuredUpvalue({required this.name, required this.index});
 
   final String name;
   final int index;

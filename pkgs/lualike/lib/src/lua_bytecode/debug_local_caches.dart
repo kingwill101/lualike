@@ -1,7 +1,23 @@
+/// Debug-local caches and register inference for Lua bytecode prototypes.
+///
+/// Official Lua 5.x chunks store locals as `(name, startPc, endPc)` only.
+/// This VM needs a stack **register** for each local so
+/// `debug.getlocal` / `debug.setlocal` can read frame slots.
+///
+/// After [LuaBytecodeReader.readChunk] parses a chunk, call
+/// [prototypeWithInferredLocalRegisters] (done automatically in the reader)
+/// so reloaded pipeline/`--fold` chunks keep working.
+///
+/// See also: `doc/decisions.md` ("Official bytecode omits local registers").
+library;
+
 import 'package:lualike/src/lua_bytecode/chunk.dart';
 import 'package:lualike/src/lua_bytecode/opcode.dart';
 
 /// Active debug local window at a given PC.
+///
+/// [locals] are named entries live at that PC; [registers] is the set of
+/// stack slots they occupy (used to hide those slots from temporary listing).
 typedef LuaBytecodeDebugLocalWindow = ({
   List<LuaBytecodeLocalVariableDebugInfo> locals,
   Set<int> registers,
@@ -13,7 +29,7 @@ const emptyLuaBytecodeDebugLocalWindow = (
 );
 
 final Expando<List<({int start, int? end})?>>
-    prototypeWrittenRegisterRangesByPc = Expando<List<({int start, int? end})?>>( 
+prototypeWrittenRegisterRangesByPc = Expando<List<({int start, int? end})?>>(
   'luaBytecodePrototypeWrittenRegisterRangesByPc',
 );
 
@@ -64,8 +80,8 @@ List<({int start, int? end})?> writtenRegisterRangesByPcFor(
 
 final Expando<List<Map<int, String>>> prototypeActiveNamedLocalsByPc =
     Expando<List<Map<int, String>>>(
-  'luaBytecodePrototypeActiveNamedLocalsByPc',
-);
+      'luaBytecodePrototypeActiveNamedLocalsByPc',
+    );
 
 List<Map<int, String>> activeNamedLocalsByPcFor(
   LuaBytecodePrototype prototype,
@@ -100,7 +116,8 @@ List<Map<int, String>> activeNamedLocalsByPcFor(
     }
   }
 
-  final activeLocalsByRegister = <int, List<LuaBytecodeLocalVariableDebugInfo>>{};
+  final activeLocalsByRegister =
+      <int, List<LuaBytecodeLocalVariableDebugInfo>>{};
   var currentNamedLocals = const <int, String>{};
   final snapshots = List<Map<int, String>>.filled(
     codeLength,
@@ -158,14 +175,14 @@ List<Map<int, String>> activeNamedLocalsByPcFor(
 }
 
 final Expando<List<LuaBytecodeDebugLocalWindow>>
-    prototypeActiveDebugLocalsByPc = Expando<List<LuaBytecodeDebugLocalWindow>>(
+prototypeActiveDebugLocalsByPc = Expando<List<LuaBytecodeDebugLocalWindow>>(
   'luaBytecodePrototypeActiveDebugLocalsByPc',
 );
 
-final Expando<List<Map<int, String>>>
-    prototypeVisibleNamedLocalsByPc = Expando<List<Map<int, String>>>(
-  'luaBytecodePrototypeVisibleNamedLocalsByPc',
-);
+final Expando<List<Map<int, String>>> prototypeVisibleNamedLocalsByPc =
+    Expando<List<Map<int, String>>>(
+      'luaBytecodePrototypeVisibleNamedLocalsByPc',
+    );
 
 List<LuaBytecodeDebugLocalWindow> activeDebugLocalsByPcFor(
   LuaBytecodePrototype prototype,
@@ -302,7 +319,7 @@ LuaBytecodeDebugLocalWindow debugLocalWindowForPc(
 }
 
 final Expando<List<LuaBytecodeLocalVariableDebugInfo>>
-    prototypeSortedDebugLocals = Expando<List<LuaBytecodeLocalVariableDebugInfo>>(
+prototypeSortedDebugLocals = Expando<List<LuaBytecodeLocalVariableDebugInfo>>(
   'luaBytecodePrototypeSortedDebugLocals',
 );
 
@@ -426,4 +443,141 @@ List<Set<int>> environmentRegistersByPcFor(LuaBytecodePrototype prototype) {
 
   prototypeEnvironmentRegistersByPc[prototype] = snapshots;
   return snapshots;
+}
+
+/// Recovers per-local stack registers missing from official Lua debug sections.
+///
+/// Official chunks only store `(name, startPc, endPc)`. Lua locals form a
+/// **stack** of active slots (PUC-Rio `actvar`): the n-th active local at any
+/// PC lives in register `n - 1`. This simulates that stack at each local's
+/// birth so [LuaBytecodeLocalVariableDebugInfo.register] is filled.
+///
+/// **Why this exists:** serialize → parse strips registers (not in the binary
+/// format). Without inference, `debug_local_caches` skips `register == null`
+/// entries and `debug.getlocal` returns nothing after `--fold` / pipeline load.
+///
+/// **Invariant assumed:** lifetimes nest like a stack (block-scoped locals).
+/// That matches both the direct emitter and the IR compiler's local allocator.
+/// If a future pass assigns non-stack local registers, prefer emitting an
+/// explicit register extension on serialize instead of relying only on this.
+///
+/// Locals that already have [LuaBytecodeLocalVariableDebugInfo.register] set
+/// are left unchanged; only `null` slots are filled.
+List<LuaBytecodeLocalVariableDebugInfo> inferLocalRegisters(
+  List<LuaBytecodeLocalVariableDebugInfo> locals,
+) {
+  if (locals.isEmpty) {
+    return locals;
+  }
+  if (locals.every((local) => local.register != null)) {
+    return locals;
+  }
+
+  // Process births in startPc order (stable by original index on ties).
+  final order = List<int>.generate(locals.length, (index) => index)
+    ..sort((left, right) {
+      final startOrder = locals[left].startPc.compareTo(locals[right].startPc);
+      if (startOrder != 0) {
+        return startOrder;
+      }
+      return left.compareTo(right);
+    });
+
+  final registers = <int?>[for (final local in locals) local.register];
+  // Indices of currently live locals; only the top of the stack dies first.
+  final active = <int>[];
+
+  for (final index in order) {
+    final local = locals[index];
+    // endPc is the first PC where the local is dead (Lua LocVar convention).
+    while (active.isNotEmpty && locals[active.last].endPc <= local.startPc) {
+      active.removeLast();
+    }
+
+    if (registers[index] == null) {
+      // Depth on the actvar stack == register index under stack discipline.
+      registers[index] = active.length;
+    }
+    active.add(index);
+  }
+
+  return <LuaBytecodeLocalVariableDebugInfo>[
+    for (var index = 0; index < locals.length; index++)
+      LuaBytecodeLocalVariableDebugInfo(
+        name: locals[index].name,
+        startPc: locals[index].startPc,
+        endPc: locals[index].endPc,
+        register: registers[index],
+      ),
+  ];
+}
+
+/// Returns [prototype] with local-register inference applied recursively.
+///
+/// Prefer calling this once at chunk-load time (see [LuaBytecodeReader.readChunk])
+/// rather than ad hoc in the VM, so all debug caches see consistent registers.
+LuaBytecodePrototype prototypeWithInferredLocalRegisters(
+  LuaBytecodePrototype prototype,
+) {
+  final localVariables = inferLocalRegisters(prototype.localVariables);
+  final children = <LuaBytecodePrototype>[
+    for (final child in prototype.prototypes)
+      prototypeWithInferredLocalRegisters(child),
+  ];
+
+  final localsUnchanged =
+      identical(localVariables, prototype.localVariables) ||
+      _localListsEqual(localVariables, prototype.localVariables);
+  var childrenUnchanged = children.length == prototype.prototypes.length;
+  if (childrenUnchanged) {
+    for (var index = 0; index < children.length; index++) {
+      if (!identical(children[index], prototype.prototypes[index])) {
+        childrenUnchanged = false;
+        break;
+      }
+    }
+  }
+
+  if (localsUnchanged && childrenUnchanged) {
+    return prototype;
+  }
+
+  return LuaBytecodePrototype(
+    lineDefined: prototype.lineDefined,
+    lastLineDefined: prototype.lastLineDefined,
+    parameterCount: prototype.parameterCount,
+    flags: prototype.flags,
+    maxStackSize: prototype.maxStackSize,
+    code: prototype.code,
+    constants: prototype.constants,
+    upvalues: prototype.upvalues,
+    prototypes: List<LuaBytecodePrototype>.unmodifiable(children),
+    source: prototype.source,
+    lineInfo: prototype.lineInfo,
+    absoluteLineInfo: prototype.absoluteLineInfo,
+    localVariables: List<LuaBytecodeLocalVariableDebugInfo>.unmodifiable(
+      localVariables,
+    ),
+    upvalueNames: prototype.upvalueNames,
+  );
+}
+
+bool _localListsEqual(
+  List<LuaBytecodeLocalVariableDebugInfo> left,
+  List<LuaBytecodeLocalVariableDebugInfo> right,
+) {
+  if (left.length != right.length) {
+    return false;
+  }
+  for (var index = 0; index < left.length; index++) {
+    final a = left[index];
+    final b = right[index];
+    if (a.name != b.name ||
+        a.startPc != b.startPc ||
+        a.endPc != b.endPc ||
+        a.register != b.register) {
+      return false;
+    }
+  }
+  return true;
 }

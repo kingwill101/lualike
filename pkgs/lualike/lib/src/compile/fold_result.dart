@@ -22,8 +22,7 @@ final class ConstantFoldingResult {
   static const Object constantNil = Object();
 
   final HashMap<AstNode, Object?> _values = HashMap<AstNode, Object?>();
-  final HashMap<AstNode, Object?> _originalValues =
-      HashMap<AstNode, Object?>();
+  final HashMap<AstNode, Object?> _originalValues = HashMap<AstNode, Object?>();
 
   /// Whether the folding pass determined [node] is a compile-time constant.
   bool isConstant(AstNode node) => _values.containsKey(node);
@@ -46,6 +45,35 @@ final class ConstantFoldingResult {
     if (originalValue != null) {
       _originalValues[node] = originalValue;
     }
+  }
+
+  /// Removes any folded value for [node].
+  void clearValue(AstNode node) {
+    _values.remove(node);
+    _originalValues.remove(node);
+  }
+
+  /// Full snapshot of fold maps for restore after speculative evaluation.
+  ({Map<AstNode, Object?> values, Map<AstNode, Object?> originals})
+  snapshot() => (
+    values: Map<AstNode, Object?>.of(_values),
+    originals: Map<AstNode, Object?>.of(_originalValues),
+  );
+
+  /// Restores [snapshot] exactly, discarding speculative inline evaluation.
+  ///
+  /// Inlining walks the **shared** function-body AST under temporary const
+  /// parameters. Those writes must not stick, or later emission of the real
+  /// function uses one call site's constants (e.g. `toint` becomes `LOADI -2`).
+  void restore(
+    ({Map<AstNode, Object?> values, Map<AstNode, Object?> originals}) snapshot,
+  ) {
+    _values
+      ..clear()
+      ..addAll(snapshot.values);
+    _originalValues
+      ..clear()
+      ..addAll(snapshot.originals);
   }
 
   /// Merges all entries from [other] into this result.

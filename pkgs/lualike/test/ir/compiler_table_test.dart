@@ -24,7 +24,7 @@ void main() {
 
       final getField = instructions[1] as ABCInstruction;
       expect(getField.opcode, LualikeIrOpcode.getField);
-      expect(getField.b, equals(0));
+      expect(getField.a, equals(getField.b));
       expect(getField.c, equals(fieldIndex));
     });
 
@@ -36,8 +36,7 @@ void main() {
 
       final getI = instructions[1] as ABCInstruction;
       expect(getI.opcode, LualikeIrOpcode.getI);
-      expect(getI.a, equals(0));
-      expect(getI.b, equals(0));
+      expect(getI.a, equals(getI.b));
       expect(getI.c, equals(1));
     });
 

@@ -2,7 +2,6 @@ import 'dart:typed_data';
 
 import 'package:lualike/lualike.dart';
 import 'package:lualike/src/coroutine.dart';
-import 'package:lualike/src/lua_bytecode/runtime.dart';
 import 'package:lualike/src/runtime/lua_results.dart';
 import 'package:lualike/src/runtime/lua_slot.dart';
 import 'package:lualike/src/runtime/vararg_table.dart';
@@ -407,7 +406,7 @@ void main() {
       identical(storage.denseValueAt(4), runtime.constantPrimitiveValue(7)),
       true,
     );
-    expect(identical(storage['n'], runtime.constantPrimitiveValue(4)), true);
+    expect(storage['n']?.raw, equals(4));
   });
 
   test(

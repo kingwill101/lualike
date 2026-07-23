@@ -113,12 +113,19 @@ The lualike CLI is a drop-in replacement for the Lua CLI, supporting similar arg
 ### Common Flags
 - `--ast`         : Run using AST interpreter (default)
 - `--ir`          : Run using the lualike IR runtime
-- `--lua-bytecode`: Run supported source through the opt-in `lua_bytecode` engine
+- `--lua-bytecode`: Run **source** through IR+SSA → real bytecode, or run a
+  precompiled binary chunk (header-detected) on the bytecode VM only
+- `--compile`     : Compile source to a binary chunk (requires `-o` / `--output`)
+- `-o path`       : Output path for `--compile` (any name; no reserved extension)
 - `-e code`       : Execute string 'code' inline
 - `--debug`       : Enable debug mode (and set logging to FINE level for all categories)
 - `--level LEVEL` : Set log level. Valid levels: `ALL`, `FINEST`, `FINER`, `FINE`, `CONFIG`, `INFO`, `WARNING`, `SEVERE`, `SHOUT`, `OFF`. Invalid levels default to `WARNING`.
 - `--category CAT`: Set log category to filter (only logs for this category)
 - `--help`        : Show help message
+
+Precompiled files are recognized by the official Lua chunk header, not by
+extension. Header match ⇒ parse + bytecode VM (no IR/SSA). Missing header
+⇒ treat as source.
 
 If no script or code is provided, starts REPL mode.
 
