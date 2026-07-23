@@ -11,7 +11,8 @@ import '../test_support/lua_api_test_helpers.dart';
 void main() {
   group('love.graphics Video bindings', () {
     test('newVideo accepts filename and VideoStream inputs', () async {
-      final runtime = createLuaLikeTestRuntime();
+      final lualike = LuaLike();
+      LuaRuntime runtime = lualike.vm;
       installLove2d(
         runtime: runtime,
         host: LoveHeadlessHost(),
@@ -65,7 +66,8 @@ void main() {
     test(
       'newVideo reports the upstream file-open error for missing sources',
       () async {
-        final runtime = createLuaLikeTestRuntime();
+        final lualike = LuaLike();
+        LuaRuntime runtime = lualike.vm;
         installLove2d(
           runtime: runtime,
           host: LoveHeadlessHost(),
@@ -121,7 +123,8 @@ void main() {
     test(
       'Video source sync and filter control mirror the wrapped stream',
       () async {
-        final runtime = createLuaLikeTestRuntime();
+        final lualike = LuaLike();
+        LuaRuntime runtime = lualike.vm;
         installLove2d(
           runtime: runtime,
           host: LoveHeadlessHost(),
@@ -186,7 +189,8 @@ void main() {
     test(
       'Video seek mirrors upstream stream semantics for negative offsets',
       () async {
-        final runtime = createLuaLikeTestRuntime();
+        final lualike = LuaLike();
+        LuaRuntime runtime = lualike.vm;
         installLove2d(
           runtime: runtime,
           host: LoveHeadlessHost(),
@@ -214,7 +218,8 @@ void main() {
     );
 
     test('Video:seek uses Lua bad-argument text for invalid offsets', () async {
-      final runtime = createLuaLikeTestRuntime();
+      final lualike = LuaLike();
+      LuaRuntime runtime = lualike.vm;
       installLove2d(
         runtime: runtime,
         host: LoveHeadlessHost(),
@@ -251,7 +256,8 @@ void main() {
     test(
       'Video setSource helpers reject non-Source values with LOVE type errors',
       () async {
-        final runtime = createLuaLikeTestRuntime();
+        final lualike = LuaLike();
+        LuaRuntime runtime = lualike.vm;
         installLove2d(
           runtime: runtime,
           host: LoveHeadlessHost(),
@@ -298,7 +304,8 @@ void main() {
     );
 
     test('Video release is idempotent and invalidates the wrapper', () async {
-      final runtime = createLuaLikeTestRuntime();
+      final lualike = LuaLike();
+      LuaRuntime runtime = lualike.vm;
       installLove2d(
         runtime: runtime,
         host: LoveHeadlessHost(),
@@ -342,7 +349,8 @@ void main() {
     test(
       'Video:getStream rewraps a live stream after an older proxy is released',
       () async {
-        final runtime = createLuaLikeTestRuntime();
+        final lualike = LuaLike();
+        LuaRuntime runtime = lualike.vm;
         installLove2d(
           runtime: runtime,
           host: LoveHeadlessHost(),
@@ -379,7 +387,8 @@ void main() {
     test(
       'draw rejects Video objects when no frame provider is available',
       () async {
-        final runtime = createLuaLikeTestRuntime();
+        final lualike = LuaLike();
+        LuaRuntime runtime = lualike.vm;
         installLove2d(
           runtime: runtime,
           host: LoveHeadlessHost(),

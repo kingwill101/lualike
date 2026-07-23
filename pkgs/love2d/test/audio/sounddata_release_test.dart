@@ -8,7 +8,8 @@ void main() {
     test(
       'SoundData release invalidates methods but preserves type metadata',
       () async {
-        final runtime = createLuaLikeTestRuntime();
+        final lualike = LuaLike();
+        LuaRuntime runtime = lualike.vm;
         installLove2d(runtime: runtime, host: LoveHeadlessHost());
 
         final soundData = await luaCall(

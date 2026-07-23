@@ -10,7 +10,8 @@ void main() {
     test(
       'newGlyphData and getGlyphData ignore trailing invalid bytes after the first codepoint',
       () async {
-        final runtime = createLuaLikeTestRuntime();
+        final lualike = LuaLike();
+        LuaRuntime runtime = lualike.vm;
         installLove2d(runtime: runtime, host: LoveHeadlessHost());
 
         final rasterizer = await luaCall(
@@ -41,7 +42,8 @@ void main() {
     test(
       'Font:getKerning string overload ignores trailing invalid bytes after the first codepoint',
       () async {
-        final runtime = createLuaLikeTestRuntime();
+        final lualike = LuaLike();
+        LuaRuntime runtime = lualike.vm;
         installLove2d(runtime: runtime, host: LoveHeadlessHost());
 
         final veraBytes = await (await love2dVeraFontFile()).readAsBytes();
@@ -80,7 +82,8 @@ void main() {
     test(
       'full-string APIs still reject trailing invalid bytes after the first codepoint',
       () async {
-        final runtime = createLuaLikeTestRuntime();
+        final lualike = LuaLike();
+        LuaRuntime runtime = lualike.vm;
         installLove2d(runtime: runtime, host: LoveHeadlessHost());
 
         final rasterizer = await luaCall(

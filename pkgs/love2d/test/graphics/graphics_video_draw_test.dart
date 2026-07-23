@@ -1,3 +1,4 @@
+import 'package:lualike/lualike.dart';
 import 'dart:ui' as ui;
 import 'dart:typed_data';
 
@@ -14,7 +15,8 @@ void main() {
       'queues an image command when a frame provider is available',
       () async {
         final provider = _FakeVideoFrameProvider();
-        final runtime = createLuaLikeTestRuntime();
+        final lualike = LuaLike();
+        LuaRuntime runtime = lualike.vm;
         final host = LoveHeadlessHost(
           videoFrameProviderFactory: (source, {bytes, metadata}) async {
             return provider;
@@ -66,7 +68,8 @@ void main() {
       'reuses the decoded native image when the provider returns the same snapshot',
       () async {
         final provider = _StickyVideoFrameProvider();
-        final runtime = createLuaLikeTestRuntime();
+        final lualike = LuaLike();
+        LuaRuntime runtime = lualike.vm;
         final host = LoveHeadlessHost(
           videoFrameProviderFactory: (source, {bytes, metadata}) async {
             return provider;

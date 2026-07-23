@@ -12,7 +12,8 @@ void main() {
     test(
       'newTrueTypeRasterizer rejects dpi-scaled pixel sizes that round to zero',
       () async {
-        final runtime = createLuaLikeTestRuntime();
+      final lualike = LuaLike();
+LuaRuntime runtime = lualike.vm;
         installLove2d(runtime: runtime, host: LoveHeadlessHost());
 
         await expectLater(
@@ -36,7 +37,8 @@ void main() {
       'graphics.newFont rejects source-backed dpi-scaled pixel sizes that round to zero',
       () async {
         final veraBytes = await (await love2dVeraFontFile()).readAsBytes();
-        final runtime = createLuaLikeTestRuntime();
+      final lualike = LuaLike();
+LuaRuntime runtime = lualike.vm;
         installLove2d(
           runtime: runtime,
           host: LoveHeadlessHost(),

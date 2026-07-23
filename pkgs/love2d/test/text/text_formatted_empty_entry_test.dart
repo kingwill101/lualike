@@ -1,3 +1,4 @@
+import 'package:lualike/lualike.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:love2d/love2d.dart';
 import '../test_support/lua_api_test_helpers.dart';
@@ -5,7 +6,8 @@ import '../test_support/lua_api_test_helpers.dart';
 void main() {
   group('love.graphics Text formatted empty entry parity', () {
     test('addf keeps empty formatted entries as one rendered line', () async {
-      final runtime = createLuaLikeTestRuntime();
+      final lualike = LuaLike();
+      LuaRuntime runtime = lualike.vm;
       installLove2d(runtime: runtime, host: LoveHeadlessHost());
 
       final font = await luaCall(

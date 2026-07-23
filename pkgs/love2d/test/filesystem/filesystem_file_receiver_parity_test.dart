@@ -12,7 +12,8 @@ void main() {
     test(
       'File type metadata survives release and wrong receivers use Lua arg errors',
       () async {
-        final runtime = createLuaLikeTestRuntime();
+      final lualike = LuaLike();
+LuaRuntime runtime = lualike.vm;
         installLove2d(
           runtime: runtime,
           host: LoveHeadlessHost(),

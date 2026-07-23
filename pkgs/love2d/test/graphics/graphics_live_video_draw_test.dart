@@ -1,3 +1,4 @@
+import 'package:lualike/lualike.dart';
 import 'dart:typed_data';
 
 import 'package:flutter_test/flutter_test.dart';
@@ -35,7 +36,8 @@ void main() {
       'queues a live video command when a presentation handle is available',
       () async {
         final provider = _FakeLiveVideoFrameProvider();
-        final runtime = createLuaLikeTestRuntime();
+        final lualike = LuaLike();
+        LuaRuntime runtime = lualike.vm;
         final host = LoveHeadlessHost(
           videoFrameProviderFactory: (source, {bytes, metadata}) async {
             return provider;
@@ -53,7 +55,7 @@ void main() {
         final filesystem = LoveFilesystemState.of(runtime);
         expect(filesystem.setSource(loveTestMountedSourceRoot), isTrue);
 
-        final video = await luaCallRawList(
+        final video = await luaCallRaw(
           runtime,
           const ['love', 'graphics', 'newVideo'],
           const <Object?>[
@@ -63,7 +65,7 @@ void main() {
         );
 
         LoveRuntimeContext.of(runtime).beginDrawFrame();
-        await luaCallRawList(
+        await luaCallRaw(
           runtime,
           const ['love', 'graphics', 'draw'],
           <Object?>[video, 10.0, 20.0],
@@ -82,7 +84,8 @@ void main() {
 
     test('queues a live video command when drawing with a Quad', () async {
       final provider = _FakeLiveVideoFrameProvider();
-      final runtime = createLuaLikeTestRuntime();
+      final lualike = LuaLike();
+      LuaRuntime runtime = lualike.vm;
       final host = LoveHeadlessHost(
         videoFrameProviderFactory: (source, {bytes, metadata}) async {
           return provider;
@@ -100,7 +103,7 @@ void main() {
       final filesystem = LoveFilesystemState.of(runtime);
       expect(filesystem.setSource(loveTestMountedSourceRoot), isTrue);
 
-      final video = await luaCallRawList(
+      final video = await luaCallRaw(
         runtime,
         const ['love', 'graphics', 'newVideo'],
         const <Object?>[
@@ -108,14 +111,14 @@ void main() {
           <Object?, Object?>{'audio': false},
         ],
       );
-      final quad = await luaCallRawList(
+      final quad = await luaCallRaw(
         runtime,
         const ['love', 'graphics', 'newQuad'],
         const <Object?>[2.0, 1.0, 3.0, 2.0, 8.0, 4.0],
       );
 
       LoveRuntimeContext.of(runtime).beginDrawFrame();
-      await luaCallRawList(
+      await luaCallRaw(
         runtime,
         const ['love', 'graphics', 'draw'],
         <Object?>[video, quad, 10.0, 20.0],
@@ -135,7 +138,8 @@ void main() {
       'queues a live video command when scissor and tint are active',
       () async {
         final provider = _FakeLiveVideoFrameProvider();
-        final runtime = createLuaLikeTestRuntime();
+        final lualike = LuaLike();
+        LuaRuntime runtime = lualike.vm;
         final host = LoveHeadlessHost(
           videoFrameProviderFactory: (source, {bytes, metadata}) async {
             return provider;
@@ -153,7 +157,7 @@ void main() {
         final filesystem = LoveFilesystemState.of(runtime);
         expect(filesystem.setSource(loveTestMountedSourceRoot), isTrue);
 
-        final video = await luaCallRawList(
+        final video = await luaCallRaw(
           runtime,
           const ['love', 'graphics', 'newVideo'],
           const <Object?>[
@@ -163,17 +167,17 @@ void main() {
         );
 
         LoveRuntimeContext.of(runtime).beginDrawFrame();
-        await luaCallRawList(
+        await luaCallRaw(
           runtime,
           const ['love', 'graphics', 'setColor'],
           const <Object?>[0.5, 0.75, 1.0, 0.5],
         );
-        await luaCallRawList(
+        await luaCallRaw(
           runtime,
           const ['love', 'graphics', 'setScissor'],
           const <Object?>[1.0, 2.0, 3.0, 4.0],
         );
-        await luaCallRawList(
+        await luaCallRaw(
           runtime,
           const ['love', 'graphics', 'draw'],
           <Object?>[video, 10.0, 20.0],
@@ -198,7 +202,8 @@ void main() {
       'queues a live video command when alpha blending uses premultiplied mode',
       () async {
         final provider = _FakeLiveVideoFrameProvider();
-        final runtime = createLuaLikeTestRuntime();
+        final lualike = LuaLike();
+        LuaRuntime runtime = lualike.vm;
         final host = LoveHeadlessHost(
           videoFrameProviderFactory: (source, {bytes, metadata}) async {
             return provider;
@@ -216,7 +221,7 @@ void main() {
         final filesystem = LoveFilesystemState.of(runtime);
         expect(filesystem.setSource(loveTestMountedSourceRoot), isTrue);
 
-        final video = await luaCallRawList(
+        final video = await luaCallRaw(
           runtime,
           const ['love', 'graphics', 'newVideo'],
           const <Object?>[
@@ -226,12 +231,12 @@ void main() {
         );
 
         LoveRuntimeContext.of(runtime).beginDrawFrame();
-        await luaCallRawList(
+        await luaCallRaw(
           runtime,
           const ['love', 'graphics', 'setBlendMode'],
           const <Object?>['alpha', 'premultiplied'],
         );
-        await luaCallRawList(
+        await luaCallRaw(
           runtime,
           const ['love', 'graphics', 'draw'],
           <Object?>[video, 10.0, 20.0],
@@ -247,7 +252,8 @@ void main() {
       'queues a live video command when drawing with a Transform object',
       () async {
         final provider = _FakeLiveVideoFrameProvider();
-        final runtime = createLuaLikeTestRuntime();
+        final lualike = LuaLike();
+        LuaRuntime runtime = lualike.vm;
         final host = LoveHeadlessHost(
           videoFrameProviderFactory: (source, {bytes, metadata}) async {
             return provider;
@@ -265,7 +271,7 @@ void main() {
         final filesystem = LoveFilesystemState.of(runtime);
         expect(filesystem.setSource(loveTestMountedSourceRoot), isTrue);
 
-        final video = await luaCallRawList(
+        final video = await luaCallRaw(
           runtime,
           const ['love', 'graphics', 'newVideo'],
           const <Object?>[
@@ -273,14 +279,14 @@ void main() {
             <Object?, Object?>{'audio': false, 'dpiscale': 2.0},
           ],
         );
-        final transform = await luaCallRawList(
+        final transform = await luaCallRaw(
           runtime,
           const ['love', 'math', 'newTransform'],
           const <Object?>[10.0, 20.0, 0.0, 3.0, 4.0],
         );
 
         LoveRuntimeContext.of(runtime).beginDrawFrame();
-        await luaCallRawList(
+        await luaCallRaw(
           runtime,
           const ['love', 'graphics', 'draw'],
           <Object?>[video, transform],
@@ -300,7 +306,8 @@ void main() {
       'queues a live video command when replace blending keeps source alpha opaque',
       () async {
         final provider = _FakeLiveVideoFrameProvider();
-        final runtime = createLuaLikeTestRuntime();
+        final lualike = LuaLike();
+        LuaRuntime runtime = lualike.vm;
         final host = LoveHeadlessHost(
           videoFrameProviderFactory: (source, {bytes, metadata}) async {
             return provider;
@@ -318,7 +325,7 @@ void main() {
         final filesystem = LoveFilesystemState.of(runtime);
         expect(filesystem.setSource(loveTestMountedSourceRoot), isTrue);
 
-        final video = await luaCallRawList(
+        final video = await luaCallRaw(
           runtime,
           const ['love', 'graphics', 'newVideo'],
           const <Object?>[
@@ -328,12 +335,12 @@ void main() {
         );
 
         LoveRuntimeContext.of(runtime).beginDrawFrame();
-        await luaCallRawList(
+        await luaCallRaw(
           runtime,
           const ['love', 'graphics', 'setBlendMode'],
           const <Object?>['replace'],
         );
-        await luaCallRawList(
+        await luaCallRaw(
           runtime,
           const ['love', 'graphics', 'draw'],
           <Object?>[video, 10.0, 20.0],
@@ -349,7 +356,8 @@ void main() {
       'queues a live video command when none blending keeps source alpha opaque',
       () async {
         final provider = _FakeLiveVideoFrameProvider();
-        final runtime = createLuaLikeTestRuntime();
+        final lualike = LuaLike();
+        LuaRuntime runtime = lualike.vm;
         final host = LoveHeadlessHost(
           videoFrameProviderFactory: (source, {bytes, metadata}) async {
             return provider;
@@ -367,7 +375,7 @@ void main() {
         final filesystem = LoveFilesystemState.of(runtime);
         expect(filesystem.setSource(loveTestMountedSourceRoot), isTrue);
 
-        final video = await luaCallRawList(
+        final video = await luaCallRaw(
           runtime,
           const ['love', 'graphics', 'newVideo'],
           const <Object?>[
@@ -377,12 +385,12 @@ void main() {
         );
 
         LoveRuntimeContext.of(runtime).beginDrawFrame();
-        await luaCallRawList(
+        await luaCallRaw(
           runtime,
           const ['love', 'graphics', 'setBlendMode'],
           const <Object?>['none'],
         );
-        await luaCallRawList(
+        await luaCallRaw(
           runtime,
           const ['love', 'graphics', 'draw'],
           <Object?>[video, 10.0, 20.0],
@@ -398,7 +406,8 @@ void main() {
       'falls back to image snapshots when the draw state cannot stay live',
       () async {
         final provider = _FakeLiveVideoFrameProvider();
-        final runtime = createLuaLikeTestRuntime();
+        final lualike = LuaLike();
+        LuaRuntime runtime = lualike.vm;
         final host = LoveHeadlessHost(
           videoFrameProviderFactory: (source, {bytes, metadata}) async {
             return provider;
@@ -416,7 +425,7 @@ void main() {
         final filesystem = LoveFilesystemState.of(runtime);
         expect(filesystem.setSource(loveTestMountedSourceRoot), isTrue);
 
-        final video = await luaCallRawList(
+        final video = await luaCallRaw(
           runtime,
           const ['love', 'graphics', 'newVideo'],
           const <Object?>[
@@ -426,12 +435,12 @@ void main() {
         );
 
         LoveRuntimeContext.of(runtime).beginDrawFrame();
-        await luaCallRawList(
+        await luaCallRaw(
           runtime,
           const ['love', 'graphics', 'setBlendMode'],
           const <Object?>['add'],
         );
-        await luaCallRawList(
+        await luaCallRaw(
           runtime,
           const ['love', 'graphics', 'draw'],
           <Object?>[video, 10.0, 20.0],
@@ -447,7 +456,8 @@ void main() {
       'falls back to image snapshots when replace blending uses translucent alpha',
       () async {
         final provider = _FakeLiveVideoFrameProvider();
-        final runtime = createLuaLikeTestRuntime();
+        final lualike = LuaLike();
+        LuaRuntime runtime = lualike.vm;
         final host = LoveHeadlessHost(
           videoFrameProviderFactory: (source, {bytes, metadata}) async {
             return provider;
@@ -465,7 +475,7 @@ void main() {
         final filesystem = LoveFilesystemState.of(runtime);
         expect(filesystem.setSource(loveTestMountedSourceRoot), isTrue);
 
-        final video = await luaCallRawList(
+        final video = await luaCallRaw(
           runtime,
           const ['love', 'graphics', 'newVideo'],
           const <Object?>[
@@ -475,17 +485,17 @@ void main() {
         );
 
         LoveRuntimeContext.of(runtime).beginDrawFrame();
-        await luaCallRawList(
+        await luaCallRaw(
           runtime,
           const ['love', 'graphics', 'setBlendMode'],
           const <Object?>['replace'],
         );
-        await luaCallRawList(
+        await luaCallRaw(
           runtime,
           const ['love', 'graphics', 'setColor'],
           const <Object?>[1.0, 1.0, 1.0, 0.5],
         );
-        await luaCallRawList(
+        await luaCallRaw(
           runtime,
           const ['love', 'graphics', 'draw'],
           <Object?>[video, 10.0, 20.0],
@@ -501,7 +511,8 @@ void main() {
       'falls back to image snapshots when none blending uses translucent alpha',
       () async {
         final provider = _FakeLiveVideoFrameProvider();
-        final runtime = createLuaLikeTestRuntime();
+        final lualike = LuaLike();
+        LuaRuntime runtime = lualike.vm;
         final host = LoveHeadlessHost(
           videoFrameProviderFactory: (source, {bytes, metadata}) async {
             return provider;
@@ -519,7 +530,7 @@ void main() {
         final filesystem = LoveFilesystemState.of(runtime);
         expect(filesystem.setSource(loveTestMountedSourceRoot), isTrue);
 
-        final video = await luaCallRawList(
+        final video = await luaCallRaw(
           runtime,
           const ['love', 'graphics', 'newVideo'],
           const <Object?>[
@@ -529,17 +540,17 @@ void main() {
         );
 
         LoveRuntimeContext.of(runtime).beginDrawFrame();
-        await luaCallRawList(
+        await luaCallRaw(
           runtime,
           const ['love', 'graphics', 'setBlendMode'],
           const <Object?>['none'],
         );
-        await luaCallRawList(
+        await luaCallRaw(
           runtime,
           const ['love', 'graphics', 'setColor'],
           const <Object?>[1.0, 1.0, 1.0, 0.5],
         );
-        await luaCallRawList(
+        await luaCallRaw(
           runtime,
           const ['love', 'graphics', 'draw'],
           <Object?>[video, 10.0, 20.0],
@@ -555,7 +566,8 @@ void main() {
       'falls back to image snapshots when colorMask disables channels',
       () async {
         final provider = _FakeLiveVideoFrameProvider();
-        final runtime = createLuaLikeTestRuntime();
+        final lualike = LuaLike();
+        LuaRuntime runtime = lualike.vm;
         final host = LoveHeadlessHost(
           videoFrameProviderFactory: (source, {bytes, metadata}) async {
             return provider;
@@ -573,7 +585,7 @@ void main() {
         final filesystem = LoveFilesystemState.of(runtime);
         expect(filesystem.setSource(loveTestMountedSourceRoot), isTrue);
 
-        final video = await luaCallRawList(
+        final video = await luaCallRaw(
           runtime,
           const ['love', 'graphics', 'newVideo'],
           const <Object?>[
@@ -583,12 +595,12 @@ void main() {
         );
 
         LoveRuntimeContext.of(runtime).beginDrawFrame();
-        await luaCallRawList(
+        await luaCallRaw(
           runtime,
           const ['love', 'graphics', 'setColorMask'],
           const <Object?>[false, true, true, true],
         );
-        await luaCallRawList(
+        await luaCallRaw(
           runtime,
           const ['love', 'graphics', 'draw'],
           <Object?>[video, 10.0, 20.0],
@@ -604,7 +616,8 @@ void main() {
       'falls back to image snapshots when a Quad targets a non-zero layer',
       () async {
         final provider = _FakeLiveVideoFrameProvider();
-        final runtime = createLuaLikeTestRuntime();
+        final lualike = LuaLike();
+        LuaRuntime runtime = lualike.vm;
         final host = LoveHeadlessHost(
           videoFrameProviderFactory: (source, {bytes, metadata}) async {
             return provider;
@@ -622,7 +635,7 @@ void main() {
         final filesystem = LoveFilesystemState.of(runtime);
         expect(filesystem.setSource(loveTestMountedSourceRoot), isTrue);
 
-        final video = await luaCallRawList(
+        final video = await luaCallRaw(
           runtime,
           const ['love', 'graphics', 'newVideo'],
           const <Object?>[
@@ -630,15 +643,15 @@ void main() {
             <Object?, Object?>{'audio': false},
           ],
         );
-        final quad = await luaCallRawList(
+        final quad = await luaCallRaw(
           runtime,
           const ['love', 'graphics', 'newQuad'],
           const <Object?>[2.0, 1.0, 3.0, 2.0, 8.0, 4.0],
         );
-        await luaCallMethodRawList(quad, 'setLayer', const <Object?>[2]);
+        await luaCallMethodRaw(quad, 'setLayer', const <Object?>[2]);
 
         LoveRuntimeContext.of(runtime).beginDrawFrame();
-        await luaCallRawList(
+        await luaCallRaw(
           runtime,
           const ['love', 'graphics', 'draw'],
           <Object?>[video, quad, 10.0, 20.0],
@@ -656,7 +669,8 @@ void main() {
       'falls back to image snapshots with a Transform object while preserving video scaling',
       () async {
         final provider = _FakeLiveVideoFrameProvider();
-        final runtime = createLuaLikeTestRuntime();
+        final lualike = LuaLike();
+        LuaRuntime runtime = lualike.vm;
         final host = LoveHeadlessHost(
           videoFrameProviderFactory: (source, {bytes, metadata}) async {
             return provider;
@@ -674,7 +688,7 @@ void main() {
         final filesystem = LoveFilesystemState.of(runtime);
         expect(filesystem.setSource(loveTestMountedSourceRoot), isTrue);
 
-        final video = await luaCallRawList(
+        final video = await luaCallRaw(
           runtime,
           const ['love', 'graphics', 'newVideo'],
           const <Object?>[
@@ -682,19 +696,19 @@ void main() {
             <Object?, Object?>{'audio': false, 'dpiscale': 2.0},
           ],
         );
-        final transform = await luaCallRawList(
+        final transform = await luaCallRaw(
           runtime,
           const ['love', 'math', 'newTransform'],
           const <Object?>[10.0, 20.0, 0.0, 3.0, 4.0],
         );
 
         LoveRuntimeContext.of(runtime).beginDrawFrame();
-        await luaCallRawList(
+        await luaCallRaw(
           runtime,
           const ['love', 'graphics', 'setBlendMode'],
           const <Object?>['add'],
         );
-        await luaCallRawList(
+        await luaCallRaw(
           runtime,
           const ['love', 'graphics', 'draw'],
           <Object?>[video, transform],
@@ -714,7 +728,8 @@ void main() {
       'falls back to image snapshots when a registered fragment shader is active',
       () async {
         final provider = _FakeLiveVideoFrameProvider();
-        final runtime = createLuaLikeTestRuntime();
+        final lualike = LuaLike();
+        LuaRuntime runtime = lualike.vm;
         final host = LoveHeadlessHost(
           videoFrameProviderFactory: (source, {bytes, metadata}) async {
             return provider;
@@ -732,7 +747,7 @@ void main() {
         final filesystem = LoveFilesystemState.of(runtime);
         expect(filesystem.setSource(loveTestMountedSourceRoot), isTrue);
 
-        final video = await luaCallRawList(
+        final video = await luaCallRaw(
           runtime,
           const ['love', 'graphics', 'newVideo'],
           const <Object?>[
@@ -740,19 +755,19 @@ void main() {
             <Object?, Object?>{'audio': false},
           ],
         );
-        final shader = await luaCallRawList(
+        final shader = await luaCallRaw(
           runtime,
           const ['love', 'graphics', 'newShader'],
           const <Object?>[_registeredFragmentVideoFallbackShaderSource],
         );
 
         LoveRuntimeContext.of(runtime).beginDrawFrame();
-        await luaCallRawList(
+        await luaCallRaw(
           runtime,
           const ['love', 'graphics', 'setShader'],
           <Object?>[shader],
         );
-        await luaCallRawList(
+        await luaCallRaw(
           runtime,
           const ['love', 'graphics', 'draw'],
           <Object?>[video, 10.0, 20.0],
@@ -773,7 +788,8 @@ void main() {
       'falls back to image snapshots when a supported LOVE shader subset is active',
       () async {
         final provider = _FakeLiveVideoFrameProvider();
-        final runtime = createLuaLikeTestRuntime();
+        final lualike = LuaLike();
+        LuaRuntime runtime = lualike.vm;
         final host = LoveHeadlessHost(
           videoFrameProviderFactory: (source, {bytes, metadata}) async {
             return provider;
@@ -791,7 +807,7 @@ void main() {
         final filesystem = LoveFilesystemState.of(runtime);
         expect(filesystem.setSource(loveTestMountedSourceRoot), isTrue);
 
-        final video = await luaCallRawList(
+        final video = await luaCallRaw(
           runtime,
           const ['love', 'graphics', 'newVideo'],
           const <Object?>[
@@ -799,19 +815,19 @@ void main() {
             <Object?, Object?>{'audio': false},
           ],
         );
-        final shader = await luaCallRawList(
+        final shader = await luaCallRaw(
           runtime,
           const ['love', 'graphics', 'newShader'],
           const <Object?>[_desaturationVideoFallbackShaderSource],
         );
-        await luaCallRawList(
+        await luaCallRaw(
           runtime,
           const ['love', 'graphics', 'setShader'],
           <Object?>[shader],
         );
 
         LoveRuntimeContext.of(runtime).beginDrawFrame();
-        await luaCallRawList(
+        await luaCallRaw(
           runtime,
           const ['love', 'graphics', 'draw'],
           <Object?>[video, 10.0, 20.0],

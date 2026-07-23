@@ -11,9 +11,11 @@ import '../test_support/lua_api_test_helpers.dart';
 void main() {
   group('love.sound bindings', () {
     late LuaRuntime runtime;
+    late LuaLike lualike;
 
     setUp(() {
-      runtime = createLuaLikeTestRuntime();
+      lualike = LuaLike();
+      runtime = lualike.vm;
       installLove2d(runtime: runtime);
     });
 
@@ -252,7 +254,8 @@ void main() {
     test(
       'newDecoder and newSoundData read mounted LOVE filesystem strings and reject missing filenames',
       () async {
-        final runtime = createLuaLikeTestRuntime();
+        final lualike = LuaLike();
+        LuaRuntime runtime = lualike.vm;
         installLove2d(
           runtime: runtime,
           host: LoveHeadlessHost(),

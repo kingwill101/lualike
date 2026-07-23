@@ -1,3 +1,4 @@
+import 'package:lualike/lualike.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:lualike/lualike.dart' show LuaError;
 import 'package:love2d/love2d.dart';

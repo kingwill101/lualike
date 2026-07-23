@@ -1,3 +1,4 @@
+import 'package:lualike/lualike.dart';
 // ignore_for_file: implementation_imports
 
 import 'package:flutter_test/flutter_test.dart';

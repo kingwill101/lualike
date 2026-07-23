@@ -1,3 +1,4 @@
+import 'package:lualike/lualike.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:love2d/love2d.dart';
 import '../test_support/lua_api_test_helpers.dart';
@@ -7,7 +8,8 @@ void main() {
     test(
       'Font:getWrap returns a single empty line for empty strings',
       () async {
-        final runtime = createLuaLikeTestRuntime();
+        final lualike = LuaLike();
+        LuaRuntime runtime = lualike.vm;
         installLove2d(runtime: runtime, host: LoveHeadlessHost());
 
         final font = await luaCall(
@@ -28,7 +30,8 @@ void main() {
     test(
       'Font:getWrap skips oversized leading glyphs and emits LOVE-style empty lines',
       () async {
-        final runtime = createLuaLikeTestRuntime();
+        final lualike = LuaLike();
+        LuaRuntime runtime = lualike.vm;
         installLove2d(runtime: runtime, host: LoveHeadlessHost());
 
         final font = await luaCall(
@@ -52,7 +55,8 @@ void main() {
     test(
       'Font:getWrap preserves all-space lines while ignoring trailing-space width',
       () async {
-        final runtime = createLuaLikeTestRuntime();
+        final lualike = LuaLike();
+        LuaRuntime runtime = lualike.vm;
         installLove2d(runtime: runtime, host: LoveHeadlessHost());
 
         final font = await luaCall(

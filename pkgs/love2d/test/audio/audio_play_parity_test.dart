@@ -6,15 +6,17 @@ import '../test_support/lua_api_test_helpers.dart';
 void main() {
   group('LOVE audio play parity', () {
     late LuaRuntime runtime;
+    late LuaLike lualike;
 
     setUp(() {
-      runtime = createLuaLikeTestRuntime();
+      lualike = LuaLike();
+runtime = lualike.vm;
       installLove2d(runtime: runtime, host: LoveHeadlessHost());
     });
 
     test('love.audio.play rejects missing arguments', () async {
       await expectLater(
-        () => luaCallRawList(runtime, const ['love', 'audio', 'play']),
+        () => luaCallRaw(runtime, const ['love', 'audio', 'play']),
         throwsA(
           isA<LuaError>().having(
             (error) => error.message,
@@ -29,7 +31,7 @@ void main() {
       'love.audio.play accepts empty source tables and returns true',
       () async {
         expect(
-          await luaCallRawList(
+          await luaCallRaw(
             runtime,
             const ['love', 'audio', 'play'],
             const <Object?>[<Object?, Object?>{}],
@@ -37,7 +39,7 @@ void main() {
           isTrue,
         );
         expect(
-          await luaCallRawList(runtime, const [
+          await luaCallRaw(runtime, const [
             'love',
             'audio',
             'getActiveSourceCount',
@@ -55,7 +57,7 @@ void main() {
           String expectedMessage,
         ) async {
           await expectLater(
-            () => luaCallRawList(
+            () => luaCallRaw(
               runtime,
               <String>['love', 'audio', functionName],
               const <Object?>[
@@ -90,29 +92,29 @@ void main() {
     test(
       'released Source arguments no longer satisfy love.audio.play type checks',
       () async {
-        final soundData = await luaCallRawList(
+        final soundData = await luaCallRaw(
           runtime,
           const ['love', 'sound', 'newSoundData'],
           const <Object?>[1024, 22050, 16, 1],
         );
         final first =
-            await luaCallRawList(
+            await luaCallRaw(
                   runtime,
                   const ['love', 'audio', 'newSource'],
                   <Object?>[soundData, 'stream'],
                 )
                 as Object;
         final released =
-            await luaCallRawList(
+            await luaCallRaw(
                   runtime,
                   const ['love', 'audio', 'newSource'],
                   <Object?>[soundData, 'stream'],
                 )
                 as Object;
 
-        expect(await luaCallMethodRawList(released, 'release'), isTrue);
+        expect(await luaCallMethodRaw(released, 'release'), isTrue);
         await expectLater(
-          () => luaCallRawList(
+          () => luaCallRaw(
             runtime,
             const ['love', 'audio', 'play'],
             <Object?>[first, released],
@@ -125,9 +127,9 @@ void main() {
             ),
           ),
         );
-        expect(await luaCallMethodRawList(first, 'isPlaying'), isFalse);
+        expect(await luaCallMethodRaw(first, 'isPlaying'), isFalse);
         expect(
-          await luaCallRawList(runtime, const [
+          await luaCallRaw(runtime, const [
             'love',
             'audio',
             'getActiveSourceCount',
@@ -140,23 +142,23 @@ void main() {
     test(
       'released Source values inside source tables raise the released-object error',
       () async {
-        final soundData = await luaCallRawList(
+        final soundData = await luaCallRaw(
           runtime,
           const ['love', 'sound', 'newSoundData'],
           const <Object?>[1024, 22050, 16, 1],
         );
         final released =
-            await luaCallRawList(
+            await luaCallRaw(
                   runtime,
                   const ['love', 'audio', 'newSource'],
                   <Object?>[soundData, 'stream'],
                 )
                 as Object;
 
-        expect(await luaCallMethodRawList(released, 'release'), isTrue);
+        expect(await luaCallMethodRaw(released, 'release'), isTrue);
 
         await expectLater(
-          () => luaCallRawList(
+          () => luaCallRaw(
             runtime,
             const ['love', 'audio', 'play'],
             <Object?>[
@@ -177,20 +179,20 @@ void main() {
     test(
       'batched love.audio.play returns false and rolls back when a later Source cannot play',
       () async {
-        final soundData = await luaCallRawList(
+        final soundData = await luaCallRaw(
           runtime,
           const ['love', 'sound', 'newSoundData'],
           const <Object?>[1024, 22050, 16, 1],
         );
         final first =
-            await luaCallRawList(
+            await luaCallRaw(
                   runtime,
                   const ['love', 'audio', 'newSource'],
                   <Object?>[soundData, 'stream'],
                 )
                 as Object;
         final emptyQueue =
-            await luaCallRawList(
+            await luaCallRaw(
                   runtime,
                   const ['love', 'audio', 'newQueueableSource'],
                   const <Object?>[22050, 16, 1],
@@ -198,17 +200,17 @@ void main() {
                 as Object;
 
         expect(
-          await luaCallRawList(
+          await luaCallRaw(
             runtime,
             const ['love', 'audio', 'play'],
             <Object?>[first, emptyQueue],
           ),
           isFalse,
         );
-        expect(await luaCallMethodRawList(first, 'isPlaying'), isFalse);
-        expect(await luaCallMethodRawList(emptyQueue, 'isPlaying'), isFalse);
+        expect(await luaCallMethodRaw(first, 'isPlaying'), isFalse);
+        expect(await luaCallMethodRaw(emptyQueue, 'isPlaying'), isFalse);
         expect(
-          await luaCallRawList(runtime, const [
+          await luaCallRaw(runtime, const [
             'love',
             'audio',
             'getActiveSourceCount',

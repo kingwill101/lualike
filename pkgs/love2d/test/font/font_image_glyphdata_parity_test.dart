@@ -1,5 +1,6 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:love2d/love2d.dart';
+import 'package:lualike/lualike.dart';
 import '../test_support/font_test_support.dart';
 import '../test_support/lua_api_test_helpers.dart';
 
@@ -8,7 +9,8 @@ void main() {
     test(
       'image rasterizers use LOVE bearing and bounding-box semantics',
       () async {
-        final runtime = createLuaLikeTestRuntime();
+        final lualike = LuaLike();
+        LuaRuntime runtime = lualike.vm;
         installLove2d(runtime: runtime, host: LoveHeadlessHost());
 
         final imageData = await luaCall(

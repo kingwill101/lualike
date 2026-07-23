@@ -1,16 +1,15 @@
+import 'package:lualike/lualike.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:lualike/lualike.dart'
-    show BuiltinFunction, LuaError, LuaRuntime, Value;
 import 'package:love2d/love2d.dart';
 
-import '../test_support/lua_api_test_helpers.dart';
 
 void main() {
   group('love.graphics.setBlendMode', () {
     test(
       'requires premultiplied alpha for multiply, lighten, and darken',
       () async {
-        final runtime = createLuaLikeTestRuntime();
+        final lualike = LuaLike();
+        LuaRuntime runtime = lualike.vm;
         installLove2d(runtime: runtime, host: LoveHeadlessHost());
 
         for (final mode in const <String>['multiply', 'lighten', 'darken']) {
@@ -33,7 +32,8 @@ void main() {
     );
 
     test('accepts premultiplied alpha for multiply', () async {
-      final runtime = createLuaLikeTestRuntime();
+      final lualike = LuaLike();
+      LuaRuntime runtime = lualike.vm;
       installLove2d(runtime: runtime, host: LoveHeadlessHost());
 
       await _call(

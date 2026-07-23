@@ -2,7 +2,6 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:lualike/lualike.dart';
 import 'package:love2d/love2d.dart';
 
-import '../test_support/lua_api_test_helpers.dart';
 
 const String _desaturationTintShaderSource = '''
 extern vec4 tint;
@@ -40,7 +39,8 @@ love.graphics.rectangle('fill', 0, 0, 8, 8)
     });
 
     test('validateShader reports success for the supported subset', () async {
-      final runtime = createLuaLikeTestRuntime();
+      final lualike = LuaLike();
+      LuaRuntime runtime = lualike.vm;
       installLove2d(runtime: runtime, host: LoveHeadlessHost());
 
       final result = await _call(

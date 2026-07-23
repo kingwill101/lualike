@@ -10,7 +10,8 @@ void main() {
       'RecordingDevice type metadata survives release while other methods fail',
       () async {
         final device = LoveRecordingDevice(name: 'Test Mic');
-        final runtime = createLuaLikeTestRuntime();
+        final lualike = LuaLike();
+        LuaRuntime runtime = lualike.vm;
         installLove2d(runtime: runtime, host: LoveHeadlessHost());
         LoveRuntimeContext.attach(runtime).audio.recordingDevices.add(device);
 

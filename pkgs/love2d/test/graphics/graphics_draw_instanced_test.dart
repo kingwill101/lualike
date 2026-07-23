@@ -1,3 +1,4 @@
+import 'package:lualike/lualike.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:love2d/love2d.dart';
 import 'package:vector_math/vector_math_64.dart' as vm;
@@ -9,7 +10,8 @@ void main() {
       'queues a single mesh command with instance count and draw transform',
       () async {
         final host = LoveHeadlessHost();
-        final runtime = createLuaLikeTestRuntime();
+      final lualike = LuaLike();
+LuaRuntime runtime = lualike.vm;
         installLove2d(runtime: runtime, host: host);
 
         final mesh = await luaCall(
@@ -51,7 +53,8 @@ void main() {
 
     test('treats non-positive instance counts as a no-op', () async {
       final host = LoveHeadlessHost();
-      final runtime = createLuaLikeTestRuntime();
+    final lualike = LuaLike();
+LuaRuntime runtime = lualike.vm;
       installLove2d(runtime: runtime, host: host);
 
       final mesh = await luaCall(

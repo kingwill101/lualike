@@ -9,9 +9,11 @@ import '../test_support/physics_test_support.dart';
 void main() {
   group('love.physics module', () {
     late LuaRuntime runtime;
+    late LuaLike lualike;
 
     setUp(() {
-      runtime = createLuaLikeTestRuntime();
+      lualike = LuaLike();
+      runtime = lualike.vm;
       installLove2d(runtime: runtime);
     });
 

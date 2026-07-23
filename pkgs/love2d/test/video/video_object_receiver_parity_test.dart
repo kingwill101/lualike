@@ -54,7 +54,8 @@ void main() {
 }
 
 LuaRuntime _newMountedVideoRuntime() {
-  final runtime = createLuaLikeTestRuntime();
+final lualike = LuaLike();
+LuaRuntime runtime = lualike.vm;
   installLove2d(
     runtime: runtime,
     host: LoveHeadlessHost(),

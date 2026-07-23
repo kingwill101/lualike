@@ -45,7 +45,8 @@ void main() {
           },
         );
 
-        final runtime = createLuaLikeTestRuntime();
+        final lualike = LuaLike();
+        LuaRuntime runtime = lualike.vm;
         installLove2d(runtime: runtime, host: LoveHeadlessHost());
         LoveRuntimeContext.attach(runtime).audio.recordingDevices.add(device);
 
@@ -141,7 +142,8 @@ void main() {
               }) => true,
         );
 
-        final runtime = createLuaLikeTestRuntime();
+        final lualike = LuaLike();
+        LuaRuntime runtime = lualike.vm;
         installLove2d(runtime: runtime, host: LoveHeadlessHost());
         LoveRuntimeContext.attach(runtime).audio.recordingDevices.add(device);
 

@@ -6,7 +6,8 @@ import '../test_support/lua_api_test_helpers.dart';
 void main() {
   group('love.font text coercion', () {
     test('Font:getWidth and Font:getWrap accept numeric text inputs', () async {
-      final runtime = createLuaLikeTestRuntime();
+    final lualike = LuaLike();
+LuaRuntime runtime = lualike.vm;
       installLove2d(runtime: runtime, host: LoveHeadlessHost());
 
       final font = await luaCall(
@@ -28,7 +29,8 @@ void main() {
     test(
       'Font:getWrap accepts numeric segments in colored text tables',
       () async {
-        final runtime = createLuaLikeTestRuntime();
+      final lualike = LuaLike();
+LuaRuntime runtime = lualike.vm;
         installLove2d(runtime: runtime, host: LoveHeadlessHost());
 
         final font = await luaCall(
@@ -53,7 +55,8 @@ void main() {
     test(
       'Font:getWrap rejects invalid non-string entries in colored text tables',
       () async {
-        final runtime = createLuaLikeTestRuntime();
+      final lualike = LuaLike();
+LuaRuntime runtime = lualike.vm;
         installLove2d(runtime: runtime, host: LoveHeadlessHost());
 
         final font = await luaCall(
@@ -84,7 +87,8 @@ void main() {
     );
 
     test('Font:getWrap validates partial color tables like LOVE', () async {
-      final runtime = createLuaLikeTestRuntime();
+    final lualike = LuaLike();
+LuaRuntime runtime = lualike.vm;
       installLove2d(runtime: runtime, host: LoveHeadlessHost());
 
       final font = await luaCall(
@@ -114,7 +118,8 @@ void main() {
     test(
       'Font:getWrap keeps strict UTF-8 validation for LuaString table segments',
       () async {
-        final runtime = createLuaLikeTestRuntime();
+      final lualike = LuaLike();
+LuaRuntime runtime = lualike.vm;
         installLove2d(runtime: runtime, host: LoveHeadlessHost());
 
         final font = await luaCall(

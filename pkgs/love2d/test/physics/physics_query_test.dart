@@ -7,10 +7,12 @@ import '../test_support/physics_test_support.dart';
 void main() {
   group('love.physics query and raycast bindings', () {
     late LuaRuntime runtime;
+    late LuaLike lualike;
     late LuaLike lua;
 
     setUp(() {
-      runtime = createLuaLikeTestRuntime();
+      lualike = LuaLike();
+runtime = lualike.vm;
       lua = LuaLike(runtime: runtime);
       installLove2d(runtime: runtime);
     });

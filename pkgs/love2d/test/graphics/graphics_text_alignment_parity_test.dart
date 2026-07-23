@@ -9,7 +9,8 @@ void main() {
       'printf treats nil alignment like an omitted left alignment',
       () async {
         final host = LoveHeadlessHost();
-        final runtime = createLuaLikeTestRuntime();
+        final lualike = LuaLike();
+        LuaRuntime runtime = lualike.vm;
         installLove2d(runtime: runtime, host: host);
 
         final font = await luaCall(
@@ -39,7 +40,8 @@ void main() {
     test(
       'printf and Text formatted methods use LOVE alignment error text',
       () async {
-        final runtime = createLuaLikeTestRuntime();
+        final lualike = LuaLike();
+        LuaRuntime runtime = lualike.vm;
         installLove2d(runtime: runtime, host: LoveHeadlessHost());
 
         final font = await luaCall(

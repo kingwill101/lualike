@@ -6,10 +6,12 @@ import '../test_support/lua_api_test_helpers.dart';
 void main() {
   group('love.physics gear joints', () {
     late LuaRuntime runtime;
+    late LuaLike lualike;
     late LuaLike lua;
 
     setUp(() {
-      runtime = createLuaLikeTestRuntime();
+      lualike = LuaLike();
+runtime = lualike.vm;
       lua = LuaLike(runtime: runtime);
       installLove2d(runtime: runtime);
     });

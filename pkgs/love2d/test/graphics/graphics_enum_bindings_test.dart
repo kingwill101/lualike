@@ -2,11 +2,11 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:lualike/lualike.dart';
 import 'package:love2d/love2d.dart';
 
-import '../test_support/lua_api_test_helpers.dart';
 
 void main() {
   test('graphics enum tables are exposed on love.graphics and as globals', () {
-    final runtime = createLuaLikeTestRuntime();
+    final lualike = LuaLike();
+    LuaRuntime runtime = lualike.vm;
     installLove2d(runtime: runtime, host: LoveHeadlessHost());
 
     expect(

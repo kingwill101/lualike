@@ -8,10 +8,12 @@ import '../test_support/package_path_test_support.dart';
 void main() {
   group('LOVE input source parity', () {
     late LuaRuntime runtime;
+    late LuaLike lualike;
     late LoveHeadlessHost host;
 
     setUp(() {
-      runtime = createLuaLikeTestRuntime();
+      lualike = LuaLike();
+runtime = lualike.vm;
       host = LoveHeadlessHost();
       installLove2d(runtime: runtime, host: host);
     });

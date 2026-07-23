@@ -8,7 +8,8 @@ void main() {
     test(
       'ByteData type metadata survives release while other methods fail',
       () async {
-        final runtime = createLuaLikeTestRuntime();
+        final lualike = LuaLike();
+        LuaRuntime runtime = lualike.vm;
         installLove2d(runtime: runtime, host: LoveHeadlessHost());
 
         final byteData = await luaCall(
@@ -85,7 +86,8 @@ void main() {
     test(
       'FileData type metadata survives release while data methods fail',
       () async {
-        final runtime = createLuaLikeTestRuntime();
+        final lualike = LuaLike();
+        LuaRuntime runtime = lualike.vm;
         installLove2d(runtime: runtime, host: LoveHeadlessHost());
 
         final fileData = await luaCall(

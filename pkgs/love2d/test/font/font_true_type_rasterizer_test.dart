@@ -7,7 +7,8 @@ import '../test_support/lua_api_test_helpers.dart';
 void main() {
   group('love.font true type rasterizers', () {
     test('expose estimated glyph data for individual glyph queries', () async {
-      final runtime = createLuaLikeTestRuntime();
+      final lualike = LuaLike();
+      LuaRuntime runtime = lualike.vm;
       installLove2d(runtime: runtime, host: LoveHeadlessHost());
 
       final rasterizer = await luaCallList(
@@ -54,7 +55,8 @@ void main() {
     test(
       'report approximate glyph availability for valid unicode scalars',
       () async {
-        final runtime = createLuaLikeTestRuntime();
+        final lualike = LuaLike();
+        LuaRuntime runtime = lualike.vm;
         installLove2d(runtime: runtime, host: LoveHeadlessHost());
 
         final rasterizer = await luaCallList(
@@ -107,7 +109,8 @@ void main() {
     test(
       'estimated glyph data uses transparent-white la8 placeholder bytes',
       () async {
-        final runtime = createLuaLikeTestRuntime();
+        final lualike = LuaLike();
+        LuaRuntime runtime = lualike.vm;
         installLove2d(runtime: runtime, host: LoveHeadlessHost());
 
         final rasterizer = await luaCallList(
@@ -137,7 +140,8 @@ void main() {
     test(
       'glyph extraction distinguishes empty strings and non-string errors',
       () async {
-        final runtime = createLuaLikeTestRuntime();
+        final lualike = LuaLike();
+        LuaRuntime runtime = lualike.vm;
         installLove2d(runtime: runtime, host: LoveHeadlessHost());
 
         final rasterizer = await luaCallList(
@@ -213,7 +217,8 @@ void main() {
     );
 
     test('glyph extraction reports LOVE-style invalid UTF-8 errors', () async {
-      final runtime = createLuaLikeTestRuntime();
+      final lualike = LuaLike();
+      LuaRuntime runtime = lualike.vm;
       installLove2d(runtime: runtime, host: LoveHeadlessHost());
 
       final rasterizer = await luaCallList(

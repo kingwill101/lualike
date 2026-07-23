@@ -9,7 +9,8 @@ void main() {
     test(
       'Rasterizer:type and Rasterizer:typeOf require a Rasterizer receiver',
       () async {
-        final runtime = createLuaLikeTestRuntime();
+      final lualike = LuaLike();
+LuaRuntime runtime = lualike.vm;
         installLove2d(runtime: runtime, host: LoveHeadlessHost());
 
         final imageData = await luaCall(
@@ -77,7 +78,8 @@ void main() {
     test(
       'Rasterizer release invalidates methods but preserves type metadata',
       () async {
-        final runtime = createLuaLikeTestRuntime();
+      final lualike = LuaLike();
+LuaRuntime runtime = lualike.vm;
         installLove2d(runtime: runtime, host: LoveHeadlessHost());
 
         final imageData = await luaCall(

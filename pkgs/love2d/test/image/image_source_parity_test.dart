@@ -1,3 +1,4 @@
+import 'package:lualike/lualike.dart';
 import 'dart:typed_data';
 
 import 'package:flutter_test/flutter_test.dart';
@@ -9,7 +10,8 @@ void main() {
     test(
       'newCubeFaces and clone methods mirror upstream source-backed image APIs',
       () async {
-        final runtime = createLuaLikeTestRuntime();
+        final lualike = LuaLike();
+        LuaRuntime runtime = lualike.vm;
         installLove2d(runtime: runtime, host: LoveHeadlessHost());
 
         final packed = await luaCallList(

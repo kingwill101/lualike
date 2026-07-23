@@ -9,7 +9,8 @@ void main() {
     test(
       'ParticleSystem type metadata survives release while other methods fail',
       () async {
-        final runtime = createLuaLikeTestRuntime();
+        final lualike = LuaLike();
+        LuaRuntime runtime = lualike.vm;
         installLove2d(runtime: runtime, host: LoveHeadlessHost());
 
         final imageData = await luaCall(

@@ -8,7 +8,8 @@ void main() {
     test(
       '_setDefaultShaderCode accepts the upstream-generated default table shape',
       () async {
-        final runtime = createLuaLikeTestRuntime();
+        final lualike = LuaLike();
+        LuaRuntime runtime = lualike.vm;
         installLove2d(runtime: runtime, host: LoveHeadlessHost());
 
         final love = runtime.getCurrentEnv().get('love')! as Value;
@@ -32,7 +33,8 @@ void main() {
     );
 
     test('_setDefaultShaderCode rejects malformed shader default tables', () {
-      final runtime = createLuaLikeTestRuntime();
+      final lualike = LuaLike();
+      LuaRuntime runtime = lualike.vm;
       installLove2d(runtime: runtime, host: LoveHeadlessHost());
 
       expect(

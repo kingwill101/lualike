@@ -2,14 +2,14 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:lualike/lualike.dart';
 import 'package:love2d/love2d.dart';
 
-import '../test_support/lua_api_test_helpers.dart';
 
 void main() {
   group('LOVE graphics shader source resolution parity', () {
     test(
       'newShader preserves missing position or effect parse errors before backend rejection',
       () async {
-        final runtime = createLuaLikeTestRuntime();
+        final lualike = LuaLike();
+        LuaRuntime runtime = lualike.vm;
         installLove2d(runtime: runtime, host: LoveHeadlessHost());
 
         await expectLater(
@@ -32,7 +32,8 @@ void main() {
     test(
       'validateShader preserves split-stage parse errors before backend rejection',
       () async {
-        final runtime = createLuaLikeTestRuntime();
+        final lualike = LuaLike();
+        LuaRuntime runtime = lualike.vm;
         installLove2d(runtime: runtime, host: LoveHeadlessHost());
 
         await expectLater(
@@ -69,7 +70,8 @@ vec4 effect(vec4 color, Image tex, vec2 tc, vec2 pc) {
     test(
       'validateShader preserves shader language mismatch errors before backend rejection',
       () async {
-        final runtime = createLuaLikeTestRuntime();
+        final lualike = LuaLike();
+        LuaRuntime runtime = lualike.vm;
         installLove2d(runtime: runtime, host: LoveHeadlessHost());
 
         await expectLater(

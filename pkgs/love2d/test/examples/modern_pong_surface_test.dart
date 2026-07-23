@@ -7,7 +7,6 @@ import 'package:love2d/love2d.dart';
 import 'package:love2d/src/runtime/filesystem/love_filesystem_runtime.dart';
 import 'package:path/path.dart' as path;
 
-import '../test_support/lua_api_test_helpers.dart';
 import '../test_support/package_path_test_support.dart';
 
 void main() {
@@ -205,7 +204,8 @@ end
           id: 1,
           gamepadButtons: <String>{'dpup'},
         );
-        final runtime = createLuaLikeTestRuntime();
+        final lualike = LuaLike();
+        LuaRuntime runtime = lualike.vm;
         installLove2d(
           runtime: runtime,
           host: LoveHeadlessHost(

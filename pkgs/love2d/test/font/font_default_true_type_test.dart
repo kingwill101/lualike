@@ -2,6 +2,7 @@ import 'dart:typed_data';
 
 import 'package:flutter_test/flutter_test.dart';
 import 'package:love2d/love2d.dart';
+import 'package:lualike/lualike.dart';
 
 import '../test_support/font_test_support.dart';
 import '../test_support/lua_api_test_helpers.dart';
@@ -11,7 +12,8 @@ void main() {
     test(
       'newTrueTypeRasterizer uses injected default font bytes for coverage and glyph count',
       () async {
-        final runtime = createLuaLikeTestRuntime();
+        final lualike = LuaLike();
+        LuaRuntime runtime = lualike.vm;
         installLove2d(
           runtime: runtime,
           host: LoveHeadlessHost(defaultTrueTypeFontDataLoader: _loadVeraBytes),
@@ -48,7 +50,8 @@ void main() {
     test(
       'graphics.newFont uses injected default font bytes when no host-backed font is available',
       () async {
-        final runtime = createLuaLikeTestRuntime();
+        final lualike = LuaLike();
+        LuaRuntime runtime = lualike.vm;
         installLove2d(
           runtime: runtime,
           host: LoveHeadlessHost(defaultTrueTypeFontDataLoader: _loadVeraBytes),

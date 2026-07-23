@@ -13,7 +13,8 @@ void main() {
     test(
       'newBMFontRasterizer uses LOVE BMFont error text for invalid FileData definitions',
       () async {
-        final runtime = createLuaLikeTestRuntime();
+      final lualike = LuaLike();
+LuaRuntime runtime = lualike.vm;
         installLove2d(runtime: runtime, host: LoveHeadlessHost());
 
         final definition = await luaCall(
@@ -47,7 +48,8 @@ void main() {
     test(
       'graphics.newFont uses LOVE BMFont error text for invalid FileData definitions',
       () async {
-        final runtime = createLuaLikeTestRuntime();
+      final lualike = LuaLike();
+LuaRuntime runtime = lualike.vm;
         installLove2d(runtime: runtime, host: LoveHeadlessHost());
 
         final definition = await luaCall(
@@ -81,7 +83,8 @@ void main() {
     test(
       'graphics.newFont uses LOVE BMFont error text for invalid mounted definitions',
       () async {
-        final runtime = createLuaLikeTestRuntime();
+      final lualike = LuaLike();
+LuaRuntime runtime = lualike.vm;
         installLove2d(
           runtime: runtime,
           host: LoveHeadlessHost(),
@@ -122,7 +125,8 @@ void main() {
     test(
       'newBMFontRasterizer rejects whitespace-prefixed valid definitions like upstream',
       () async {
-        final runtime = createLuaLikeTestRuntime();
+      final lualike = LuaLike();
+LuaRuntime runtime = lualike.vm;
         installLove2d(runtime: runtime, host: LoveHeadlessHost());
 
         final definition = await luaCall(
@@ -159,7 +163,8 @@ void main() {
     test(
       'graphics.newFont rejects whitespace-prefixed valid definitions like upstream',
       () async {
-        final runtime = createLuaLikeTestRuntime();
+      final lualike = LuaLike();
+LuaRuntime runtime = lualike.vm;
         installLove2d(
           runtime: runtime,
           host: LoveHeadlessHost(),

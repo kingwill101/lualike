@@ -4,7 +4,6 @@ import 'package:love2d/love2d.dart';
 import 'package:love2d/src/runtime/filesystem/love_filesystem_runtime.dart';
 
 import '../test_support/font_test_support.dart';
-import '../test_support/lua_api_test_helpers.dart';
 import '../test_support/memory_filesystem_test_support.dart';
 
 void main() {
@@ -13,7 +12,8 @@ void main() {
       'source-backed true type widths use LOVE-style snapped advances',
       () async {
         final veraBytes = await (await love2dVeraFontFile()).readAsBytes();
-        final runtime = createLuaLikeTestRuntime();
+        final lualike = LuaLike();
+        LuaRuntime runtime = lualike.vm;
         installLove2d(
           runtime: runtime,
           host: LoveHeadlessHost(),

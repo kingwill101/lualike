@@ -2,14 +2,14 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:lualike/lualike.dart';
 import 'package:love2d/love2d.dart';
 
-import '../test_support/lua_api_test_helpers.dart';
 
 void main() {
   group('love.thread Channel receiver parity', () {
     test(
       'Channel type metadata survives release while other methods fail',
       () async {
-        final runtime = createLuaLikeTestRuntime();
+        final lualike = LuaLike();
+        LuaRuntime runtime = lualike.vm;
         installLove2d(runtime: runtime, host: LoveHeadlessHost());
 
         final channel = await _call(runtime, const [

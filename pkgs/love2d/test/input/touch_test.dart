@@ -6,10 +6,12 @@ import '../test_support/lua_api_test_helpers.dart';
 void main() {
   group('love.touch module', () {
     late LuaRuntime runtime;
+    late LuaLike lualike;
     late LoveHeadlessHost host;
 
     setUp(() {
-      runtime = createLuaLikeTestRuntime();
+      lualike = LuaLike();
+runtime = lualike.vm;
       host = LoveHeadlessHost();
       installLove2d(runtime: runtime, host: host);
     });

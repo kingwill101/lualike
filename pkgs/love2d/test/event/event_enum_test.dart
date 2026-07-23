@@ -6,9 +6,11 @@ import '../test_support/lua_api_test_helpers.dart';
 void main() {
   group('Event enum', () {
     late LuaRuntime runtime;
+    late LuaLike lualike;
 
     setUp(() {
-      runtime = createLuaLikeTestRuntime();
+      lualike = LuaLike();
+runtime = lualike.vm;
       installLove2d(runtime: runtime, host: LoveHeadlessHost());
     });
 

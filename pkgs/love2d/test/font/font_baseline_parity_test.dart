@@ -1,5 +1,6 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:love2d/love2d.dart';
+import 'package:lualike/lualike.dart';
 
 import '../test_support/font_test_support.dart';
 import '../test_support/lua_api_test_helpers.dart';
@@ -9,7 +10,8 @@ void main() {
     test(
       'source-backed true type fonts use parsed ascent as the baseline',
       () async {
-        final runtime = createLuaLikeTestRuntime();
+        final lualike = LuaLike();
+        LuaRuntime runtime = lualike.vm;
         installLove2d(runtime: runtime, host: LoveHeadlessHost());
 
         final veraBytes = await (await love2dVeraFontFile()).readAsBytes();
@@ -37,7 +39,8 @@ void main() {
     test(
       'bmfont fonts use ascent as the baseline across direct and dpi-scaled rasterizer paths',
       () async {
-        final runtime = createLuaLikeTestRuntime();
+        final lualike = LuaLike();
+        LuaRuntime runtime = lualike.vm;
         installLove2d(runtime: runtime, host: LoveHeadlessHost());
 
         final fileData = await luaCall(

@@ -7,9 +7,11 @@ import '../test_support/physics_test_support.dart';
 void main() {
   group('love.physics joint inventory bindings', () {
     late LuaRuntime runtime;
+    late LuaLike lualike;
 
     setUp(() {
-      runtime = createLuaLikeTestRuntime();
+      lualike = LuaLike();
+runtime = lualike.vm;
       installLove2d(runtime: runtime);
     });
 

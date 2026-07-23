@@ -67,7 +67,8 @@ void main() {
     );
 
     test('installLove2d registers nested LOVE submodules', () {
-      final runtime = createLuaLikeTestRuntime();
+    final lualike = LuaLike();
+LuaRuntime runtime = lualike.vm;
 
       installLove2d(runtime: runtime);
 
@@ -88,7 +89,8 @@ void main() {
     });
 
     test('registered stubs still throw symbol-specific Lua errors', () {
-      final runtime = createLuaLikeTestRuntime();
+    final lualike = LuaLike();
+LuaRuntime runtime = lualike.vm;
 
       installLove2d(runtime: runtime);
 
@@ -185,7 +187,8 @@ end
     test(
       'love.getVersion and love.isVersionCompatible follow LOVE 11.5',
       () async {
-        final runtime = createLuaLikeTestRuntime();
+      final lualike = LuaLike();
+LuaRuntime runtime = lualike.vm;
 
         installLove2d(runtime: runtime);
 
@@ -239,7 +242,8 @@ end
     );
 
     test('deprecation output state can be queried and changed', () async {
-      final runtime = createLuaLikeTestRuntime();
+    final lualike = LuaLike();
+LuaRuntime runtime = lualike.vm;
 
       installLove2d(runtime: runtime);
 
@@ -261,7 +265,8 @@ end
     });
 
     test('window and graphics APIs track headless host metrics', () async {
-      final runtime = createLuaLikeTestRuntime();
+    final lualike = LuaLike();
+LuaRuntime runtime = lualike.vm;
       final host = LoveHeadlessHost(
         windowMetrics: const LoveWindowMetrics(
           width: 320,
@@ -360,7 +365,8 @@ end
     test(
       'graphics environment APIs expose LOVE-style metrics and metadata',
       () async {
-        final runtime = createLuaLikeTestRuntime();
+      final lualike = LuaLike();
+LuaRuntime runtime = lualike.vm;
         final host = LoveHeadlessHost(
           windowMetrics: const LoveWindowMetrics(
             width: 320,
@@ -563,8 +569,8 @@ end
     );
 
     test('math random uses a deterministic seedable generator', () async {
-      final runtimeA = createLuaLikeTestRuntime();
-      final runtimeB = createLuaLikeTestRuntime();
+      final runtimeA = LuaLike().vm;
+      final runtimeB = LuaLike().vm;
 
       installLove2d(
         runtime: runtimeA,
@@ -618,7 +624,8 @@ end
     test(
       'string-driven APIs accept LuaString inputs and LuaString table keys',
       () async {
-        final runtime = createLuaLikeTestRuntime();
+      final lualike = LuaLike();
+LuaRuntime runtime = lualike.vm;
         final host = LoveHeadlessHost();
 
         installLove2d(runtime: runtime, host: host);
@@ -1472,7 +1479,8 @@ end
     );
 
     test('texture sampling APIs enforce LOVE validation rules', () async {
-      final runtime = createLuaLikeTestRuntime();
+    final lualike = LuaLike();
+LuaRuntime runtime = lualike.vm;
 
       installLove2d(
         runtime: runtime,
@@ -1619,7 +1627,8 @@ end
       'love.image.newImageData decodes filename, FileData, and raw byte inputs',
       () async {
         final encodedPng = _encodeTestPng();
-        final runtime = createLuaLikeTestRuntime();
+      final lualike = LuaLike();
+LuaRuntime runtime = lualike.vm;
 
         installLove2d(
           runtime: runtime,
@@ -1741,7 +1750,8 @@ imagedata_error = tostring(err_imagedata)
 
     test('love.graphics.newImage accepts FileData inputs', () async {
       final encodedPng = _encodeTestPng();
-      final runtime = createLuaLikeTestRuntime();
+    final lualike = LuaLike();
+LuaRuntime runtime = lualike.vm;
 
       installLove2d(runtime: runtime, host: LoveHeadlessHost());
 
@@ -1769,7 +1779,8 @@ imagedata_error = tostring(err_imagedata)
     test(
       'love.image.isCompressed detects LOVE compressed image containers',
       () async {
-        final runtime = createLuaLikeTestRuntime();
+      final lualike = LuaLike();
+LuaRuntime runtime = lualike.vm;
 
         installLove2d(runtime: runtime);
 
@@ -1850,7 +1861,8 @@ imagedata_error = tostring(err_imagedata)
     test(
       'love.graphics.newImage applies common LOVE settings for dpi, linear, and mipmaps',
       () async {
-        final runtime = createLuaLikeTestRuntime();
+      final lualike = LuaLike();
+LuaRuntime runtime = lualike.vm;
 
         installLove2d(runtime: runtime, host: LoveHeadlessHost());
 
@@ -1917,7 +1929,8 @@ imagedata_error = tostring(err_imagedata)
     test(
       'love.image.newCompressedData parses metadata and newImage accepts it',
       () async {
-        final runtime = createLuaLikeTestRuntime();
+      final lualike = LuaLike();
+LuaRuntime runtime = lualike.vm;
         final host = LoveHeadlessHost();
 
         installLove2d(runtime: runtime, host: host);
@@ -2228,7 +2241,8 @@ testbed.err = tostring(err)
     test(
       'Transform objects support LOVE matrix semantics and graphics application',
       () async {
-        final runtime = createLuaLikeTestRuntime();
+      final lualike = LuaLike();
+LuaRuntime runtime = lualike.vm;
         final host = LoveHeadlessHost();
 
         installLove2d(runtime: runtime, host: host);
@@ -2466,7 +2480,8 @@ testbed.err = tostring(err)
     test(
       'graphics draw and text APIs accept Transform object overloads',
       () async {
-        final runtime = createLuaLikeTestRuntime();
+      final lualike = LuaLike();
+LuaRuntime runtime = lualike.vm;
         final host = LoveHeadlessHost();
 
         installLove2d(
@@ -2583,7 +2598,8 @@ testbed.err = tostring(err)
     test(
       'graphics scissor APIs track state, stack behavior, and command snapshots',
       () async {
-        final runtime = createLuaLikeTestRuntime();
+      final lualike = LuaLike();
+LuaRuntime runtime = lualike.vm;
         final host = LoveHeadlessHost();
 
         installLove2d(runtime: runtime, host: host);
@@ -2677,7 +2693,8 @@ testbed.err = tostring(err)
     );
 
     test('graphics APIs record color state and draw commands', () async {
-      final runtime = createLuaLikeTestRuntime();
+    final lualike = LuaLike();
+LuaRuntime runtime = lualike.vm;
       final host = LoveHeadlessHost();
 
       installLove2d(runtime: runtime, host: host);
@@ -2874,7 +2891,8 @@ testbed.err = tostring(err)
     test(
       'graphics advanced state APIs snapshot blend mode, color mask, wireframe, and reset',
       () async {
-        final runtime = createLuaLikeTestRuntime();
+      final lualike = LuaLike();
+LuaRuntime runtime = lualike.vm;
         final host = LoveHeadlessHost();
 
         installLove2d(runtime: runtime, host: host);
@@ -3145,7 +3163,8 @@ end
     test(
       'graphics misc APIs expose shims and explicit unsupported errors',
       () async {
-        final runtime = createLuaLikeTestRuntime();
+      final lualike = LuaLike();
+LuaRuntime runtime = lualike.vm;
         installLove2d(runtime: runtime, host: LoveHeadlessHost());
 
         expect(
@@ -3252,7 +3271,8 @@ vec4 effect(vec4 color, Image texture, vec2 texture_coords, vec2 screen_coords) 
     test(
       'graphics transform stack follows LOVE push and pop semantics',
       () async {
-        final runtime = createLuaLikeTestRuntime();
+      final lualike = LuaLike();
+LuaRuntime runtime = lualike.vm;
         final host = LoveHeadlessHost();
 
         installLove2d(runtime: runtime, host: host);
@@ -3517,7 +3537,8 @@ vec4 effect(vec4 color, Image texture, vec2 texture_coords, vec2 screen_coords) 
     (game) async {
       game.onGameResize(Vector2(512, 288));
 
-      final runtime = createLuaLikeTestRuntime();
+    final lualike = LuaLike();
+LuaRuntime runtime = lualike.vm;
       installLove2d(
         runtime: runtime,
         host: LoveFlameHost(game: game),

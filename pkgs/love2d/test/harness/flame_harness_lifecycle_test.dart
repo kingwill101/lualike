@@ -1,11 +1,10 @@
+import 'package:lualike/lualike.dart';
 import 'dart:async';
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:flame/game.dart';
-import 'package:lualike/lualike.dart' show EngineMode, LuaString;
-import 'package:lualike/src/io/io_device.dart';
 import 'package:love2d/love2d.dart';
 import 'package:path/path.dart' as path;
 

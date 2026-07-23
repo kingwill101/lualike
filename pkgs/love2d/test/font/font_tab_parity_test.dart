@@ -1,5 +1,6 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:love2d/love2d.dart';
+import 'package:lualike/lualike.dart';
 import '../test_support/lua_api_test_helpers.dart';
 
 void main() {
@@ -28,7 +29,8 @@ void main() {
     test(
       'bmfont fonts measure tabs like four spaces without reporting tab glyphs',
       () async {
-        final runtime = createLuaLikeTestRuntime();
+        final lualike = LuaLike();
+        LuaRuntime runtime = lualike.vm;
         installLove2d(runtime: runtime, host: LoveHeadlessHost());
 
         final fileData = await luaCall(

@@ -13,9 +13,11 @@ final String? _ffmpegSkipReason = _ffmpegExecutable == null
 void main() {
   group('love.sound host compressed decode', () {
     late LuaRuntime runtime;
+    late LuaLike lualike;
 
     setUp(() {
-      runtime = createLuaLikeTestRuntime();
+      lualike = LuaLike();
+runtime = lualike.vm;
       installLove2d(runtime: runtime);
     });
 

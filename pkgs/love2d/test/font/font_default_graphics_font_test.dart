@@ -2,6 +2,7 @@ import 'dart:typed_data';
 
 import 'package:flutter_test/flutter_test.dart';
 import 'package:love2d/love2d.dart';
+import 'package:lualike/lualike.dart';
 
 import '../test_support/font_test_support.dart';
 import '../test_support/lua_api_test_helpers.dart';
@@ -9,7 +10,8 @@ import '../test_support/lua_api_test_helpers.dart';
 void main() {
   group('default graphics font', () {
     test('getFont lazily loads and restores the cached default font', () async {
-      final runtime = createLuaLikeTestRuntime();
+      final lualike = LuaLike();
+      LuaRuntime runtime = lualike.vm;
       installLove2d(
         runtime: runtime,
         host: LoveHeadlessHost(defaultTrueTypeFontDataLoader: _loadVeraBytes),
@@ -43,7 +45,8 @@ void main() {
     test(
       'setNewFont keeps the default graphics font counted in stats',
       () async {
-        final runtime = createLuaLikeTestRuntime();
+        final lualike = LuaLike();
+        LuaRuntime runtime = lualike.vm;
         installLove2d(
           runtime: runtime,
           host: LoveHeadlessHost(defaultTrueTypeFontDataLoader: _loadVeraBytes),
@@ -65,7 +68,8 @@ void main() {
       'repeated numeric newFont calls use the cached default font path synchronously',
       () async {
         var loadCount = 0;
-        final runtime = createLuaLikeTestRuntime();
+        final lualike = LuaLike();
+        LuaRuntime runtime = lualike.vm;
         installLove2d(
           runtime: runtime,
           host: LoveHeadlessHost(
@@ -138,7 +142,8 @@ void main() {
                 );
               },
         );
-        final runtime = createLuaLikeTestRuntime();
+        final lualike = LuaLike();
+        LuaRuntime runtime = lualike.vm;
         installLove2d(runtime: runtime, host: host);
 
         await luaCall(
@@ -165,7 +170,8 @@ void main() {
       final host = LoveHeadlessHost(
         defaultTrueTypeFontDataLoader: _loadVeraBytes,
       );
-      final runtime = createLuaLikeTestRuntime();
+      final lualike = LuaLike();
+      LuaRuntime runtime = lualike.vm;
       installLove2d(runtime: runtime, host: host);
 
       host.graphics.beginFrame();

@@ -6,7 +6,8 @@ import '../test_support/lua_api_test_helpers.dart';
 void main() {
   group('love.event bindings', () {
     test('push, poll, clear, and quit manage the event queue', () async {
-      final runtime = createLuaLikeTestRuntime();
+      final lualike = LuaLike();
+      LuaRuntime runtime = lualike.vm;
       installLove2d(runtime: runtime, host: LoveHeadlessHost());
 
       expect(
@@ -54,7 +55,8 @@ void main() {
     test(
       'wait resolves queued and future events and pump is harmless',
       () async {
-        final runtime = createLuaLikeTestRuntime();
+        final lualike = LuaLike();
+        LuaRuntime runtime = lualike.vm;
         installLove2d(runtime: runtime, host: LoveHeadlessHost());
 
         await luaCall(

@@ -1,5 +1,6 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:love2d/love2d.dart';
+import 'package:lualike/lualike.dart';
 import '../test_support/lua_api_test_helpers.dart';
 
 void main() {
@@ -7,7 +8,8 @@ void main() {
     test(
       'text methods follow LOVE replacement and indexing semantics',
       () async {
-        final runtime = createLuaLikeTestRuntime();
+        final lualike = LuaLike();
+        LuaRuntime runtime = lualike.vm;
         installLove2d(runtime: runtime, host: LoveHeadlessHost());
 
         final font = await luaCall(
@@ -84,7 +86,8 @@ void main() {
     test(
       'text set and constructor only clear for empty input or a single empty string',
       () async {
-        final runtime = createLuaLikeTestRuntime();
+        final lualike = LuaLike();
+        LuaRuntime runtime = lualike.vm;
         installLove2d(runtime: runtime, host: LoveHeadlessHost());
 
         final font = await luaCall(

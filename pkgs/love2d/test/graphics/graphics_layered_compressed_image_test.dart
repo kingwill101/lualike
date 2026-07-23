@@ -10,7 +10,8 @@ void main() {
     test(
       'newArrayImage accepts CompressedImageData slices and drawLayer records the selected layer',
       () async {
-        final runtime = createLuaLikeTestRuntime();
+      final lualike = LuaLike();
+LuaRuntime runtime = lualike.vm;
         final host = LoveHeadlessHost();
         installLove2d(runtime: runtime, host: host);
 
@@ -71,7 +72,8 @@ void main() {
     test(
       'newVolumeImage and newCubeImage accept CompressedImageData sources and preserve metadata',
       () async {
-        final runtime = createLuaLikeTestRuntime();
+      final lualike = LuaLike();
+LuaRuntime runtime = lualike.vm;
         installLove2d(runtime: runtime, host: LoveHeadlessHost());
 
         final ddsA = await _newCompressedData(

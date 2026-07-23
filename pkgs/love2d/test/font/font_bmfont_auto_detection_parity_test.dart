@@ -13,7 +13,8 @@ void main() {
     test(
       'newRasterizer rejects BOM-prefixed BMFont file data like upstream',
       () async {
-        final runtime = createLuaLikeTestRuntime();
+      final lualike = LuaLike();
+LuaRuntime runtime = lualike.vm;
         installLove2d(runtime: runtime, host: LoveHeadlessHost());
 
         final fileData = await luaCall(
@@ -42,7 +43,8 @@ void main() {
     test(
       'graphics.newFont rejects BOM-prefixed BMFont file data like upstream',
       () async {
-        final runtime = createLuaLikeTestRuntime();
+      final lualike = LuaLike();
+LuaRuntime runtime = lualike.vm;
         installLove2d(runtime: runtime, host: LoveHeadlessHost());
 
         final fileData = await luaCall(
@@ -71,7 +73,8 @@ void main() {
     test(
       'newRasterizer rejects whitespace-prefixed mounted BMFont definitions like upstream',
       () async {
-        final runtime = createLuaLikeTestRuntime();
+      final lualike = LuaLike();
+LuaRuntime runtime = lualike.vm;
         installLove2d(
           runtime: runtime,
           host: LoveHeadlessHost(),
@@ -106,7 +109,8 @@ void main() {
     test(
       'graphics.newFont rejects whitespace-prefixed mounted BMFont definitions like upstream',
       () async {
-        final runtime = createLuaLikeTestRuntime();
+      final lualike = LuaLike();
+LuaRuntime runtime = lualike.vm;
         installLove2d(
           runtime: runtime,
           host: LoveHeadlessHost(),

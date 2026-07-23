@@ -2,7 +2,6 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:lualike/lualike.dart';
 import 'package:love2d/love2d.dart';
 
-import '../test_support/lua_api_test_helpers.dart';
 
 const String _registeredFragmentHelperSource = '''
 #version 460 core
@@ -25,7 +24,8 @@ void main() {
     test(
       '_newRegisteredFragmentShader accepts loadable Flutter fragment assets',
       () async {
-        final runtime = createLuaLikeTestRuntime();
+        final lualike = LuaLike();
+        LuaRuntime runtime = lualike.vm;
         installLove2d(runtime: runtime, host: LoveFlameHarnessGame().host);
 
         final result = await _call(
@@ -44,7 +44,8 @@ void main() {
     test(
       '_newRegisteredFragmentShader rejects missing Flutter fragment assets',
       () async {
-        final runtime = createLuaLikeTestRuntime();
+        final lualike = LuaLike();
+        LuaRuntime runtime = lualike.vm;
         installLove2d(runtime: runtime, host: LoveFlameHarnessGame().host);
 
         await expectLater(

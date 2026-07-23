@@ -6,7 +6,8 @@ import '../test_support/lua_api_test_helpers.dart';
 void main() {
   group('love.graphics Text colored text parity', () {
     test('constructor and addf accept numeric text inputs', () async {
-      final runtime = createLuaLikeTestRuntime();
+      final lualike = LuaLike();
+      LuaRuntime runtime = lualike.vm;
       installLove2d(runtime: runtime, host: LoveHeadlessHost());
 
       final font = await luaCall(
@@ -60,7 +61,8 @@ void main() {
     test(
       'constructor accepts numeric segments in colored text tables',
       () async {
-        final runtime = createLuaLikeTestRuntime();
+        final lualike = LuaLike();
+        LuaRuntime runtime = lualike.vm;
         installLove2d(runtime: runtime, host: LoveHeadlessHost());
 
         final font = await luaCall(
@@ -96,7 +98,8 @@ void main() {
     test(
       'constructor and methods validate partial color tables like LOVE',
       () async {
-        final runtime = createLuaLikeTestRuntime();
+        final lualike = LuaLike();
+        LuaRuntime runtime = lualike.vm;
         installLove2d(runtime: runtime, host: LoveHeadlessHost());
 
         final font = await luaCall(

@@ -3,6 +3,7 @@ import 'dart:convert';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:love2d/love2d.dart';
 import 'package:love2d/src/runtime/filesystem/love_filesystem_runtime.dart';
+import 'package:lualike/lualike.dart';
 
 import '../test_support/memory_filesystem_test_support.dart';
 import '../test_support/lua_api_test_helpers.dart';
@@ -12,7 +13,8 @@ void main() {
     test(
       'newBMFontRasterizer accepts mounted File objects for definition and page images',
       () async {
-        final runtime = createLuaLikeTestRuntime();
+        final lualike = LuaLike();
+        LuaRuntime runtime = lualike.vm;
         installLove2d(
           runtime: runtime,
           host: LoveHeadlessHost(),
@@ -59,7 +61,8 @@ void main() {
     test(
       'graphics.newFont accepts mounted File objects for BMFont definitions and page images',
       () async {
-        final runtime = createLuaLikeTestRuntime();
+        final lualike = LuaLike();
+        LuaRuntime runtime = lualike.vm;
         installLove2d(
           runtime: runtime,
           host: LoveHeadlessHost(),
@@ -115,7 +118,8 @@ void main() {
     test(
       'auto-detected BMFont constructors accept mounted File objects and relative pages',
       () async {
-        final runtime = createLuaLikeTestRuntime();
+        final lualike = LuaLike();
+        LuaRuntime runtime = lualike.vm;
         installLove2d(
           runtime: runtime,
           host: LoveHeadlessHost(),

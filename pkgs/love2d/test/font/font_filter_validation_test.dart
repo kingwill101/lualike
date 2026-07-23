@@ -8,7 +8,8 @@ void main() {
     test(
       'Font:setFilter uses LOVE enum error text for invalid min filter',
       () async {
-        final runtime = createLuaLikeTestRuntime();
+      final lualike = LuaLike();
+LuaRuntime runtime = lualike.vm;
         installLove2d(runtime: runtime, host: LoveHeadlessHost());
 
         final font = await luaCall(
@@ -34,7 +35,8 @@ void main() {
     test(
       'Font:setFilter uses LOVE enum error text for invalid mag filter',
       () async {
-        final runtime = createLuaLikeTestRuntime();
+      final lualike = LuaLike();
+LuaRuntime runtime = lualike.vm;
         installLove2d(runtime: runtime, host: LoveHeadlessHost());
 
         final font = await luaCall(

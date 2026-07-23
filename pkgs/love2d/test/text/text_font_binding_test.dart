@@ -6,7 +6,8 @@ import '../test_support/lua_api_test_helpers.dart';
 void main() {
   group('love.graphics Text font bindings', () {
     test('newText uses the provided font and setFont replaces it', () async {
-      final runtime = createLuaLikeTestRuntime();
+      final lualike = LuaLike();
+      LuaRuntime runtime = lualike.vm;
       installLove2d(runtime: runtime, host: LoveHeadlessHost());
 
       final largeFont = await luaCall(
@@ -41,7 +42,8 @@ void main() {
     });
 
     test('Text font methods enforce Text and Font receivers', () async {
-      final runtime = createLuaLikeTestRuntime();
+      final lualike = LuaLike();
+      LuaRuntime runtime = lualike.vm;
       installLove2d(runtime: runtime, host: LoveHeadlessHost());
 
       final font = await luaCall(
