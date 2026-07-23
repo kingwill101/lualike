@@ -53,6 +53,7 @@ pkgs/love2d/example/.fvm/
 *.o
 *.a
 *.so
+vgcore.*
 a.out
 test_runner
 /tmp/lualike_test_runner
