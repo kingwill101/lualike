@@ -1,10 +1,10 @@
-name: lualike_hooks_example_dart
-description: Example Dart CLI app using lualike_hooks build hook.
+name: lualike_hooks_example_dart_data_assets
+description: Dart CLI app using lualike_hooks with experimental data assets.
 version: 1.0.0
 publish_to: none
 
 environment:
-  sdk: ^3.7.0
+  sdk: ">=3.14.0-0 <4.0.0"
 
 dependencies:
   lualike:
@@ -17,6 +17,7 @@ dependency_overrides:
     path: ../../../lualike_ffi
 
 dev_dependencies:
+  data_assets: ^0.20.0
   lualike_hooks:
     path: ../../
   hooks: ^2.0.2
