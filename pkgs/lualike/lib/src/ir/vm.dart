@@ -1657,8 +1657,12 @@ class LualikeIrVm {
     if (arg is LualikeIrClosure) {
       return _ensureValue(arg);
     }
-    if (arg is List && arg is! Value) {
-      return arg.map(_prepareCallArgument).toList();
+    if (arg is List) {
+      final activeRuntime = runtime ?? environment.interpreter;
+      return valueFromOptionalLuaSlot(
+        activeRuntime,
+        Value.listToLuaTable(arg),
+      );
     }
     return _ensureValue(arg);
   }

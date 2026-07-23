@@ -2837,7 +2837,52 @@ const Ivm = struct {
                     i += stp;
                 };
             },
-            .foreach_stmt => |fe| { const it = try self.eval(fe.iter); release(it); },
+            .foreach_stmt => |fe| {
+                // Use evalMulti to capture all return values of the iterator expression
+                var iter_results: [3]Value = @splat(nilV());
+                const niter = try self.evalMulti(fe.iter, iter_results[0..]);
+                defer for (iter_results[0..niter]) |*v| release(v.*);
+                var f: Value = if (niter > 0) iter_results[0] else nilV();
+                var s: Value = if (niter > 1) iter_results[1] else nilV();
+                var var_k: Value = if (niter > 2) iter_results[2] else nilV();
+                retain(f); retain(s); retain(var_k);
+                defer { release(f); release(s); release(var_k); }
+                if (self.cur()) |fr| {
+                    // If no function returned, try 'next' global
+                    if (f.type != .function_ and f.type != .nativefn and f.type != .interpreted) {
+                        const nk = String.init("next") catch return;
+                        var nv = Value{ .type = .string, ._pad = undefined, .payload = .{ .s = nk } };
+                        defer release(nv);
+                        release(f);
+                        lualike_getfield(null, &f, &self.L.globals, &nv);
+                        if (f.type == .nil) return;
+                    }
+                    // If no state, use a global lookup or the function itself
+                    if (s.type == .nil) {
+                        s = f; retain(f);
+                    }
+                    while (true) {
+                        var call_args: [2]Value = .{ s, var_k };
+                        retain(s); retain(var_k);
+                        var res: [2]Value = @splat(nilV());
+                        const nres = self.callMulti(f, call_args[0..2], res[0..]);
+                        release(call_args[0]); release(call_args[1]);
+                        if (nres < 1 or res[0].type == .nil) { defer for (res[0..nres]) |*v| release(v.*); break; }
+                        defer for (res[0..nres]) |*v| release(v.*);
+                        if (fe.iter_vars.len >= 1) {
+                            try fr.set(fe.iter_vars[0], res[0]);
+                        }
+                        if (fe.iter_vars.len >= 2 and nres >= 2) {
+                            try fr.set(fe.iter_vars[1], res[1]);
+                        }
+                        try self.execBlock(fe.body);
+                        if (fr.break_pending) { fr.break_pending = false; break; }
+                        if (fr.return_pending) return;
+                        var_k = res[0];
+                        retain(var_k);
+                    }
+                }
+            },
             .block => |b| try self.execBlock(b),
             .func_def => {},
             .local_func_def => {},
@@ -2862,6 +2907,45 @@ const Ivm = struct {
             .dot => |d| { var o = try self.eval(d.obj); defer release(o); const ks = String.init(d.key) catch return; var k = Value{ .type = .string, ._pad = undefined, .payload = .{ .s = ks } }; defer release(k); lualike_setfield(null, &o, &k, &v); },
             else => {},
         }
+    }
+
+    /// Call a function and return multiple results into `buf`. Returns count.
+    fn callMulti(self: *Ivm, fv: Value, args: []Value, buf: []Value) usize {
+        if (fv.type == .nativefn) {
+            const nbuf = @min(buf.len, 8);
+            var tmp: [8]Value = @splat(nilV());
+            const cfn: NativeFn = @ptrFromInt(fv.payload.cfn);
+            var nr: i32 = 0;
+            cfn(self.L, args.ptr, @intCast(args.len), &tmp, @intCast(nbuf), &nr);
+            const n = @min(@as(usize, @intCast(nr)), buf.len);
+            for (0..n) |i| { buf[i] = tmp[i]; retain(buf[i]); }
+            return n;
+        }
+        if (fv.type == .function_) {
+            const c: *Closure = @ptrFromInt(fv.payload.fn_ptr);
+            if (c.fn_ptr) |cfn| {
+                var regs: [16]Value = @splat(nilV());
+                const na = @min(args.len, @as(usize, 16));
+                for (0..na) |i| { regs[i] = args[i]; retain(regs[i]); }
+                var ev: [1]Value = @splat(nilV());
+                cfn(self.L, &regs, 16, c.upvals, c.nupvals, &ev, 0, c.constants, c.nconstants);
+                const n = @min(@as(usize, 1), buf.len);
+                if (n > 0) { buf[0] = regs[0]; retain(buf[0]); }
+                return n;
+            }
+        }
+        if (fv.type == .interpreted) {
+            const sc: *SavedChunk = @ptrFromInt(fv.payload.t);
+            self.push() catch return 0;
+            for (sc.params, 0..) |p, i| {
+                if (i < args.len) { retain(args[i]); self.cur().?.set(p, args[i]) catch {}; }
+            }
+            const r = self.execChunk(sc.chunk) catch nilV();
+            self.pop();
+            if (buf.len > 0) { buf[0] = r; retain(buf[0]); }
+            return 1;
+        }
+        return 0;
     }
 
     fn call(self: *Ivm, fv: Value, args: []Value) std.mem.Allocator.Error!Value {
@@ -2896,6 +2980,40 @@ const Ivm = struct {
             return r;
         }
         return nilV();
+    }
+
+    /// Evaluate an expression, returning multiple results into `buf`.
+    /// Returns the number of results written.
+    fn evalMulti(self: *Ivm, e: *const parser.Exp, buf: []Value) !usize {
+        switch (e.*) {
+            .call => |c| {
+                const fv = try self.eval(c.func); defer release(fv);
+                var aa: [256]Value = @splat(nilV());
+                var n: usize = 0;
+                for (c.args) |a| { if (n >= 256) break; aa[n] = try self.eval(a); n += 1; }
+                defer for (aa[0..n]) |*a| release(a.*);
+                return self.callMulti(fv, aa[0..n], buf);
+            },
+            .method_call => |m| {
+                var o = try self.eval(m.obj); defer release(o);
+                const ks = String.init(m.method) catch return 0;
+                var mk = Value{ .type = .string, ._pad = undefined, .payload = .{ .s = ks } }; defer release(mk);
+                var mv: Value = undefined; lualike_getfield(null, &mv, &o, &mk); defer release(mv);
+                var aa: [256]Value = undefined;
+                var n: usize = 0;
+                aa[n] = o; retain(o); n += 1;
+                for (m.args) |a| { if (n >= 256) break; aa[n] = try self.eval(a); n += 1; }
+                defer for (aa[0..n]) |*a| release(a.*);
+                return self.callMulti(mv, aa[0..n], buf);
+            },
+            else => {
+                if (buf.len > 0) {
+                    buf[0] = try self.eval(e);
+                    return 1;
+                }
+                return 0;
+            },
+        }
     }
 
     fn eval(self: *Ivm, e: *const parser.Exp) !Value {
@@ -3344,4 +3462,42 @@ test "load — print call" {
     lualike_call(L, &call_result[0], &r[0], undefined, 0);
     // print returns nil
     try testing.expectEqual(Type.nil, call_result[0].type);
+}
+
+test "load — generic for pairs" {
+    const L = lualike_newstate() orelse return error.NoState;
+    defer lualike_freestate(L);
+    lualike_openlibs(L);
+
+    const src_str = String.init("local t = {a=1, b=2}; local n = 0; for k, v in pairs(t) do n = n + 1 end; return n") catch return error.NoMem;
+    var fn_args: [1]Value = .{Value{ .type = .string, ._pad = undefined, .payload = .{ .s = src_str } }};
+    var r: [1]Value = @splat(nilV());
+    var nr: i32 = 0;
+    stdLoad(L, &fn_args, 1, &r, 1, &nr);
+    try testing.expectEqual(@as(i32, 1), nr);
+    try testing.expect(r[0].type == .interpreted);
+
+    var call_result: [1]Value = @splat(nilV());
+    lualike_call(L, &call_result[0], &r[0], undefined, 0);
+    try testing.expectEqual(Type.number, call_result[0].type);
+    try testing.expectEqual(@as(f64, 2.0), call_result[0].payload.n);
+}
+
+test "load — string.gmatch" {
+    const L = lualike_newstate() orelse return error.NoState;
+    defer lualike_freestate(L);
+    lualike_openlibs(L);
+
+    const src_str = String.init("local s = 'hello world'; local n = 0; for w in string.gmatch(s, '%a+') do n = n + 1 end; return n") catch return error.NoMem;
+    var fn_args: [1]Value = .{Value{ .type = .string, ._pad = undefined, .payload = .{ .s = src_str } }};
+    var r: [1]Value = @splat(nilV());
+    var nr: i32 = 0;
+    stdLoad(L, &fn_args, 1, &r, 1, &nr);
+    try testing.expectEqual(@as(i32, 1), nr);
+
+    var call_result: [1]Value = @splat(nilV());
+    lualike_call(L, &call_result[0], &r[0], undefined, 0);
+    try testing.expectEqual(Type.number, call_result[0].type);
+    // 'hello' and 'world' → 2 words
+    try testing.expectEqual(@as(f64, 2.0), call_result[0].payload.n);
 }

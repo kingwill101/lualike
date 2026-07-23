@@ -768,7 +768,13 @@ class LuaBytecodeRuntime implements LuaRuntime {
     List<Object?> args,
   ) {
     var callee = original;
-    var normalizedArgs = List<Object?>.from(args, growable: false);
+    var normalizedArgs = args
+        .map(
+          (arg) => arg is List
+              ? valueFromLuaSlot(this, Value.listToLuaTable(arg))
+              : arg,
+        )
+        .toList(growable: false);
     var extraArgs = 0;
 
     while (true) {

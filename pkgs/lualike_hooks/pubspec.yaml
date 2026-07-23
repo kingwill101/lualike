@@ -10,8 +10,7 @@ environment:
 dependencies:
   data_assets: ^0.20.0
   hooks: ^2.0.2
-  lualike:
-    path: ../lualike
+  lualike: ^0.4.0
 
 dev_dependencies:
   lints: ^6.1.0

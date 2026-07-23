@@ -93,7 +93,7 @@ every Lua 5.5 build or platform has been validated.
 
 ```yaml
 dependencies:
-  lualike: ^0.3.0
+  lualike: ^0.4.0
 ```
 
 Then run:

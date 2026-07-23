@@ -1,3 +1,8 @@
+## 0.1.1
+
+- Bump `lualike` dependency to `^0.4.0`.
+- Keep the LOVE runtime scaffold aligned with the updated core runtime.
+
 ## 0.1.0
 
 - Initial workspace scaffold.

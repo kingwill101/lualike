@@ -63,6 +63,8 @@ export 'src/compile/pipeline.dart'
         CompilePipeline,
         CompilePipelineConfig,
         CompileBackend,
+        CompileArtifact,
+        LualikeIrArtifact,
         LuaBytecodeArtifact;
 export 'ir.dart';
 export 'src/environment.dart';

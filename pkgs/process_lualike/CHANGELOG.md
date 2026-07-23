@@ -1,3 +1,8 @@
+## 0.1.2
+
+- Bump `lualike` dependency to `^0.4.0`.
+- Keep the process adapter aligned with the expanded core runtime.
+
 ## 0.1.1
 
 - `useProcessBackend()` now accepts `ProcessBackend` (not just `SshProcessBackend`),

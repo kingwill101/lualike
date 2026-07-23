@@ -39,9 +39,19 @@ bool rawLuaSlotsEqual(Object? left, Object? right) {
 /// Lightweight internal runtime slot.
 ///
 /// A slot may hold raw Lua primitives, a public [Value] facade, a table payload,
-/// a closure payload, or a [LuaResults] carrier while the internals migrate
-/// away from using [Value] for every temporary runtime value.
+/// a closure payload, a [LuaResults] carrier, or an internal list-hole marker
+/// while the internals migrate away from using [Value] for every temporary
+/// runtime value.
 typedef LuaSlot = Object?;
+
+final class LuaListHole {
+  const LuaListHole();
+}
+
+/// Internal marker stored in dense list tables to preserve Dart `null` slots.
+const Object luaListHole = LuaListHole();
+
+bool isLuaListHole(Object? slot) => slot is LuaListHole;
 
 /// Returns the raw payload for a public [Value] facade, or [slot] unchanged.
 @pragma('vm:prefer-inline')
@@ -78,7 +88,12 @@ Object? firstLuaResult(Object? value, {bool expandPlainList = false}) {
 
 /// Converts [slot] into a public [Value] facade while preserving the runtime's
 /// existing primitive wrapper caches and canonical table wrappers.
+///
+/// Dart [List]s are automatically converted to 1-based Lua array tables.
 Value valueFromLuaSlot(LuaRuntime runtime, LuaSlot slot) {
+  if (isLuaListHole(slot)) {
+    return runtime.constantPrimitiveValue(null);
+  }
   if (slot is Value) {
     slot.interpreter ??= runtime;
     return slot;
@@ -86,6 +101,10 @@ Value valueFromLuaSlot(LuaRuntime runtime, LuaSlot slot) {
 
   if (slot is LuaResults) {
     return valueMultiFromLuaResults(slot.values, runtime: runtime);
+  }
+
+  if (slot is List) {
+    return Value(Value.listToLuaTable(slot))..interpreter = runtime;
   }
 
   if (slot is Map) {
@@ -112,12 +131,13 @@ Value valueFromLuaSlot(LuaRuntime runtime, LuaSlot slot) {
 /// Converts [slot] into a public [Value] facade when a runtime may not be
 /// available.
 ///
-/// Callers that do have a runtime still get the same cache/canonicalization
-/// behavior as [valueFromLuaSlot]. Runtime-less callers keep the compatibility
-/// fallback of creating a plain [Value] wrapper.
+/// Dart [List]s are automatically converted to 1-based Lua array tables.
 Value valueFromOptionalLuaSlot(LuaRuntime? runtime, LuaSlot slot) {
   if (runtime != null) {
     return valueFromLuaSlot(runtime, slot);
+  }
+  if (isLuaListHole(slot)) {
+    return Value.primitive(null);
   }
 
   if (slot is Value) {
@@ -126,6 +146,10 @@ Value valueFromOptionalLuaSlot(LuaRuntime? runtime, LuaSlot slot) {
 
   if (slot is LuaResults) {
     return valueMultiFromLuaResults(slot.values);
+  }
+
+  if (slot is List) {
+    return Value(Value.listToLuaTable(slot));
   }
 
   if (slot is Map) {
@@ -144,6 +168,7 @@ Value valueFromOptionalLuaSlot(LuaRuntime? runtime, LuaSlot slot) {
 
 /// Converts [slot] into a fresh [Value] facade without using runtime caches.
 ///
+/// Dart [List]s are automatically converted to 1-based Lua array tables.
 /// This is for short-lived wrappers that carry per-wrapper flags, such as
 /// temporary table keys. Primitive-like payloads still use the lighter
 /// [Value.primitive] constructor while preserving the fresh-wrapper semantics.
@@ -152,9 +177,20 @@ Value freshValueFromLuaSlot(
   LuaSlot slot, {
   bool isTempKey = false,
 }) {
+  if (isLuaListHole(slot)) {
+    return Value.primitive(null, isTempKey: isTempKey, interpreter: runtime);
+  }
   if (slot is Value) {
     slot.interpreter ??= runtime;
     return slot;
+  }
+
+  if (slot is List) {
+    return Value(
+      Value.listToLuaTable(slot),
+      isTempKey: isTempKey,
+      interpreter: runtime,
+    );
   }
 
   if (isLuaPrimitiveSlot(slot)) {
@@ -170,6 +206,9 @@ Value freshValueFromLuaSlot(
 /// This keeps primitive/string-cache policy centralized while preserving the
 /// lighter generic slot wrapper for objects, tables, and result carriers.
 Value cachedPrimitiveOrValue(LuaRuntime? runtime, LuaSlot slot) {
+  if (isLuaListHole(slot)) {
+    return runtime?.constantPrimitiveValue(null) ?? Value.primitive(null);
+  }
   if (slot is Value) return slot; // Already wrapped, no work needed
   if (isLuaScalarPrimitiveSlot(slot)) {
     return runtime?.constantPrimitiveValue(slot) ?? Value.primitive(slot);

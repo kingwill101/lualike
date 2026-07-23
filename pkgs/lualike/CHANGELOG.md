@@ -1,46 +1,12 @@
 ## Unreleased
 
-- `executeCode` / IR pipeline now returns top-level chunk results for
-  `EngineMode.luaBytecode` (was always `null`).
-- SSA use-def: **SETLIST** reads `R(A)..R(A+B)` so DCE cannot drop array
-  constructor fills (`{10,9}`). Escape SROA skips SETLIST/dynamic-key
-  tables and treats CALL/RETURN register windows as escapes.
-- Multi-value `return a, b, f()` packs fixed results contiguously before the
-  open call window so `RETURN` no longer leaks hole/stack junk.
-- Bytecode call entry: one-pass param/register init (skip intermediate arg
-  list on non-vararg), and pool recycle without double-nil of registers.
-- IR→bytecode `maxstack` reserves only the two mechanical-lowering temps
-  (`registerCount + 2`), not a blind ABC scan (ADDI C is an immediate).
-- Sync ADDI path uses signed immediate C (was incorrectly treated as Kst).
-- IR emits **ADDI** (luac55-style) for small integer `+`/`-` immediates
-  instead of always using ADDK + constant pool.
-- Sync nested BC calls push a real call-stack frame and close TBC locals
-  so full programs can stay on the sync path when possible.
+- No unreleased changes yet.
 
-- Fix IR peephole treating `ADDK`/`MULK`/… `c` as the immediate value
-  instead of a **constant-table index** (e.g. `return x + 1` became
-  `return x`). Align `MMBINI`/`MMBINK` A with luac55 (left operand).
-- Bytecode VM: try sync dispatch for hook-free frames after the call
-  stack is set up (leaf BC calls + numeric for when possible).
-- Bytecode density (Lua **5.5** / `luac55` baseline): peephole folds
-  `ARITH tmp; MMBIN*; MOVE dest,tmp` into in-place `ARITH dest` and
-  `LOAD* tmp; MOVE dest,tmp` into `LOAD* dest`. Integer `FORLOOP` and
-  binary arithmetic fast paths use `storeRegisterRaw` for private
-  transients. Soft suite remains the Lua 5.5 port tests.
-- Loop unrolling still available via
-  `CompilePipelineConfig.enableLoopUnrolling` (default off; IR
-  constant-bounded `for` up to 64 iters).
-- Bytecode VM hot-path tweaks: cheaper opcode decode, coarser GC loop
-  safepoints, and `MOVE` via `storeRegisterRaw` (avoids re-cloning values
-  that are already frame-safe). Keeps load/store isolation for
-  `debug.setlocal`.
-- Default `--lua-bytecode` source path: IR + SSA + mechanical lower
-  (`CompilePipelineConfig.luaBytecodeOptimized`), with suite-hardening for
-  jump compact, TEST/EQI use-def, folded tables, fold inlining isolation,
-  and signed immediate compares.
-- Precompiled binary chunks are detected by official Lua header only (no
-  reserved extension). They load and run on the bytecode VM without
-  re-entering the IR/SSA pipeline. `--compile` requires explicit `--output`.
+## 0.4.0
+
+- Major runtime release with a Zig-based backend, native FFI, tree-walk `load()`/`dofile()`, and broader stdlib/runtime coverage.
+- Improved IR/bytecode execution, call-result handling, and table/list interoperability between Dart and Lua.
+- Expanded examples, Flutter hooks/build support, and package exports for downstream tooling.
 
 ## 0.3.0
 

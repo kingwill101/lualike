@@ -132,6 +132,7 @@ class LuaValueMetadata {
   Environment? globalProxyEnvironment;
   LuaRuntime? interpreter;
   int _flags = 0;
+
   /// Cached Lua hash code (computed once, zero means uncached).
   int? _cachedLuaHashCode;
 
@@ -220,10 +221,18 @@ class Value with GCObject implements Map<String, dynamic> {
     if (_metadataPayload == null) {
       _metadataPayload = LuaValueMetadata();
       // Transfer inline flags to the newly-created metadata.
-      if ((_inlineFlags & _skipAllocationDebtBit) != 0) _metadataPayload!.skipAllocationDebt = true;
-      if ((_inlineFlags & _skipGcRegistrationBit) != 0) _metadataPayload!.skipGcRegistration = true;
-      if ((_inlineFlags & _isRawPrimitiveBit) != 0) _metadataPayload!.isRawPrimitive = true;
-      if ((_inlineFlags & _isSharedPrimitiveBit) != 0) _metadataPayload!.isSharedPrimitive = true;
+      if ((_inlineFlags & _skipAllocationDebtBit) != 0) {
+        _metadataPayload!.skipAllocationDebt = true;
+      }
+      if ((_inlineFlags & _skipGcRegistrationBit) != 0) {
+        _metadataPayload!.skipGcRegistration = true;
+      }
+      if ((_inlineFlags & _isRawPrimitiveBit) != 0) {
+        _metadataPayload!.isRawPrimitive = true;
+      }
+      if ((_inlineFlags & _isSharedPrimitiveBit) != 0) {
+        _metadataPayload!.isSharedPrimitive = true;
+      }
       _inlineFlags = 0;
       if (_inlineInterpreter != null) {
         _metadataPayload!.interpreter = _inlineInterpreter;
@@ -312,7 +321,8 @@ class Value with GCObject implements Map<String, dynamic> {
   ///
   /// This keeps bookkeeping-neutral clones of shared runtime constants from
   /// perturbing Lua-visible `collectgarbage("count")` results.
-  bool get skipAllocationDebt => _metadataPayload?.skipAllocationDebt ??
+  bool get skipAllocationDebt =>
+      _metadataPayload?.skipAllocationDebt ??
       ((_inlineFlags & _skipAllocationDebtBit) != 0);
   set skipAllocationDebt(bool value) {
     if (_metadataPayload != null) {
@@ -328,7 +338,8 @@ class Value with GCObject implements Map<String, dynamic> {
   /// per-instance GC references. They can stay off the generational tracking
   /// sets until they escape into a tracked container or a collection discovers
   /// them from roots, which avoids repeated registration churn in tight loops.
-  bool get skipGcRegistration => _metadataPayload?.skipGcRegistration ??
+  bool get skipGcRegistration =>
+      _metadataPayload?.skipGcRegistration ??
       ((_inlineFlags & _skipGcRegistrationBit) != 0);
   set skipGcRegistration(bool value) {
     if (_metadataPayload != null) {
@@ -342,7 +353,8 @@ class Value with GCObject implements Map<String, dynamic> {
   ///
   /// Shared primitive wrappers are safe to reuse as temporary values, but must
   /// not be mutated in-place when a binding later receives a different value.
-  bool get isSharedPrimitive => _metadataPayload?.isSharedPrimitive ??
+  bool get isSharedPrimitive =>
+      _metadataPayload?.isSharedPrimitive ??
       ((_inlineFlags & _isSharedPrimitiveBit) != 0);
   set isSharedPrimitive(bool value) {
     if (_metadataPayload != null) {
@@ -354,7 +366,8 @@ class Value with GCObject implements Map<String, dynamic> {
 
   /// Whether this Value wraps a raw primitive (int, double, bool, null).
   /// The GC skips these during marking — they contain no heap references.
-  bool get isRawPrimitive => _metadataPayload?.isRawPrimitive ??
+  bool get isRawPrimitive =>
+      _metadataPayload?.isRawPrimitive ??
       ((_inlineFlags & _isRawPrimitiveBit) != 0);
   set isRawPrimitive(bool value) {
     if (_metadataPayload != null) {
@@ -933,10 +946,8 @@ class Value with GCObject implements Map<String, dynamic> {
     }
   }
 
-  Value.transientPrimitive(
-    Object? raw, {
-    LuaRuntime? interpreter,
-  }) : _raw = raw {
+  Value.transientPrimitive(Object? raw, {LuaRuntime? interpreter})
+    : _raw = raw {
     // Set common flags and interpreter inline — no metadata allocation.
     _inlineFlags |= _skipAllocationDebtBit | _skipGcRegistrationBit;
     _inlineInterpreter = interpreter;
@@ -1191,6 +1202,9 @@ class Value with GCObject implements Map<String, dynamic> {
     if (value is Value) {
       return value;
     }
+    if (value is List) {
+      return Value(listToLuaTable(value));
+    }
     final existing = _lookupTableIdentity(value);
     if (existing != null) {
       return existing;
@@ -1295,7 +1309,10 @@ class Value with GCObject implements Map<String, dynamic> {
     }
   }
 
-  static Value _copyLooseValue(Object? value) {
+  static Object? _copyLooseValue(Object? value) {
+    if (isLuaListHole(value)) {
+      return luaListHole;
+    }
     if (value is Value) {
       return value.copy();
     }
@@ -1566,12 +1583,45 @@ class Value with GCObject implements Map<String, dynamic> {
   /// If the input is already a Value, returns it unchanged.
   /// For maps, recursively wraps all entries.
   ///
+  /// Converts a Dart [List] to a Lua-compatible 1-based table Map.
+  ///
+  /// Lua arrays are 1-indexed, so a Dart list `[a, b, c]` becomes
+  /// `{1: a, 2: b, 3: c}`.
+  static Object? _listEntryToLuaValue(Object? value) {
+    if (value == null) return luaListHole;
+    if (value is Value) return value;
+    if (value is List) return wrap(value);
+    if (value is Map) return wrap(value);
+    return value;
+  }
+
+  static Map<int, dynamic> listToLuaTable(List<dynamic> list) {
+    return {
+      for (var i = 0; i < list.length; i++) i + 1: _listEntryToLuaValue(list[i]),
+    };
+  }
+
+  /// Returns `true` if [map] is a sequential integer-keyed Map starting
+  /// at 1 with no gaps — i.e. a Lua array table.
+  static bool _isLuaArrayTable(Map<dynamic, dynamic> map) {
+    if (map.isEmpty) return false;
+    var expected = 1;
+    for (final key in map.keys) {
+      if (key is! int || key != expected) return false;
+      expected++;
+    }
+    return true;
+  }
+
   /// [value] - The value to wrap
   /// Returns a new Value instance wrapping the input.
   static Value wrap(dynamic value) {
     if (value is Value) return value;
     if (_isPrimitivePayload(value)) {
       return Value.primitive(value);
+    }
+    if (value is List) {
+      return Value(listToLuaTable(value));
     }
     if (value is Map) {
       // Create new table with copied entries
@@ -1585,12 +1635,19 @@ class Value with GCObject implements Map<String, dynamic> {
   }
 
   static dynamic _unwrapRawValue(Object? value) {
+    if (isLuaListHole(value)) {
+      return null;
+    }
     if (value is Value) {
       return value.unwrap();
     }
     if (value is Map) {
+      final map = value;
+      if (_isLuaArrayTable(map)) {
+        return map.values.map(_unwrapRawValue).toList();
+      }
       final unwrapped = <dynamic, dynamic>{};
-      value.forEach((key, entry) {
+      map.forEach((key, entry) {
         final realKey = key is LuaString ? key.toString() : key;
         unwrapped[realKey] = _unwrapRawValue(entry);
       });
@@ -1606,10 +1663,17 @@ class Value with GCObject implements Map<String, dynamic> {
   }
 
   /// Unwraps a Value to get its raw value, recursively for tables and lists.
+  ///
+  /// Sequential integer-keyed Maps (1-based, no gaps) are converted back
+  /// to Dart [List]s for round-trip fidelity with `wrap()`.
   dynamic unwrap() {
     if (raw is Map) {
+      final map = raw as Map<dynamic, dynamic>;
+      if (_isLuaArrayTable(map)) {
+        return map.values.map(_unwrapRawValue).toList();
+      }
       final unwrapped = <dynamic, dynamic>{};
-      (raw as Map).forEach((key, value) {
+      map.forEach((key, value) {
         final realKey = key is LuaString ? key.toString() : key;
         unwrapped[realKey] = _unwrapRawValue(value);
       });
@@ -1623,6 +1687,9 @@ class Value with GCObject implements Map<String, dynamic> {
       // preserved when users call `.unwrap()`.
       return (raw as LuaString).toString();
     }
+    if (isLuaListHole(raw)) {
+      return null;
+    }
     return raw is Value ? raw.completeUnwrap() : raw;
   }
 
@@ -1630,6 +1697,9 @@ class Value with GCObject implements Map<String, dynamic> {
     var current = raw;
     while (current is Value) {
       current = current.unwrap();
+    }
+    if (isLuaListHole(current)) {
+      return null;
     }
     if (current is LuaString) {
       return (current).toString();

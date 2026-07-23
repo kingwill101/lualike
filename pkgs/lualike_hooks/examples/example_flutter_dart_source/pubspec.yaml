@@ -1,0 +1,33 @@
+name: example_flutter_dart_source
+description: >
+  Flutter example: CompileMode.dartSource
+  Lua → standalone Dart source at build time, imported directly at runtime.
+version: 1.0.0
+publish_to: none
+
+environment:
+  sdk: ^3.7.0
+  flutter: ">=3.22.0"
+
+dependencies:
+  flutter:
+    sdk: flutter
+  lualike:
+    path: ../../../lualike
+
+dependency_overrides:
+  lualike:
+    path: ../../../lualike
+  lualike_ffi:
+    path: ../../../lualike_ffi
+
+dev_dependencies:
+  lualike_hooks:
+    path: ../../
+  hooks: ^2.0.2
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^5.0.0
+
+flutter:
+  uses-material-design: true

@@ -1,3 +1,8 @@
+## 0.1.1
+
+- Bump `lualike` dependency to `^0.4.0`.
+- Keep the FFI backend aligned with the new core runtime release.
+
 ## 0.1.0
 
 - Add a Linux libffi backend for runtime-declared native function calls.

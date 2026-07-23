@@ -1,18 +1,34 @@
 # lualike_hooks
 
-Build hook for compiling Lua scripts to bytecode at build time.
+`lualike_hooks` is the build-hook package for compiling Lua scripts as part of a Dart or Flutter build.
 
-Scans your `lua/` directories, compiles every `.lua` file to Lua 5.5 bytecode,
-and writes the compiled output to `build/lua/` so it can be loaded at runtime.
+It supports three output strategies:
+
+| Mode | Output | Best for |
+|------|--------|----------|
+| `CompileMode.bytecode` | `build/<dir>/*.lua` | simplest runtime loading, Flutter assets, Dart CLI files |
+| `CompileMode.dartSource` | `build/<dir>/*.lua.dart` | generating Dart source from Lua logic |
+| `CompileMode.dartEmbed` | `build/<dir>/*.lua.dart` | embedding bytecode bytes into Dart source |
+
+## When to use which mode
+
+- **Use `bytecode`** when you want the most straightforward setup.
+  Compile at build time, ship the bytecode, and execute it with
+  `LuaBytecodeRuntime`.
+- **Use `dartSource`** when you want generated Dart code instead of a bytecode
+  asset pipeline.
+- **Use `dartEmbed`** when you want the bytecode bytes embedded as Dart
+  constants (no separate asset files).
 
 ## Quick start
 
-### 1. Add dependencies
+### 1) Add dependencies
+
+For a Dart package:
 
 ```yaml
 dependencies:
-  lualike:
-    path: path/to/lualike
+  lualike: ^0.4.0
 
 dev_dependencies:
   lualike_hooks:
@@ -20,7 +36,9 @@ dev_dependencies:
   hooks: ^2.0.2
 ```
 
-### 2. Create `hook/build.dart`
+For Flutter, prefer [`flutter_lualike`](../flutter_lualike/README.md) which re-exports the hooks API.
+
+### 2) Add `hook/build.dart`
 
 ```dart
 import 'package:hooks/hooks.dart';
@@ -28,40 +46,37 @@ import 'package:lualike_hooks/lualike_hooks.dart';
 
 void main(List<String> args) async {
   await build(args, (input, output) async {
-    const builder = LuaBuilder(
+    final builder = LuaBuilder(
       sources: ['lua/'],
+      mode: CompileMode.bytecode,
     );
     await builder.run(input: input, output: output, logger: null);
   });
 }
 ```
 
-### 3. Place Lua scripts
+### 3) Put Lua files in your source directory
 
-```
+```text
 your_package/
   lua/
     hello.lua
-    utils/math.lua
+    math/util.lua
   hook/
     build.dart
   bin/
     main.dart
 ```
 
-### 4. Load and execute at runtime
+### 4) Load at runtime
 
 ```dart
 import 'package:lualike/lualike.dart';
 
-void main() async {
+Future<void> main() async {
   final loader = LuaAssetLoader();
   final bytecode = await loader.loadBytecode('hello.lua');
-
-  if (bytecode == null) {
-    print('Run "dart run" to compile Lua scripts first.');
-    return;
-  }
+  if (bytecode == null) return;
 
   final runtime = LuaBytecodeRuntime();
   final chunk = await runtime.loadBytecode(bytecode, moduleName: 'hello.lua');
@@ -69,56 +84,13 @@ void main() async {
 }
 ```
 
-Or use the `LuaLike` facade for a simpler API:
+## Bytecode mode
 
-```dart
-import 'package:lualike/lualike.dart';
+This is the default mode.
 
-void main() async {
-  // Compile source to bytecode
-  final lua = await LuaLike.compile('return 1 + 2');
-  
-  // The bytecode is pre-loaded; execute to run top-level code
-  await lua.execute('');
-  
-  // Or call specific functions
-  final result = await lua.call('add', [1, 2]);
-}
-```
+### Flutter
 
-## How it works
-
-1. **Build time** -- `dart run` or `flutter run` triggers `hook/build.dart`.
-   `LuaBuilder` reads every `.lua` file under the configured `sources`
-   directories, compiles it through the lualike pipeline (constant folding,
-   peephole optimization), and writes the bytecode to `build/lua/`.
-
-2. **Runtime** -- `LuaAssetLoader` (from the `lualike` package) reads the
-   compiled files from `build/lua/`. `LuaBytecodeRuntime` executes the
-   bytecode directly, skipping parsing and compilation.
-
-## LuaBuilder options
-
-```dart
-const builder = LuaBuilder(
-  // Directories to scan (relative to package root)
-  sources: ['lua/', 'scripts/'],
-
-  // Output directory name under build/
-  outputDirName: 'lua',
-
-  // Compiler optimizations
-  enableConstantFolding: true,
-  enablePeephole: true,
-
-  // Strip debug info for smaller output
-  stripDebug: false,
-);
-```
-
-## Flutter
-
-In Flutter apps, reference the compiled output in `pubspec.yaml`:
+Declare the compiled directory as an asset:
 
 ```yaml
 flutter:
@@ -126,15 +98,93 @@ flutter:
     - build/lua/
 ```
 
-Load at runtime with `rootBundle`:
+Load the file with `rootBundle`:
 
 ```dart
 import 'package:flutter/services.dart';
 
-final data = await rootBundle.load('build/lua/app.lua');
-final bytecode = data.buffer.asUint8List();
+final data = await rootBundle.load('build/lua/hello.lua');
+final bytes = data.buffer.asUint8List();
 ```
 
-## Example
+### Dart CLI
 
-See [`example_dart/`](example_dart/) for a minimal Dart CLI demo.
+Use `LuaAssetLoader`:
+
+```dart
+final loader = LuaAssetLoader();
+final bytes = await loader.loadBytecode('hello.lua');
+```
+
+## Dart source mode
+
+```dart
+const builder = LuaBuilder(
+  sources: ['lua/'],
+  mode: CompileMode.dartSource,
+);
+```
+
+This mode generates `.dart` files containing lowered Lua logic as Dart code.
+Use it when you want the generated source to be imported directly.
+
+## Dart embed mode
+
+```dart
+const builder = LuaBuilder(
+  sources: ['lua/'],
+  mode: CompileMode.dartEmbed,
+);
+```
+
+This mode generates `.dart` files containing a `List<int>` of bytecode bytes.
+Use it when you want bytecode execution without separate asset files.
+
+## Builder options
+
+```dart
+const builder = LuaBuilder(
+  sources: ['lua/'],
+  mode: CompileMode.bytecode,
+  outputDirName: 'lua',
+  enableConstantFolding: true,
+  enablePeephole: true,
+  stripDebug: false,
+);
+```
+
+## Flutter integration
+
+If you are building a Flutter app, the easiest path is:
+
+1. depend on `flutter_lualike`
+2. import `package:flutter_lualike/hooks.dart` in `hook/build.dart`
+3. import `package:flutter_lualike/flutter_lualike.dart` at runtime
+
+```dart
+// hook/build.dart
+import 'package:flutter_lualike/hooks.dart';
+
+void main(List<String> args) async {
+  await build(args, (input, output) async {
+    final builder = LuaBuilder(sources: ['assets/lua/']);
+    await builder.run(input: input, output: output, logger: null);
+  });
+}
+```
+
+```dart
+// runtime
+import 'package:flutter_lualike/flutter_lualike.dart';
+
+await useAssetBundle(rootBundle, assetRoot: 'build/lua');
+```
+
+## Examples
+
+| Example | Mode | Notes |
+|---------|------|-------|
+| [`examples/example_dart/`](example_dart/) | bytecode | Dart CLI end-to-end |
+| [`examples/example_flutter_bytecode/`](example_flutter_bytecode/) | bytecode | Flutter assets + runtime loading |
+| [`examples/example_flutter_dart_source/`](example_flutter_dart_source/) | dartSource | generated Dart source |
+| [`examples/example_flutter_dart_embed/`](example_flutter_dart_embed/) | dartEmbed | embedded bytecode constant |
