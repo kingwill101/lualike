@@ -14,7 +14,8 @@ It supports three output strategies:
 
 - **Use `bytecode`** when you want the most straightforward setup.
   Compile at build time, ship the bytecode, and execute it with
-  `LuaBytecodeRuntime`.
+  `LuaBytecodeRuntime`. When data assets are enabled, the hook also emits a
+  `DataAsset` that `dart build cli` copies beside the executable in `assets/`.
 - **Use `dartSource`** when you want generated Dart code instead of a bytecode
   asset pipeline.
 - **Use `dartEmbed`** when you want the bytecode bytes embedded as Dart
@@ -109,7 +110,7 @@ final bytes = data.buffer.asUint8List();
 
 ### Dart CLI
 
-Use `LuaAssetLoader`:
+Use `LuaAssetLoader` (it also checks bundled data assets):
 
 ```dart
 final loader = LuaAssetLoader();
@@ -185,6 +186,4 @@ await useAssetBundle(rootBundle, assetRoot: 'build/lua');
 | Example | Mode | Notes |
 |---------|------|-------|
 | [`examples/example_dart/`](example_dart/) | bytecode | Dart CLI end-to-end |
-| [`examples/example_flutter_bytecode/`](example_flutter_bytecode/) | bytecode | Flutter assets + runtime loading |
-| [`examples/example_flutter_dart_source/`](example_flutter_dart_source/) | dartSource | generated Dart source |
-| [`examples/example_flutter_dart_embed/`](example_flutter_dart_embed/) | dartEmbed | embedded bytecode constant |
+| [`examples/example_dart_data_assets/`](example_dart_data_assets/) | bytecode | Dart CLI + experimental DataAssets |

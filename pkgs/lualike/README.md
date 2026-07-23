@@ -8,14 +8,14 @@
 [![Pub Version](https://img.shields.io/pub/v/file_lualike)](https://pub.dev/packages/file_lualike)
 [![Pub Version](https://img.shields.io/pub/v/process_lualike)](https://pub.dev/packages/process_lualike)
 
-LuaLike is an embeddable **Lua 5.5-compatible** runtime, bytecode compiler, and tooling package for Dart.
+LuaLike is an embeddable **Lua 5.5-compatible** runtime and tooling package for Dart.
 
-It includes a high-level bridge for running scripts from Dart, a multi-pass optimizing bytecode compiler, AST parsing APIs, low-level parser utilities, and the same standard-library registration surface used by the built-in `string`, `table`, `math`, and `debug` libraries. The bytecode VM can run both `lualike --compile` output and bytecode produced by the official Lua 5.5 `luac55` compiler.
+It provides a high-level bridge for running scripts from Dart, AST parsing APIs, parser helpers, and access to the built-in Lua standard libraries.
 
 ## CLI and Compiler
 
-LuaLike ships as a standalone binary that can execute Lua scripts directly
-or compile them to optimized bytecode.
+LuaLike ships as a standalone binary that can run scripts or compile them to
+bytecode.
 
 ```sh
 # Run a Lua script
@@ -24,61 +24,13 @@ lualike myscript.lua
 # Compile to a binary chunk (--output is required; any path is fine)
 lualike --compile myscript.lua -o myscript.out
 
-# Run that binary (detected by official chunk header — not by extension)
+# Run that binary (header-detected)
 lualike myscript.out
-# same path with an explicit engine flag:
 lualike --lua-bytecode myscript.out
 ```
 
-There is no reserved file extension for compiled output. At run time,
-lualike sniffs the Lua 5.5 chunk header and, when present, **loads and
-runs on the bytecode VM only** (no IR/SSA recompile).
-
-### Multi-pass optimizing compiler
-
-When `--compile` or `--lua-bytecode` is used on **source**, lualike runs
-the production IR+SSA pipeline:
-
-```
-Source → AST passes → IR emit → SSA opts → register budget
-  → mechanical lower → (bytecode peephole) → binary chunk
-```
-
-Key optimizations include:
-- **Constant folding** — arithmetic, string concatenation, comparisons,
-  boolean logic with short-circuit awareness
-- **Function inlining** — user-defined functions with all-const arguments
-  are evaluated at compile time
-- **Dead branch elimination** — `if true then A else B end` → only A compiled
-- **Type narrowing** — after `type(x) == "number"`, x is known to be a number
-- **Const propagation** — single-assignment locals forwarded without `local x <const>`
-- **Builtin folding** — `math.sin(0)`, `string.len("hi")`, `type(42)` via actual stdlib
-- **Peephole optimization** — redundant MOVE, LOADK, LOADNIL removed from IR
-- **Dead code elimination** — unused module exports tree-shaken
-- **Bundling** — static `require("path")` resolved at compile time
-
-See [doc/cli.md](doc/cli.md) for the full CLI reference.
-See [doc/ffi.md](doc/ffi.md) for capability-gated native shared libraries.
-For the optimization / disassembly / test workflow, see
-[the IR and bytecode optimization guide](../../doc/guides/ir-bytecode-optimization.md).
-
-### Cross-compatibility
-
-Lualike reads official Lua 5.5 binary chunks and emits the Lua 5.5 chunk format
-for the language features covered by the compatibility suite:
-
-```sh
-# lualike binary chunk → official Lua 5.5
-lualike --compile script.lua -o script.out
-lua55 script.out
-
-# official luac55 chunk → lualike VM (header-detected)
-luac55 -o script.out script.lua
-lualike script.out
-```
-
-This is an interoperability target, not a claim that every possible chunk from
-every Lua 5.5 build or platform has been validated.
+For CLI flags, compiler workflow, and advanced runtime details, see the guides
+in `doc/guides/`.
 
 ## What this package exposes
 
@@ -131,7 +83,7 @@ Future<void> main() async {
 
 ### Dart ↔ Lua interop
 
-Expose Dart functions and call them from Lua, or call Lua functions from Dart. Share complex data structures like maps, lists, and tables between the two languages.
+Expose Dart functions and call them from Lua, or call Lua functions from Dart. Share complex data structures like maps, lists, and tables between the two languages, with Lua array tables round-tripping as Dart `List`s.
 
 ```dart
 lualike.expose('getCurrentTime', () => DateTime.now().toString());
@@ -145,9 +97,9 @@ await lualike.execute('''
 
 See [example/interop_example.dart](example/interop_example.dart).
 
-### Lua tables as Dart maps
+### Lua tables as Dart maps and lists
 
-Lua tables are exposed as Dart `Map` objects, so you can read, write, and pass them back and forth seamlessly.
+Lua tables are exposed as Dart `Map` objects, and array-like tables round-trip as Dart `List`s, so you can read, write, and pass them back and forth seamlessly.
 
 ```dart
 // Send a config map to Lua
@@ -345,7 +297,7 @@ Future<void> main() async {
 }
 ```
 
-This is the same registration path used by the built-in libraries in the repository. Add inline `FunctionDoc` metadata via `context.describe()` to power IDE completions and documentation generation (see [doc/lsp.md](doc/lsp.md)).
+This is the same registration path used by the built-in libraries in the repository. Add inline `FunctionDoc` metadata via `context.describe()` to power IDE completions and documentation generation (see [doc/guides/lsp.md](../../doc/guides/lsp.md)).
 
 ### Generate table schema docs from Dart annotations
 
@@ -481,8 +433,8 @@ Future<void> main() async {
 ```
 
 Then point your LuaLS workspace library at the generated file. See
-[doc/lsp.md](doc/lsp.md) for editor-specific configuration (Neovim, VS Code,
-`.luarc.json`).
+[doc/guides/lsp.md](../../doc/guides/lsp.md) for editor-specific configuration
+(Neovim, VS Code, `.luarc.json`).
 
 ## Guides and reference material
 
@@ -502,10 +454,15 @@ Examples and source:
 - [Standard library implementations](https://github.com/kingwill101/lualike/tree/master/pkgs/lualike/lib/src/stdlib)
 - [Bytecode engine tests and examples](https://github.com/kingwill101/lualike/tree/master/pkgs/lualike/test/lua_bytecode)
 
-## Companion packages
+## Workspace packages
 
+- [flutter_lualike](https://pub.dev/packages/flutter_lualike) — Flutter integration for loading Lua assets and build-hook workflows.
 - [file_lualike](https://pub.dev/packages/file_lualike) — bridges `package:file` filesystems (SFTP, in-memory, local) into lualike so `io.open()`, `os.remove()`, `dofile()`, and module loading all delegate to a remote/backend filesystem.
 - [process_lualike](https://pub.dev/packages/process_lualike) — bridges remote process execution into lualike so `os.execute()` runs over SSH, Docker, or any custom backend without changing Lua code.
+- [lualike_ffi](https://pub.dev/packages/lualike_ffi) — native FFI backend for calling trusted shared libraries from LuaLike.
+- [lualike_hooks](https://pub.dev/packages/lualike_hooks) — build hooks for compiling Lua scripts and bundling generated assets.
+
+The remaining workspace packages (`love2d`, `lualike_rt`, and `test`) are internal or support packages and are not listed here.
 
 ## Notes on public API stability
 
@@ -513,51 +470,6 @@ The supported API surface is the set of symbols exported by `package:lualike/lua
 
 The `lib/src/` tree is still visible in the repository for people who want to study or borrow implementations, but those files should be treated as internal details unless they are re-exported through one of the public libraries above.
 
-## LLVM native compilation pipeline
+## More details
 
-LuaLike can compile Lua scripts directly to **native executables** via LLVM IR, bypassing the bytecode VM entirely. The pipeline is:
-
-```
-Lua source → parse → IR → SSA optimization → LLVM IR → llc (machine code)
-  → Zig runtime archive → clang link → native binary
-```
-
-### Usage
-
-```sh
-dart run tool/compile_llvm.dart myscript.lua
-./a.out
-```
-
-This produces a standalone native executable from any Lua 5.2-compatible script.
-
-### Architecture
-
-- **`pkgs/lualike/lib/src/ir/llvm_lowering.dart`** — Lowers lualike IR to LLVM IR. Emits one function per Lua sub-function (`_lua_fn_0`, `_lua_fn_1`, …) with register arrays, constants tables, upvalue capture, and all standard opcodes.
-- **`pkgs/lualike/tool/compile_llvm.dart`** — Orchestrates the pipeline: parse → IR → LLVM IR → `llc` → Zig wrapper → link.
-- **`pkgs/lualike_rt/`** — Pure-Zig runtime library implementing all Lua operations (arithmetic, bitwise, tables, strings, closures, calls, for loops, stdlib, etc.). The runtime has no C source — the only C dependency is `-lc` for `malloc`/`free` via `std.heap.c_allocator`.
-
-### Zig runtime (`lualike_rt`)
-
-The runtime is ~2250 lines of Zig providing:
-
-| Category | Functions |
-|----------|-----------|
-| **Value ops** | push/get/set for nil, boolean, number, string, closure, native function |
-| **Arithmetic** | add, sub, mul, div, mod, pow, idiv, unm |
-| **Bitwise** | band, bor, bxor, bnot, shl, shr |
-| **Comparisons** | eq, lt, le, not |
-| **String** | len, concat, byte, char, sub, reverse, rep, upper, lower, find (plain), match, format, gmatch, gsub, pack/unpack/packsize |
-| **Table** | get/set (field, by key, by index), insert, remove, concat, sort, move, pack/unpack, create |
-| **Closures** | newclosure, get/set upvalue, call dispatch with multi-return |
-| **Loops** | forprep, forloop, tforloop, tforcall |
-| **Globals** | gettabup, settabup (upvalue-based `_ENV` access) |
-| **Stdlib** | ~70 functions across base, string, table, math, io, os libraries |
-
-Memory management uses reference counting (strings, tables, closures) with inline release to avoid deep call stacks.
-
-### Test suite
-
-- **10 LLVM pipeline tests** — arithmetic, closures, for loops, pairs iteration, upvalues, getfield, global field, table access
-- **34 Zig runtime tests** — state lifecycle, all value ops, tables (multi-field, 3-key, numeric, overwrite, mixed), for loops (normal, step2, neg-step, empty), select, raw ops, type queries, closures, retain/release, error, stdlib
-- **Comprehensive integration test** (~463 lines of Lua) — exercises all sections: arithmetic, bitwise, comparisons, tables, control flow, functions, closures, stdlib, string ops, table ops, math ops, assertions. The full pipeline compiles and runs this test successfully.
+For deeper implementation notes and advanced workflows, see the guides in `doc/guides/` and the source tree under `pkgs/lualike/`.

@@ -1,5 +1,6 @@
 import 'dart:io';
 
+import 'package:data_assets/data_assets.dart';
 import 'package:hooks/hooks.dart';
 import 'package:logging/logging.dart';
 import 'package:lualike/lualike.dart' hide Logger;
@@ -165,18 +166,24 @@ final class LuaBuilder implements Builder {
       }
 
       await _compileDirectory(
+        packageName: input.packageName,
         sourceDir: sourceDir,
         buildDir: buildDir,
         sourcePath: sourcePath,
+        input: input,
+        output: output,
         logger: logger,
       );
     }
   }
 
   Future<void> _compileDirectory({
+    required String packageName,
     required Uri sourceDir,
     required Uri buildDir,
     required String sourcePath,
+    required BuildInput input,
+    required BuildOutputBuilder output,
     Logger? logger,
   }) async {
     // Ensure the build output directory exists.
@@ -205,6 +212,9 @@ final class LuaBuilder implements Builder {
             source: source,
             assetName: assetName,
             buildDir: buildDir,
+            packageName: packageName,
+            input: input,
+            output: output,
             logger: logger,
           );
         case CompileMode.dartSource:
@@ -230,6 +240,9 @@ final class LuaBuilder implements Builder {
     required String source,
     required String assetName,
     required Uri buildDir,
+    required String packageName,
+    required BuildInput input,
+    required BuildOutputBuilder output,
     Logger? logger,
   }) async {
     final bytecode = _compileToBytecode(source, assetName);
@@ -237,6 +250,19 @@ final class LuaBuilder implements Builder {
     final outputPath = buildDir.resolve(assetName);
     await Directory.fromUri(outputPath.resolve('..')).create(recursive: true);
     await File.fromUri(outputPath).writeAsBytes(bytecode);
+
+    if (input.config.buildDataAssets) {
+      output.assets.data.add(
+        DataAsset(
+          package: packageName,
+          name: '$outputDirName/$assetName',
+          file: outputPath,
+        ),
+      );
+      logger?.info(
+        'Registered data asset: package:$packageName/$outputDirName/$assetName',
+      );
+    }
 
     logger?.info('Compiled (bytecode): $assetName (${bytecode.length} bytes)');
   }

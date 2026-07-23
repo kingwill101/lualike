@@ -2,7 +2,9 @@
 ///
 /// This package provides a build hook that automatically compiles Lua scripts
 /// through the lualike pipeline. The compiled output is written to
-/// `build/lua/` and can be loaded at runtime.
+/// `build/lua/` and, when data assets are enabled, also registered as a
+/// `DataAsset` that `dart build cli` copies beside the executable in
+/// `assets/`.
 ///
 /// ## Compilation modes
 ///
@@ -10,7 +12,9 @@
 ///
 /// * **[CompileMode.bytecode]** (default) -- Compiles to Lua 5.5 bytecode
 ///   files. Load the bytes at runtime with `rootBundle.load()` (Flutter) or
-///   `LuaAssetLoader` (Dart CLI) and execute via [LuaBytecodeRuntime].
+///   `LuaAssetLoader()` (Dart CLI). The loader also checks the bundle-local
+///   `assets/` directory used by `dart build cli`, then executes via
+///   [LuaBytecodeRuntime].
 ///
 /// * **[CompileMode.dartSource]** -- Compiles to standalone Dart source code
 ///   that embeds the IR as executable functions. Import and call directly,
@@ -76,8 +80,9 @@
 /// await useAssetBundle(rootBundle, assetRoot: 'build/lua');
 /// ```
 ///
-/// See [`example_dart/`](example_dart/) and
-/// [`example_flutter/`](example_flutter/) for complete working examples.
+/// See [`examples/example_dart/`](../examples/example_dart/)
+/// and [`examples/example_dart_data_assets/`](../examples/example_dart_data_assets/)
+/// for complete working Dart CLI examples.
 library;
 
 export 'src/lua_builder.dart';

@@ -1,36 +1,50 @@
 import 'dart:io';
 
-/// A loader for Lua bytecode compiled by the lualike build hook.
+/// Loads compiled Lua bytecode from the filesystem or the CLI bundle.
 ///
-/// Loads compiled bytecode files from a `build/lua/` directory.
-/// Files keep their original `.lua` names so they can be referenced
-/// naturally in Flutter `assets:`.
+/// By default the loader checks the legacy build hook output in
+/// `build/lua/`. It also probes the bundle-local `assets/` directory beside
+/// the resolved executable, which is where `dart build cli` places data
+/// assets.
 class LuaAssetLoader {
-  /// Creates a [LuaAssetLoader] rooted at [buildDir].
+  /// Creates a [LuaAssetLoader].
   ///
-  /// If not provided, defaults to `build/lua/` relative to the current
-  /// working directory.
-  LuaAssetLoader({Uri? buildDir})
-      : buildDir =
-            buildDir ?? Directory.current.uri.resolve('build/lua/');
+  /// [buildDir] defaults to `build/lua/` relative to the current directory.
+  /// [bundleDir] defaults to the executable's parent directory.
+  LuaAssetLoader({Uri? buildDir, Uri? bundleDir})
+      : buildDir = buildDir ?? Directory.current.uri.resolve('build/lua/'),
+        bundleDir = bundleDir ??
+            Directory.fromUri(Uri.file(Platform.resolvedExecutable)).parent.uri;
 
-  /// The directory containing compiled bytecode files.
+  /// The legacy directory containing compiled bytecode files.
   final Uri buildDir;
+
+  /// The directory containing the running executable.
+  final Uri bundleDir;
 
   /// Loads the compiled bytecode for [assetName].
   ///
   /// [assetName] is the path of the original `.lua` file relative to its
-  /// source directory (e.g. `'hello.lua'` or `'sub/module.lua'`).
+  /// source directory (for example `hello.lua` or `sub/module.lua`).
   ///
-  /// Returns the raw bytecode bytes, or `null` if the file does not exist.
+  /// The loader checks the bundle-local `assets/` directory first, then the
+  /// legacy `build/lua/` output.
   Future<List<int>?> loadBytecode(String assetName) async {
-    final file = File.fromUri(buildDir.resolve(assetName));
-    if (!await file.exists()) {
-      return null;
+    for (final directory in <Uri>[
+      bundleDir.resolve('assets/'),
+      buildDir,
+    ]) {
+      final file = File.fromUri(directory.resolve(assetName));
+      if (await file.exists()) {
+        return file.readAsBytes();
+      }
     }
-    return file.readAsBytes();
+    return null;
   }
 
-  /// Returns the file path for a compiled asset.
+  /// Returns the legacy filesystem path for a compiled asset.
   Uri assetPath(String assetName) => buildDir.resolve(assetName);
+
+  /// Returns the bundle-local path for a compiled asset.
+  Uri bundleAssetPath(String assetName) => bundleDir.resolve('assets/$assetName');
 }

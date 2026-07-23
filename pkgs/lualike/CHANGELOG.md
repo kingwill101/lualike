@@ -5,7 +5,7 @@
 ## 0.4.0
 
 - Major runtime release with a Zig-based backend, native FFI, tree-walk `load()`/`dofile()`, and broader stdlib/runtime coverage.
-- Improved IR/bytecode execution, call-result handling, and table/list interoperability between Dart and Lua.
+- Improved IR/bytecode execution, call-result handling, and table/list interoperability between Dart and Lua, including Lua array tables unwrapping back to Dart `List`s.
 - Expanded examples, Flutter hooks/build support, and package exports for downstream tooling.
 
 ## 0.3.0
