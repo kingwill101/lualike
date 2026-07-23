@@ -1,5 +1,10 @@
 # love2d
 
+[![GitHub release](https://img.shields.io/github/release/kingwill101/lualike?include_prereleases=&sort=semver&color=blue)](https://github.com/kingwill101/lualike/releases/)
+[![issues - lualike](https://img.shields.io/github/issues/kingwill101/lualike)](https://github.com/kingwill101/lualike/issues)
+[![License](https://img.shields.io/badge/License-MIT-blue)](https://github.com/kingwill101/lualike/blob/master/LICENSE)
+
+
 Run LOVE 11.5-style Lua games on top of LuaLike, with a Flutter/Flame app
 embedding path and a headless runtime path for tests and tooling.
 

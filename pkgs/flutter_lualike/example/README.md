@@ -1,5 +1,9 @@
 # flutter_lualike example
 
+[![Pub Version](https://img.shields.io/pub/v/flutter_lualike)](https://pub.dev/packages/flutter_lualike)
+[![License](https://img.shields.io/badge/License-MIT-blue)](https://github.com/kingwill101/lualike/blob/master/LICENSE)
+
+
 This example shows the intended `flutter_lualike` workflow end to end:
 
 - compile Lua in a Flutter build hook

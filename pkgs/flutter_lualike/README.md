@@ -1,5 +1,9 @@
 # flutter_lualike
 
+[![Pub Version](https://img.shields.io/pub/v/flutter_lualike)](https://pub.dev/packages/flutter_lualike)
+[![License](https://img.shields.io/badge/License-MIT-blue)](https://github.com/kingwill101/lualike/blob/master/LICENSE)
+
+
 Flutter integration for `lualike`.
 
 This package gives you two things:

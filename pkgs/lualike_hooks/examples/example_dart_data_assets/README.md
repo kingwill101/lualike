@@ -1,5 +1,9 @@
 # lualike_hooks example (Dart CLI + data assets)
 
+[![Pub Version](https://img.shields.io/pub/v/lualike_hooks)](https://pub.dev/packages/lualike_hooks)
+[![License](https://img.shields.io/badge/License-MIT-blue)](https://github.com/kingwill101/lualike/blob/master/LICENSE)
+
+
 Compiles Lua at build time and prefers the bundled `DataAsset` on a Dart SDK
 that supports the experimental `data-assets` hook flag.
 

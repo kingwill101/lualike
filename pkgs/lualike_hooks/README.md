@@ -1,5 +1,9 @@
 # lualike_hooks
 
+[![Pub Version](https://img.shields.io/pub/v/lualike_hooks)](https://pub.dev/packages/lualike_hooks)
+[![License](https://img.shields.io/badge/License-MIT-blue)](https://github.com/kingwill101/lualike/blob/master/LICENSE)
+
+
 `lualike_hooks` is the build-hook package for compiling Lua scripts as part of a Dart or Flutter build.
 
 It supports three output strategies:

@@ -2,6 +2,7 @@
 # should not be shipped in the published package archive.
 doc/api/
 build/
+!lib/src/build/table_schema_builder.dart
 .build_cache/
 .codex-bin/
 libs/

@@ -1,5 +1,9 @@
 # builder_demo — annotations, builder, and library registration
 
+[![Pub Version](https://img.shields.io/pub/v/lualike)](https://pub.dev/packages/lualike)
+[![License](https://img.shields.io/badge/License-MIT-blue)](https://github.com/kingwill101/lualike/blob/master/LICENSE)
+
+
 Demonstrates the four mechanisms for documenting Lua-facing APIs from Dart:
 
 | Mechanism | What it produces | How it's registered |

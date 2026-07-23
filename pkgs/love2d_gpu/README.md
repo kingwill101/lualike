@@ -1,5 +1,10 @@
 # love2d_gpu
 
+[![GitHub release](https://img.shields.io/github/release/kingwill101/lualike?include_prereleases=&sort=semver&color=blue)](https://github.com/kingwill101/lualike/releases/)
+[![issues - lualike](https://img.shields.io/github/issues/kingwill101/lualike)](https://github.com/kingwill101/lualike/issues)
+[![License](https://img.shields.io/badge/License-MIT-blue)](https://github.com/kingwill101/lualike/blob/master/LICENSE)
+
+
 Experimental Flutter GPU rendering backend for [package:love2d](https://github.com/kingwill101/lualike/tree/main/pkgs/love2d).
 
 Renders LOVE2D draw commands through [package:flutter_gpu] instead of the standard Flutter Canvas 2D pipeline.

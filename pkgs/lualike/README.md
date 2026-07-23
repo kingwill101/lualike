@@ -456,13 +456,16 @@ Examples and source:
 
 ## Workspace packages
 
-- [flutter_lualike](https://pub.dev/packages/flutter_lualike) — Flutter integration for loading Lua assets and build-hook workflows.
-- [file_lualike](https://pub.dev/packages/file_lualike) — bridges `package:file` filesystems (SFTP, in-memory, local) into lualike so `io.open()`, `os.remove()`, `dofile()`, and module loading all delegate to a remote/backend filesystem.
-- [process_lualike](https://pub.dev/packages/process_lualike) — bridges remote process execution into lualike so `os.execute()` runs over SSH, Docker, or any custom backend without changing Lua code.
-- [lualike_ffi](https://pub.dev/packages/lualike_ffi) — native FFI backend for calling trusted shared libraries from LuaLike.
-- [lualike_hooks](https://pub.dev/packages/lualike_hooks) — build hooks for compiling Lua scripts and bundling generated assets.
+| Package | Badge | What it does |
+|---|---|---|
+| [`lualike`](https://pub.dev/packages/lualike) | [![Pub Version](https://img.shields.io/pub/v/lualike)](https://pub.dev/packages/lualike) | Core runtime, compiler, parser helpers, and standard-library bridge. |
+| [`flutter_lualike`](https://pub.dev/packages/flutter_lualike) | [![Pub Version](https://img.shields.io/pub/v/flutter_lualike)](https://pub.dev/packages/flutter_lualike) | Flutter integration for loading Lua assets and build hooks. |
+| [`file_lualike`](https://pub.dev/packages/file_lualike) | [![Pub Version](https://img.shields.io/pub/v/file_lualike)](https://pub.dev/packages/file_lualike) | Bridges `package:file` filesystems into lualike. |
+| [`process_lualike`](https://pub.dev/packages/process_lualike) | [![Pub Version](https://img.shields.io/pub/v/process_lualike)](https://pub.dev/packages/process_lualike) | Bridges remote process execution into lualike. |
+| [`lualike_ffi`](https://pub.dev/packages/lualike_ffi) | [![Pub Version](https://img.shields.io/pub/v/lualike_ffi)](https://pub.dev/packages/lualike_ffi) | Native FFI backend for calling trusted shared libraries. |
+| [`lualike_hooks`](https://pub.dev/packages/lualike_hooks) | [![Pub Version](https://img.shields.io/pub/v/lualike_hooks)](https://pub.dev/packages/lualike_hooks) | Build hooks for compiling Lua scripts and bundling generated assets. |
 
-The remaining workspace packages (`love2d`, `lualike_rt`, and `test`) are internal or support packages and are not listed here.
+The remaining workspace packages (`love2d`, `lualike_rt`, `love2d_gpu`, and `test`) are internal or support packages and are not listed here.
 
 ## Notes on public API stability
 

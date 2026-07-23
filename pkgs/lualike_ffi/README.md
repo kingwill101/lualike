@@ -1,5 +1,9 @@
 # lualike_ffi
 
+[![Pub Version](https://img.shields.io/pub/v/lualike_ffi)](https://pub.dev/packages/lualike_ffi)
+[![License](https://img.shields.io/badge/License-MIT-blue)](https://github.com/kingwill101/lualike/blob/master/LICENSE)
+
+
 `lualike_ffi` is the native backend used by lualike's runtime-declared FFI.
 It loads ordinary shared libraries, resolves exported C symbols, and calls
 them through signatures supplied at runtime.
