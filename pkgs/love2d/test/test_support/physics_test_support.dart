@@ -1,19 +1,23 @@
 import 'package:flutter_test/flutter_test.dart';
 
-List<Object?> indexedValues(Map table) {
-  final keys = table.keys.whereType<num>().map((key) => key.toInt()).toList()
-    ..sort();
-  return keys.map((key) => table[key]).toList(growable: false);
+List<Object?> indexedValues(Object? table) {
+  if (table is List) {
+    return table.cast<Object?>();
+  }
+  if (table is Map) {
+    final keys = table.keys.whereType<num>().map((key) => key.toInt()).toList()
+      ..sort();
+    return keys.map((key) => table[key]).toList(growable: false);
+  }
+  throw ArgumentError.value(table, 'table');
 }
 
-List<double> doubleTable(Map table) {
-  return indexedValues(
-    table,
-  ).map((entry) => (entry as num).toDouble()).toList(growable: false);
+List<double> doubleTable(Object? table) {
+  return indexedValues(table).map((entry) => (entry as num).toDouble()).toList(growable: false);
 }
 
 List<double> doubleResults(Object? value) {
-  if (value is Map) {
+  if (value is Map || value is List) {
     return doubleTable(value);
   }
   return (value as List<Object?>)

@@ -226,14 +226,12 @@ runtime = lualike.vm;
         <Object?>[square],
       );
 
-      expect(triangulated, isA<Map>());
-      final triangles = triangulated! as Map;
+      expect(triangulated, isA<List>());
+      final triangles = triangulated! as List<Object?>;
       expect(triangles, hasLength(2));
 
-      final areas = triangles.values
-          .map(
-            (triangle) => _triangleArea(_indexedNumericValues(triangle as Map)),
-          )
+      final areas = triangles
+          .map((triangle) => _triangleArea(_indexedNumericValues(triangle)))
           .toList(growable: false);
       expect(areas[0] + areas[1], closeTo(100.0, 1e-9));
 
@@ -359,8 +357,8 @@ runtime = lualike.vm;
       );
 
       final rendered = await luaCallMethod(curve, 'render', const <Object?>[1]);
-      expect(rendered, isA<Map>());
-      expect(_indexedNumericValues(rendered! as Map), <double>[
+      expect(rendered, isA<List>());
+      expect(_indexedNumericValues(rendered), <double>[
         0.0,
         0.0,
         5.0,
@@ -434,8 +432,12 @@ runtime = lualike.vm;
   });
 }
 
-List<double> _indexedNumericValues(Map<Object?, Object?> table) {
-  final entries = table.entries.toList(growable: false)
+List<double> _indexedNumericValues(Object? table) {
+  if (table is List) {
+    return table.map((entry) => (entry as num).toDouble()).toList(growable: false);
+  }
+  final map = table as Map<Object?, Object?>;
+  final entries = map.entries.toList(growable: false)
     ..sort((a, b) {
       final left = (a.key as num).toInt();
       final right = (b.key as num).toInt();

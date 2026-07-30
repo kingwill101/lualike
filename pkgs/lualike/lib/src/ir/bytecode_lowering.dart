@@ -21,7 +21,7 @@ import 'package:lualike/src/lua_bytecode/opcode.dart';
 /// | IR opcode | Expansion | Reason |
 /// |-----------|-----------|--------|
 /// | `SHLI a,b,c` | `LOADI tmp,c; SHL a,b,tmp; MMBIN b,tmp,__shl` | IR means `R(b) << c`; Lua SHLI means `c << R(b)` |
-/// | `SUBI a,b,c` | `ADDI a,b,-c; MMBINI b,-c,__sub` | ADDI always does `+`; SUBI negates and uses __sub |
+/// | `SUBI a,b,c` | `ADDI a,b,-c; MMBINI …` when `-c` fits signed C; else `LOADI+SUB+MMBIN` | ADDI always does `+`; SUBI negates and uses __sub |
 /// | `*K` with high C | `LOADK/KX tmp,C; * a,b,tmp; MMBIN …` | C field too small for large constant indices |
 /// | `GETFIELD/etc` with high C | `LOADK tmp,C; GETTABLE … tmp` | C field too small |
 ///
@@ -458,6 +458,15 @@ _lowerInstructionSequence(
     if (leftShiftImmediate != null) {
       return (instructions: leftShiftImmediate, tempSlots: 1);
     }
+    // SUBI lowers to ADDI with negated C. When -c is outside signed C
+    // (e.g. c=128 → -128), expand via LOADI + SUB instead of encoding -1.
+    final subImmediate = _lowerSubImmediateOverflowSequence(
+      instruction,
+      tempBase: tempBase,
+    );
+    if (subImmediate != null) {
+      return (instructions: subImmediate, tempSlots: 1);
+    }
   }
 
   final arithmetic = _lowerArithmeticMetamethodSequence(
@@ -476,8 +485,7 @@ _lowerInstructionSequence(
     tempBase: tempBase,
   );
   if (highConstant != null) {
-    final slots = instruction.opcode == LualikeIrOpcode.setTabUp ? 2 : 1;
-    return (instructions: highConstant, tempSlots: slots);
+    return highConstant;
   }
   final table = _lowerTableInstructionSequence(instruction);
   if (table != null) {
@@ -524,6 +532,45 @@ List<LuaBytecodeInstructionWord>? _lowerLeftShiftImmediateSequence(
       a: instruction.b,
       b: tempBase,
       c: _binaryMetamethodEvent(LualikeIrOpcode.shl)!,
+      k: instruction.k,
+    ),
+  ];
+}
+
+/// Expands SUBI when `-c` cannot be encoded as ADDI's signed C field.
+///
+/// IR stores SUBI's immediate as a plain int; lowering maps to
+/// `ADDI a,b,-c` + `MMBINI`. Signed C is `-127..128`, so `c=128` is legal in
+/// IR but `-128` is not encodable — fall back to LOADI + SUB + MMBIN.
+List<LuaBytecodeInstructionWord>? _lowerSubImmediateOverflowSequence(
+  ABCInstruction instruction, {
+  required int tempBase,
+}) {
+  if (instruction.opcode != LualikeIrOpcode.subI) {
+    return null;
+  }
+  final negated = -instruction.c;
+  if (LuaBytecodeInstructionLayout.fitsSignedArgC(negated)) {
+    return null;
+  }
+
+  return <LuaBytecodeInstructionWord>[
+    LuaBytecodeInstructionWord.asBx(
+      opcode: LuaBytecodeOpcodes.byName('LOADI').code,
+      a: tempBase,
+      sBx: instruction.c,
+    ),
+    LuaBytecodeInstructionWord.abc(
+      opcode: LuaBytecodeOpcodes.byName('SUB').code,
+      a: instruction.a,
+      b: instruction.b,
+      c: tempBase,
+    ),
+    LuaBytecodeInstructionWord.abc(
+      opcode: LuaBytecodeOpcodes.byName('MMBIN').code,
+      a: instruction.b,
+      b: tempBase,
+      c: _binaryMetamethodEvent(LualikeIrOpcode.sub)!,
       k: instruction.k,
     ),
   ];
@@ -652,7 +699,8 @@ int? _binaryMetamethodEvent(LualikeIrOpcode opcode) {
   };
 }
 
-List<LuaBytecodeInstructionWord>? _lowerHighConstantSequence(
+({List<LuaBytecodeInstructionWord> instructions, int tempSlots})?
+_lowerHighConstantSequence(
   LualikeIrInstruction instruction, {
   required int tempBase,
 }) {
@@ -660,87 +708,201 @@ List<LuaBytecodeInstructionWord>? _lowerHighConstantSequence(
     return null;
   }
 
-  List<LuaBytecodeInstructionWord> loadKey(int register, int constantIndex) =>
+  List<LuaBytecodeInstructionWord> loadConst(int register, int constantIndex) =>
       _loadConstantToRegisterSequence(register, constantIndex);
 
-  return switch (instruction.opcode) {
-    LualikeIrOpcode.getField
-        when instruction.c > LuaBytecodeInstructionLayout.maxArgC =>
-      <LuaBytecodeInstructionWord>[
-        ...loadKey(tempBase, instruction.c),
-        LuaBytecodeInstructionWord.abc(
-          opcode: LuaBytecodeOpcodes.byName('GETTABLE').code,
-          a: instruction.a,
-          b: instruction.b,
-          c: tempBase,
-        ),
-      ],
-    LualikeIrOpcode.setField
-        when instruction.b > LuaBytecodeInstructionLayout.maxArgB =>
-      <LuaBytecodeInstructionWord>[
-        ...loadKey(tempBase, instruction.b),
-        LuaBytecodeInstructionWord.abc(
-          opcode: LuaBytecodeOpcodes.byName('SETTABLE').code,
-          a: instruction.a,
-          b: tempBase,
-          c: instruction.c,
-          k: instruction.k,
-        ),
-      ],
-    LualikeIrOpcode.getTabUp
-        when instruction.c > LuaBytecodeInstructionLayout.maxArgC =>
-      <LuaBytecodeInstructionWord>[
-        LuaBytecodeInstructionWord.abc(
-          opcode: LuaBytecodeOpcodes.byName('GETUPVAL').code,
-          a: instruction.a,
-          b: instruction.b,
-          c: 0,
-        ),
-        ...loadKey(tempBase, instruction.c),
-        LuaBytecodeInstructionWord.abc(
-          opcode: LuaBytecodeOpcodes.byName('GETTABLE').code,
-          a: instruction.a,
-          b: instruction.a,
-          c: tempBase,
-        ),
-      ],
-    LualikeIrOpcode.setTabUp
-        when instruction.b > LuaBytecodeInstructionLayout.maxArgB =>
-      <LuaBytecodeInstructionWord>[
-        LuaBytecodeInstructionWord.abc(
-          opcode: LuaBytecodeOpcodes.byName('GETUPVAL').code,
-          a: tempBase,
-          b: instruction.a,
-          c: 0,
-        ),
-        ...loadKey(tempBase + 1, instruction.b),
-        LuaBytecodeInstructionWord.abc(
-          opcode: LuaBytecodeOpcodes.byName('SETTABLE').code,
-          a: tempBase,
-          b: tempBase + 1,
-          c: instruction.c,
-          k: instruction.k,
-        ),
-      ],
-    LualikeIrOpcode.selfOp
-        when instruction.c > LuaBytecodeInstructionLayout.maxArgC =>
-      <LuaBytecodeInstructionWord>[
-        LuaBytecodeInstructionWord.abc(
-          opcode: LuaBytecodeOpcodes.byName('MOVE').code,
-          a: instruction.a + 1,
-          b: instruction.b,
-          c: 0,
-        ),
-        ...loadKey(tempBase, instruction.c),
-        LuaBytecodeInstructionWord.abc(
-          opcode: LuaBytecodeOpcodes.byName('GETTABLE').code,
-          a: instruction.a,
-          b: instruction.b,
-          c: tempBase,
-        ),
-      ],
-    _ => null,
-  };
+  final maxB = LuaBytecodeInstructionLayout.maxArgB;
+  final maxC = LuaBytecodeInstructionLayout.maxArgC;
+  // When k=true, C is a Kst index (not a register). Indices above the 8-bit
+  // field must be spilled via LOADK/LOADKX before the store.
+  final highConstValue = instruction.k && instruction.c > maxC;
+
+  switch (instruction.opcode) {
+    case LualikeIrOpcode.getField when instruction.c > maxC:
+      return (
+        instructions: <LuaBytecodeInstructionWord>[
+          ...loadConst(tempBase, instruction.c),
+          LuaBytecodeInstructionWord.abc(
+            opcode: LuaBytecodeOpcodes.byName('GETTABLE').code,
+            a: instruction.a,
+            b: instruction.b,
+            c: tempBase,
+          ),
+        ],
+        tempSlots: 1,
+      );
+    case LualikeIrOpcode.setField
+        when instruction.b > maxB || highConstValue:
+      final highKey = instruction.b > maxB;
+      if (highKey && highConstValue) {
+        return (
+          instructions: <LuaBytecodeInstructionWord>[
+            ...loadConst(tempBase, instruction.b),
+            ...loadConst(tempBase + 1, instruction.c),
+            LuaBytecodeInstructionWord.abc(
+              opcode: LuaBytecodeOpcodes.byName('SETTABLE').code,
+              a: instruction.a,
+              b: tempBase,
+              c: tempBase + 1,
+            ),
+          ],
+          tempSlots: 2,
+        );
+      }
+      if (highKey) {
+        return (
+          instructions: <LuaBytecodeInstructionWord>[
+            ...loadConst(tempBase, instruction.b),
+            LuaBytecodeInstructionWord.abc(
+              opcode: LuaBytecodeOpcodes.byName('SETTABLE').code,
+              a: instruction.a,
+              b: tempBase,
+              c: instruction.c,
+              k: instruction.k,
+            ),
+          ],
+          tempSlots: 1,
+        );
+      }
+      // High Kst value only: load value, store with register C.
+      return (
+        instructions: <LuaBytecodeInstructionWord>[
+          ...loadConst(tempBase, instruction.c),
+          LuaBytecodeInstructionWord.abc(
+            opcode: LuaBytecodeOpcodes.byName('SETFIELD').code,
+            a: instruction.a,
+            b: instruction.b,
+            c: tempBase,
+          ),
+        ],
+        tempSlots: 1,
+      );
+    case LualikeIrOpcode.setI when highConstValue:
+      return (
+        instructions: <LuaBytecodeInstructionWord>[
+          ...loadConst(tempBase, instruction.c),
+          LuaBytecodeInstructionWord.abc(
+            opcode: LuaBytecodeOpcodes.byName('SETI').code,
+            a: instruction.a,
+            b: instruction.b,
+            c: tempBase,
+          ),
+        ],
+        tempSlots: 1,
+      );
+    case LualikeIrOpcode.setTable when highConstValue:
+      return (
+        instructions: <LuaBytecodeInstructionWord>[
+          ...loadConst(tempBase, instruction.c),
+          LuaBytecodeInstructionWord.abc(
+            opcode: LuaBytecodeOpcodes.byName('SETTABLE').code,
+            a: instruction.a,
+            b: instruction.b,
+            c: tempBase,
+          ),
+        ],
+        tempSlots: 1,
+      );
+    case LualikeIrOpcode.getTabUp when instruction.c > maxC:
+      return (
+        instructions: <LuaBytecodeInstructionWord>[
+          LuaBytecodeInstructionWord.abc(
+            opcode: LuaBytecodeOpcodes.byName('GETUPVAL').code,
+            a: instruction.a,
+            b: instruction.b,
+            c: 0,
+          ),
+          ...loadConst(tempBase, instruction.c),
+          LuaBytecodeInstructionWord.abc(
+            opcode: LuaBytecodeOpcodes.byName('GETTABLE').code,
+            a: instruction.a,
+            b: instruction.a,
+            c: tempBase,
+          ),
+        ],
+        tempSlots: 1,
+      );
+    case LualikeIrOpcode.setTabUp
+        when instruction.b > maxB || highConstValue:
+      final highKey = instruction.b > maxB;
+      if (highKey && highConstValue) {
+        // env + high key + high value needs three scratch slots.
+        return (
+          instructions: <LuaBytecodeInstructionWord>[
+            LuaBytecodeInstructionWord.abc(
+              opcode: LuaBytecodeOpcodes.byName('GETUPVAL').code,
+              a: tempBase,
+              b: instruction.a,
+              c: 0,
+            ),
+            ...loadConst(tempBase + 1, instruction.b),
+            ...loadConst(tempBase + 2, instruction.c),
+            LuaBytecodeInstructionWord.abc(
+              opcode: LuaBytecodeOpcodes.byName('SETTABLE').code,
+              a: tempBase,
+              b: tempBase + 1,
+              c: tempBase + 2,
+            ),
+          ],
+          tempSlots: 3,
+        );
+      }
+      if (highKey) {
+        return (
+          instructions: <LuaBytecodeInstructionWord>[
+            LuaBytecodeInstructionWord.abc(
+              opcode: LuaBytecodeOpcodes.byName('GETUPVAL').code,
+              a: tempBase,
+              b: instruction.a,
+              c: 0,
+            ),
+            ...loadConst(tempBase + 1, instruction.b),
+            LuaBytecodeInstructionWord.abc(
+              opcode: LuaBytecodeOpcodes.byName('SETTABLE').code,
+              a: tempBase,
+              b: tempBase + 1,
+              c: instruction.c,
+              k: instruction.k,
+            ),
+          ],
+          tempSlots: 2,
+        );
+      }
+      // High Kst value only.
+      return (
+        instructions: <LuaBytecodeInstructionWord>[
+          ...loadConst(tempBase, instruction.c),
+          LuaBytecodeInstructionWord.abc(
+            opcode: LuaBytecodeOpcodes.byName('SETTABUP').code,
+            a: instruction.a,
+            b: instruction.b,
+            c: tempBase,
+          ),
+        ],
+        tempSlots: 1,
+      );
+    case LualikeIrOpcode.selfOp when instruction.c > maxC:
+      return (
+        instructions: <LuaBytecodeInstructionWord>[
+          LuaBytecodeInstructionWord.abc(
+            opcode: LuaBytecodeOpcodes.byName('MOVE').code,
+            a: instruction.a + 1,
+            b: instruction.b,
+            c: 0,
+          ),
+          ...loadConst(tempBase, instruction.c),
+          LuaBytecodeInstructionWord.abc(
+            opcode: LuaBytecodeOpcodes.byName('GETTABLE').code,
+            a: instruction.a,
+            b: instruction.b,
+            c: tempBase,
+          ),
+        ],
+        tempSlots: 1,
+      );
+    default:
+      return null;
+  }
 }
 
 List<LuaBytecodeInstructionWord> _loadConstantToRegisterSequence(

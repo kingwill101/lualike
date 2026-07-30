@@ -20,7 +20,7 @@ void main() {
           'audio',
           'getRecordingDevices',
         ]);
-        final recordingDevice = (devices! as Map)[1];
+        final recordingDevice = (devices as List<Object?>)[0];
 
         expect(await luaCallMethod(recordingDevice, 'type'), 'RecordingDevice');
         expect(

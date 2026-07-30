@@ -68,23 +68,11 @@ void main() {
 
         final vertexFormat =
             await luaCallMethod(mesh, 'getVertexFormat')
-                as Map<Object?, Object?>;
+                as List<Object?>;
         expect(vertexFormat, hasLength(3));
-        expect(vertexFormat[1], <Object?, Object?>{
-          1: 'VertexPosition',
-          2: 'float',
-          3: 2,
-        });
-        expect(vertexFormat[2], <Object?, Object?>{
-          1: 'VertexTexCoord',
-          2: 'float',
-          3: 2,
-        });
-        expect(vertexFormat[3], <Object?, Object?>{
-          1: 'VertexColor',
-          2: 'byte',
-          3: 4,
-        });
+        expect(vertexFormat[0], <Object?>['VertexPosition', 'float', 2]);
+        expect(vertexFormat[1], <Object?>['VertexTexCoord', 'float', 2]);
+        expect(vertexFormat[2], <Object?>['VertexColor', 'byte', 4]);
 
         await luaCallMethod(mesh, 'setDrawMode', <Object?>['strip']);
         expect(await luaCallMethod(mesh, 'getDrawMode'), 'strip');
@@ -111,11 +99,7 @@ void main() {
         await luaCallMethod(mesh, 'setVertexMap', <Object?>[
           _luaSeq(<Object?>[3, 1, 2]),
         ]);
-        expect(await luaCallMethod(mesh, 'getVertexMap'), <Object?, Object?>{
-          1: 3,
-          2: 1,
-          3: 2,
-        });
+        expect(await luaCallMethod(mesh, 'getVertexMap'), <Object?>[3, 1, 2]);
 
         expect(
           await luaCallMethod(mesh, 'isAttributeEnabled', <Object?>[

@@ -825,20 +825,36 @@ Set<int> _usedRegistersForInstruction(
     // makes DCE drop GETTABUP/MOVE that only feed SETFIELD table slots —
     // e.g. `package.path = "x"` lost the load of `package` (nil index).
     ABCInstruction(opcode: LualikeIrOpcode.setUpval, c: final c) => single(c),
-    ABCInstruction(opcode: LualikeIrOpcode.setTabUp, c: final c) => single(c),
+    // C is Kst when k=true (literal env field assignment).
+    ABCInstruction(
+      opcode: LualikeIrOpcode.setTabUp,
+      c: final c,
+      k: final k,
+    ) =>
+      k ? const <int>{} : single(c),
     ABCInstruction(
       opcode: LualikeIrOpcode.setTable,
       a: final a,
       b: final b,
       c: final c,
+      k: final k,
     ) =>
-      {...single(a), ...single(b), ...single(c)},
-    ABCInstruction(opcode: LualikeIrOpcode.setI, a: final a, c: final c) => {
-      ...single(a),
-      ...single(c),
-    },
-    ABCInstruction(opcode: LualikeIrOpcode.setField, a: final a, c: final c) =>
-      {...single(a), ...single(c)},
+      {...single(a), ...single(b), if (!k) ...single(c)},
+    ABCInstruction(
+      opcode: LualikeIrOpcode.setI,
+      a: final a,
+      c: final c,
+      k: final k,
+    ) =>
+      {...single(a), if (!k) ...single(c)},
+    // SETFIELD k=true inlines a Kst value in C (table-literal fields).
+    ABCInstruction(
+      opcode: LualikeIrOpcode.setField,
+      a: final a,
+      c: final c,
+      k: final k,
+    ) =>
+      {...single(a), if (!k) ...single(c)},
     // SETLIST reads R(A) (table) and R(A+1)..R(A+B) (or open to top when B==0).
     // Missing this lets DCE drop LOADI/MOVE into the SETLIST window — array
     // constructors become empty tables (`{10,9}` → nils).

@@ -142,11 +142,11 @@ world:update(1 / 60)
 return events
 ''');
 
-        expect(result, isA<Map>());
-        final events = indexedValues(result! as Map);
+        expect(result, isA<List>());
+        final events = indexedValues(result);
         expect(events, hasLength(6));
 
-        final begin = indexedValues(events[0] as Map);
+        final begin = indexedValues(events[0]);
         expect(begin, <Object?>[
           'begin',
           'circle',
@@ -156,10 +156,10 @@ return events
           true,
         ]);
 
-        final pre = indexedValues(events[1] as Map);
+        final pre = indexedValues(events[1]);
         expect(pre, <Object?>['pre', 'circle', 'circle', true, true]);
 
-        final post = indexedValues(events[2] as Map);
+        final post = indexedValues(events[2]);
         expect(post[0], 'post');
         expect(post[1], 'circle');
         expect(post[2], 'circle');
@@ -170,10 +170,10 @@ return events
         expect((post[5] as num).toDouble(), closeTo(0, 1e-5));
         expect(post[6], true);
 
-        final secondPre = indexedValues(events[3] as Map);
+        final secondPre = indexedValues(events[3]);
         expect(secondPre, <Object?>['pre', 'circle', 'circle', true, true]);
 
-        final secondPost = indexedValues(events[4] as Map);
+        final secondPost = indexedValues(events[4]);
         expect(secondPost[0], 'post');
         expect(secondPost[1], 'circle');
         expect(secondPost[2], 'circle');
@@ -184,7 +184,7 @@ return events
         expect((secondPost[5] as num).toDouble(), closeTo(0, 1e-5));
         expect(secondPost[6], true);
 
-        final end = indexedValues(events[5] as Map);
+        final end = indexedValues(events[5]);
         expect(end, <Object?>[
           'end',
           'circle',

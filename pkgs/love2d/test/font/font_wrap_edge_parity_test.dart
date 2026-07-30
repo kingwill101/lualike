@@ -23,7 +23,7 @@ void main() {
                 as List<Object?>;
 
         expect((wrapped[0] as num).toDouble(), closeTo(0.0, 1e-9));
-        expect(wrapped[1], <Object?, Object?>{1: ''});
+        expect(wrapped[1], <Object?>['']);
       },
     );
 
@@ -48,7 +48,7 @@ void main() {
                 as List<Object?>;
 
         expect((wrapped[0] as num).toDouble(), closeTo(0.0, 1e-9));
-        expect(wrapped[1], <Object?, Object?>{1: '', 2: ''});
+        expect(wrapped[1], <Object?>['', '']);
       },
     );
 
@@ -70,7 +70,7 @@ void main() {
                 as List<Object?>;
 
         expect((wrapped[0] as num).toDouble(), closeTo(0.0, 1e-9));
-        expect(wrapped[1], <Object?, Object?>{1: '   '});
+        expect(wrapped[1], <Object?>['   ']);
       },
     );
   });

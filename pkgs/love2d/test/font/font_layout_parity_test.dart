@@ -73,7 +73,7 @@ void main() {
       final expectedWidth = widthA > widthB ? widthA : widthB;
 
       expect((wrapped[0] as num).toDouble(), closeTo(expectedWidth, 1e-9));
-      expect(wrapped[1], <Object?, Object?>{1: 'A ', 2: 'B'});
+      expect(wrapped[1], <Object?>['A ', 'B']);
     });
   });
 }

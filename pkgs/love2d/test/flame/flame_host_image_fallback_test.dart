@@ -155,30 +155,10 @@ bottom_left = {snapshot:getPixel(0, 1)}
 bottom_right = {snapshot:getPixel(1, 1)}
 ''');
 
-      expect(runtime.unwrapGlobal('top_left'), <Object?, Object?>{
-        1: 1.0,
-        2: 0.0,
-        3: 0.0,
-        4: 1.0,
-      });
-      expect(runtime.unwrapGlobal('top_right'), <Object?, Object?>{
-        1: 0.0,
-        2: 1.0,
-        3: 0.0,
-        4: 1.0,
-      });
-      expect(runtime.unwrapGlobal('bottom_left'), <Object?, Object?>{
-        1: 0.0,
-        2: 0.0,
-        3: 1.0,
-        4: 1.0,
-      });
-      expect(runtime.unwrapGlobal('bottom_right'), <Object?, Object?>{
-        1: 1.0,
-        2: 1.0,
-        3: 1.0,
-        4: 1.0,
-      });
+      expect(runtime.unwrapGlobal('top_left'), <Object?>[1.0, 0.0, 0.0, 1.0]);
+      expect(runtime.unwrapGlobal('top_right'), <Object?>[0.0, 1.0, 0.0, 1.0]);
+      expect(runtime.unwrapGlobal('bottom_left'), <Object?>[0.0, 0.0, 1.0, 1.0]);
+      expect(runtime.unwrapGlobal('bottom_right'), <Object?>[1.0, 1.0, 1.0, 1.0]);
     },
   );
 

@@ -39,7 +39,7 @@ runtime = lualike.vm;
             'audio',
             'getActiveEffects',
           ]),
-          <Object?, Object?>{1: 'scene'},
+          <Object?>['scene'],
         );
         expect(
           await luaCallList(
@@ -217,7 +217,7 @@ runtime = lualike.vm;
         );
         expect(
           await luaCallMethodList(source, 'getActiveEffects'),
-          <Object?, Object?>{1: 'fx'},
+          <Object?>['fx'],
         );
 
         expect(

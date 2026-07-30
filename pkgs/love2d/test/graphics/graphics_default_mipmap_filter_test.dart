@@ -1,7 +1,6 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:lualike/lualike.dart';
 import 'package:love2d/love2d.dart';
-import '../test_support/lua_api_test_helpers.dart';
 
 void main() {
   group('love.graphics default mipmap filter', () {
@@ -9,61 +8,51 @@ void main() {
       'source-backed module methods are installed and reset with graphics state',
       () async {
         final lualike = LuaLike();
-        LuaRuntime runtime = lualike.vm;
+        final runtime = lualike.vm;
         installLove2d(runtime: runtime, host: LoveHeadlessHost());
 
         final love = runtime.getCurrentEnv().get('love')! as Value;
-        final graphics =
-            (love.raw as Map<Object?, Object?>)['graphics']! as Value;
+        final graphics = (love.raw as Map<Object?, Object?>)['graphics']! as Value;
         final graphicsTable = graphics.raw as Map<Object?, Object?>;
 
         expect(graphicsTable.containsKey('getDefaultMipmapFilter'), isTrue);
         expect(graphicsTable.containsKey('setDefaultMipmapFilter'), isTrue);
 
+        final setDefaultMipmapFilter =
+            await lualike.execute('return love.graphics.setDefaultMipmapFilter') as Value;
+
         expect(
-          await luaCallList(runtime, const [
-            'love',
-            'graphics',
-            'getDefaultMipmapFilter',
-          ]),
+          (await lualike.execute('return love.graphics.getDefaultMipmapFilter()')
+                  as List)
+              .map((e) => (e as Value).unwrap())
+              .toList(),
           <Object?>['linear', 0.0],
         );
 
-        await luaCallList(
-          runtime,
-          const ['love', 'graphics', 'setDefaultMipmapFilter'],
-          const <Object?>['nearest', 0.5],
-        );
+        await setDefaultMipmapFilter.call(<Object?>['nearest', 0.5]);
         expect(
-          await luaCallList(runtime, const [
-            'love',
-            'graphics',
-            'getDefaultMipmapFilter',
-          ]),
+          (await lualike.execute('return love.graphics.getDefaultMipmapFilter()')
+                  as List)
+              .map((e) => (e as Value).unwrap())
+              .toList(),
           <Object?>['nearest', 0.5],
         );
 
-        await luaCallList(
-          runtime,
-          const ['love', 'graphics', 'setDefaultMipmapFilter'],
-          const <Object?>[null, 0.75],
-        );
+        await setDefaultMipmapFilter.call(<Object?>[null, 0.75]);
         expect(
-          await luaCallList(runtime, const [
-            'love',
-            'graphics',
-            'getDefaultMipmapFilter',
-          ]),
+          (await lualike.execute('return love.graphics.getDefaultMipmapFilter()')
+                  as List)
+              .map((e) => (e as Value).unwrap())
+              .toList(),
           <Object?>[null, 0.75],
         );
 
-        await luaCallList(runtime, const ['love', 'graphics', 'reset']);
+        await lualike.execute('love.graphics.reset()');
         expect(
-          await luaCallList(runtime, const [
-            'love',
-            'graphics',
-            'getDefaultMipmapFilter',
-          ]),
+          (await lualike.execute('return love.graphics.getDefaultMipmapFilter()')
+                  as List)
+              .map((e) => (e as Value).unwrap())
+              .toList(),
           <Object?>['linear', 0.0],
         );
       },
@@ -73,33 +62,21 @@ void main() {
       'new mipmapped images inherit the current default mipmap filter',
       () async {
         final lualike = LuaLike();
-        LuaRuntime runtime = lualike.vm;
+        final runtime = lualike.vm;
         installLove2d(runtime: runtime, host: LoveHeadlessHost());
 
-        await luaCallList(
-          runtime,
-          const ['love', 'graphics', 'setDefaultMipmapFilter'],
-          const <Object?>['nearest', 0.5],
-        );
+        final setDefaultMipmapFilter =
+            await lualike.execute('return love.graphics.setDefaultMipmapFilter') as Value;
+        await setDefaultMipmapFilter.call(<Object?>['nearest', 0.5]);
 
-        final imageData = await luaCallList(
-          runtime,
-          const ['love', 'image', 'newImageData'],
-          const <Object?>[8, 4],
+        final mipmapFilter = await lualike.execute('''
+local image = love.graphics.newImage(love.image.newImageData(8, 4), {mipmaps = true})
+return image:getMipmapFilter()
+''');
+        expect(
+          (mipmapFilter as List).map((e) => (e as Value).unwrap()).toList(),
+          <Object?>['nearest', 0.5],
         );
-        final image = await luaCallList(
-          runtime,
-          const ['love', 'graphics', 'newImage'],
-          <Object?>[
-            imageData,
-            Value(<Object?, Object?>{'mipmaps': true}),
-          ],
-        );
-
-        expect(await luaCallMethodList(image, 'getMipmapFilter'), <Object?>[
-          'nearest',
-          0.5,
-        ]);
       },
     );
 
@@ -107,29 +84,21 @@ void main() {
       'new mipmapped canvases inherit the current default mipmap filter',
       () async {
         final lualike = LuaLike();
-        LuaRuntime runtime = lualike.vm;
+        final runtime = lualike.vm;
         installLove2d(runtime: runtime, host: LoveHeadlessHost());
 
-        await luaCallList(
-          runtime,
-          const ['love', 'graphics', 'setDefaultMipmapFilter'],
-          const <Object?>['nearest', 0.25],
-        );
+        final setDefaultMipmapFilter =
+            await lualike.execute('return love.graphics.setDefaultMipmapFilter') as Value;
+        await setDefaultMipmapFilter.call(<Object?>['nearest', 0.25]);
 
-        final canvas = await luaCallList(
-          runtime,
-          const ['love', 'graphics', 'newCanvas'],
-          <Object?>[
-            32,
-            16,
-            Value(<Object?, Object?>{'mipmaps': 'manual'}),
-          ],
+        final mipmapFilter = await lualike.execute('''
+local canvas = love.graphics.newCanvas(32, 16, {mipmaps = "manual"})
+return canvas:getMipmapFilter()
+''');
+        expect(
+          (mipmapFilter as List).map((e) => (e as Value).unwrap()).toList(),
+          <Object?>['nearest', 0.25],
         );
-
-        expect(await luaCallMethodList(canvas, 'getMipmapFilter'), <Object?>[
-          'nearest',
-          0.25,
-        ]);
       },
     );
   });

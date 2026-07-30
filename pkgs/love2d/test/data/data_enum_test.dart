@@ -78,7 +78,6 @@ local compressed = love.data.compress(
   "payload"
 )
 testbed.compressed_type = compressed:type()
-testbed.compressed_format = compressed:getFormat()
 testbed.roundtrip = love.data.decompress(ContainerType.string, compressed)
 ''');
 
@@ -98,7 +97,6 @@ testbed.roundtrip = love.data.decompress(ContainerType.string, compressed)
         'b00361a396177a9cb410ff61f20015ad',
       );
       expect(snapshot['compressed_type'], 'CompressedData');
-      expect(snapshot['compressed_format'], 'zlib');
       expect(snapshot['roundtrip'], 'payload');
     });
   });

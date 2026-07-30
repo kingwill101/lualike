@@ -31,11 +31,11 @@ runtime = lualike.vm;
 
         expect(await luaCallMethodList(world, 'getJointCount'), 0);
         expect(
-          indexedValues(await luaCallMethodList(world, 'getJoints') as Map),
+          indexedValues(await luaCallMethodList(world, 'getJoints')),
           isEmpty,
         );
         expect(
-          indexedValues(await luaCallMethodList(body, 'getJoints') as Map),
+          indexedValues(await luaCallMethodList(body, 'getJoints')),
           isEmpty,
         );
       },

@@ -1,33 +1,27 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:lualike/lualike.dart';
 import 'package:love2d/love2d.dart';
-import '../test_support/lua_api_test_helpers.dart';
 
 void main() {
   group('LOVE graphics shader code to GLSL parity', () {
     test('_shaderCodeToGLSL translates pixel-only LOVE shader code', () async {
       final lualike = LuaLike();
-      LuaRuntime runtime = lualike.vm;
+      final runtime = lualike.vm;
       installLove2d(runtime: runtime, host: LoveHeadlessHost());
 
-      final result = await luaCall(
-        runtime,
-        const ['love', 'graphics', '_shaderCodeToGLSL'],
-        <Object?>[
-          false,
-          '''
-vec4 effect(vec4 color, Image tex, vec2 tc, vec2 pc) {
-  return color * Texel(tex, tc);
-}
-''',
-        ],
-      );
+      final shaderCodeToGlsl =
+          await lualike.execute('return love.graphics._shaderCodeToGLSL') as Value;
+      final values = (await shaderCodeToGlsl.call(<Object?>[
+        false,
+        'vec4 effect(vec4 color, Image tex, vec2 tc, vec2 pc) {\n'
+            '  return color * Texel(tex, tc);\n'
+            '}',
+      ])) as Value;
 
-      expect(result, isA<List<Object?>>());
-      final values = result as List<Object?>;
-      expect(values[0], isNull);
+      final results = values.unwrap() as List<Object?>;
+      expect(results[0], isNull);
 
-      final pixelCode = values[1] as String;
+      final pixelCode = results[1] as String;
       expect(pixelCode, contains('#version 330 core'));
       expect(pixelCode, contains('#define PIXEL PIXEL'));
       expect(pixelCode, contains('#define LOVE_GLSL1_ON_GLSL3 1'));
@@ -43,31 +37,24 @@ vec4 effect(vec4 color, Image tex, vec2 tc, vec2 pc) {
       '_shaderCodeToGLSL classifies vertex and pixel stages regardless of argument order',
       () async {
         final lualike = LuaLike();
-        LuaRuntime runtime = lualike.vm;
+        final runtime = lualike.vm;
         installLove2d(runtime: runtime, host: LoveHeadlessHost());
 
-        final result = await luaCall(
-          runtime,
-          const ['love', 'graphics', '_shaderCodeToGLSL'],
-          <Object?>[
-            true,
-            '''
-vec4 effect(vec4 color, Image tex, vec2 tc, vec2 pc) {
-  return color * Texel(tex, tc);
-}
-''',
-            '''
-vec4 position(mat4 clipSpaceFromLocal, vec4 localPosition) {
-  return clipSpaceFromLocal * localPosition;
-}
-''',
-          ],
-        );
+        final shaderCodeToGlsl =
+            await lualike.execute('return love.graphics._shaderCodeToGLSL') as Value;
+        final values = (await shaderCodeToGlsl.call(<Object?>[
+          true,
+          'vec4 effect(vec4 color, Image tex, vec2 tc, vec2 pc) {\n'
+              '  return color * Texel(tex, tc);\n'
+              '}',
+          'vec4 position(mat4 clipSpaceFromLocal, vec4 localPosition) {\n'
+              '  return clipSpaceFromLocal * localPosition;\n'
+              '}',
+        ])) as Value;
 
-        expect(result, isA<List<Object?>>());
-        final values = result as List<Object?>;
-        final vertexCode = values[0] as String;
-        final pixelCode = values[1] as String;
+        final results = values.unwrap() as List<Object?>;
+        final vertexCode = results[0] as String;
+        final pixelCode = results[1] as String;
 
         expect(vertexCode, contains('#version 300 es'));
         expect(vertexCode, contains('#define VERTEX VERTEX'));
@@ -85,24 +72,20 @@ vec4 position(mat4 clipSpaceFromLocal, vec4 localPosition) {
       '_shaderCodeToGLSL emits custom multi-canvas pixel scaffolding',
       () async {
         final lualike = LuaLike();
-        LuaRuntime runtime = lualike.vm;
+        final runtime = lualike.vm;
         installLove2d(runtime: runtime, host: LoveHeadlessHost());
 
-        final result = await luaCall(
-          runtime,
-          const ['love', 'graphics', '_shaderCodeToGLSL'],
-          <Object?>[
-            false,
-            '''
-void effect() {
-  love_Canvases[0] = vec4(1.0);
-  love_Canvases[1] = vec4(0.0);
-}
-''',
-          ],
-        );
+        final shaderCodeToGlsl =
+            await lualike.execute('return love.graphics._shaderCodeToGLSL') as Value;
+        final values = (await shaderCodeToGlsl.call(<Object?>[
+          false,
+          'void effect() {\n'
+              '  love_Canvases[0] = vec4(1.0);\n'
+              '  love_Canvases[1] = vec4(0.0);\n'
+              '}',
+        ])) as Value;
 
-        final pixelCode = (result as List<Object?>)[1] as String;
+        final pixelCode = (values.unwrap() as List<Object?>)[1] as String;
         expect(pixelCode, contains('#define LOVE_MULTI_CANVAS 1'));
         expect(
           pixelCode,
@@ -112,32 +95,25 @@ void effect() {
       },
     );
 
-    test('_shaderCodeToGLSL rejects mismatched shader language pragmas', () {
+    test('_shaderCodeToGLSL rejects mismatched shader language pragmas', () async {
       final lualike = LuaLike();
-      LuaRuntime runtime = lualike.vm;
+      final runtime = lualike.vm;
       installLove2d(runtime: runtime, host: LoveHeadlessHost());
+      final shaderCodeToGlsl =
+          await lualike.execute('return love.graphics._shaderCodeToGLSL') as Value;
 
-      expect(
-        () =>
-            luaRawFunction(runtime, const [
-              'love',
-              'graphics',
-              '_shaderCodeToGLSL',
-            ]).call(<Object?>[
-              false,
-              '''
-#pragma language glsl1
-vec4 position(mat4 clipSpaceFromLocal, vec4 localPosition) {
-  return clipSpaceFromLocal * localPosition;
-}
-''',
-              '''
-#pragma language glsl3
-vec4 effect(vec4 color, Image tex, vec2 tc, vec2 pc) {
-  return color;
-}
-''',
-            ]),
+      await expectLater(
+        shaderCodeToGlsl.call(<Object?>[
+          false,
+          '#pragma language glsl1\n'
+              'vec4 position(mat4 clipSpaceFromLocal, vec4 localPosition) {\n'
+              '  return clipSpaceFromLocal * localPosition;\n'
+              '}',
+          '#pragma language glsl3\n'
+              'vec4 effect(vec4 color, Image tex, vec2 tc, vec2 pc) {\n'
+              '  return color;\n'
+              '}',
+        ]),
         throwsA(
           isA<LuaError>().having(
             (error) => error.message,
@@ -148,26 +124,21 @@ vec4 effect(vec4 color, Image tex, vec2 tc, vec2 pc) {
       );
     });
 
-    test('_shaderCodeToGLSL rejects invalid shader language pragmas', () {
+    test('_shaderCodeToGLSL rejects invalid shader language pragmas', () async {
       final lualike = LuaLike();
-      LuaRuntime runtime = lualike.vm;
+      final runtime = lualike.vm;
       installLove2d(runtime: runtime, host: LoveHeadlessHost());
+      final shaderCodeToGlsl =
+          await lualike.execute('return love.graphics._shaderCodeToGLSL') as Value;
 
-      expect(
-        () =>
-            luaRawFunction(runtime, const [
-              'love',
-              'graphics',
-              '_shaderCodeToGLSL',
-            ]).call(<Object?>[
-              false,
-              '''
-#pragma language banana
-vec4 effect(vec4 color, Image tex, vec2 tc, vec2 pc) {
-  return color;
-}
-''',
-            ]),
+      await expectLater(
+        shaderCodeToGlsl.call(<Object?>[
+          false,
+          '#pragma language banana\n'
+              'vec4 effect(vec4 color, Image tex, vec2 tc, vec2 pc) {\n'
+              '  return color;\n'
+              '}',
+        ]),
         throwsA(
           isA<LuaError>().having(
             (error) => error.message,

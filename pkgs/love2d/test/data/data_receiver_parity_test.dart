@@ -1,7 +1,6 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:lualike/lualike.dart';
 import 'package:love2d/love2d.dart';
-import '../test_support/lua_api_test_helpers.dart';
 
 void main() {
   group('love.data receiver parity', () {
@@ -9,31 +8,23 @@ void main() {
       'ByteData type metadata survives release while other methods fail',
       () async {
         final lualike = LuaLike();
-        LuaRuntime runtime = lualike.vm;
+        final runtime = lualike.vm;
         installLove2d(runtime: runtime, host: LoveHeadlessHost());
 
-        final byteData = await luaCall(
-          runtime,
-          const ['love', 'data', 'newByteData'],
-          const <Object?>['hello'],
-        );
-
-        final typeMethod = luaRawMethod(byteData, 'type');
-        final typeOfMethod = luaRawMethod(byteData, 'typeOf');
-
+        final typeResult = await lualike.execute('''
+local byteData = love.data.newByteData("hello")
+return byteData:type(), byteData:typeOf("Data")
+''');
         expect(
-          await luaResolveCallResult(typeMethod.call(<Object?>[byteData])),
-          'ByteData',
-        );
-        expect(
-          await luaResolveCallResult(
-            typeOfMethod.call(<Object?>[byteData, 'Data']),
-          ),
-          isTrue,
+          (typeResult as List).map((e) => (e as Value).unwrap()).toList(),
+          <Object?>['ByteData', true],
         );
 
         await expectLater(
-          () => luaResolveCallResult(typeMethod.call(const <Object?>[])),
+          lualike.execute('''
+local byteData = love.data.newByteData("hello")
+return byteData.type()
+'''),
           throwsA(
             isA<LuaError>().having(
               (error) => error.message,
@@ -44,9 +35,10 @@ void main() {
         );
 
         await expectLater(
-          () => luaResolveCallResult(
-            typeOfMethod.call(const <Object?>['oops', 'Data']),
-          ),
+          lualike.execute('''
+local byteData = love.data.newByteData("hello")
+return byteData.typeOf("oops", "Data")
+'''),
           throwsA(
             isA<LuaError>().having(
               (error) => error.message,
@@ -56,11 +48,30 @@ void main() {
           ),
         );
 
-        expect(await luaCallMethod(byteData, 'release'), isTrue);
-        expect(await luaCallMethod(byteData, 'release'), isFalse);
+        expect(
+          ((await lualike.execute('''
+local byteData = love.data.newByteData("hello")
+return byteData:release()
+''')) as Value)
+              .unwrap(),
+          isTrue,
+        );
+        expect(
+          ((await lualike.execute('''
+local byteData = love.data.newByteData("hello")
+byteData:release()
+return byteData:release()
+''')) as Value)
+              .unwrap(),
+          isFalse,
+        );
 
         await expectLater(
-          () => luaCallMethod(byteData, 'getString'),
+          lualike.execute('''
+local byteData = love.data.newByteData("hello")
+byteData:release()
+return byteData:getString()
+'''),
           throwsA(
             isA<LuaError>().having(
               (error) => error.message,
@@ -70,15 +81,16 @@ void main() {
           ),
         );
 
+        final releasedTypeResult = await lualike.execute('''
+local byteData = love.data.newByteData("hello")
+byteData:release()
+return byteData:type(), byteData:typeOf("Object")
+''');
         expect(
-          await luaResolveCallResult(typeMethod.call(<Object?>[byteData])),
-          'ByteData',
-        );
-        expect(
-          await luaResolveCallResult(
-            typeOfMethod.call(<Object?>[byteData, 'Object']),
-          ),
-          isTrue,
+          (releasedTypeResult as List)
+              .map((e) => (e as Value).unwrap())
+              .toList(),
+          <Object?>['ByteData', true],
         );
       },
     );
@@ -87,31 +99,23 @@ void main() {
       'FileData type metadata survives release while data methods fail',
       () async {
         final lualike = LuaLike();
-        LuaRuntime runtime = lualike.vm;
+        final runtime = lualike.vm;
         installLove2d(runtime: runtime, host: LoveHeadlessHost());
 
-        final fileData = await luaCall(
-          runtime,
-          const ['love', 'filesystem', 'newFileData'],
-          const <Object?>['payload', 'payload.bin'],
-        );
-
-        final typeMethod = luaRawMethod(fileData, 'type');
-        final typeOfMethod = luaRawMethod(fileData, 'typeOf');
-
+        final typeResult = await lualike.execute('''
+local fileData = love.filesystem.newFileData("payload", "payload.bin")
+return fileData:type(), fileData:typeOf("Data")
+''');
         expect(
-          await luaResolveCallResult(typeMethod.call(<Object?>[fileData])),
-          'FileData',
-        );
-        expect(
-          await luaResolveCallResult(
-            typeOfMethod.call(<Object?>[fileData, 'Data']),
-          ),
-          isTrue,
+          (typeResult as List).map((e) => (e as Value).unwrap()).toList(),
+          <Object?>['FileData', true],
         );
 
         await expectLater(
-          () => luaResolveCallResult(typeMethod.call(const <Object?>[])),
+          lualike.execute('''
+local fileData = love.filesystem.newFileData("payload", "payload.bin")
+return fileData.type()
+'''),
           throwsA(
             isA<LuaError>().having(
               (error) => error.message,
@@ -122,9 +126,10 @@ void main() {
         );
 
         await expectLater(
-          () => luaResolveCallResult(
-            typeOfMethod.call(const <Object?>['oops', 'Data']),
-          ),
+          lualike.execute('''
+local fileData = love.filesystem.newFileData("payload", "payload.bin")
+return fileData.typeOf("oops", "Data")
+'''),
           throwsA(
             isA<LuaError>().having(
               (error) => error.message,
@@ -134,11 +139,30 @@ void main() {
           ),
         );
 
-        expect(await luaCallMethod(fileData, 'release'), isTrue);
-        expect(await luaCallMethod(fileData, 'release'), isFalse);
+        expect(
+          ((await lualike.execute('''
+local fileData = love.filesystem.newFileData("payload", "payload.bin")
+return fileData:release()
+''')) as Value)
+              .unwrap(),
+          isTrue,
+        );
+        expect(
+          ((await lualike.execute('''
+local fileData = love.filesystem.newFileData("payload", "payload.bin")
+fileData:release()
+return fileData:release()
+''')) as Value)
+              .unwrap(),
+          isFalse,
+        );
 
         await expectLater(
-          () => luaCallMethod(fileData, 'getString'),
+          lualike.execute('''
+local fileData = love.filesystem.newFileData("payload", "payload.bin")
+fileData:release()
+return fileData:getString()
+'''),
           throwsA(
             isA<LuaError>().having(
               (error) => error.message,
@@ -148,15 +172,16 @@ void main() {
           ),
         );
 
+        final releasedTypeResult = await lualike.execute('''
+local fileData = love.filesystem.newFileData("payload", "payload.bin")
+fileData:release()
+return fileData:type(), fileData:typeOf("Object")
+''');
         expect(
-          await luaResolveCallResult(typeMethod.call(<Object?>[fileData])),
-          'FileData',
-        );
-        expect(
-          await luaResolveCallResult(
-            typeOfMethod.call(<Object?>[fileData, 'Object']),
-          ),
-          isTrue,
+          (releasedTypeResult as List)
+              .map((e) => (e as Value).unwrap())
+              .toList(),
+          <Object?>['FileData', true],
         );
       },
     );

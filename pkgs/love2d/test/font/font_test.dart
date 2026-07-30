@@ -416,7 +416,7 @@ void main() {
           ]),
           <Object?>[
             14.0,
-            <Object?, Object?>{1: 'ab', 2: 'cd'},
+            <Object?>['ab', 'cd'],
           ],
         );
       },

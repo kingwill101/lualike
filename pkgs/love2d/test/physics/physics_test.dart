@@ -107,7 +107,7 @@ void main() {
       expect(fixture, isA<Map>());
       expect(await luaCallMethod(world, 'getBodyCount'), 1);
       final worldBodies = indexedValues(
-        await luaCallMethod(world, 'getBodies') as Map,
+        await luaCallMethod(world, 'getBodies'),
       );
       expect(worldBodies, hasLength(1));
       expectDoubleListClose(
@@ -115,7 +115,7 @@ void main() {
         const <double>[90, 120],
       );
       final bodyFixtures = indexedValues(
-        await luaCallMethod(body, 'getFixtures') as Map,
+        await luaCallMethod(body, 'getFixtures'),
       );
       expect(bodyFixtures, hasLength(1));
       expect(

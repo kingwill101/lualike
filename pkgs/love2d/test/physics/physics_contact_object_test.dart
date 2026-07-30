@@ -64,10 +64,10 @@ runtime = lualike.vm;
         await luaCallMethodList(world, 'update', const <Object?>[1 / 60]);
 
         final bodyContacts = indexedValues(
-          await luaCallMethodList(bodyA, 'getContacts') as Map,
+          await luaCallMethodList(bodyA, 'getContacts'),
         );
         final worldContacts = indexedValues(
-          await luaCallMethodList(world, 'getContacts') as Map,
+          await luaCallMethodList(world, 'getContacts'),
         );
 
         expect(bodyContacts, hasLength(1));
@@ -192,7 +192,7 @@ runtime = lualike.vm;
 
         await luaCallMethodList(world, 'update', const <Object?>[1 / 60]);
         final contact = indexedValues(
-          await luaCallMethodList(world, 'getContacts') as Map,
+          await luaCallMethodList(world, 'getContacts'),
         ).single;
 
         expect(
@@ -355,7 +355,7 @@ runtime = lualike.vm;
 
       await luaCallMethodList(world, 'update', const <Object?>[1 / 60]);
       final contact = indexedValues(
-        await luaCallMethodList(world, 'getContacts') as Map,
+        await luaCallMethodList(world, 'getContacts'),
       ).single;
 
       await luaCallMethodList(bodyB, 'setPosition', const <Object?>[100, 0]);
@@ -429,7 +429,7 @@ Future<({double dx, double dy})> _runSlidingContactScenario(
 
   await luaCallMethodList(world, 'update', const <Object?>[1 / 60]);
   final contact = indexedValues(
-    await luaCallMethodList(world, 'getContacts') as Map,
+    await luaCallMethodList(world, 'getContacts'),
   ).single;
 
   if (overrideContactFriction) {
@@ -493,7 +493,7 @@ Future<({double dx, double dy})> _runRestitutionContactScenario(
 
   await luaCallMethodList(world, 'update', const <Object?>[1 / 60]);
   final contact = indexedValues(
-    await luaCallMethodList(world, 'getContacts') as Map,
+    await luaCallMethodList(world, 'getContacts'),
   ).single;
 
   if (overrideContactRestitution) {
@@ -559,7 +559,7 @@ Future<({double dx, double dy})> _runTangentSpeedContactScenario(
 
   await luaCallMethodList(world, 'update', const <Object?>[1 / 60]);
   final contact = indexedValues(
-    await luaCallMethodList(world, 'getContacts') as Map,
+    await luaCallMethodList(world, 'getContacts'),
   ).single;
 
   if (overrideContactTangentSpeed) {

@@ -4,7 +4,9 @@
 /// same operation on the same operand values, the later one becomes
 /// `MOVE dest, earlierResult`.
 ///
-/// ## Critical safety rule (do not regress)
+/// ## Critical safety rules (do not regress)
+///
+/// ### Register clobber
 ///
 /// Value numbers are keyed by pure expression shape and map to a **source
 /// register**. After `CALL` (or any def) clobbers that register, the map entry
@@ -15,6 +17,17 @@
 /// Always drop value-number map entries whose source register is redefined
 /// before reusing a value number.
 ///
+/// ### Not every opcode is a pure value producer
+///
+/// * `TEST` / `TESTSET` affect control flow; `TEST` does **not** write A.
+///   Treating them as pure and replacing later `TEST`s with `MOVE` destroys
+///   branches (snake `if willGrow then` / `and`/`or` conditions).
+/// * Loads (`GETUPVAL`, `GETTABLE`, `GETFIELD`, …) read mutable state; without
+///   memory SSA they must not be CSE'd across stores.
+/// * `NEWTABLE` / `CLOSURE` allocate distinct objects — never CSE by shape.
+/// * Operand fields are not always registers: upvalue/Kst/int immediates must
+///   key as immediates, not as SSA labels of register indices.
+///
 /// Only pure opcodes in the pure-opcode set are considered.
 library;
 
@@ -23,6 +36,7 @@ import 'opcode.dart';
 import 'prototype.dart';
 import 'ssa.dart';
 
+/// Opcodes safe for value-number CSE (no control-flow, no memory, no alloc).
 const _gvnPureOpcodes = <LualikeIrOpcode>{
   LualikeIrOpcode.move,
   LualikeIrOpcode.loadI,
@@ -30,15 +44,9 @@ const _gvnPureOpcodes = <LualikeIrOpcode>{
   LualikeIrOpcode.loadK,
   LualikeIrOpcode.loadKx,
   LualikeIrOpcode.loadFalse,
-  LualikeIrOpcode.lFalseSkip,
   LualikeIrOpcode.loadTrue,
   LualikeIrOpcode.loadNil,
-  LualikeIrOpcode.getUpval,
-  LualikeIrOpcode.getTabUp,
-  LualikeIrOpcode.getTable,
-  LualikeIrOpcode.getI,
-  LualikeIrOpcode.getField,
-  LualikeIrOpcode.selfOp,
+  // Arithmetic / bitwise (register + immediate forms).
   LualikeIrOpcode.addI,
   LualikeIrOpcode.subI,
   LualikeIrOpcode.addK,
@@ -68,8 +76,7 @@ const _gvnPureOpcodes = <LualikeIrOpcode>{
   LualikeIrOpcode.unm,
   LualikeIrOpcode.bnot,
   LualikeIrOpcode.notOp,
-  LualikeIrOpcode.len,
-  LualikeIrOpcode.concat,
+  // Comparisons that *store* a boolean into A (IR dialect, not Lua skip-form).
   LualikeIrOpcode.eq,
   LualikeIrOpcode.lt,
   LualikeIrOpcode.le,
@@ -79,27 +86,46 @@ const _gvnPureOpcodes = <LualikeIrOpcode>{
   LualikeIrOpcode.leI,
   LualikeIrOpcode.gtI,
   LualikeIrOpcode.geI,
-  LualikeIrOpcode.test,
-  LualikeIrOpcode.testSet,
-  LualikeIrOpcode.newTable,
-  LualikeIrOpcode.closure,
-  LualikeIrOpcode.varArg,
 };
 
-/// Find which register an instruction writes to (-1 if none).
+/// Find which register an instruction writes to (-1 if none / not a value def).
 int _resultReg(LualikeIrInstruction inst, int registerCount) {
   final r = inst.when(
-    abc: (i) =>
-        i.opcode == LualikeIrOpcode.jmp ||
-            i.opcode == LualikeIrOpcode.close ||
-            i.opcode == LualikeIrOpcode.tbc ||
-            i.opcode == LualikeIrOpcode.ret ||
-            i.opcode == LualikeIrOpcode.return0 ||
-            i.opcode == LualikeIrOpcode.tailCall
-        ? -1
-        : i.a,
+    abc: (i) {
+      switch (i.opcode) {
+        case LualikeIrOpcode.jmp ||
+            LualikeIrOpcode.close ||
+            LualikeIrOpcode.tbc ||
+            LualikeIrOpcode.ret ||
+            LualikeIrOpcode.return0 ||
+            LualikeIrOpcode.return1 ||
+            LualikeIrOpcode.tailCall ||
+            LualikeIrOpcode.call ||
+            // Control-flow predicates: do not produce R(A).
+            LualikeIrOpcode.test ||
+            LualikeIrOpcode.lFalseSkip ||
+            // Stores.
+            LualikeIrOpcode.setTabUp ||
+            LualikeIrOpcode.setTable ||
+            LualikeIrOpcode.setI ||
+            LualikeIrOpcode.setField ||
+            LualikeIrOpcode.setList ||
+            LualikeIrOpcode.setUpval:
+          return -1;
+        default:
+          return i.a;
+      }
+    },
     abx: (i) => i.a,
-    asbx: (i) => i.a,
+    asbx: (i) {
+      if (i.opcode == LualikeIrOpcode.forPrep ||
+          i.opcode == LualikeIrOpcode.forLoop ||
+          i.opcode == LualikeIrOpcode.tForPrep ||
+          i.opcode == LualikeIrOpcode.tForLoop) {
+        return -1;
+      }
+      return i.a;
+    },
     ax: (_) => -1,
     asj: (_) => -1,
     avbc: (i) => i.a,
@@ -107,15 +133,75 @@ int _resultReg(LualikeIrInstruction inst, int registerCount) {
   return (r >= 0 && r < registerCount) ? r : -1;
 }
 
-/// Build a canonical string key for (opcode, operand SSA labels).
+String _regKey(int reg, Map<int, String> ssaLabels) =>
+    ssaLabels[reg] ?? 'r$reg';
+
+/// Build a canonical string key for (opcode, operand SSA labels / immediates).
 String _computeKey(LualikeIrInstruction inst, Map<int, String> ssaLabels) {
   final opName = inst.opcode.name;
   final buf = StringBuffer(opName);
   inst.when(
     abc: (i) {
-      buf.write('|b=${ssaLabels[i.b] ?? 'r${i.b}'}');
-      buf.write('|c=${ssaLabels[i.c] ?? 'r${i.c}'}');
-      if (i.k) buf.write('|k=1');
+      final op = i.opcode;
+      // Operand roles differ by opcode — never treat Kst/upval/int as SSA regs.
+      switch (op) {
+        case LualikeIrOpcode.move ||
+            LualikeIrOpcode.unm ||
+            LualikeIrOpcode.bnot ||
+            LualikeIrOpcode.notOp:
+          buf.write('|b=${_regKey(i.b, ssaLabels)}');
+        case LualikeIrOpcode.addI ||
+            LualikeIrOpcode.subI ||
+            LualikeIrOpcode.shlI ||
+            LualikeIrOpcode.shrI:
+          buf.write('|b=${_regKey(i.b, ssaLabels)}|imm=${i.c}');
+        case LualikeIrOpcode.addK ||
+            LualikeIrOpcode.subK ||
+            LualikeIrOpcode.mulK ||
+            LualikeIrOpcode.modK ||
+            LualikeIrOpcode.powK ||
+            LualikeIrOpcode.divK ||
+            LualikeIrOpcode.idivK ||
+            LualikeIrOpcode.bandK ||
+            LualikeIrOpcode.borK ||
+            LualikeIrOpcode.bxorK ||
+            LualikeIrOpcode.eqK:
+          buf.write('|b=${_regKey(i.b, ssaLabels)}|k=${i.c}');
+        case LualikeIrOpcode.eqI ||
+            LualikeIrOpcode.ltI ||
+            LualikeIrOpcode.leI ||
+            LualikeIrOpcode.gtI ||
+            LualikeIrOpcode.geI:
+          buf.write('|b=${_regKey(i.b, ssaLabels)}|imm=${i.c}');
+          if (i.k) buf.write('|k=1');
+        case LualikeIrOpcode.add ||
+            LualikeIrOpcode.sub ||
+            LualikeIrOpcode.mul ||
+            LualikeIrOpcode.mod ||
+            LualikeIrOpcode.pow ||
+            LualikeIrOpcode.div ||
+            LualikeIrOpcode.idiv ||
+            LualikeIrOpcode.band ||
+            LualikeIrOpcode.bor ||
+            LualikeIrOpcode.bxor ||
+            LualikeIrOpcode.shl ||
+            LualikeIrOpcode.shr ||
+            LualikeIrOpcode.eq ||
+            LualikeIrOpcode.lt ||
+            LualikeIrOpcode.le:
+          buf.write('|b=${_regKey(i.b, ssaLabels)}');
+          buf.write('|c=${_regKey(i.c, ssaLabels)}');
+          if (i.k) buf.write('|k=1');
+        case LualikeIrOpcode.loadNil:
+          buf.write('|n=${i.b}');
+        case LualikeIrOpcode.loadFalse ||
+            LualikeIrOpcode.loadTrue:
+          break;
+        default:
+          // Conservative: include raw fields so unknown shapes never collide.
+          buf.write('|b=${i.b}|c=${i.c}');
+          if (i.k) buf.write('|k=1');
+      }
     },
     abx: (i) => buf.write('|bx=${i.bx}'),
     asbx: (i) => buf.write('|sBx=${i.sBx}'),

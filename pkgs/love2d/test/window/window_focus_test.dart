@@ -2,13 +2,12 @@ import 'package:flutter/gestures.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:love2d/love2d.dart';
 import 'package:lualike/lualike.dart';
-import '../test_support/lua_api_test_helpers.dart';
 
 void main() {
   group('love.window focus queries', () {
     test('read explicit host focus state', () async {
       final lualike = LuaLike();
-      LuaRuntime runtime = lualike.vm;
+      final runtime = lualike.vm;
       final host = LoveHeadlessHost(
         windowHasFocus: true,
         windowHasMouseFocus: false,
@@ -17,11 +16,14 @@ void main() {
       installLove2d(runtime: runtime, host: host);
 
       expect(
-        await luaCall(runtime, const ['love', 'window', 'hasFocus']),
+        ((await lualike.execute('return love.window.hasFocus()')) as Value)
+            .unwrap(),
         isTrue,
       );
       expect(
-        await luaCall(runtime, const ['love', 'window', 'hasMouseFocus']),
+        ((await lualike.execute('return love.window.hasMouseFocus()'))
+                as Value)
+            .unwrap(),
         isFalse,
       );
 
@@ -29,18 +31,21 @@ void main() {
       host.windowHasMouseFocus = true;
 
       expect(
-        await luaCall(runtime, const ['love', 'window', 'hasFocus']),
+        ((await lualike.execute('return love.window.hasFocus()')) as Value)
+            .unwrap(),
         isFalse,
       );
       expect(
-        await luaCall(runtime, const ['love', 'window', 'hasMouseFocus']),
+        ((await lualike.execute('return love.window.hasMouseFocus()'))
+                as Value)
+            .unwrap(),
         isTrue,
       );
     });
 
     test('follow Flame input adapter focus updates', () async {
       final lualike = LuaLike();
-      LuaRuntime runtime = lualike.vm;
+      final runtime = lualike.vm;
       final host = LoveHeadlessHost();
       final adapter = LoveFlameInputAdapter(
         host: host,
@@ -50,17 +55,21 @@ void main() {
       installLove2d(runtime: runtime, host: host);
 
       expect(
-        await luaCall(runtime, const ['love', 'window', 'hasFocus']),
+        ((await lualike.execute('return love.window.hasFocus()')) as Value)
+            .unwrap(),
         isFalse,
       );
       expect(
-        await luaCall(runtime, const ['love', 'window', 'hasMouseFocus']),
+        ((await lualike.execute('return love.window.hasMouseFocus()'))
+                as Value)
+            .unwrap(),
         isFalse,
       );
 
       adapter.handleFocusChanged(true);
       expect(
-        await luaCall(runtime, const ['love', 'window', 'hasFocus']),
+        ((await lualike.execute('return love.window.hasFocus()')) as Value)
+            .unwrap(),
         isTrue,
       );
 
@@ -71,7 +80,9 @@ void main() {
         ),
       );
       expect(
-        await luaCall(runtime, const ['love', 'window', 'hasMouseFocus']),
+        ((await lualike.execute('return love.window.hasMouseFocus()'))
+                as Value)
+            .unwrap(),
         isTrue,
       );
 
@@ -82,13 +93,16 @@ void main() {
         ),
       );
       expect(
-        await luaCall(runtime, const ['love', 'window', 'hasMouseFocus']),
+        ((await lualike.execute('return love.window.hasMouseFocus()'))
+                as Value)
+            .unwrap(),
         isFalse,
       );
 
       adapter.handleFocusChanged(false);
       expect(
-        await luaCall(runtime, const ['love', 'window', 'hasFocus']),
+        ((await lualike.execute('return love.window.hasFocus()')) as Value)
+            .unwrap(),
         isFalse,
       );
     });

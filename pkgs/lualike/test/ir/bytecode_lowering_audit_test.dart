@@ -204,6 +204,36 @@ void main() {
       );
     });
 
+    test('high Kst value on SETFIELD k=true spills via LOADK', () {
+      // C is a constant index when k=true; indices > 255 must not be stuffed
+      // into the 8-bit C field (large table-literal regression).
+      final constants = List<LualikeIrConstant>.generate(
+        260,
+        (index) => IntegerConstant(index),
+      );
+      final lowered = _lower(
+        _prototype(
+          constants: constants,
+          instructions: const <LualikeIrInstruction>[
+            ABCInstruction(
+              opcode: LualikeIrOpcode.setField,
+              a: 0,
+              b: 1,
+              c: 257,
+              k: true,
+            ),
+          ],
+        ),
+      );
+
+      expect(lowered.code.any((w) => w.opcode == Opcode.loadK), isTrue);
+      final store = lowered.code.singleWhere(
+        (w) => w.opcode == Opcode.setField || w.opcode == Opcode.setTable,
+      );
+      expect(store.kFlag, isFalse);
+      expect(store.c, lessThanOrEqualTo(255));
+    });
+
     test('left-shift immediate remains a semantic value', () {
       final lowered = _lower(
         _prototype(

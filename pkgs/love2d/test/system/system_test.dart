@@ -1,13 +1,12 @@
-import 'package:lualike/lualike.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:lualike/lualike.dart';
 import 'package:love2d/love2d.dart';
-import '../test_support/lua_api_test_helpers.dart';
 
 void main() {
   group('love.system bindings', () {
     test('report host-backed system state', () async {
-    final lualike = LuaLike();
-LuaRuntime runtime = lualike.vm;
+      final lualike = LuaLike();
+      final runtime = lualike.vm;
       final host = LoveHeadlessHost(
         system: LoveSystemState(
           os: 'Linux',
@@ -25,34 +24,40 @@ LuaRuntime runtime = lualike.vm;
       installLove2d(runtime: runtime, host: host);
 
       expect(
-        await luaCall(runtime, const ['love', 'system', 'getOS']),
+        ((await lualike.execute('return love.system.getOS()')) as Value)
+            .unwrap(),
         'Linux',
       );
       expect(
-        await luaCall(runtime, const ['love', 'system', 'getProcessorCount']),
+        ((await lualike.execute('return love.system.getProcessorCount()'))
+                as Value)
+            .unwrap(),
         8,
       );
+      final powerResult = await lualike.execute('return love.system.getPowerInfo()');
       expect(
-        await luaCall(runtime, const ['love', 'system', 'getPowerInfo']),
+        (powerResult as List).map((e) => (e as Value).unwrap()).toList(),
         <Object?>['charging', 67, 1234],
       );
       expect(
-        await luaCall(runtime, const ['love', 'system', 'hasBackgroundMusic']),
+        ((await lualike.execute('return love.system.hasBackgroundMusic()'))
+                as Value)
+            .unwrap(),
         isTrue,
       );
       expect(
-        await luaCall(runtime, const ['love', 'system', 'getClipboardText']),
+        ((await lualike.execute('return love.system.getClipboardText()'))
+                as Value)
+            .unwrap(),
         'seed clipboard',
       );
 
-      await luaCall(
-        runtime,
-        const ['love', 'system', 'setClipboardText'],
-        const <Object?>['updated clipboard'],
-      );
+      await lualike.execute('love.system.setClipboardText("updated clipboard")');
       expect(host.system.clipboardText, 'updated clipboard');
       expect(
-        await luaCall(runtime, const ['love', 'system', 'getClipboardText']),
+        ((await lualike.execute('return love.system.getClipboardText()'))
+                as Value)
+            .unwrap(),
         'updated clipboard',
       );
     });
@@ -60,8 +65,8 @@ LuaRuntime runtime = lualike.vm;
     test(
       'use async platform handlers and normalize power state values',
       () async {
-      final lualike = LuaLike();
-LuaRuntime runtime = lualike.vm;
+        final lualike = LuaLike();
+        final runtime = lualike.vm;
         var clipboard = 'external clipboard';
         final openedUrls = <String>[];
         final vibrations = <double>[];
@@ -92,40 +97,39 @@ LuaRuntime runtime = lualike.vm;
         installLove2d(runtime: runtime, host: host);
 
         expect(
-          await luaCall(runtime, const ['love', 'system', 'getProcessorCount']),
+          ((await lualike.execute('return love.system.getProcessorCount()'))
+                  as Value)
+              .unwrap(),
           1,
         );
+        final asyncPowerResult = await lualike.execute('return love.system.getPowerInfo()');
         expect(
-          await luaCall(runtime, const ['love', 'system', 'getPowerInfo']),
+          (asyncPowerResult as List)
+              .map((e) => (e as Value).unwrap())
+              .toList(),
           <Object?>['unknown', null, null],
         );
         expect(
-          await luaCall(runtime, const ['love', 'system', 'getClipboardText']),
+          ((await lualike.execute('return love.system.getClipboardText()'))
+                  as Value)
+              .unwrap(),
           'external clipboard',
         );
 
-        await luaCall(
-          runtime,
-          const ['love', 'system', 'setClipboardText'],
-          const <Object?>['written externally'],
-        );
+        await lualike.execute('love.system.setClipboardText("written externally")');
         expect(clipboard, 'written externally');
         expect(host.system.clipboardText, 'written externally');
 
         expect(
-          await luaCall(
-            runtime,
-            const ['love', 'system', 'openURL'],
-            const <Object?>['https://love2d.org'],
-          ),
+          ((await lualike.execute('return love.system.openURL("https://love2d.org")'))
+                  as Value)
+              .unwrap(),
           isTrue,
         );
         expect(
-          await luaCall(
-            runtime,
-            const ['love', 'system', 'openURL'],
-            const <Object?>['mailto:test@example.com'],
-          ),
+          ((await lualike.execute('return love.system.openURL("mailto:test@example.com")'))
+                  as Value)
+              .unwrap(),
           isFalse,
         );
         expect(openedUrls, <String>[
@@ -133,12 +137,8 @@ LuaRuntime runtime = lualike.vm;
           'mailto:test@example.com',
         ]);
 
-        await luaCall(runtime, const ['love', 'system', 'vibrate']);
-        await luaCall(
-          runtime,
-          const ['love', 'system', 'vibrate'],
-          const <Object?>[1.25],
-        );
+        await lualike.execute('love.system.vibrate()');
+        await lualike.execute('love.system.vibrate(1.25)');
         expect(vibrations, <double>[0.5, 1.25]);
       },
     );

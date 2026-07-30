@@ -35,8 +35,8 @@ void main() {
           <Object?, Object?>{1: 0.2, 2: 0.3, 3: 0.9, 4: 0.4},
         ]);
         expect(await luaCallMethod(particleSystem, 'getColors'), <Object?>[
-          <Object?, Object?>{1: 1.0, 2: 0.8, 3: 0.1, 4: 1.0},
-          <Object?, Object?>{1: 0.2, 2: 0.3, 3: 0.9, 4: 0.4},
+          <Object?>[1.0, 0.8, 0.1, 1.0],
+          <Object?>[0.2, 0.3, 0.9, 0.4],
         ]);
 
         await luaCallMethod(particleSystem, 'setEmissionArea', <Object?>[
@@ -101,10 +101,10 @@ void main() {
         await luaCallMethod(particleSystem, 'setQuads', <Object?>[quad]);
         final quads =
             await luaCallMethod(particleSystem, 'getQuads')
-                as Map<Object?, Object?>;
+                as List<Object?>;
         expect(quads, hasLength(1));
         expect(
-          await luaCallMethod(quads[1]!, 'getTextureDimensions'),
+          await luaCallMethod(quads[0], 'getTextureDimensions'),
           <Object?>[16.0, 16.0],
         );
 

@@ -55,8 +55,8 @@ void main() {
           'audio',
           'getRecordingDevices',
         ]);
-        expect(devices, isA<Map>());
-        final recordingDevice = (devices! as Map)[1];
+        expect(devices, isA<List>());
+        final recordingDevice = (devices as List<Object?>)[0];
         expect(recordingDevice, isNotNull);
 
         expect(
@@ -152,7 +152,7 @@ void main() {
           'audio',
           'getRecordingDevices',
         ]);
-        final recordingDevice = (devices! as Map)[1];
+        final recordingDevice = (devices as List<Object?>)[0];
 
         await expectLater(
           () => luaCallMethodList(recordingDevice, 'start', const <Object?>[0]),

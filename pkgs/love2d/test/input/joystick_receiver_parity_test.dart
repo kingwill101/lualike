@@ -25,7 +25,7 @@ void main() {
           'joystick',
           'getJoysticks',
         ]);
-        final joystick = (joysticks! as Map)[1];
+        final joystick = (joysticks as List<Object?>)[0];
 
         final typeMethod = _rawMethod(joystick, 'type');
         final typeOfMethod = _rawMethod(joystick, 'typeOf');

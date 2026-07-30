@@ -204,7 +204,7 @@ LuaRuntime runtime = lualike.vm;
 
         await luaCallMethodList(world, 'update', const <Object?>[1 / 60]);
         final contact = indexedValues(
-          await luaCallMethodList(world, 'getContacts') as Map,
+          await luaCallMethodList(world, 'getContacts'),
         ).single;
 
         await _expectReleasedObjectParity(

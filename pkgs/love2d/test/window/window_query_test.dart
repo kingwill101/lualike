@@ -103,10 +103,10 @@ void main() {
       );
       expect(
         await luaCall(runtime, const ['love', 'window', 'getFullscreenModes']),
-        <Object?, Object?>{
-          1: <Object?, Object?>{'width': 1920, 'height': 1080},
-          2: <Object?, Object?>{'width': 1280, 'height': 720},
-        },
+        <Object?>[
+          <Object?, Object?>{'width': 1920, 'height': 1080},
+          <Object?, Object?>{'width': 1280, 'height': 720},
+        ],
       );
       expect(
         await luaCall(runtime, const ['love', 'window', 'getPosition']),

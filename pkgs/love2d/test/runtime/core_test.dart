@@ -1,7 +1,6 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:lualike/lualike.dart';
 import 'package:love2d/love2d.dart';
-import '../test_support/lua_api_test_helpers.dart';
 
 void main() {
   group('love core bindings', () {
@@ -89,77 +88,61 @@ result = tostring(canvas:getDepthSampleMode())
     });
 
     test('getVersion and isVersionCompatible follow LOVE 11.5', () async {
-      expect(await luaCall(runtime, const ['love', 'getVersion']), <Object?>[
-        11,
-        5,
-        0,
-        'Mysterious Mysteries',
-      ]);
+      final versionResult = await lualike.execute('return love.getVersion()');
       expect(
-        await luaCall(
-          runtime,
-          const ['love', 'isVersionCompatible'],
-          const <Object?>['11.5'],
-        ),
+        (versionResult as List).map((e) => (e as Value).unwrap()).toList(),
+        <Object?>[11, 5, 0, 'Mysterious Mysteries'],
+      );
+      expect(
+        ((await lualike.execute('return love.isVersionCompatible("11.5")'))
+                as Value)
+            .unwrap(),
         isTrue,
       );
       expect(
-        await luaCall(
-          runtime,
-          const ['love', 'isVersionCompatible'],
-          const <Object?>['11.4'],
-        ),
+        ((await lualike.execute('return love.isVersionCompatible("11.4")'))
+                as Value)
+            .unwrap(),
         isTrue,
       );
       expect(
-        await luaCall(
-          runtime,
-          const ['love', 'isVersionCompatible'],
-          const <Object?>['11'],
-        ),
+        ((await lualike.execute('return love.isVersionCompatible("11")'))
+                as Value)
+            .unwrap(),
         isFalse,
       );
       expect(
-        await luaCall(
-          runtime,
-          const ['love', 'isVersionCompatible'],
-          const <Object?>[11, 2, 0],
-        ),
+        ((await lualike.execute('return love.isVersionCompatible(11, 2, 0)'))
+                as Value)
+            .unwrap(),
         isTrue,
       );
       expect(
-        await luaCall(
-          runtime,
-          const ['love', 'isVersionCompatible'],
-          const <Object?>[12, 0, 0],
-        ),
+        ((await lualike.execute('return love.isVersionCompatible(12, 0, 0)'))
+                as Value)
+            .unwrap(),
         isFalse,
       );
     });
 
     test('deprecation output state can be queried and changed', () async {
       expect(
-        await luaCall(runtime, const ['love', 'hasDeprecationOutput']),
+        ((await lualike.execute('return love.hasDeprecationOutput()')) as Value)
+            .unwrap(),
         isTrue,
       );
 
-      await luaCall(
-        runtime,
-        const ['love', 'setDeprecationOutput'],
-        const <Object?>[false],
-      );
+      await lualike.execute('love.setDeprecationOutput(false)');
       expect(
-        await luaCall(runtime, const ['love', 'hasDeprecationOutput']),
+        ((await lualike.execute('return love.hasDeprecationOutput()')) as Value)
+            .unwrap(),
         isFalse,
       );
 
-      await luaCall(
-        runtime,
-        const ['love', 'setDeprecationOutput'],
-        const <Object?>[true],
-      );
+      await lualike.execute('love.setDeprecationOutput(true)');
       expect(
-        await luaCall(runtime, const ['love', 'hasDeprecationOutput']),
+        ((await lualike.execute('return love.hasDeprecationOutput()')) as Value)
+            .unwrap(),
         isTrue,
       );
     });

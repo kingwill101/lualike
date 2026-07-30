@@ -86,7 +86,7 @@ void main() {
           18.0,
           26.0,
         ]);
-        expect(await luaCallMethod(particleSystem, 'getQuads'), isA<Map>());
+        expect(await luaCallMethod(particleSystem, 'getQuads'), isA<List>());
         expect(await luaCallMethod(particleSystem, 'getCount'), 4);
         expect(
           await luaCallMethod(particleSystem, 'hasRelativeRotation'),

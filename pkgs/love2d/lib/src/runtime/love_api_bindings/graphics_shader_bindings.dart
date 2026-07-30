@@ -512,14 +512,14 @@ Object? _shaderSentColorValue(
   final values =
       _shaderUniformPayloadValues(rawValues, arrayLength: uniform.arrayLength)
           .map((value) {
-            final table = _tableIfPresent(value);
-            if (table == null) {
+            final raw = _rawValue(value);
+            if (raw is! Map<dynamic, dynamic> && raw is! List<dynamic>) {
               throw LuaError(
                 '$symbol expected a table with $components components',
               );
             }
             return _shaderClampedNumericComponents(
-              table,
+              raw,
               components: components,
               symbol: symbol,
             );
@@ -560,18 +560,30 @@ Object? _shaderValidatedUniformPayload(
     return scalarParser(value, symbol);
   }
 
-  final table = _tableIfPresent(value);
-  if (table == null) {
-    throw LuaError('$symbol expected a table with $components components');
+  final raw = _rawValue(value);
+  if (raw is Map<dynamic, dynamic>) {
+    return List<Object?>.unmodifiable(
+      List<Object?>.generate(
+        components,
+        (index) => scalarParser(_tableIndexedEntry(raw, index + 1), symbol),
+        growable: false,
+      ),
+    );
+  }
+  if (raw is List<dynamic>) {
+    if (raw.length < components) {
+      throw LuaError('$symbol expected a table with $components components');
+    }
+    return List<Object?>.unmodifiable(
+      List<Object?>.generate(
+        components,
+        (index) => scalarParser(raw[index], symbol),
+        growable: false,
+      ),
+    );
   }
 
-  return List<Object?>.unmodifiable(
-    List<Object?>.generate(
-      components,
-      (index) => scalarParser(_tableIndexedEntry(table, index + 1), symbol),
-      growable: false,
-    ),
-  );
+  throw LuaError('$symbol expected a table with $components components');
 }
 
 /// Validates one `sendColor` payload as either a component list or a table.
@@ -580,10 +592,10 @@ Object? _shaderValidatedColorPayload(
   required int components,
   required String symbol,
 }) {
-  final firstTable = _tableIfPresent(rawValues.first);
-  if (firstTable != null) {
+  final firstRaw = _rawValue(rawValues.first);
+  if (firstRaw is Map<dynamic, dynamic> || firstRaw is List<dynamic>) {
     return _shaderClampedNumericComponents(
-      firstTable,
+      firstRaw,
       components: components,
       symbol: symbol,
     );
@@ -607,18 +619,25 @@ Object? _shaderValidatedColorPayload(
 /// Reads [components] numeric values from [table] and clamps them into LOVE's
 /// color range.
 List<Object?> _shaderClampedNumericComponents(
-  Map<dynamic, dynamic> table, {
+  Object? table, {
   required int components,
   required String symbol,
 }) {
+  final rawTable = _rawValue(table);
+  Object? entryAt(int index) {
+    return switch (rawTable) {
+      final Map<dynamic, dynamic> map => _tableIndexedEntry(map, index),
+      final List<dynamic> list =>
+        index > 0 && index <= list.length ? list[index - 1] : null,
+      _ => null,
+    };
+  }
+
   return List<Object?>.unmodifiable(
     List<Object?>.generate(
       components,
       (index) => _clampShaderColorValue(
-        _shaderFloatUniformComponent(
-          _tableIndexedEntry(table, index + 1),
-          symbol,
-        ),
+        _shaderFloatUniformComponent(entryAt(index + 1), symbol),
       ),
       growable: false,
     ),
@@ -733,15 +752,15 @@ Object? _shaderSentMatrixValue(
       continue;
     }
 
-    final table = _tableIfPresent(value);
-    if (table == null) {
+    final raw = _rawValue(value);
+    if (raw is! Map<dynamic, dynamic> && raw is! List<dynamic>) {
       throw LuaError('$symbol expected a $dimension x $dimension matrix table');
     }
 
     matrices.add(
       List<Object?>.unmodifiable(
         _shaderSquareMatrixElementsFromTable(
-          table,
+          raw,
           dimension: dimension,
           columnMajor: columnMajor,
           symbol: symbol,
@@ -780,14 +799,27 @@ Object? _shaderSendValue(Object? value) {
 
 /// Reads a square matrix payload from a nested or flat Lua table.
 List<double> _shaderSquareMatrixElementsFromTable(
-  Map<dynamic, dynamic> table, {
+  Object? table, {
   required int dimension,
   required bool columnMajor,
   required String symbol,
 }) {
-  final first = _tableIndexedEntry(table, 1);
-  final firstTable = _tableIfPresent(first);
-  if (firstTable != null) {
+  final rawTable = _rawValue(table);
+  Object? entryAt(Object? source, int index) {
+    return switch (source) {
+      final Map<dynamic, dynamic> map => _tableIndexedEntry(map, index),
+      final List<dynamic> list =>
+        index > 0 && index <= list.length ? list[index - 1] : null,
+      _ => null,
+    };
+  }
+
+  double numberAt(Object? source, int index) {
+    return _shaderFloatUniformComponent(entryAt(source, index), symbol);
+  }
+
+  final firstRaw = _rawValue(entryAt(rawTable, 1));
+  if (firstRaw is Map<dynamic, dynamic> || firstRaw is List<dynamic>) {
     final elements = List<double>.filled(
       dimension * dimension,
       0.0,
@@ -795,38 +827,29 @@ List<double> _shaderSquareMatrixElementsFromTable(
     );
     if (columnMajor) {
       for (var column = 0; column < dimension; column++) {
-        final columnTable = _tableIfPresent(
-          _tableIndexedEntry(table, column + 1),
-        );
-        if (columnTable == null) {
+        final columnRaw = _rawValue(entryAt(rawTable, column + 1));
+        if (columnRaw is! Map<dynamic, dynamic> &&
+            columnRaw is! List<dynamic>) {
           throw LuaError(
             '$symbol expected a ${dimension}x$dimension matrix table',
           );
         }
         for (var row = 0; row < dimension; row++) {
-          elements[(column * dimension) + row] = _tableIndexedNumber(
-            columnTable,
-            row + 1,
-            symbol,
-          );
+          elements[(column * dimension) + row] = numberAt(columnRaw, row + 1);
         }
       }
       return elements;
     }
 
     for (var row = 0; row < dimension; row++) {
-      final rowTable = _tableIfPresent(_tableIndexedEntry(table, row + 1));
-      if (rowTable == null) {
+      final rowRaw = _rawValue(entryAt(rawTable, row + 1));
+      if (rowRaw is! Map<dynamic, dynamic> && rowRaw is! List<dynamic>) {
         throw LuaError(
           '$symbol expected a ${dimension}x$dimension matrix table',
         );
       }
       for (var column = 0; column < dimension; column++) {
-        elements[(column * dimension) + row] = _tableIndexedNumber(
-          rowTable,
-          column + 1,
-          symbol,
-        );
+        elements[(column * dimension) + row] = numberAt(rowRaw, column + 1);
       }
     }
     return elements;
@@ -835,7 +858,7 @@ List<double> _shaderSquareMatrixElementsFromTable(
   return _columnMajorSquareMatrixElementsFromFlat(
     List<double>.generate(
       dimension * dimension,
-      (index) => _tableIndexedNumber(table, index + 1, symbol),
+      (index) => numberAt(rawTable, index + 1),
       growable: false,
     ),
     dimension: dimension,

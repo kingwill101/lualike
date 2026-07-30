@@ -1,7 +1,6 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:lualike/lualike.dart';
 import 'package:love2d/love2d.dart';
-import '../test_support/lua_api_test_helpers.dart';
 
 void main() {
   test(
@@ -18,12 +17,11 @@ void main() {
 
       expect(graphicsTable.containsKey('isCreated'), isTrue);
 
-      final result = await luaCallList(runtime, const [
-        'love',
-        'graphics',
-        'isCreated',
-      ]);
-      expect(result, isTrue);
+      expect(
+        ((await lualike.execute('return love.graphics.isCreated()')) as Value)
+            .unwrap(),
+        isTrue,
+      );
     },
   );
 }

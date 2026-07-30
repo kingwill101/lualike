@@ -143,14 +143,14 @@ return queryHits, rayHits, clippedHits
 
         expect(result, isA<List<Object?>>());
         final values = result! as List<Object?>;
-        expect(doubleTable(values[0] as Map), <double>[30, 60]);
+        expect(doubleTable(values[0]), <double>[30, 60]);
 
-        final rayRows = indexedValues(values[1] as Map);
+        final rayRows = indexedValues(values[1]);
         expect(rayRows, hasLength(2));
         expectDoubleListClose(rayRows[0], <double>[30, 20, 50, -1, 0, 1 / 6]);
         expectDoubleListClose(rayRows[1], <double>[60, 50, 50, -1, 0, 5 / 12]);
 
-        expect(doubleTable(values[2] as Map), <double>[30]);
+        expect(doubleTable(values[2]), <double>[30]);
       },
     );
 

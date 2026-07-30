@@ -323,8 +323,8 @@ LualikeIrPrototype? _runOnce(LualikeIrPrototype prototype) {
         final kindCmp = a.kind.compareTo(b.kind);
         return kindCmp != 0 ? kindCmp : a.value.compareTo(b.value);
       });
-    // Stay within budget that leaves room for two mechanical-lowering
-    // temp slots (tempBase = registerCount, tempBase + 1).
+    // Stay within budget that leaves room for mechanical-lowering temps
+    // (tempBase = registerCount .. registerCount + N - 1).
     if (nextReg + orderedKeys.length >
         IrBytecodeRegisterBudget.maxRegisterCount) {
       continue;

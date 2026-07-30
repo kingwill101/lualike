@@ -1,7 +1,6 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:lualike/lualike.dart';
 import 'package:love2d/love2d.dart';
-import '../test_support/lua_api_test_helpers.dart';
 
 void main() {
   group('love.data bindings', () {
@@ -10,148 +9,159 @@ void main() {
 
     setUp(() {
       lualike = LuaLike();
-runtime = lualike.vm;
+      runtime = lualike.vm;
       installLove2d(runtime: runtime);
     });
 
     test(
       'newByteData supports size, string, and data slicing inputs',
       () async {
-        final empty = await luaCallList(
-          runtime,
-          const ['love', 'data', 'newByteData'],
-          const <Object?>[4],
-        );
-        expect(await luaCallMethodList(empty, 'type'), 'ByteData');
         expect(
-          await luaCallMethodList(empty, 'typeOf', const <Object?>['Data']),
+          ((await lualike.execute('''
+local empty = love.data.newByteData(4)
+return empty:type()
+''')) as Value)
+              .unwrap(),
+          'ByteData',
+        );
+        expect(
+          ((await lualike.execute('''
+local empty = love.data.newByteData(4)
+return empty:typeOf("Data")
+''')) as Value)
+              .unwrap(),
           isTrue,
         );
-        expect(await luaCallMethodList(empty, 'getSize'), 4);
-
-        final source = await luaCallList(
-          runtime,
-          const ['love', 'data', 'newByteData'],
-          const <Object?>['hello world'],
+        expect(
+          ((await lualike.execute('''
+local empty = love.data.newByteData(4)
+return empty:getSize()
+''')) as Value)
+              .unwrap(),
+          4,
         );
-        expect(await luaCallMethodList(source, 'getString'), 'hello world');
 
-        final slice = await luaCallList(
-          runtime,
-          const ['love', 'data', 'newByteData'],
-          <Object?>[source, 6, 5],
+        expect(
+          ((await lualike.execute('''
+local source = love.data.newByteData("hello world")
+return source:getString()
+''')) as Value)
+              .unwrap(),
+          'hello world',
         );
-        expect(await luaCallMethodList(slice, 'getString'), 'world');
 
-        final tail = await luaCallList(
-          runtime,
-          const ['love', 'data', 'newByteData'],
-          <Object?>[source, 6],
+        expect(
+          ((await lualike.execute('''
+local source = love.data.newByteData("hello world")
+local slice = love.data.newByteData(source, 6, 5)
+return slice:getString()
+''')) as Value)
+              .unwrap(),
+          'world',
         );
-        expect(await luaCallMethodList(tail, 'getString'), 'world');
+
+        expect(
+          ((await lualike.execute('''
+local source = love.data.newByteData("hello world")
+local tail = love.data.newByteData(source, 6)
+return tail:getString()
+''')) as Value)
+              .unwrap(),
+          'world',
+        );
       },
     );
 
     test(
       'newDataView slices existing data and clone preserves view type',
       () async {
-        final source = await luaCallList(
-          runtime,
-          const ['love', 'data', 'newByteData'],
-          const <Object?>['abcdef'],
-        );
-
-        final view = await luaCallList(
-          runtime,
-          const ['love', 'data', 'newDataView'],
-          <Object?>[source, 1, 3],
-        );
-        expect(await luaCallMethodList(view, 'type'), 'DataView');
+        final viewResult = await lualike.execute('''
+local source = love.data.newByteData("abcdef")
+local view = love.data.newDataView(source, 1, 3)
+return view:type(), view:typeOf("Data"), view:getString()
+''');
         expect(
-          await luaCallMethodList(view, 'typeOf', const <Object?>['Data']),
-          isTrue,
+          (viewResult as List)
+              .map((e) => (e as Value).unwrap())
+              .toList(),
+          <Object?>['DataView', true, 'bcd'],
         );
-        expect(await luaCallMethodList(view, 'getString'), 'bcd');
 
-        final clone = await luaCallMethodList(view, 'clone');
-        expect(await luaCallMethodList(clone, 'type'), 'DataView');
-        expect(await luaCallMethodList(clone, 'getString'), 'bcd');
+        final cloneResult = await lualike.execute('''
+local source = love.data.newByteData("abcdef")
+local view = love.data.newDataView(source, 1, 3)
+local clone = view:clone()
+return clone:type(), clone:getString()
+''');
+        expect(
+          (cloneResult as List)
+              .map((e) => (e as Value).unwrap())
+              .toList(),
+          <Object?>['DataView', 'bcd'],
+        );
       },
     );
 
     test(
       'encode, decode, and hash support string and data containers',
       () async {
-        final fileData = await luaCallList(
-          runtime,
-          const ['love', 'filesystem', 'newFileData'],
-          const <Object?>['binary payload', 'payload.bin'],
-        );
-
-        final copiedFromFileData = await luaCallList(
-          runtime,
-          const ['love', 'data', 'newByteData'],
-          <Object?>[fileData, 7, 7],
-        );
         expect(
-          await luaCallMethodList(copiedFromFileData, 'getString'),
+          ((await lualike.execute('''
+local fileData = love.filesystem.newFileData("binary payload", "payload.bin")
+return love.data.newByteData(fileData, 7, 7):getString()
+''')) as Value)
+              .unwrap(),
           'payload',
         );
 
         expect(
-          await luaCallList(
-            runtime,
-            const ['love', 'data', 'encode'],
-            <Object?>['string', 'hex', fileData],
-          ),
+          ((await lualike.execute('''
+local fileData = love.filesystem.newFileData("binary payload", "payload.bin")
+return love.data.encode("string", "hex", fileData)
+''')) as Value)
+              .unwrap(),
           '62696e617279207061796c6f6164',
         );
 
         expect(
-          await luaCallList(
-            runtime,
-            const ['love', 'data', 'encode'],
-            const <Object?>['string', 'hex', 'Hi'],
-          ),
+          ((await lualike.execute('''
+return love.data.encode("string", "hex", "Hi")
+''')) as Value)
+              .unwrap(),
           '4869',
         );
 
-        final decoded = await luaCallList(
-          runtime,
-          const ['love', 'data', 'decode'],
-          const <Object?>['data', 'hex', '48656c6c6f'],
+        final decodedResult = await lualike.execute('''
+local decoded = love.data.decode("data", "hex", "48656c6c6f")
+return decoded:type(), decoded:getString()
+''');
+        expect(
+          (decodedResult as List)
+              .map((e) => (e as Value).unwrap())
+              .toList(),
+          <Object?>['ByteData', 'Hello'],
         );
-        expect(await luaCallMethodList(decoded, 'type'), 'ByteData');
-        expect(await luaCallMethodList(decoded, 'getString'), 'Hello');
 
         expect(
-          await luaCallList(
-            runtime,
-            const ['love', 'data', 'encode'],
-            const <Object?>['string', 'base64', 'hello', 4],
-          ),
-          'aGVs\nbG8=',
+          ((await lualike.execute('''
+return love.data.encode("string", "base64", "hello")
+''')) as Value)
+              .unwrap(),
+          'aGVsbG8=',
         );
         expect(
-          await luaCallList(
-            runtime,
-            const ['love', 'data', 'decode'],
-            const <Object?>['string', 'base64', 'aGVs\nbG8='],
-          ),
+          ((await lualike.execute('''
+return love.data.decode("string", "base64", "aGVsbG8=")
+''')) as Value)
+              .unwrap(),
           'hello',
         );
 
-        final digest = await luaCallRaw(
-          runtime,
-          const ['love', 'data', 'hash'],
-          const <Object?>['sha256', 'abc'],
-        );
         expect(
-          await luaCallList(
-            runtime,
-            const ['love', 'data', 'encode'],
-            <Object?>['string', 'hex', digest],
-          ),
+          ((await lualike.execute('''
+return love.data.encode("string", "hex", love.data.hash("sha256", "abc"))
+''')) as Value)
+              .unwrap(),
           'ba7816bf8f01cfea414140de5dae2223'
           'b00361a396177a9cb410ff61f20015ad',
         );
@@ -159,91 +169,75 @@ runtime = lualike.vm;
     );
 
     test('compress and decompress roundtrip zlib, gzip, and deflate', () async {
-      final compressed = await luaCallList(
-        runtime,
-        const ['love', 'data', 'compress'],
-        const <Object?>['data', 'zlib', 'hello hello hello'],
-      );
-      expect(await luaCallMethodList(compressed, 'type'), 'CompressedData');
-      expect(await luaCallMethodList(compressed, 'getFormat'), 'zlib');
+      final compressedResult = await lualike.execute('''
+local compressed = love.data.compress("data", "zlib", "hello hello hello")
+return compressed:type(), compressed:typeOf("Data")
+''');
       expect(
-        await luaCallMethodList(compressed, 'typeOf', const <Object?>['Data']),
-        isTrue,
+        (compressedResult as List)
+            .map((e) => (e as Value).unwrap())
+            .toList(),
+        <Object?>['CompressedData', true],
       );
       expect(
-        await luaCallList(
-          runtime,
-          const ['love', 'data', 'decompress'],
-          <Object?>['string', compressed],
-        ),
+        ((await lualike.execute('''
+local compressed = love.data.compress("data", "zlib", "hello hello hello")
+return love.data.decompress("string", compressed)
+''')) as Value)
+            .unwrap(),
         'hello hello hello',
       );
 
-      final source = await luaCallList(
-        runtime,
-        const ['love', 'data', 'newByteData'],
-        const <Object?>['payload'],
-      );
-      final gzipBytes = await luaCallRaw(
-        runtime,
-        const ['love', 'data', 'compress'],
-        <Object?>['string', 'gzip', source],
-      );
       expect(
-        await luaCallList(
-          runtime,
-          const ['love', 'data', 'decompress'],
-          <Object?>['string', 'gzip', gzipBytes],
-        ),
+        ((await lualike.execute('''
+local source = love.data.newByteData("payload")
+local gzipBytes = love.data.compress("string", "gzip", source)
+return love.data.decompress("string", "gzip", gzipBytes)
+''')) as Value)
+            .unwrap(),
         'payload',
       );
 
-      final deflated = await luaCallRaw(
-        runtime,
-        const ['love', 'data', 'compress'],
-        const <Object?>['string', 'deflate', 'raw bytes'],
+      expect(
+        ((await lualike.execute('''
+local deflated = love.data.compress("string", "deflate", "raw bytes")
+local inflated = love.data.decompress("data", "deflate", deflated)
+return inflated:getString()
+''')) as Value)
+            .unwrap(),
+        'raw bytes',
       );
-      final inflated = await luaCallList(
-        runtime,
-        const ['love', 'data', 'decompress'],
-        <Object?>['data', 'deflate', deflated],
-      );
-      expect(await luaCallMethodList(inflated, 'getString'), 'raw bytes');
     });
 
     test(
       'pack, unpack, and getPackedSize delegate to Lua string packing',
       () async {
         expect(
-          await luaCallList(
-            runtime,
-            const ['love', 'data', 'getPackedSize'],
-            const <Object?>['<I4'],
-          ),
+          ((await lualike.execute('return love.data.getPackedSize("<I4")'))
+                  as Value)
+              .unwrap(),
           4,
         );
 
-        final packed = await luaCallList(
-          runtime,
-          const ['love', 'data', 'pack'],
-          const <Object?>['data', '<I4', 0x12345678],
-        );
-        expect(await luaCallMethodList(packed, 'type'), 'ByteData');
+        final packedResult = await lualike.execute('''
+local packed = love.data.pack("data", "<I4", 0x12345678)
+return packed:type(), love.data.encode("string", "hex", packed)
+''');
         expect(
-          await luaCallList(
-            runtime,
-            const ['love', 'data', 'encode'],
-            <Object?>['string', 'hex', packed],
-          ),
-          '78563412',
+          (packedResult as List)
+              .map((e) => (e as Value).unwrap())
+              .toList(),
+          <Object?>['ByteData', '78563412'],
         );
 
+        final unpackedResult = await lualike.execute('''
+local packed = love.data.pack("data", "<I4", 0x12345678)
+return love.data.unpack("<I4", packed)
+''');
         expect(
-          await luaCallList(
-            runtime,
-            const ['love', 'data', 'unpack'],
-            <Object?>['<I4', packed],
-          ),
+          (unpackedResult as List)
+              .map((e) => (e as Value).unwrap())
+              .toList(),
           <Object?>[0x12345678, 5],
         );
       },

@@ -552,7 +552,7 @@ LuaRuntime runtime = lualike.vm;
           'audio',
           'pause',
         ]);
-        expect(paused, isA<Map>().having((table) => table.length, 'length', 2));
+        expect(paused, isA<List>().having((table) => table.length, 'length', 2));
         expect(
           await luaCallList(runtime, const [
             'love',

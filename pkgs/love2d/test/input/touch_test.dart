@@ -1,7 +1,6 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:lualike/lualike.dart';
 import 'package:love2d/love2d.dart';
-import '../test_support/lua_api_test_helpers.dart';
 
 void main() {
   group('love.touch module', () {
@@ -11,7 +10,7 @@ void main() {
 
     setUp(() {
       lualike = LuaLike();
-runtime = lualike.vm;
+      runtime = lualike.vm;
       host = LoveHeadlessHost();
       installLove2d(runtime: runtime, host: host);
     });
@@ -22,23 +21,18 @@ runtime = lualike.vm;
       host.touch.beginTouch(id: 11, x: 15.0, y: 25.0, pressure: 0.5);
 
       expect(
-        await luaCall(runtime, const ['love', 'touch', 'getTouches']),
-        <Object?, Object?>{1: 12, 2: 11},
+        ((await lualike.execute('return love.touch.getTouches()')) as Value)
+            .unwrap(),
+        <Object?>[12, 11],
       );
+      final positionResult = await lualike.execute('return love.touch.getPosition(11)');
       expect(
-        await luaCall(
-          runtime,
-          const ['love', 'touch', 'getPosition'],
-          const <Object?>[11],
-        ),
+        (positionResult as List).map((e) => (e as Value).unwrap()).toList(),
         <Object?>[15.0, 25.0],
       );
       expect(
-        await luaCall(
-          runtime,
-          const ['love', 'touch', 'getPressure'],
-          const <Object?>[11],
-        ),
+        ((await lualike.execute('return love.touch.getPressure(11)')) as Value)
+            .unwrap(),
         0.5,
       );
     });
@@ -48,19 +42,11 @@ runtime = lualike.vm;
       host.touch.endTouch(21);
 
       await expectLater(
-        luaCall(
-          runtime,
-          const ['love', 'touch', 'getPosition'],
-          const <Object?>[21],
-        ),
+        lualike.execute('return love.touch.getPosition(21)'),
         throwsA(isA<LuaError>()),
       );
       await expectLater(
-        luaCall(
-          runtime,
-          const ['love', 'touch', 'getPressure'],
-          const <Object?>[21],
-        ),
+        lualike.execute('return love.touch.getPressure(21)'),
         throwsA(isA<LuaError>()),
       );
     });

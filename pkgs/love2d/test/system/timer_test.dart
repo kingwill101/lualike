@@ -1,49 +1,68 @@
-import 'package:lualike/lualike.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:lualike/lualike.dart';
 import 'package:love2d/love2d.dart';
-import '../test_support/lua_api_test_helpers.dart';
 
 void main() {
   group('love.timer bindings', () {
     test(
       'use the attached host clock for time, delta, fps, and sleep',
       () async {
-        final clock = TestLoveClock(nowSeconds: 0);
+        final clock = _TestLoveClock(nowSeconds: 0);
         final host = LoveHeadlessHost(clock: clock);
         final lualike = LuaLike();
-        LuaRuntime runtime = lualike.vm;
+        final runtime = lualike.vm;
 
         installLove2d(runtime: runtime, host: host);
 
-        expect(await luaCall(runtime, const ['love', 'timer', 'getTime']), 0.0);
         expect(
-          await luaCall(runtime, const ['love', 'timer', 'getDelta']),
+          ((await lualike.execute('return love.timer.getTime()')) as Value)
+              .unwrap(),
+          0.0,
+        );
+        expect(
+          ((await lualike.execute('return love.timer.getDelta()')) as Value)
+              .unwrap(),
           0.0,
         );
 
         clock.currentTime = 0.25;
-        expect(await luaCall(runtime, const ['love', 'timer', 'step']), 0.25);
         expect(
-          await luaCall(runtime, const ['love', 'timer', 'getDelta']),
+          ((await lualike.execute('return love.timer.step()')) as Value)
+              .unwrap(),
+          0.25,
+        );
+        expect(
+          ((await lualike.execute('return love.timer.getDelta()')) as Value)
+              .unwrap(),
           0.25,
         );
 
         clock.currentTime = 0.5;
-        expect(await luaCall(runtime, const ['love', 'timer', 'step']), 0.25);
+        expect(
+          ((await lualike.execute('return love.timer.step()')) as Value)
+              .unwrap(),
+          0.25,
+        );
 
         clock.currentTime = 1.25;
-        expect(await luaCall(runtime, const ['love', 'timer', 'step']), 0.75);
-        expect(await luaCall(runtime, const ['love', 'timer', 'getFPS']), 2);
         expect(
-          await luaCall(runtime, const ['love', 'timer', 'getAverageDelta']),
+          ((await lualike.execute('return love.timer.step()')) as Value)
+              .unwrap(),
+          0.75,
+        );
+        expect(
+          ((await lualike.execute('return love.timer.getFPS()')) as Value)
+              .unwrap(),
+          2,
+        );
+        expect(
+          ((await lualike.execute('return love.timer.getAverageDelta()'))
+                  as Value)
+              .unwrap(),
           closeTo(1.25 / 3, 1e-9),
         );
 
-        await luaCall(
-          runtime,
-          const ['love', 'timer', 'sleep'],
-          const <Object?>[0.125],
-        );
+        await lualike.execute('love.timer.sleep(0.125)');
         expect(clock.sleeps, <double>[0.125]);
       },
     );
@@ -51,9 +70,9 @@ void main() {
     test(
       'stepExternal keeps LOVE timer state aligned with an external loop',
       () {
-        final clock = TestLoveClock(nowSeconds: 0);
+        final clock = _TestLoveClock(nowSeconds: 0);
         final lualike = LuaLike();
-        LuaRuntime runtime = lualike.vm;
+        final runtime = lualike.vm;
 
         installLove2d(
           runtime: runtime,
@@ -82,4 +101,21 @@ void main() {
       },
     );
   });
+}
+
+final class _TestLoveClock implements LoveClock {
+  _TestLoveClock({required double nowSeconds}) : _nowSeconds = nowSeconds;
+
+  double _nowSeconds;
+  final List<double> sleeps = <double>[];
+
+  set currentTime(double value) => _nowSeconds = value;
+
+  @override
+  double nowSeconds() => _nowSeconds;
+
+  @override
+  Future<void> sleepSeconds(double seconds) async {
+    sleeps.add(seconds);
+  }
 }
