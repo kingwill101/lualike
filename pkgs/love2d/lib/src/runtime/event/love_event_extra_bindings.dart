@@ -1,8 +1,10 @@
 library;
 
-import 'package:lualike/library_builder.dart';
+import 'package:lualike/lualike.dart' show LuaRuntime, Value;
 
 import '../../generated/love_api_reference.g.dart' show loveApiEnums;
+import '../love_binding_helpers.dart';
+import '../love_module_table_helpers.dart';
 import '../love_runtime.dart';
 
 /// Whether the extra event bindings have already been installed for a runtime.
@@ -47,14 +49,9 @@ void installLoveEventExtraBindings(LuaRuntime runtime) {
   // Give each runtime its own table copy.
   final enumValue = Value(Map<String, Object?>.from(_loveEventEnumMap));
 
-  final eventTable = _eventModuleTable(runtime);
+  final eventTable = loveModuleTable(runtime, 'event');
   if (eventTable != null) {
-    final builder = BuiltinFunctionBuilder(
-      LibraryContext(
-        environment: runtime.getCurrentEnv(),
-        interpreter: runtime,
-      ),
-    );
+    final builder = loveBindingBuilder(runtime);
     eventTable['poll_i'] = Value(
       builder.create((args) {
         final message = LoveRuntimeContext.of(runtime).events.poll();
@@ -73,19 +70,3 @@ void installLoveEventExtraBindings(LuaRuntime runtime) {
   runtime.globals.define('Event', enumValue);
 }
 
-/// Returns the current `love.event` module table when it is available.
-Map<dynamic, dynamic>? _eventModuleTable(LuaRuntime runtime) {
-  final love = runtime.getCurrentEnv().get('love');
-  final loveTable = love is Value ? love.raw : love;
-  if (loveTable is! Map<dynamic, dynamic>) {
-    return null;
-  }
-
-  final event = loveTable['event'];
-  final eventTable = event is Value ? event.raw : event;
-  if (eventTable is! Map<dynamic, dynamic>) {
-    return null;
-  }
-
-  return eventTable;
-}

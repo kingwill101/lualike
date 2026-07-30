@@ -2,6 +2,7 @@ library;
 
 import 'package:lualike/lualike.dart' show LuaRuntime, Value;
 
+import '../love_binding_helpers.dart';
 import '../../generated/love_api_reference.g.dart' show loveApiEnums;
 
 /// Tracks which runtimes already have joystick extra bindings installed.
@@ -30,37 +31,21 @@ Map<String, Map<String, Object?>> _buildLoveJoystickEnumMaps() {
 
 /// Installs generated joystick enum tables into [runtime].
 void installLoveJoystickExtraBindings(LuaRuntime runtime) {
-  if (_loveJoystickExtrasInstalled[runtime] == true) {
-    return;
-  }
+  loveInstallModuleBindings(
+    runtime: runtime,
+    installed: _loveJoystickExtrasInstalled,
+    moduleName: 'joystick',
+    install: _installLoveJoystickExtraBindings,
+  );
+}
 
-  final joystickTable = _joystickModuleTable(runtime);
-  if (joystickTable == null) {
-    return;
-  }
-
+void _installLoveJoystickExtraBindings(
+  LuaRuntime runtime,
+  Map<dynamic, dynamic> joystickTable,
+) {
   for (final entry in _loveJoystickEnumMaps.entries) {
     final enumValue = Value(Map<String, Object?>.from(entry.value));
     joystickTable[entry.key] = enumValue;
     runtime.globals.define(entry.key, enumValue);
   }
-
-  _loveJoystickExtrasInstalled[runtime] = true;
-}
-
-/// The `love.joystick` module table from [runtime], if one is available.
-Map<dynamic, dynamic>? _joystickModuleTable(LuaRuntime runtime) {
-  final love = runtime.globals.get('love');
-  final loveTable = love is Value ? love.raw : love;
-  if (loveTable is! Map<dynamic, dynamic>) {
-    return null;
-  }
-
-  final joystick = loveTable['joystick'];
-  final joystickTable = joystick is Value ? joystick.raw : joystick;
-  if (joystickTable is! Map<dynamic, dynamic>) {
-    return null;
-  }
-
-  return joystickTable;
 }

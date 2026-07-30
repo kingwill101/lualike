@@ -4,6 +4,7 @@ import 'package:lualike/library_builder.dart';
 import 'package:lualike/lualike.dart'
     show LuaError, LuaRuntime, LuaString, Value;
 
+import '../love_module_table_helpers.dart';
 import 'love_filesystem_runtime.dart';
 
 /// The largest integer that can be represented exactly in a Lua number.
@@ -131,19 +132,7 @@ void installLoveFilesystemExtraBindings(LuaRuntime runtime) {
 
 /// The `love.filesystem` module table from the current runtime environment.
 Map<dynamic, dynamic>? _filesystemTable(LuaRuntime runtime) {
-  final love = runtime.getCurrentEnv().get('love');
-  final loveTable = love is Value ? love.raw : love;
-  if (loveTable is! Map<dynamic, dynamic>) {
-    return null;
-  }
-
-  final filesystem = loveTable['filesystem'];
-  final filesystemTable = filesystem is Value ? filesystem.raw : filesystem;
-  if (filesystemTable is! Map<dynamic, dynamic>) {
-    return null;
-  }
-
-  return filesystemTable;
+  return loveModuleTable(runtime, 'filesystem');
 }
 
 /// Requires a string-like argument at [index] for [symbol].

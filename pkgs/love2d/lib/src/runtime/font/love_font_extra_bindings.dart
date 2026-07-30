@@ -2,6 +2,7 @@ library;
 
 import 'package:lualike/lualike.dart' show LuaRuntime, Value;
 
+import '../love_module_table_helpers.dart';
 import '../../generated/love_api_reference.g.dart' show loveApiEnums;
 
 /// Tracks which runtimes already have font extra bindings installed.
@@ -42,27 +43,10 @@ void installLoveFontExtraBindings(LuaRuntime runtime) {
   final enumValue = Value(Map<String, Object?>.from(_loveHintingModeEnumMap));
   runtime.globals.define('HintingMode', enumValue);
 
-  final fontTable = _fontModuleTable(runtime);
+  final fontTable = loveModuleTable(runtime, 'font');
   if (fontTable == null) {
     return;
   }
 
   fontTable['HintingMode'] = enumValue;
-}
-
-/// The `love.font` module table from [runtime], if one is available.
-Map<dynamic, dynamic>? _fontModuleTable(LuaRuntime runtime) {
-  final love = runtime.globals.get('love');
-  final loveTable = love is Value ? love.raw : love;
-  if (loveTable is! Map<dynamic, dynamic>) {
-    return null;
-  }
-
-  final font = loveTable['font'];
-  final fontTable = font is Value ? font.raw : font;
-  if (fontTable is! Map<dynamic, dynamic>) {
-    return null;
-  }
-
-  return fontTable;
 }

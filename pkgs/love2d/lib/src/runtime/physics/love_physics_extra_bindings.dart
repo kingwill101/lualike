@@ -3,6 +3,7 @@ library;
 
 import 'package:lualike/lualike.dart' show LuaRuntime, Value;
 
+import '../love_binding_helpers.dart';
 import '../../generated/love_api_reference.g.dart' show loveApiEnums;
 
 /// Tracks which runtimes already have the physics extra bindings installed.
@@ -31,37 +32,21 @@ Map<String, Map<String, Object?>> _buildLovePhysicsEnumMaps() {
 
 /// Installs generated enum tables into `love.physics` for [runtime].
 void installLovePhysicsExtraBindings(LuaRuntime runtime) {
-  if (_lovePhysicsExtrasInstalled[runtime] == true) {
-    return;
-  }
+  loveInstallModuleBindings(
+    runtime: runtime,
+    installed: _lovePhysicsExtrasInstalled,
+    moduleName: 'physics',
+    install: _installLovePhysicsExtraBindings,
+  );
+}
 
-  final physicsTable = _physicsModuleTable(runtime);
-  if (physicsTable == null) {
-    return;
-  }
-
+void _installLovePhysicsExtraBindings(
+  LuaRuntime runtime,
+  Map<dynamic, dynamic> physicsTable,
+) {
   for (final entry in _lovePhysicsEnumMaps.entries) {
     final enumValue = Value(Map<String, Object?>.from(entry.value));
     physicsTable[entry.key] = enumValue;
     runtime.globals.define(entry.key, enumValue);
   }
-
-  _lovePhysicsExtrasInstalled[runtime] = true;
-}
-
-/// Returns the `love.physics` module table from [runtime], if it exists.
-Map<dynamic, dynamic>? _physicsModuleTable(LuaRuntime runtime) {
-  final love = runtime.globals.get('love');
-  final loveTable = love is Value ? love.raw : love;
-  if (loveTable is! Map<dynamic, dynamic>) {
-    return null;
-  }
-
-  final physics = loveTable['physics'];
-  final physicsTable = physics is Value ? physics.raw : physics;
-  if (physicsTable is! Map<dynamic, dynamic>) {
-    return null;
-  }
-
-  return physicsTable;
 }

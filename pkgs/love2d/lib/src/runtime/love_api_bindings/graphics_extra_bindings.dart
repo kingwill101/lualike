@@ -16,15 +16,19 @@ void installLoveGraphicsExtraBindings(LuaRuntime runtime) {
     return;
   }
 
-  final graphicsTable = _graphicsExtraModuleTable(runtime);
-  if (graphicsTable == null) {
-    return;
-  }
-
-  final context = LibraryContext(
-    environment: runtime.getCurrentEnv(),
-    interpreter: runtime,
+  loveInstallModuleBindings(
+    runtime: runtime,
+    installed: _loveGraphicsExtrasInstalled,
+    moduleName: 'graphics',
+    install: _installLoveGraphicsExtraBindings,
   );
+}
+
+void _installLoveGraphicsExtraBindings(
+  LuaRuntime runtime,
+  Map<dynamic, dynamic> graphicsTable,
+) {
+  final context = loveBindingContext(runtime);
   final builder = BuiltinFunctionBuilder(context);
 
   graphicsTable['_newRegisteredFragmentShader'] = Value(
@@ -48,23 +52,4 @@ void installLoveGraphicsExtraBindings(LuaRuntime runtime) {
     }),
     functionName: '_newRegisteredFragmentShader',
   );
-
-  _loveGraphicsExtrasInstalled[runtime] = true;
-}
-
-/// Returns the current `love.graphics` module table when it is available.
-Map<dynamic, dynamic>? _graphicsExtraModuleTable(LuaRuntime runtime) {
-  final love = runtime.getCurrentEnv().get('love');
-  final loveTable = love is Value ? love.raw : love;
-  if (loveTable is! Map<dynamic, dynamic>) {
-    return null;
-  }
-
-  final graphics = loveTable['graphics'];
-  final graphicsTable = graphics is Value ? graphics.raw : graphics;
-  if (graphicsTable is! Map<dynamic, dynamic>) {
-    return null;
-  }
-
-  return graphicsTable;
 }

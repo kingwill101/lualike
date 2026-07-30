@@ -41,6 +41,8 @@ import '../generated/love_api_reference.g.dart'
 import '../generated/love_api_reference.g.dart' show loveApiEnums;
 import 'audio/love_audio_extra_bindings.dart'
     show installLoveAudioExtraBindings;
+// ignore: unused_import
+import 'love_binding_helpers.dart';
 import 'data/love_data_extra_bindings.dart' show installLoveDataExtraBindings;
 import 'event/love_event_extra_bindings.dart'
     show installLoveEventExtraBindings;

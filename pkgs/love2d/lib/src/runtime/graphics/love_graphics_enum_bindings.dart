@@ -7,6 +7,8 @@ import 'package:lualike/library_builder.dart'
 import 'package:lualike/lualike.dart'
     show BuiltinFunction, LuaError, LuaRuntime, Value;
 
+import '../love_binding_helpers.dart';
+import '../love_module_table_helpers.dart';
 import '../../generated/love_api_reference.g.dart' show loveApiEnums;
 import '../love_runtime.dart'
     show
@@ -69,15 +71,18 @@ Map<String, Map<String, Object?>> _buildLoveGraphicsEnumMaps() {
 
 /// Installs the `love.graphics` enum tables and helper bindings into [runtime].
 void installLoveGraphicsEnumBindings(LuaRuntime runtime) {
-  if (_loveGraphicsEnumsInstalled[runtime] == true) {
-    return;
-  }
+  loveInstallModuleBindings(
+    runtime: runtime,
+    installed: _loveGraphicsEnumsInstalled,
+    moduleName: 'graphics',
+    install: _installLoveGraphicsEnumBindings,
+  );
+}
 
-  final graphicsTable = _graphicsModuleTable(runtime);
-  if (graphicsTable == null) {
-    return;
-  }
-
+void _installLoveGraphicsEnumBindings(
+  LuaRuntime runtime,
+  Map<dynamic, dynamic> graphicsTable,
+) {
   for (final entry in _loveGraphicsEnumMaps.entries) {
     final enumValue = Value(Map<String, Object?>.from(entry.value));
     graphicsTable[entry.key] = enumValue;
@@ -87,8 +92,6 @@ void installLoveGraphicsEnumBindings(LuaRuntime runtime) {
   for (final entry in _loveGraphicsExtraSymbols.entries) {
     graphicsTable[entry.key] = entry.value(runtime);
   }
-
-  _loveGraphicsEnumsInstalled[runtime] = true;
 }
 
 /// Binds `love.graphics.isCreated`.
@@ -428,17 +431,5 @@ String _graphicsTransformGlslErrorMessages(String message) {
 
 /// Returns the `love.graphics` module table from [runtime], if one exists.
 Map<dynamic, dynamic>? _graphicsModuleTable(LuaRuntime runtime) {
-  final love = runtime.globals.get('love');
-  final loveTable = love is Value ? love.raw : love;
-  if (loveTable is! Map<dynamic, dynamic>) {
-    return null;
-  }
-
-  final graphics = loveTable['graphics'];
-  final graphicsTable = graphics is Value ? graphics.raw : graphics;
-  if (graphicsTable is! Map<dynamic, dynamic>) {
-    return null;
-  }
-
-  return graphicsTable;
+  return loveModuleTable(runtime, 'graphics');
 }

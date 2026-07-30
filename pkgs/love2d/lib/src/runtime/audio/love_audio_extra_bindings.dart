@@ -2,6 +2,7 @@ library;
 
 import 'package:lualike/lualike.dart' show LuaRuntime, Value;
 
+import '../love_binding_helpers.dart';
 import '../../generated/love_api_reference.g.dart' show loveApiEnums;
 
 /// Whether the extra audio bindings have already been installed for a runtime.
@@ -30,15 +31,18 @@ Map<String, Map<String, Object?>> _buildLoveAudioEnumMaps() {
 
 /// Installs generated enum tables and compatibility aliases into `love.audio`.
 void installLoveAudioExtraBindings(LuaRuntime runtime) {
-  if (_loveAudioExtrasInstalled[runtime] == true) {
-    return;
-  }
+  loveInstallModuleBindings(
+    runtime: runtime,
+    installed: _loveAudioExtrasInstalled,
+    moduleName: 'audio',
+    install: _installLoveAudioExtraBindings,
+  );
+}
 
-  final audioTable = _audioModuleTable(runtime);
-  if (audioTable == null) {
-    return;
-  }
-
+void _installLoveAudioExtraBindings(
+  LuaRuntime runtime,
+  Map<dynamic, dynamic> audioTable,
+) {
   for (final entry in _loveAudioEnumMaps.entries) {
     final enumValue = Value(Map<String, Object?>.from(entry.value));
     audioTable[entry.key] = enumValue;
@@ -49,23 +53,4 @@ void installLoveAudioExtraBindings(LuaRuntime runtime) {
   if (activeSourceCount != null) {
     audioTable['getSourceCount'] = activeSourceCount;
   }
-
-  _loveAudioExtrasInstalled[runtime] = true;
-}
-
-/// Returns the current `love.audio` module table when it is available.
-Map<dynamic, dynamic>? _audioModuleTable(LuaRuntime runtime) {
-  final love = runtime.getCurrentEnv().get('love');
-  final loveTable = love is Value ? love.raw : love;
-  if (loveTable is! Map<dynamic, dynamic>) {
-    return null;
-  }
-
-  final audio = loveTable['audio'];
-  final audioTable = audio is Value ? audio.raw : audio;
-  if (audioTable is! Map<dynamic, dynamic>) {
-    return null;
-  }
-
-  return audioTable;
 }

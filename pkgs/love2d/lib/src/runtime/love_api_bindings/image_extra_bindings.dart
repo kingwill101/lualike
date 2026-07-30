@@ -14,15 +14,19 @@ void installLoveImageExtraBindings(LuaRuntime runtime) {
     return;
   }
 
-  final imageTable = _imageModuleTable(runtime);
-  if (imageTable == null) {
-    return;
-  }
-
-  final context = LibraryContext(
-    environment: runtime.getCurrentEnv(),
-    interpreter: runtime,
+  loveInstallModuleBindings(
+    runtime: runtime,
+    installed: _loveImageExtrasInstalled,
+    moduleName: 'image',
+    install: _installLoveImageExtraBindings,
   );
+}
+
+void _installLoveImageExtraBindings(
+  LuaRuntime runtime,
+  Map<dynamic, dynamic> imageTable,
+) {
+  final context = loveBindingContext(runtime);
   final builder = BuiltinFunctionBuilder(context);
 
   imageTable['newCubeFaces'] = Value(
@@ -39,23 +43,4 @@ void installLoveImageExtraBindings(LuaRuntime runtime) {
     }),
     functionName: 'newCubeFaces',
   );
-
-  _loveImageExtrasInstalled[runtime] = true;
-}
-
-/// Returns the raw `love.image` module table from [runtime], if available.
-Map<dynamic, dynamic>? _imageModuleTable(LuaRuntime runtime) {
-  final love = runtime.getCurrentEnv().get('love');
-  final loveTable = love is Value ? love.raw : love;
-  if (loveTable is! Map<dynamic, dynamic>) {
-    return null;
-  }
-
-  final image = loveTable['image'];
-  final imageTable = image is Value ? image.raw : image;
-  if (imageTable is! Map<dynamic, dynamic>) {
-    return null;
-  }
-
-  return imageTable;
 }

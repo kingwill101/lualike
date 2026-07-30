@@ -2,6 +2,7 @@ library;
 
 import 'package:lualike/lualike.dart' show LuaRuntime, Value;
 
+import '../love_binding_helpers.dart';
 import '../../generated/love_api_reference.g.dart' show loveApiEnums;
 
 /// Tracks which runtimes already have system extra bindings installed.
@@ -30,37 +31,21 @@ Map<String, Map<String, Object?>> _buildLoveSystemEnumMaps() {
 
 /// Installs generated system enum tables into [runtime].
 void installLoveSystemExtraBindings(LuaRuntime runtime) {
-  if (_loveSystemExtrasInstalled[runtime] == true) {
-    return;
-  }
+  loveInstallModuleBindings(
+    runtime: runtime,
+    installed: _loveSystemExtrasInstalled,
+    moduleName: 'system',
+    install: _installLoveSystemExtraBindings,
+  );
+}
 
-  final systemTable = _systemModuleTable(runtime);
-  if (systemTable == null) {
-    return;
-  }
-
+void _installLoveSystemExtraBindings(
+  LuaRuntime runtime,
+  Map<dynamic, dynamic> systemTable,
+) {
   for (final entry in _loveSystemEnumMaps.entries) {
     final enumValue = Value(Map<String, Object?>.from(entry.value));
     systemTable[entry.key] = enumValue;
     runtime.globals.define(entry.key, enumValue);
   }
-
-  _loveSystemExtrasInstalled[runtime] = true;
-}
-
-/// The `love.system` module table from [runtime], if one is available.
-Map<dynamic, dynamic>? _systemModuleTable(LuaRuntime runtime) {
-  final love = runtime.globals.get('love');
-  final loveTable = love is Value ? love.raw : love;
-  if (loveTable is! Map<dynamic, dynamic>) {
-    return null;
-  }
-
-  final system = loveTable['system'];
-  final systemTable = system is Value ? system.raw : system;
-  if (systemTable is! Map<dynamic, dynamic>) {
-    return null;
-  }
-
-  return systemTable;
 }
