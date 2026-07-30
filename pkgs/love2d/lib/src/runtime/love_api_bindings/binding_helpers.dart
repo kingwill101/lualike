@@ -81,13 +81,7 @@ Value _colorResult(LoveColor color) {
 
 /// Parses a color from scalar arguments or from a Lua color table.
 LoveColor _requireColor(List<Object?> args, int index, String symbol) {
-  final value = _valueAt(args, index);
-  final table = switch (value) {
-    final Value wrapped when wrapped.raw is Map =>
-      wrapped.raw as Map<dynamic, dynamic>,
-    final Map<dynamic, dynamic> map => map,
-    _ => null,
-  };
+  final table = _tableIfPresent(_valueAt(args, index));
 
   if (table != null && _looksLikeColorTable(table)) {
     return LoveColor(

@@ -2,6 +2,8 @@
 @Tags(['ir', 'lua_bytecode'])
 library;
 
+import 'dart:io';
+
 import 'package:lualike/src/compile/pipeline.dart';
 import 'package:lualike/src/config.dart';
 import 'package:lualike/src/executor.dart';
@@ -10,6 +12,46 @@ import 'package:lualike/src/lua_bytecode/instruction.dart';
 import 'package:lualike/src/lua_bytecode/opcode.dart';
 import 'package:lualike/src/parse.dart';
 import 'package:test/test.dart';
+
+String _relicBreachSourcePath() {
+  const candidates = <String>[
+    'pkgs/love2d/example/assets/relic_breach/main.lua',
+    '../love2d/example/assets/relic_breach/main.lua',
+    'example/assets/relic_breach/main.lua',
+  ];
+  for (final candidate in candidates) {
+    if (File(candidate).existsSync()) {
+      return candidate;
+    }
+  }
+  throw StateError('Unable to locate relic breach source');
+}
+
+LuaBytecodePrototypeDisassembly _findPrototypeAtLine(
+  LuaBytecodePrototypeDisassembly prototype,
+  int line,
+) {
+  if (line < prototype.prototype.lineDefined ||
+      line > prototype.prototype.lastLineDefined) {
+    for (final child in prototype.children) {
+      final found = _findPrototypeAtLine(child, line);
+      if (found.prototype.lineDefined <= line &&
+          found.prototype.lastLineDefined >= line) {
+        return found;
+      }
+    }
+    return prototype;
+  }
+
+  for (final child in prototype.children) {
+    final childMatch = _findPrototypeAtLine(child, line);
+    if (childMatch.prototype.lineDefined <= line &&
+        childMatch.prototype.lastLineDefined >= line) {
+      return childMatch;
+    }
+  }
+  return prototype;
+}
 
 /// Regressions for the default IR+SSA → lua_bytecode pipeline.
 void main() {
@@ -175,6 +217,33 @@ assert(step() == "grow")
 assert(#snake == 4)
 ''',
         mode: EngineMode.luaBytecode,
+      );
+    });
+
+    test('GVN must not rewrite Relic Breach color literals to stale registers',
+        () {
+      final sourcePath = _relicBreachSourcePath();
+      final artifact =
+          CompilePipeline(
+                config: CompilePipelineConfig.luaBytecodeOptimized(),
+              ).compile(parse(File(sourcePath).readAsStringSync(), url: sourcePath))
+              as LuaBytecodeArtifact;
+      final disassembly = const LuaBytecodeDisassembler().disassemble(artifact.chunk);
+      final target = _findPrototypeAtLine(disassembly.mainPrototype, 1383);
+      final lineInstructions = target.instructions
+          .where((instruction) => instruction.lineNumber == 1383)
+          .toList();
+
+      expect(
+        lineInstructions.any((instruction) => instruction.opcode == Opcode.loadF),
+        isTrue,
+        reason: 'expected the color literal 1.0 to remain a load immediate',
+      );
+      expect(
+        lineInstructions.any((instruction) =>
+            instruction.opcode == Opcode.move && instruction.word.b == 20),
+        isFalse,
+        reason: 'GVN should not rewrite the first color component to reg 20',
       );
     });
 

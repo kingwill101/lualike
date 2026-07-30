@@ -2580,12 +2580,13 @@ sealed class LoveDrawCommand {
     required this.wireframe,
     required this.scissor,
     this.shader,
-    required this.transform,
+    required Matrix4 transform,
     LoveGraphicsCompareMode? stencilCompare,
     int? stencilValue,
     this.stencilAction,
     int? stencilWriteValue,
-  }) : stencilCompare = stencilCompare ?? LoveGraphicsCompareMode.always,
+  }) : transform = Matrix4.copy(transform),
+       stencilCompare = stencilCompare ?? LoveGraphicsCompareMode.always,
        stencilValue = stencilValue ?? 0,
        stencilWriteValue = stencilWriteValue ?? 1;
 

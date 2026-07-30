@@ -41,7 +41,7 @@ void main() {
   test('game center exposes all vendored demos', () {
     final titles = kDemoEntries.map((entry) => entry.title).toList();
 
-    expect(titles, hasLength(5));
+    expect(titles, hasLength(7));
     expect(
       titles,
       containsAll(<String>[
@@ -49,6 +49,8 @@ void main() {
         'LOVE Example Browser',
         'Pocket Bomber',
         'Shader Explorer',
+        'Snake 3310',
+        'Space Invaders',
         'Relic Breach',
       ]),
     );

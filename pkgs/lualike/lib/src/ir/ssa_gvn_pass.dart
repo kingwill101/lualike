@@ -40,7 +40,9 @@ import 'ssa.dart';
 const _gvnPureOpcodes = <LualikeIrOpcode>{
   LualikeIrOpcode.move,
   LualikeIrOpcode.loadI,
-  LualikeIrOpcode.loadF,
+  // `loadF` has caused stale-register rewrites in optimized bytecode when the
+  // loaded value later flows into table constructors; keep it out of GVN until
+  // the value-tracking is proven safe under that shape.
   LualikeIrOpcode.loadK,
   LualikeIrOpcode.loadKx,
   LualikeIrOpcode.loadFalse,
