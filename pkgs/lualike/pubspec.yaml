@@ -32,7 +32,7 @@ dependencies:
   collection: ^1.19.1
   petitparser: ^7.0.2
   xrandom: ^0.7.2
-  artisanal: ^0.4.0
+  artisanal: '>=0.3.0 <0.5.0'
   web: ^1.1.1
   contextual: ^2.2.0
   build: '>=2.1.0 <5.0.0'
