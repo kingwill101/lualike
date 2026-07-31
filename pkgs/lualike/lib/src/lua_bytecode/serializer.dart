@@ -5,9 +5,10 @@ import '../number_limits.dart';
 import '../number_utils.dart';
 import '../byte_data.dart' as b64;
 
-
-
-Uint8List serializeLuaBytecodeChunk(LuaBytecodeBinaryChunk chunk, {bool stripDebug = false}) {
+Uint8List serializeLuaBytecodeChunk(
+  LuaBytecodeBinaryChunk chunk, {
+  bool stripDebug = false,
+}) {
   final writer = LuaBytecodeWriter(stripDebug: stripDebug);
   writer.writeChunk(chunk);
   return writer.takeBytes();

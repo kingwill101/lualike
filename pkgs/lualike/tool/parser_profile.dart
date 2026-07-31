@@ -2,7 +2,7 @@ import 'dart:convert';
 import 'dart:io';
 import 'dart:math' as math;
 
-import 'package:args/args.dart';
+import 'package:artisanal/args.dart';
 import 'package:lualike/src/parse.dart' as parse_api;
 import 'package:lualike/src/parsers/lua.dart' as lua_parser;
 import 'package:path/path.dart' as path;

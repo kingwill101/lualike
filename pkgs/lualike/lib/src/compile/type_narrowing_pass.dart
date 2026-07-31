@@ -16,7 +16,16 @@ import 'package:lualike/src/compile/compiler_pass.dart';
 import 'package:lualike/src/compile/fold_result.dart';
 
 /// Type of Lua value tracked by the narrowing pass.
-enum NarrowedType { nil, boolean, number, string, table, function_, thread, userdata }
+enum NarrowedType {
+  nil,
+  boolean,
+  number,
+  string,
+  table,
+  function_,
+  thread,
+  userdata,
+}
 
 /// Narrowed types for each local variable name per scope.
 class _TypeState {
@@ -159,20 +168,33 @@ class TypeNarrowingPass extends CompilerPass {
 
   NarrowedType? _parseType(String s) {
     switch (s) {
-      case 'nil': return NarrowedType.nil;
-      case 'boolean': return NarrowedType.boolean;
-      case 'number': return NarrowedType.number;
-      case 'string': return NarrowedType.string;
-      case 'table': return NarrowedType.table;
-      case 'function': return NarrowedType.function_;
-      case 'thread': return NarrowedType.thread;
-      case 'userdata': return NarrowedType.userdata;
-      default: return null;
+      case 'nil':
+        return NarrowedType.nil;
+      case 'boolean':
+        return NarrowedType.boolean;
+      case 'number':
+        return NarrowedType.number;
+      case 'string':
+        return NarrowedType.string;
+      case 'table':
+        return NarrowedType.table;
+      case 'function':
+        return NarrowedType.function_;
+      case 'thread':
+        return NarrowedType.thread;
+      case 'userdata':
+        return NarrowedType.userdata;
+      default:
+        return null;
     }
   }
 
   /// Annotate the folding result so downstream passes can use type info.
-  void _annotateFold(ConstantFoldingResult fold, String varName, NarrowedType type) {
+  void _annotateFold(
+    ConstantFoldingResult fold,
+    String varName,
+    NarrowedType type,
+  ) {
     // The folding pass can check fold.getType(varName) during evaluation.
     // For now, this is a marker — actual type-guided folding in the
     // ConstantFoldingPass would consume this information.

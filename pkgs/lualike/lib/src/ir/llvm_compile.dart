@@ -5,12 +5,10 @@
 library;
 
 import 'dart:io';
-import 'package:lualike/src/ir/compiler.dart';
 import 'package:lualike/src/ir/prototype.dart';
 import 'package:lualike/src/ir/ssa.dart';
 import 'package:lualike/src/ir/ssa_type_analysis.dart';
 import 'package:lualike/src/ir/llvm_lowering.dart';
-import 'package:lualike/src/parse.dart';
 import 'package:lualike/src/compile/pipeline.dart';
 
 /// Check that required tools (zig, llc, clang) are available on PATH.
@@ -49,26 +47,42 @@ Future<String> compileLuaToNative({
   rtDir ??= '${Directory.current.path}/../lualike_rt';
 
   // Build Zig runtime if needed
-  var rtLib = '${rtDir}/liblualike_rt.a';
+  var rtLib = '$rtDir/liblualike_rt.a';
   if (!File(rtLib).existsSync()) {
     stderr.writeln('Building Zig runtime...');
-    final b = await Process.run('/usr/bin/zig',
-        ['build-lib', 'src/lualike_rt.zig', '-lc', '--name', 'lualike_rt'],
-        workingDirectory: rtDir);
-    if (b.exitCode != 0) { stderr.writeln('Zig build failed: ${b.stderr}'); exit(1); }
-    rtLib = '${rtDir}/liblualike_rt.a';
+    final b = await Process.run('/usr/bin/zig', [
+      'build-lib',
+      'src/lualike_rt.zig',
+      '-lc',
+      '--name',
+      'lualike_rt',
+    ], workingDirectory: rtDir);
+    if (b.exitCode != 0) {
+      stderr.writeln('Zig build failed: ${b.stderr}');
+      exit(1);
+    }
+    rtLib = '$rtDir/liblualike_rt.a';
   }
 
   // 1. Parse → IR
-  final pipeline = CompilePipeline(config: CompilePipelineConfig(
-    enableConstantFolding: true, enableConstPropagation: true,
-    enableTypeNarrowing: true, enableMetatableFolding: true,
-    enablePeephole: true, enableDeadCodeElimination: true,
-    enableSsaDeadCodeElimination: true,
-    enableSsaGlobalValueNumbering: false, enableSsaSccp: false,
-    enableSsaLicm: false, enableSsaCoalesce: true, enableSsaEscape: true,
-    enableFunctionInlining: false, target: CompileBackend.lualikeIR,
-  ));
+  final pipeline = CompilePipeline(
+    config: CompilePipelineConfig(
+      enableConstantFolding: true,
+      enableConstPropagation: true,
+      enableTypeNarrowing: true,
+      enableMetatableFolding: true,
+      enablePeephole: true,
+      enableDeadCodeElimination: true,
+      enableSsaDeadCodeElimination: true,
+      enableSsaGlobalValueNumbering: false,
+      enableSsaSccp: false,
+      enableSsaLicm: false,
+      enableSsaCoalesce: true,
+      enableSsaEscape: true,
+      enableFunctionInlining: false,
+      target: CompileBackend.lualikeIR,
+    ),
+  );
   final artifact = pipeline.compileSource(source);
   final chunk = (artifact as LualikeIrArtifact).chunk;
 
@@ -77,7 +91,9 @@ Future<String> compileLuaToNative({
   final ssa = LualikeIrSsaFunction.fromPrototype(proto).simplifyTrivialPhis();
   final ta = analyzeLualikeIrSsaTypes(proto, ssa);
   final emitter = LualikeIrToLlvm(
-    prototype: proto, ssaFunction: ssa, typeAnalysis: ta,
+    prototype: proto,
+    ssaFunction: ssa,
+    typeAnalysis: ta,
   );
   final llvmIr = emitter.generateModule();
 
@@ -90,26 +106,48 @@ Future<String> compileLuaToNative({
 
   // 4. llc
   stderr.writeln('llc...');
-  final l = await Process.run('llc', ['-filetype=obj',
-      '-o', '${tmpDir.path}/module.o', '${tmpDir.path}/module.ll']);
-  if (l.exitCode != 0) { stderr.writeln('llc error: ${l.stderr}'); exit(1); }
+  final l = await Process.run('llc', [
+    '-filetype=obj',
+    '-o',
+    '${tmpDir.path}/module.o',
+    '${tmpDir.path}/module.ll',
+  ]);
+  if (l.exitCode != 0) {
+    stderr.writeln('llc error: ${l.stderr}');
+    exit(1);
+  }
 
   // 5. zig build-obj (main.zig)
   stderr.writeln('Zig wrapper...');
   final z = await Process.run('/usr/bin/zig', [
-    'build-obj', '-lc', '--name', 'main_wrapper',
-    '-femit-bin=${tmpDir.path}/main.o', '${tmpDir.path}/main.zig',
+    'build-obj',
+    '-lc',
+    '--name',
+    'main_wrapper',
+    '-femit-bin=${tmpDir.path}/main.o',
+    '${tmpDir.path}/main.zig',
   ]);
-  if (z.exitCode != 0) { stderr.writeln('Zig error: ${z.stderr}'); exit(1); }
+  if (z.exitCode != 0) {
+    stderr.writeln('Zig error: ${z.stderr}');
+    exit(1);
+  }
 
   // 6. Link
   final out = outputPath ?? '${Directory.current.path}/a.out';
   stderr.writeln('Linking...');
   final link = await Process.run('clang', [
-    '-o', out, '${tmpDir.path}/module.o', '${tmpDir.path}/main.o',
-    rtLib, '-lm', '-Wl,-z,stack-size=67108864',
+    '-o',
+    out,
+    '${tmpDir.path}/module.o',
+    '${tmpDir.path}/main.o',
+    rtLib,
+    '-lm',
+    '-Wl,-z,stack-size=67108864',
   ]);
-  if (link.exitCode != 0) { stderr.writeln('link error: ${link.stderr}'); exit(1); }
+  if (link.exitCode != 0) {
+    stderr.writeln('link error: ${link.stderr}');
+    exit(1);
+  }
 
   return out;
 }
@@ -175,28 +213,36 @@ String _generateMainZig(LualikeIrPrototype proto) {
     if (c is NilConstant) {
       buf.writeln('  constants[$i].type = .nil;');
     } else if (c is BooleanConstant) {
-      final v = (c as BooleanConstant).value;
+      final v = c.value;
       buf.writeln('  constants[$i].type = .boolean;');
       buf.writeln('  constants[$i].payload.b = ${v ? "true" : "false"};');
     } else if (c is IntegerConstant) {
-      final v = (c as IntegerConstant).value;
+      final v = c.value;
       buf.writeln('  constants[$i].type = .number;');
-      buf.writeln('  constants[$i].payload.n = @as(f64, @floatFromInt(${v}));');
+      buf.writeln('  constants[$i].payload.n = @as(f64, @floatFromInt($v));');
     } else if (c is NumberConstant) {
-      final v = (c as NumberConstant).value;
+      final v = c.value;
       buf.writeln('  constants[$i].type = .number;');
       buf.writeln('  constants[$i].payload.n = ${_zigFloat(v)};');
     } else if (c is ShortStringConstant || c is LongStringConstant) {
       final v = (c as dynamic).value as String;
       buf.writeln('  {');
       buf.writeln('    const str = alloc.create(String) catch |e| {');
-      buf.writeln('      @import("std").log.err("alloc fail {}", .{e}); return;');
+      buf.writeln(
+        '      @import("std").log.err("alloc fail {}", .{e}); return;',
+      );
       buf.writeln('    };');
-      buf.writeln('    const buf = alloc.dupe(u8, "${_escapeZig(v)}") catch |e| {');
+      buf.writeln(
+        '    const buf = alloc.dupe(u8, "${_escapeZig(v)}") catch |e| {',
+      );
       buf.writeln('      alloc.destroy(str);');
-      buf.writeln('      @import("std").log.err("alloc fail {}", .{e}); return;');
+      buf.writeln(
+        '      @import("std").log.err("alloc fail {}", .{e}); return;',
+      );
       buf.writeln('    };');
-      buf.writeln('    str.* = .{ .refcount = 1, .len = ${v.length}, .data = buf.ptr };');
+      buf.writeln(
+        '    str.* = .{ .refcount = 1, .len = ${v.length}, .data = buf.ptr };',
+      );
       buf.writeln('    constants[$i].type = .string;');
       buf.writeln('    constants[$i].payload.s = str;');
       buf.writeln('  }');
@@ -208,7 +254,9 @@ String _generateMainZig(LualikeIrPrototype proto) {
   buf.writeln('  const regs = alloc.alloc(Value, $nr) catch |e| {');
   buf.writeln('    @import("std").log.err("alloc fail {}", .{e}); return;');
   buf.writeln('  };');
-  buf.writeln('  @memset(regs, .{ .type = .nil, ._pad = undefined, .payload = undefined });');
+  buf.writeln(
+    '  @memset(regs, .{ .type = .nil, ._pad = undefined, .payload = undefined });',
+  );
   buf.writeln('  const upvals = alloc.alloc(Value, 1) catch |e| {');
   buf.writeln('    @import("std").log.err("alloc fail {}", .{e}); return;');
   buf.writeln('  };');
@@ -218,9 +266,13 @@ String _generateMainZig(LualikeIrPrototype proto) {
   buf.writeln('  const empty_va = alloc.alloc(Value, 1) catch |e| {');
   buf.writeln('    @import("std").log.err("alloc fail {}", .{e}); return;');
   buf.writeln('  };');
-  buf.writeln('  @memset(empty_va, .{ .type = .nil, ._pad = undefined, .payload = undefined });');
+  buf.writeln(
+    '  @memset(empty_va, .{ .type = .nil, ._pad = undefined, .payload = undefined });',
+  );
   buf.writeln();
-  buf.writeln('  _lua_fn_0(L, regs.ptr, $nr, upvals.ptr, 1, empty_va.ptr, 0, constants.ptr, $nc);');
+  buf.writeln(
+    '  _lua_fn_0(L, regs.ptr, $nr, upvals.ptr, 1, empty_va.ptr, 0, constants.ptr, $nc);',
+  );
   buf.writeln();
 
   _emitResultPrint(buf);
@@ -245,7 +297,9 @@ String _escapeZig(String s) => s
 
 String _zigFloat(double v) {
   if (v.isNaN) return 'std.math.nan(f64)';
-  if (v.isInfinite) return v.isNegative ? '-std.math.inf(f64)' : 'std.math.inf(f64)';
+  if (v.isInfinite) {
+    return v.isNegative ? '-std.math.inf(f64)' : 'std.math.inf(f64)';
+  }
   return v.toString();
 }
 
@@ -260,7 +314,9 @@ int _walkDecl(LualikeIrPrototype p, StringBuffer buf, int idx) {
     buf.writeln('  constants: [*]Value, nconstants: i32,');
     buf.writeln(') void;');
     final subNc = sub.constants.length;
-    buf.writeln('export var _lua_fn_const_$idx: [${subNc > 0 ? subNc : 1}]Value = undefined;');
+    buf.writeln(
+      'export var _lua_fn_const_$idx: [${subNc > 0 ? subNc : 1}]Value = undefined;',
+    );
     idx++;
     idx = _walkDecl(sub, buf, idx);
   }
@@ -273,36 +329,50 @@ int _walkInit(LualikeIrPrototype p, StringBuffer buf, int idx) {
     if (subProto.registerCount == 0) continue;
     final subNc = subProto.constants.length;
     if (subNc > 0) {
-      buf.writeln('  @memset(&_lua_fn_const_$idx, .{ .type = .nil, ._pad = undefined, .payload = undefined });');
+      buf.writeln(
+        '  @memset(&_lua_fn_const_$idx, .{ .type = .nil, ._pad = undefined, .payload = undefined });',
+      );
       for (var j = 0; j < subNc; j++) {
         final sc = subProto.constants[j];
         if (sc is NilConstant) {
-          buf.writeln('  _lua_fn_const_${idx}[${j}].type = .nil;');
+          buf.writeln('  _lua_fn_const_$idx[$j].type = .nil;');
         } else if (sc is BooleanConstant) {
-          final v = (sc as BooleanConstant).value;
-          buf.writeln('  _lua_fn_const_${idx}[${j}].type = .boolean;');
-          buf.writeln('  _lua_fn_const_${idx}[${j}].payload.b = ${v ? "true" : "false"};');
+          final v = sc.value;
+          buf.writeln('  _lua_fn_const_$idx[$j].type = .boolean;');
+          buf.writeln(
+            '  _lua_fn_const_$idx[$j].payload.b = ${v ? "true" : "false"};',
+          );
         } else if (sc is IntegerConstant) {
-          final v = (sc as IntegerConstant).value;
-          buf.writeln('  _lua_fn_const_${idx}[${j}].type = .number;');
-          buf.writeln('  _lua_fn_const_${idx}[${j}].payload.n = @as(f64, @floatFromInt(${v}));');
+          final v = sc.value;
+          buf.writeln('  _lua_fn_const_$idx[$j].type = .number;');
+          buf.writeln(
+            '  _lua_fn_const_$idx[$j].payload.n = @as(f64, @floatFromInt($v));',
+          );
         } else if (sc is NumberConstant) {
-          final v = (sc as NumberConstant).value;
-          buf.writeln('  _lua_fn_const_${idx}[${j}].type = .number;');
-          buf.writeln('  _lua_fn_const_${idx}[${j}].payload.n = ${_zigFloat(v)};');
+          final v = sc.value;
+          buf.writeln('  _lua_fn_const_$idx[$j].type = .number;');
+          buf.writeln('  _lua_fn_const_$idx[$j].payload.n = ${_zigFloat(v)};');
         } else if (sc is ShortStringConstant || sc is LongStringConstant) {
           final v = (sc as dynamic).value as String;
           buf.writeln('  {');
           buf.writeln('    const str = alloc.create(String) catch |e| {');
-          buf.writeln('      @import("std").log.err("alloc fail {}", .{e}); return;');
+          buf.writeln(
+            '      @import("std").log.err("alloc fail {}", .{e}); return;',
+          );
           buf.writeln('    };');
-          buf.writeln('    const strBuf = alloc.dupe(u8, "${_escapeZig(v)}") catch |e| {');
+          buf.writeln(
+            '    const strBuf = alloc.dupe(u8, "${_escapeZig(v)}") catch |e| {',
+          );
           buf.writeln('      alloc.destroy(str);');
-          buf.writeln('      @import("std").log.err("alloc fail {}", .{e}); return;');
+          buf.writeln(
+            '      @import("std").log.err("alloc fail {}", .{e}); return;',
+          );
           buf.writeln('    };');
-          buf.writeln('    str.* = .{ .refcount = 1, .len = ${v.length}, .data = strBuf.ptr };');
-          buf.writeln('    _lua_fn_const_${idx}[${j}].type = .string;');
-          buf.writeln('    _lua_fn_const_${idx}[${j}].payload.s = str;');
+          buf.writeln(
+            '    str.* = .{ .refcount = 1, .len = ${v.length}, .data = strBuf.ptr };',
+          );
+          buf.writeln('    _lua_fn_const_$idx[$j].type = .string;');
+          buf.writeln('    _lua_fn_const_$idx[$j].payload.s = str;');
           buf.writeln('  }');
         }
       }
@@ -317,7 +387,9 @@ void _emitResultPrint(StringBuffer buf) {
   buf.writeln('  switch (regs[0].type) {');
   buf.writeln('    .nil => _ = c.printf("nil\\n"),');
   buf.writeln('    .boolean => _ = c.printf("%s\\n", @as([*:0]const u8,');
-  buf.writeln('      @ptrCast(@constCast(if (regs[0].payload.b) "true" else "false")))),');
+  buf.writeln(
+    '      @ptrCast(@constCast(if (regs[0].payload.b) "true" else "false")))),',
+  );
   buf.writeln('    .number => {');
   buf.writeln('      const n = regs[0].payload.n;');
   buf.writeln('      if (n == @trunc(n)) {');

@@ -1,3 +1,8 @@
+## 0.3.0
+
+- Broaden the `lualike` dependency constraint to `>=0.3.0 <0.6.0`.
+- Bump the `lualike_hooks` dependency to `^0.2.0`.
+
 ## 0.2.1
 
 - Bump `lualike` dependency to `^0.4.0`.

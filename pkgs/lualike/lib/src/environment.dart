@@ -349,45 +349,29 @@ class Environment with GCObject {
     }
     final parts = name.split('.');
     if (parts.any((part) => part.isEmpty)) {
-      return const [];
+      return null;
     }
     return parts;
   }
 
-  dynamic _readDottedPath(List<String> parts) {
+  ({bool found, dynamic value}) _lookupDottedPath(List<String> parts) {
     if (parts.isEmpty) {
-      return null;
-    }
-
-    dynamic current = get(parts.first);
-    for (final part in parts.skip(1)) {
-      final raw = rawLuaSlot(current);
-      if (raw is! Map) {
-        return null;
-      }
-      current = raw[part];
-    }
-    return current;
-  }
-
-  bool _containsDottedPath(List<String> parts) {
-    if (parts.isEmpty) {
-      return false;
+      return (found: false, value: null);
     }
 
     if (!contains(parts.first)) {
-      return false;
+      return (found: false, value: null);
     }
 
     dynamic current = get(parts.first);
     for (final part in parts.skip(1)) {
       final raw = rawLuaSlot(current);
       if (raw is! Map || !raw.containsKey(part)) {
-        return false;
+        return (found: false, value: null);
       }
       current = raw[part];
     }
-    return true;
+    return (found: true, value: current);
   }
 
   /// Checks if a variable exists in this environment or any of its ancestors.
@@ -398,7 +382,7 @@ class Environment with GCObject {
   bool contains(String name) {
     final path = _splitPath(name);
     if (path != null) {
-      return _containsDottedPath(path);
+      return _lookupDottedPath(path).found;
     }
 
     Logger.debugLazy(
@@ -455,7 +439,7 @@ class Environment with GCObject {
   dynamic get(String name) {
     final path = _splitPath(name);
     if (path != null) {
-      return _readDottedPath(path);
+      return _lookupDottedPath(path).value;
     }
 
     if (Logger.enabled) {

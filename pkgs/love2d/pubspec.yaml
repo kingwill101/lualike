@@ -1,6 +1,6 @@
 name: love2d
 description: Workspace scaffold for LOVE 2D related Dart bindings and helpers.
-version: 0.1.0
+version: 0.2.0
 publish_to: none
 repository: https://github.com/kingwill101/lualike
 
@@ -20,7 +20,7 @@ dependencies:
   flutter:
     sdk: flutter
   image: ^4.8.0
-  lualike: '>=0.3.0 <0.5.0'
+  lualike: '>=0.3.0 <0.6.0'
   media_kit: ^1.2.6
   media_kit_libs_video: ^1.0.7
   media_kit_video: ^2.0.1

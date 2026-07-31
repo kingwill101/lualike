@@ -731,8 +731,7 @@ _lowerHighConstantSequence(
         ],
         tempSlots: 1,
       );
-    case LualikeIrOpcode.setField
-        when instruction.b > maxB || highConstValue:
+    case LualikeIrOpcode.setField when instruction.b > maxB || highConstValue:
       final highKey = instruction.b > maxB;
       if (highKey && highConstValue) {
         return (
@@ -822,8 +821,7 @@ _lowerHighConstantSequence(
         ],
         tempSlots: 1,
       );
-    case LualikeIrOpcode.setTabUp
-        when instruction.b > maxB || highConstValue:
+    case LualikeIrOpcode.setTabUp when instruction.b > maxB || highConstValue:
       final highKey = instruction.b > maxB;
       if (highKey && highConstValue) {
         // env + high key + high value needs three scratch slots.

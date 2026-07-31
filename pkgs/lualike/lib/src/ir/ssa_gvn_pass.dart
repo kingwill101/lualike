@@ -196,8 +196,7 @@ String _computeKey(LualikeIrInstruction inst, Map<int, String> ssaLabels) {
           if (i.k) buf.write('|k=1');
         case LualikeIrOpcode.loadNil:
           buf.write('|n=${i.b}');
-        case LualikeIrOpcode.loadFalse ||
-            LualikeIrOpcode.loadTrue:
+        case LualikeIrOpcode.loadFalse || LualikeIrOpcode.loadTrue:
           break;
         default:
           // Conservative: include raw fields so unknown shapes never collide.

@@ -2789,7 +2789,9 @@ class RequireFunction extends BuiltinFunction {
     // require must error out (attrib.lua test expects this).
     {
       final searchersEntry = rawPackageTable['searchers'];
-      final searchersRaw = searchersEntry is Value ? rawLuaSlot(searchersEntry) : null;
+      final searchersRaw = searchersEntry is Value
+          ? rawLuaSlot(searchersEntry)
+          : null;
       if (searchersRaw is! List && searchersRaw is! Map) {
         throw LuaError("package.searchers must be a table");
       }
@@ -2977,10 +2979,7 @@ class RequireFunction extends BuiltinFunction {
         final returnedLoaderData = rawLoaderData is String
             ? valueFromLuaSlot(interpreter!, path.normalize(rawLoaderData))
             : loaderData;
-        return (
-          found: true,
-          result: LuaResults([ret, returnedLoaderData]),
-        );
+        return (found: true, result: LuaResults([ret, returnedLoaderData]));
       } else if (result is String) {
         errors.add(result);
       } else if (result is Value && rawLuaSlot(result) is String) {

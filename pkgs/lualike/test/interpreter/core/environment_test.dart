@@ -25,9 +25,7 @@ void main() {
       env.define(
         'love',
         Value({
-          'graphics': Value({
-            'setColor': 42,
-          }),
+          'graphics': Value({'setColor': 42}),
         }),
       );
 
@@ -36,6 +34,12 @@ void main() {
       expect(child.contains('love.graphics.setColor'), isTrue);
       expect(child.get('love.graphics.missing'), equals(null));
       expect(child.contains('love.graphics.missing'), isFalse);
+    });
+
+    test('treats vararg ellipsis as a plain symbol lookup', () {
+      env.declare('...', 'varargs');
+      expect(env.get('...'), equals('varargs'));
+      expect(env.contains('...'), isTrue);
     });
 
     test('returns Value(null) for undefined variable', () {

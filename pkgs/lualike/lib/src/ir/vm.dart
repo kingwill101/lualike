@@ -1659,10 +1659,7 @@ class LualikeIrVm {
     }
     if (arg is List) {
       final activeRuntime = runtime ?? environment.interpreter;
-      return valueFromOptionalLuaSlot(
-        activeRuntime,
-        Value.listToLuaTable(arg),
-      );
+      return valueFromOptionalLuaSlot(activeRuntime, Value.listToLuaTable(arg));
     }
     return _ensureValue(arg);
   }

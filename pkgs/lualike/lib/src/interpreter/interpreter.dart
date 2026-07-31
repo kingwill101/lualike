@@ -1116,13 +1116,8 @@ class Interpreter extends AstVisitor<Object?>
   /// This is used by the Library system to get metamethods for library tables and objects
   /// [libraryName] - The name of the library to get metamethods for (e.g., "io", "string")
   Map<String, Function>? getLibraryMetamethods(String libraryName) {
-    try {
-      // Get all libraries from the interpreter's registry
-      final library = libraryRegistry.libraries.firstWhere(
-        (lib) => lib.name == libraryName,
-      );
-      return library.getMetamethods(this);
-    } catch (e) {
+    final library = libraryRegistry.findByName(libraryName);
+    if (library == null) {
       Logger.warning(
         'Library not found for metamethod access',
         category: 'Interpreter',
@@ -1130,13 +1125,18 @@ class Interpreter extends AstVisitor<Object?>
       );
       return null;
     }
+    return library.getMetamethods(this);
   }
 
   /// Creates a new interpreter instance.
   ///
   /// [fileManager] - Optional file manager for I/O operations
   /// [environment] - Optional environment for variable scope
-  Interpreter({FileManager? fileManager, Environment? environment})
+  Interpreter({
+    FileManager? fileManager,
+    Environment? environment,
+    bool initializeStandardLibraries = true,
+  })
     : fileManager = fileManager ?? FileManager(),
       _currentEnv = environment ?? Environment() {
     Logger.infoLazy(
@@ -1159,8 +1159,12 @@ class Interpreter extends AstVisitor<Object?>
     // Initialize coroutines before the standard library
     initializeCoroutines();
 
-    // Initialize standard libraries
-    initializeStandardLibrary(vm: this);
+    // Wrapper runtimes install their own library registry and environment.
+    // Keep the internal interpreter lightweight in that mode so every runtime
+    // does not register a second, unreachable standard-library set.
+    if (initializeStandardLibraries) {
+      initializeStandardLibrary(vm: this);
+    }
 
     // Attach this interpreter to the root environment for later lookups
     _currentEnv.interpreter = this;
@@ -1780,15 +1784,22 @@ class Interpreter extends AstVisitor<Object?>
   /// Explicitly call a function with the given arguments
   @override
   @override
-  Future<Value> loadBytecode(List<int> bytes, {required String moduleName}) async {
-    final result = await loadChunk(LuaChunkLoadRequest(
-      source: Value.primitive(bytes),
-      chunkName: moduleName,
-      mode: 'b',
-    ));
+  Future<Value> loadBytecode(
+    List<int> bytes, {
+    required String moduleName,
+  }) async {
+    final result = await loadChunk(
+      LuaChunkLoadRequest(
+        source: Value.primitive(bytes),
+        chunkName: moduleName,
+        mode: 'b',
+      ),
+    );
     if (!result.isSuccess) {
-      throw Exception('Failed to load bytecode module \'$moduleName\': '
-          '${result.errorMessage}');
+      throw Exception(
+        'Failed to load bytecode module \'$moduleName\': '
+        '${result.errorMessage}',
+      );
     }
     moduleBytecodeCache[moduleName] = result.chunk!;
     return result.chunk!;

@@ -1,6 +1,14 @@
-## Unreleased
+## 0.5.0
 
-- No unreleased changes yet.
+- Centralize runtime bootstrap and library registry setup across AST, IR, and
+  bytecode runtimes.
+- Preserve native Dart payloads for byte-oriented and string-library results,
+  while keeping JSON conversion and Lua table conversion explicit.
+- Harden IR inlining and bytecode register-budget handling.
+- Simplify Lua bytecode test fixtures and array unwrapping coverage.
+- Remove FFI integration from the core package; use the external
+  `lualike_ffi` package for native bindings.
+- Broaden the `artisanal` constraint to `>=0.3.0 <0.5.0`.
 
 ## 0.4.0
 

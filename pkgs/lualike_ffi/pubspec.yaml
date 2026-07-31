@@ -1,6 +1,6 @@
 name: lualike_ffi
 description: Runtime-declared native FFI backend for lualike.
-version: 0.1.0
+version: 0.2.0
 resolution: workspace
 repository: https://github.com/kingwill101/lualike
 
@@ -11,7 +11,7 @@ dependencies:
   code_assets: ^1.2.1
   ffi: ^2.1.4
   hooks: 2.0.2
-  lualike: '>=0.3.0 <0.5.0'
+  lualike: '>=0.3.0 <0.6.0'
   native_toolchain_c: 0.19.2
 
 dev_dependencies:

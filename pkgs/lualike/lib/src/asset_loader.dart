@@ -12,9 +12,10 @@ class LuaAssetLoader {
   /// [buildDir] defaults to `build/lua/` relative to the current directory.
   /// [bundleDir] defaults to the executable's parent directory.
   LuaAssetLoader({Uri? buildDir, Uri? bundleDir})
-      : buildDir = buildDir ?? Directory.current.uri.resolve('build/lua/'),
-        bundleDir = bundleDir ??
-            Directory.fromUri(Uri.file(Platform.resolvedExecutable)).parent.uri;
+    : buildDir = buildDir ?? Directory.current.uri.resolve('build/lua/'),
+      bundleDir =
+          bundleDir ??
+          Directory.fromUri(Uri.file(Platform.resolvedExecutable)).parent.uri;
 
   /// The legacy directory containing compiled bytecode files.
   final Uri buildDir;
@@ -30,10 +31,7 @@ class LuaAssetLoader {
   /// The loader checks the bundle-local `assets/` directory first, then the
   /// legacy `build/lua/` output.
   Future<List<int>?> loadBytecode(String assetName) async {
-    for (final directory in <Uri>[
-      bundleDir.resolve('assets/'),
-      buildDir,
-    ]) {
+    for (final directory in <Uri>[bundleDir.resolve('assets/'), buildDir]) {
       final file = File.fromUri(directory.resolve(assetName));
       if (await file.exists()) {
         return file.readAsBytes();
@@ -46,5 +44,6 @@ class LuaAssetLoader {
   Uri assetPath(String assetName) => buildDir.resolve(assetName);
 
   /// Returns the bundle-local path for a compiled asset.
-  Uri bundleAssetPath(String assetName) => bundleDir.resolve('assets/$assetName');
+  Uri bundleAssetPath(String assetName) =>
+      bundleDir.resolve('assets/$assetName');
 }

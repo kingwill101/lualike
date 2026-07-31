@@ -2,7 +2,6 @@
 @Tags(['lua_bytecode'])
 library;
 
-import 'dart:io';
 import 'dart:typed_data';
 
 import 'package:lualike/src/lua_bytecode/runtime.dart';
@@ -11,8 +10,10 @@ import 'package:lualike/src/runtime/lua_runtime.dart';
 import 'package:lualike/src/value.dart';
 import 'package:test/test.dart';
 
+import '../helpers/lua_bytecode_fixture.dart';
+
 void main() {
-  final luacBinary = _resolveLuacBinary();
+  final luacBinary = resolveLuacBinary();
   final skipReason = luacBinary == null
       ? 'luac55 not available for lua_bytecode execution tests'
       : null;
@@ -521,7 +522,7 @@ return n - m
 }
 
 Future<List<Object?>> _executeFixture(String luacBinary, String source) async {
-  final fixture = _compileFixture(luacBinary, source);
+  final fixture = compileLuaFixture(luacBinary, source);
   final runtime = LuaBytecodeRuntime();
   final loadResult = await runtime.loadChunk(
     LuaChunkLoadRequest(
@@ -560,55 +561,4 @@ Object? _unwrapValue(Object? value) {
     final LuaString stringValue => stringValue.toString(),
     _ => value,
   };
-}
-
-String? _resolveLuacBinary() {
-  const candidates = <String>[
-    '/home/kingwill101/Downloads/lua-5.5.0_Linux68_64_bin/luac55',
-  ];
-  for (final candidate in candidates) {
-    if (File(candidate).existsSync()) {
-      return candidate;
-    }
-  }
-
-  for (final name in ['luac55', 'luac']) {
-    try {
-      final result = Process.runSync(name, ['-v']);
-      if (result.exitCode == 0) return name;
-    } catch (_) {
-      continue;
-    }
-  }
-  return null;
-}
-
-({List<int> chunkBytes, String sourcePath}) _compileFixture(
-  String luacBinary,
-  String source,
-) {
-  final tempDir = Directory.systemTemp.createTempSync(
-    'lualike_lua_bytecode_execution_',
-  );
-  final sourceFile = File('${tempDir.path}/fixture.lua');
-  final chunkFile = File('${tempDir.path}/fixture.luac');
-
-  try {
-    sourceFile.writeAsStringSync(source);
-    final compile = Process.runSync(luacBinary, <String>[
-      '-o',
-      chunkFile.path,
-      sourceFile.path,
-    ]);
-    if (compile.exitCode != 0) {
-      fail('luac compile failed: ${compile.stderr}');
-    }
-
-    return (
-      chunkBytes: chunkFile.readAsBytesSync(),
-      sourcePath: sourceFile.path,
-    );
-  } finally {
-    tempDir.deleteSync(recursive: true);
-  }
 }

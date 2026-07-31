@@ -38,19 +38,18 @@ Future<void> _showProfile(File file, String luac55Bin) async {
   final name = path.split('/').last;
 
   // luac55: instructions on line 1, slots on line 2
-  final luaResult = await Process.run(
-    luac55Bin,
-    ['-l', path],
-    runInShell: true,
-  );
+  final luaResult = await Process.run(luac55Bin, [
+    '-l',
+    path,
+  ], runInShell: true);
   String luaLine = '?';
   if (luaResult.exitCode == 0) {
     final lines = (luaResult.stdout as String).split('\n');
     for (var i = 0; i < lines.length - 1; i++) {
-      final instrMatch =
-          RegExp(r'\((\d+) instructions?').firstMatch(lines[i]);
-      final slotMatch =
-          RegExp(r'^(\d+)\+? params, (\d+) slots?').firstMatch(lines[i + 1]);
+      final instrMatch = RegExp(r'\((\d+) instructions?').firstMatch(lines[i]);
+      final slotMatch = RegExp(
+        r'^(\d+)\+? params, (\d+) slots?',
+      ).firstMatch(lines[i + 1]);
       if (instrMatch != null && slotMatch != null) {
         luaLine = '${instrMatch[1]}i/${slotMatch[2]}s';
         break;
@@ -60,16 +59,17 @@ Future<void> _showProfile(File file, String luac55Bin) async {
 
   // lualike: use --disassemble, parse main header
   final ourBin = Platform.environment['LUALIKE'] ?? './lualike';
-  final ourResult = await Process.run(
-    ourBin,
-    ['--disassemble', path],
-    runInShell: true,
-  );
+  final ourResult = await Process.run(ourBin, [
+    '--disassemble',
+    path,
+  ], runInShell: true);
   String ourLine = '?';
   if (ourResult.exitCode == 0) {
     final lines = (ourResult.stdout as String).split('\n');
     for (var i = 0; i < lines.length - 1; i++) {
-      final instrMatch = RegExp(r'\((\d+) instructions?\)').firstMatch(lines[i]);
+      final instrMatch = RegExp(
+        r'\((\d+) instructions?\)',
+      ).firstMatch(lines[i]);
       if (instrMatch != null) {
         final slotMatch = RegExp(r'(\d+) slots').firstMatch(lines[i + 1]);
         final slots = slotMatch?.group(1) ?? '?';

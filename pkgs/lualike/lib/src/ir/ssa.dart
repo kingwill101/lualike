@@ -826,11 +826,7 @@ Set<int> _usedRegistersForInstruction(
     // e.g. `package.path = "x"` lost the load of `package` (nil index).
     ABCInstruction(opcode: LualikeIrOpcode.setUpval, c: final c) => single(c),
     // C is Kst when k=true (literal env field assignment).
-    ABCInstruction(
-      opcode: LualikeIrOpcode.setTabUp,
-      c: final c,
-      k: final k,
-    ) =>
+    ABCInstruction(opcode: LualikeIrOpcode.setTabUp, c: final c, k: final k) =>
       k ? const <int>{} : single(c),
     ABCInstruction(
       opcode: LualikeIrOpcode.setTable,

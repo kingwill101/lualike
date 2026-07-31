@@ -6,6 +6,7 @@ import 'package:lualike/src/builtin_function.dart';
 import 'package:lualike/src/lua_error.dart';
 import 'package:lualike/src/lua_string.dart';
 import 'package:lualike/src/runtime/lua_slot.dart';
+import 'package:lualike/src/value.dart';
 
 class DartToBytes extends BuiltinFunction {
   DartToBytes([super.interpreter]);
@@ -21,17 +22,16 @@ class DartToBytes extends BuiltinFunction {
 
     // For LuaString, use the raw bytes directly (they're already UTF-8)
     if (raw is LuaString) {
-      return valueFromOptionalLuaSlot(
-        interpreter,
-        Uint8List.fromList(raw.bytes),
-      );
+      return _byteValue(Uint8List.fromList(raw.bytes));
     } else {
       // For other types, convert to string first then encode as UTF-8
       final str = raw.toString();
       final bytes = utf8.encode(str);
-      return valueFromOptionalLuaSlot(interpreter, Uint8List.fromList(bytes));
+      return _byteValue(Uint8List.fromList(bytes));
     }
   }
+
+  Value _byteValue(Uint8List bytes) => Value(bytes)..interpreter = interpreter;
 }
 
 class DartFromBytes extends BuiltinFunction {

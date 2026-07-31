@@ -3913,12 +3913,12 @@ int? _immediateIndex(AstNode node) {
   if (value == null || value < 0) {
     return null;
   }
-  if (value > LuaBytecodeInstructionLayout.maxArgC) {
+  if (!LuaBytecodeInstructionLayout.fitsUnsignedArgC(value)) {
     return null;
   }
   return value;
 }
 
 bool _fitsShortStringOperand(int constantIndex) {
-  return constantIndex <= LuaBytecodeInstructionLayout.maxArgC;
+  return LuaBytecodeInstructionLayout.fitsUnsignedArgC(constantIndex);
 }
