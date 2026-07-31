@@ -1,5 +1,10 @@
 part of '../love_api_bindings.dart';
 
+/// Returns byte storage in the representation required by host APIs.
+Uint8List _loveUint8List(List<int> bytes, {bool copy = false}) {
+  return bytes is Uint8List && !copy ? bytes : Uint8List.fromList(bytes);
+}
+
 /// Returns the [LoveRuntimeContext] attached to this binding context.
 LoveRuntimeContext _runtimeContext(LibraryContext context) {
   final runtime = context.interpreter;
@@ -964,7 +969,7 @@ Object _fontFromArgsOrFuture(
     }
     final loadedFont = await runtime.host.loadTrueTypeFont(
       source,
-      bytes: Uint8List.fromList(fileData.bytes),
+      bytes: _loveUint8List(fileData.bytes, copy: true),
       size: size,
       hinting: hinting,
       dpiScale: dpiScale,

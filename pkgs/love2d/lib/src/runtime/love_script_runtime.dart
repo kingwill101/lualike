@@ -8,6 +8,7 @@ import 'dart:convert' as convert;
 import 'package:lualike/lualike.dart';
 
 import '../install_love2d.dart';
+import 'love_module_table_helpers.dart';
 import 'filesystem/love_filesystem_bindings.dart'
     show wrapLoveFilesystemDroppedFileForRuntime;
 import 'filesystem/love_filesystem_runtime.dart';
@@ -68,7 +69,7 @@ String _loveDescribeRuntimeArgs(List<Object?> args) {
 
 /// Returns a trace-friendly description of one runtime [value].
 String _loveDescribeRuntimeValue(Object? value) {
-  final raw = value is Value ? value.raw : value;
+  final raw = loveRawValue(value);
   return '${value.runtimeType}(${raw.runtimeType}:$raw)';
 }
 
@@ -1218,7 +1219,7 @@ end
     };
   }
 
-  Object? _unwrapValue(Object? value) => value is Value ? value.raw : value;
+  Object? _unwrapValue(Object? value) => loveRawValue(value);
 }
 
 bool _isGeneratedLoveCallbackStub(Value callback) {

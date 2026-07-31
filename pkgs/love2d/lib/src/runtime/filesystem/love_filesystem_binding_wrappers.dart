@@ -1,5 +1,17 @@
 part of 'love_filesystem_bindings.dart';
 
+Future<bool> _releaseLoveFilesystemObject(Object rawObject) async {
+  if (_loveFilesystemReleased[rawObject] == true) {
+    return false;
+  }
+
+  _loveFilesystemReleased[rawObject] = true;
+  if (rawObject is LoveFilesystemFile && rawObject.isOpen) {
+    await rawObject.close();
+  }
+  return true;
+}
+
 final class _RuntimeFilesystemBuiltin extends BuiltinFunction {
   _RuntimeFilesystemBuiltin(this._implementation);
 
@@ -21,11 +33,9 @@ Future<Value> wrapLoveFilesystemDroppedFileForRuntime(
     return cached;
   }
 
-  final filesystemTable = _filesystemModuleTable(runtime);
+  final filesystemTable = loveModuleTable(runtime, 'filesystem');
   final newFileEntry = filesystemTable?['newFile'];
-  final newFile = switch (newFileEntry) {
-    final Value value when value.raw is BuiltinFunction =>
-      value.raw as BuiltinFunction,
+  final newFile = switch (loveRawValue(newFileEntry)) {
     final BuiltinFunction function => function,
     _ => null,
   };
@@ -35,11 +45,8 @@ Future<Value> wrapLoveFilesystemDroppedFileForRuntime(
 
   final result = newFile.call(<Object?>[file.filename]);
   final resolved = result is Future<Object?> ? await result : result;
-  final wrapper = switch (resolved) {
-    final Value value when value.isMulti =>
-      ((value.raw as List<Object?>).isNotEmpty
-          ? (value.raw as List<Object?>).first
-          : null),
+  final wrapper = switch (loveRawValue(resolved)) {
+    final List<Object?> values => (values.isNotEmpty ? values.first : null),
     _ => resolved,
   };
   final wrapperTable = _tableIfPresent(wrapper);
@@ -59,15 +66,7 @@ Future<Value> wrapLoveFilesystemDroppedFileForRuntime(
     'release': Value(
       _RuntimeFilesystemBuiltin((args) async {
         final rawObject = _wrapperObject(args, 0, 'Object:release');
-        if (_loveFilesystemReleased[rawObject] == true) {
-          return false;
-        }
-
-        _loveFilesystemReleased[rawObject] = true;
-        if (rawObject is LoveFilesystemFile && rawObject.isOpen) {
-          await rawObject.close();
-        }
-        return true;
+        return _releaseLoveFilesystemObject(rawObject);
       }),
       functionName: 'release',
     ),

@@ -29,7 +29,7 @@ void _installLoveGraphicsExtraBindings(
   Map<dynamic, dynamic> graphicsTable,
 ) {
   final context = loveBindingContext(runtime);
-  final builder = BuiltinFunctionBuilder(context);
+  final builder = loveBindingBuilderForContext(context);
 
   graphicsTable['_newRegisteredFragmentShader'] = Value(
     builder.create((args) async {

@@ -79,12 +79,7 @@ extension LoveFilesystemRuntimeReadWrite on LoveFilesystemState {
       return null;
     }
 
-    return LoveFilesystemFileData(
-      bytes: bytes,
-      filename: filename ?? logicalPath,
-      // Read path owns the buffer; avoid a second freeze copy.
-      copyBytes: false,
-    );
+    return _fileDataFromBytes(bytes, filename ?? logicalPath);
   }
 
   /// Reads [logicalPath] into a [LoveFilesystemFileData] object when it
@@ -99,11 +94,7 @@ extension LoveFilesystemRuntimeReadWrite on LoveFilesystemState {
       return null;
     }
 
-    return LoveFilesystemFileData(
-      bytes: bytes,
-      filename: filename ?? logicalPath,
-      copyBytes: false,
-    );
+    return _fileDataFromBytes(bytes, filename ?? logicalPath);
   }
 
   /// Reads [logicalPath] into a [LoveFilesystemFileData] object.
@@ -115,9 +106,14 @@ extension LoveFilesystemRuntimeReadWrite on LoveFilesystemState {
     String? filename,
   }) async {
     final bytes = await readAllBytesOrThrow(logicalPath, size: size);
+    return _fileDataFromBytes(bytes, filename ?? logicalPath);
+  }
+
+  LoveFilesystemFileData _fileDataFromBytes(List<int> bytes, String filename) {
     return LoveFilesystemFileData(
       bytes: bytes,
-      filename: filename ?? logicalPath,
+      filename: filename,
+      // Read path owns the buffer; avoid a second freeze copy.
       copyBytes: false,
     );
   }

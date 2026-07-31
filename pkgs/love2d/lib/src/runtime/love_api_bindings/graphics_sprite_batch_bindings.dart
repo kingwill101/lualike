@@ -2,11 +2,7 @@ part of '../love_api_bindings.dart';
 
 /// Returns the wrapped [LoveSpriteBatch] stored in [value], if any.
 LoveSpriteBatch? _spriteBatchIfPresent(Object? value) {
-  final raw = _rawValue(value);
-  final table = switch (raw) {
-    final Map<dynamic, dynamic> map => map,
-    _ => null,
-  };
+  final table = _tableIdentityIfPresent(value);
 
   if (table == null) {
     return null;

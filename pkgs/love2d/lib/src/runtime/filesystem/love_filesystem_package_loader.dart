@@ -2,8 +2,9 @@
 library;
 
 import 'package:lualike/lualike.dart'
-    show LuaError, LuaRuntime, LuaString, Value, isLinux, isMacOS, isWindows;
+    show LuaError, LuaRuntime, Value, isLinux, isMacOS, isWindows;
 
+import '../love_module_table_helpers.dart';
 import 'love_filesystem_runtime.dart';
 
 /// Cached Lua source searchers installed for each runtime.
@@ -20,12 +21,12 @@ final Expando<Value> _loveFilesystemExtSearcherCache = Expando<Value>(
 /// [runtime].
 void syncLoveFilesystemPackageInterop(LuaRuntime runtime) {
   final packageValue = runtime.globals.get('package');
-  if (packageValue is! Value || packageValue.raw is! Map) {
+  final packageTable = loveTableIfPresent(packageValue);
+  if (packageTable == null) {
     return;
   }
 
   final state = LoveFilesystemState.attach(runtime);
-  final packageTable = packageValue.raw as Map<dynamic, dynamic>;
   packageTable['path'] = Value(state.getRequirePathString());
   packageTable['cpath'] = Value(state.getCRequirePathString());
 
@@ -51,7 +52,7 @@ void syncLoveFilesystemPackageInterop(LuaRuntime runtime) {
 /// Creates the Lua-source package searcher for [runtime].
 Value _createLoveFilesystemSearcher(LuaRuntime runtime) {
   return Value((List<Object?> args) async {
-    final moduleName = _stringLike(_valueAt(args, 0));
+    final moduleName = _packageSearcherModuleName(args);
     if (moduleName == null) {
       return Value('missing module name');
     }
@@ -104,7 +105,7 @@ Value _createLoveFilesystemSearcher(LuaRuntime runtime) {
 /// Creates the native-extension package searcher for [runtime].
 Value _createLoveFilesystemExtSearcher(LuaRuntime runtime) {
   return Value((List<Object?> args) async {
-    final moduleName = _stringLike(_valueAt(args, 0));
+    final moduleName = _packageSearcherModuleName(args);
     if (moduleName == null) {
       return Value('missing module name');
     }
@@ -133,6 +134,10 @@ Value _createLoveFilesystemExtSearcher(LuaRuntime runtime) {
 
     return Value("\n\tno file '$tokenizedName' in LOVE paths.");
   });
+}
+
+String? _packageSearcherModuleName(List<Object?> args) {
+  return loveStringLike(_valueAt(args, 0));
 }
 
 /// Returns the argument at [index], if it was provided.
@@ -194,15 +199,4 @@ void _syncSearcher(
   final existing = searchers.removeAt(existingIndex);
   final adjustedIndex = targetIndex.clamp(0, searchers.length);
   searchers.insert(adjustedIndex, existing);
-}
-
-/// Converts Lua values commonly used for path arguments to strings.
-String? _stringLike(Object? value) {
-  final raw = value is Value ? value.raw : value;
-  return switch (raw) {
-    final String stringValue => stringValue,
-    final LuaString stringValue => stringValue.toString(),
-    final num numberValue => numberValue.toString(),
-    _ => null,
-  };
 }

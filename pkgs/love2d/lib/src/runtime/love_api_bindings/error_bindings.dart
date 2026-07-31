@@ -13,7 +13,7 @@ LoveApiImplementation _bindLoveErrorHandler(
     throw StateError('No Lua runtime available for LOVE bindings');
   }
 
-  final builder = BuiltinFunctionBuilder(context);
+  final builder = loveBindingBuilderForContext(context);
   return (args) async {
     final rawMessage = _rawValue(_valueAt(args, 0));
     final message = rawMessage?.toString() ?? 'nil';

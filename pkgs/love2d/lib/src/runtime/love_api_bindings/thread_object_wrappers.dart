@@ -131,7 +131,7 @@ Value _wrapChannel(LibraryContext context, LoveThreadChannel channel) {
     return cached;
   }
 
-  final builder = BuiltinFunctionBuilder(context);
+  final builder = loveBindingBuilderForContext(context);
   final interpreter = context.interpreter;
   const hierarchy = <String>{'Channel', 'Object'};
   final table = ValueClass.table(<Object?, Object?>{
@@ -240,15 +240,11 @@ Value _wrapChannel(LibraryContext context, LoveThreadChannel channel) {
     'release': Value(
       builder.create((args) {
         final receiver = _valueAt(args, 0);
-        final table = _channelWrapperTableIfPresent(receiver);
-        if (table == null) {
-          _throwLuaStyleTypeError(
-            symbol: 'Object:release',
-            index: 0,
-            expected: 'Channel',
-            actual: receiver,
-          );
-        }
+        final table = loveRequireReleaseWrapperTable(
+          receiver,
+          expected: 'Channel',
+          resolve: _channelWrapperTableIfPresent,
+        );
 
         final channel = table[_loveChannelObjectKey];
         if (channel is! LoveThreadChannel) {
@@ -310,7 +306,7 @@ Value _wrapThread(LibraryContext context, LoveLuaThread thread) {
     return cached;
   }
 
-  final builder = BuiltinFunctionBuilder(context);
+  final builder = loveBindingBuilderForContext(context);
   const hierarchy = <String>{'Thread', 'Object'};
   final table = ValueClass.table(<Object?, Object?>{
     _loveThreadObjectKey: thread,
@@ -357,15 +353,11 @@ Value _wrapThread(LibraryContext context, LoveLuaThread thread) {
     'release': Value(
       builder.create((args) {
         final receiver = _valueAt(args, 0);
-        final table = _threadWrapperTableIfPresent(receiver);
-        if (table == null) {
-          _throwLuaStyleTypeError(
-            symbol: 'Object:release',
-            index: 0,
-            expected: 'Thread',
-            actual: receiver,
-          );
-        }
+        final table = loveRequireReleaseWrapperTable(
+          receiver,
+          expected: 'Thread',
+          resolve: _threadWrapperTableIfPresent,
+        );
 
         final thread = table[_loveThreadObjectKey];
         if (thread is! LoveLuaThread) {

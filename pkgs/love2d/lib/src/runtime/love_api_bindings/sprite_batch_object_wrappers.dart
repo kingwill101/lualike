@@ -40,7 +40,7 @@ Value _wrapSpriteBatch(
     return cached;
   }
 
-  final builder = BuiltinFunctionBuilder(context);
+  final builder = loveBindingBuilderForContext(context);
   const hierarchy = <String>{'SpriteBatch', 'Drawable', 'Object'};
 
   final table = ValueClass.table(<Object?, Object?>{
@@ -168,15 +168,11 @@ Value _wrapSpriteBatch(
     'release': Value(
       builder.create((args) {
         final receiver = _valueAt(args, 0);
-        final table = _spriteBatchWrapperTableIfPresent(receiver);
-        if (table == null) {
-          _throwLuaStyleTypeError(
-            symbol: 'Object:release',
-            index: 0,
-            expected: 'SpriteBatch',
-            actual: receiver,
-          );
-        }
+        final table = loveRequireReleaseWrapperTable(
+          receiver,
+          expected: 'SpriteBatch',
+          resolve: _spriteBatchWrapperTableIfPresent,
+        );
 
         final spriteBatch = table[_loveSpriteBatchObjectKey];
         if (spriteBatch is! LoveSpriteBatch) {

@@ -578,7 +578,7 @@ Future<_LoveAudioSourceInput> _requireAudioSourceInput(
     // Share typed buffers; only copy plain List<int> once at the boundary.
     bytes: fileData.bytes is Uint8List
         ? fileData.bytes as Uint8List
-        : Uint8List.fromList(fileData.bytes),
+        : _loveUint8List(fileData.bytes, copy: true),
     mimeType: loveAudioMimeTypeFromFilename(fileData.filename),
     durationSeconds: decodedMetadata?.durationSeconds ?? -1.0,
     durationSamples: decodedMetadata?.durationSamples ?? -1,

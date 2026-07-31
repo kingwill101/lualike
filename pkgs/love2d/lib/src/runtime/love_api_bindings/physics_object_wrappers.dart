@@ -430,7 +430,7 @@ Value _wrapPhysicsWorld(LibraryContext context, LovePhysicsWorld world) {
     return cached;
   }
 
-  final builder = BuiltinFunctionBuilder(context);
+  final builder = loveBindingBuilderForContext(context);
   final table = ValueClass.table(<Object?, Object?>{
     _lovePhysicsWorldObjectKey: world,
     'update': _buildPhysicsWorldUpdateBinding(context, builder),
@@ -692,7 +692,7 @@ Value _wrapPhysicsBody(LibraryContext context, LovePhysicsBody body) {
     return cached;
   }
 
-  final builder = BuiltinFunctionBuilder(context);
+  final builder = loveBindingBuilderForContext(context);
   final table = ValueClass.table(<Object?, Object?>{
     _lovePhysicsBodyObjectKey: body,
     'getX': Value(
@@ -1435,7 +1435,7 @@ Value _wrapPhysicsFixture(LibraryContext context, LovePhysicsFixture fixture) {
     return cached;
   }
 
-  final builder = BuiltinFunctionBuilder(context);
+  final builder = loveBindingBuilderForContext(context);
   final table = ValueClass.table(<Object?, Object?>{
     _lovePhysicsFixtureObjectKey: fixture,
     'getType': Value(
@@ -1756,7 +1756,7 @@ Value _wrapPhysicsShape(LibraryContext context, LovePhysicsShape shape) {
     return cached;
   }
 
-  final builder = BuiltinFunctionBuilder(context);
+  final builder = loveBindingBuilderForContext(context);
   final hierarchy = <String>{shape.objectTypeName, 'Shape', 'Object'};
   final entries = <Object?, Object?>{
     _lovePhysicsShapeObjectKey: shape,

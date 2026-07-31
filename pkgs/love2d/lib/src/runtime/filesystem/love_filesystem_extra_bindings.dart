@@ -1,9 +1,8 @@
 library;
 
-import 'package:lualike/library_builder.dart';
-import 'package:lualike/lualike.dart'
-    show LuaError, LuaRuntime, LuaString, Value;
+import 'package:lualike/lualike.dart' show LuaError, LuaRuntime, Value;
 
+import '../love_binding_helpers.dart';
 import '../love_module_table_helpers.dart';
 import 'love_filesystem_runtime.dart';
 
@@ -17,19 +16,20 @@ final Expando<bool> _loveFilesystemExtrasInstalled = Expando<bool>(
 
 /// Installs compatibility helpers and extra queries into `love.filesystem`.
 void installLoveFilesystemExtraBindings(LuaRuntime runtime) {
-  if (_loveFilesystemExtrasInstalled[runtime] == true) {
-    return;
-  }
-
-  final filesystemTable = _filesystemTable(runtime);
-  if (filesystemTable == null) {
-    return;
-  }
-
-  final state = LoveFilesystemState.attach(runtime);
-  final builder = BuiltinFunctionBuilder(
-    LibraryContext(environment: runtime.getCurrentEnv(), interpreter: runtime),
+  loveInstallModuleBindings(
+    runtime: runtime,
+    installed: _loveFilesystemExtrasInstalled,
+    moduleName: 'filesystem',
+    install: _installLoveFilesystemExtraBindings,
   );
+}
+
+void _installLoveFilesystemExtraBindings(
+  LuaRuntime runtime,
+  Map<dynamic, dynamic> filesystemTable,
+) {
+  final state = LoveFilesystemState.attach(runtime);
+  final builder = loveBindingBuilder(runtime);
 
   filesystemTable['setFused'] = Value(
     builder.create((args) {
@@ -54,9 +54,7 @@ void installLoveFilesystemExtraBindings(LuaRuntime runtime) {
 
   filesystemTable['exists'] = Value(
     builder.create((args) async {
-      final info = await state.getInfo(
-        _requireString(args, 0, 'love.filesystem.exists'),
-      );
+      final info = await _filesystemInfoArgument(state, args, 'exists');
       return info != null;
     }),
     functionName: 'exists',
@@ -64,9 +62,7 @@ void installLoveFilesystemExtraBindings(LuaRuntime runtime) {
 
   filesystemTable['isDirectory'] = Value(
     builder.create((args) async {
-      final info = await state.getInfo(
-        _requireString(args, 0, 'love.filesystem.isDirectory'),
-      );
+      final info = await _filesystemInfoArgument(state, args, 'isDirectory');
       return info?.type == LoveFilesystemNodeType.directory;
     }),
     functionName: 'isDirectory',
@@ -74,9 +70,7 @@ void installLoveFilesystemExtraBindings(LuaRuntime runtime) {
 
   filesystemTable['isFile'] = Value(
     builder.create((args) async {
-      final info = await state.getInfo(
-        _requireString(args, 0, 'love.filesystem.isFile'),
-      );
+      final info = await _filesystemInfoArgument(state, args, 'isFile');
       return info?.type == LoveFilesystemNodeType.file;
     }),
     functionName: 'isFile',
@@ -84,9 +78,7 @@ void installLoveFilesystemExtraBindings(LuaRuntime runtime) {
 
   filesystemTable['isSymlink'] = Value(
     builder.create((args) async {
-      final info = await state.getInfo(
-        _requireString(args, 0, 'love.filesystem.isSymlink'),
-      );
+      final info = await _filesystemInfoArgument(state, args, 'isSymlink');
       return info?.type == LoveFilesystemNodeType.symlink;
     }),
     functionName: 'isSymlink',
@@ -94,8 +86,10 @@ void installLoveFilesystemExtraBindings(LuaRuntime runtime) {
 
   filesystemTable['getLastModified'] = Value(
     builder.create((args) async {
-      final info = await state.getInfo(
-        _requireString(args, 0, 'love.filesystem.getLastModified'),
+      final info = await _filesystemInfoArgument(
+        state,
+        args,
+        'getLastModified',
       );
       if (info == null) {
         return _ioError('File does not exist');
@@ -110,9 +104,7 @@ void installLoveFilesystemExtraBindings(LuaRuntime runtime) {
 
   filesystemTable['getSize'] = Value(
     builder.create((args) async {
-      final info = await state.getInfo(
-        _requireString(args, 0, 'love.filesystem.getSize'),
-      );
+      final info = await _filesystemInfoArgument(state, args, 'getSize');
       if (info == null) {
         return _ioError('File does not exist');
       }
@@ -126,18 +118,20 @@ void installLoveFilesystemExtraBindings(LuaRuntime runtime) {
     }),
     functionName: 'getSize',
   );
-
-  _loveFilesystemExtrasInstalled[runtime] = true;
 }
 
-/// The `love.filesystem` module table from the current runtime environment.
-Map<dynamic, dynamic>? _filesystemTable(LuaRuntime runtime) {
-  return loveModuleTable(runtime, 'filesystem');
+Future<LoveFilesystemInfo?> _filesystemInfoArgument(
+  LoveFilesystemState state,
+  List<Object?> args,
+  String operation,
+) {
+  final symbol = 'love.filesystem.$operation';
+  return state.getInfo(_requireString(args, 0, symbol));
 }
 
 /// Requires a string-like argument at [index] for [symbol].
 String _requireString(List<Object?> args, int index, String symbol) {
-  final value = _stringLike(index < args.length ? args[index] : null);
+  final value = loveStringLike(index < args.length ? args[index] : null);
   if (value != null) {
     return value;
   }
@@ -146,15 +140,6 @@ String _requireString(List<Object?> args, int index, String symbol) {
 }
 
 /// Converts [value] to a filesystem string when LOVE would accept it.
-String? _stringLike(Object? value) {
-  final raw = value is Value ? value.raw : value;
-  return switch (raw) {
-    final String stringValue => stringValue,
-    final LuaString stringValue => stringValue.toString(),
-    final num numberValue => numberValue.toString(),
-    _ => null,
-  };
-}
 
 /// Returns an optional boolean argument or [defaultValue] when absent.
 bool _optionalBool(
@@ -163,7 +148,7 @@ bool _optionalBool(
   required bool defaultValue,
 }) {
   final raw = index < args.length ? args[index] : null;
-  final unwrapped = raw is Value ? raw.unwrap() : raw;
+  final unwrapped = loveRawValue(raw);
   if (unwrapped == null) {
     return defaultValue;
   }
@@ -176,7 +161,7 @@ bool _optionalBool(
 /// Converts a Lua argument to LOVE's boolean truthiness rules.
 bool _toBoolean(List<Object?> args, int index) {
   final raw = index < args.length ? args[index] : null;
-  final unwrapped = raw is Value ? raw.unwrap() : raw;
+  final unwrapped = loveRawValue(raw);
   if (unwrapped == null) {
     return false;
   }

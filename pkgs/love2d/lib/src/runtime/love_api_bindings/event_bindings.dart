@@ -25,7 +25,7 @@ LoveApiImplementation _bindEventPoll(LibraryRegistrationContext context) {
     }
 
     final runtime = _runtimeContext(context);
-    final builder = BuiltinFunctionBuilder(context);
+    final builder = loveBindingBuilderForContext(context);
     final iterator = builder.create((args) {
       final message = runtime.events.poll();
       if (message == null) {

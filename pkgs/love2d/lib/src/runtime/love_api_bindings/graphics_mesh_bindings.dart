@@ -44,7 +44,7 @@ Value _wrapMesh(LibraryRegistrationContext context, LoveMesh mesh) {
     return cached;
   }
 
-  final builder = BuiltinFunctionBuilder(context);
+  final builder = loveBindingBuilderForContext(context);
   final table = ValueClass.table(<Object?, Object?>{
     _loveDrawableKindKey: _loveDrawableKindMesh,
     _loveMeshObjectKey: mesh,

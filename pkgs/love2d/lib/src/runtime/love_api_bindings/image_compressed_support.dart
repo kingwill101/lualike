@@ -9,9 +9,7 @@ LoveCompressedImageData _decodeCompressedImageData({
   required List<int> bytes,
   required String source,
 }) {
-  final normalizedBytes = bytes is Uint8List
-      ? bytes
-      : Uint8List.fromList(bytes);
+  final normalizedBytes = _loveUint8List(bytes);
 
   if (_isCompressedDds(normalizedBytes)) {
     return _decodeCompressedDds(normalizedBytes, source: source);

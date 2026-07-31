@@ -37,7 +37,7 @@ Value _wrapPhysicsContact(LibraryContext context, LovePhysicsContact contact) {
     return cached;
   }
 
-  final builder = BuiltinFunctionBuilder(context);
+  final builder = loveBindingBuilderForContext(context);
   final table = ValueClass.table(<Object?, Object?>{
     _lovePhysicsContactObjectKey: contact,
     'getChildren': Value(

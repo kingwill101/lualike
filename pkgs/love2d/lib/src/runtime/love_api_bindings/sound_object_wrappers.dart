@@ -97,7 +97,7 @@ Value _wrapSoundData(LibraryRegistrationContext context, LoveSoundData data) {
     return cached;
   }
 
-  final builder = BuiltinFunctionBuilder(context);
+  final builder = loveBindingBuilderForContext(context);
   final table = _wrapLoveDataObject(
     context,
     cacheKey: 'SoundData',
@@ -215,12 +215,12 @@ Value _wrapDecoder(
   }
 
   final methods = _decoderMethodsForContext(context);
-  final methodsMap = methods.raw as Map<Object?, Object?>;
-  final table = ValueClass.table(<Object?, Object?>{
-    _loveDecoderObjectKey: decoder,
-    ...methodsMap,
-  })..interpreter = context.interpreter;
-  table.setMetatable(<String, dynamic>{'__index': methods});
+  final table = loveObjectWrapperTable(
+    context: loveBindingContextForContext(context),
+    objectKey: _loveDecoderObjectKey,
+    object: decoder,
+    methods: methods,
+  );
   _loveDecoderWrapperCache[decoder] = table;
   return table;
 }
@@ -237,7 +237,7 @@ Value _decoderMethodsForContext(LibraryRegistrationContext context) {
     return cached;
   }
 
-  final builder = BuiltinFunctionBuilder(context);
+  final builder = loveBindingBuilderForContext(context);
   const hierarchy = <String>{'Decoder', 'Object'};
   final methods = ValueClass.table(<Object?, Object?>{
     'clone': Value(
@@ -293,15 +293,11 @@ Value _decoderMethodsForContext(LibraryRegistrationContext context) {
     'release': Value(
       builder.create((args) {
         final receiver = _valueAt(args, 0);
-        final table = _decoderWrapperTableIfPresent(receiver);
-        if (table == null) {
-          _throwLuaStyleTypeError(
-            symbol: 'Object:release',
-            index: 0,
-            expected: 'Decoder',
-            actual: receiver,
-          );
-        }
+        final table = loveRequireReleaseWrapperTable(
+          receiver,
+          expected: 'Decoder',
+          resolve: _decoderWrapperTableIfPresent,
+        );
 
         final decoder = table[_loveDecoderObjectKey];
         if (decoder is! LoveSoundDecoder) {

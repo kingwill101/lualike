@@ -41,7 +41,7 @@ Value _wrapParticleSystem(
     return cached;
   }
 
-  final builder = BuiltinFunctionBuilder(context);
+  final builder = loveBindingBuilderForContext(context);
   final runtime = _runtimeContext(context);
   const hierarchy = <String>{'ParticleSystem', 'Drawable', 'Object'};
   final table = ValueClass.table(<Object?, Object?>{
@@ -419,15 +419,11 @@ Value _wrapParticleSystem(
     'release': Value(
       builder.create((args) {
         final receiver = _valueAt(args, 0);
-        final table = _particleSystemWrapperTableIfPresent(receiver);
-        if (table == null) {
-          _throwLuaStyleTypeError(
-            symbol: 'Object:release',
-            index: 0,
-            expected: 'ParticleSystem',
-            actual: receiver,
-          );
-        }
+        final table = loveRequireReleaseWrapperTable(
+          receiver,
+          expected: 'ParticleSystem',
+          resolve: _particleSystemWrapperTableIfPresent,
+        );
 
         final particleSystem = table[_loveParticleSystemObjectKey];
         if (particleSystem is! LoveParticleSystem) {

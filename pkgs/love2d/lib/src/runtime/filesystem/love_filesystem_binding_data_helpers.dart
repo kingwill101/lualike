@@ -94,7 +94,7 @@ Future<List<int>> _dataBytes(
   int argumentIndex = 2,
   String expectedTypeDescription = 'string or Data',
 }) async {
-  final raw = value is Value ? value.raw : value;
+  final raw = loveRawValue(value);
   final fileData = value != null ? _fileDataIfPresent(value) : null;
   final bytes = switch (raw) {
     final LuaString stringValue => stringValue.bytes,
@@ -147,7 +147,7 @@ Value? _callableValue(Object? value) {
 
 /// Returns the encoded bytes for string-like Lua values.
 List<int>? _stringBytes(Object? value) {
-  final raw = value is Value ? value.raw : value;
+  final raw = loveRawValue(value);
   return switch (raw) {
     final LuaString stringValue => stringValue.bytes,
     final String stringValue => LuaString.fromDartString(stringValue).bytes,

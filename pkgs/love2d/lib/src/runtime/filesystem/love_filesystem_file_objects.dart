@@ -107,6 +107,20 @@ class LoveFilesystemFile {
   /// The buffering size that will be applied to the underlying device.
   int get bufferSize => _bufferSize;
 
+  Future<void> _configureOpenedDevice(IODevice device) async {
+    final effectiveBufferSize = _normalizeLoveBufferSize(
+      _bufferMode,
+      _bufferSize,
+    );
+    try {
+      await device.setBuffering(_bufferMode, effectiveBufferSize);
+      _bufferSize = effectiveBufferSize;
+    } catch (_) {
+      _bufferMode = BufferMode.none;
+      _bufferSize = 0;
+    }
+  }
+
   /// The filename extension without a leading dot.
   String get extension {
     final dotIndex = filename.lastIndexOf('.');
@@ -166,17 +180,7 @@ class LoveFilesystemFile {
       openedPath = physicalPath;
     }
 
-    final effectiveBufferSize = _normalizeLoveBufferSize(
-      _bufferMode,
-      _bufferSize,
-    );
-    try {
-      await device.setBuffering(_bufferMode, effectiveBufferSize);
-      _bufferSize = effectiveBufferSize;
-    } catch (_) {
-      _bufferMode = BufferMode.none;
-      _bufferSize = 0;
-    }
+    await _configureOpenedDevice(device);
 
     _device = device;
     _mode = mode;
@@ -212,7 +216,9 @@ class LoveFilesystemFile {
   /// Reads up to [size] bytes from this file.
   ///
   /// Opens the file temporarily in read mode when needed.
-  Future<List<int>> readBytes([int size = -1]) async {
+  Future<T> _withReadableDevice<T>(
+    Future<T> Function(IODevice device) read,
+  ) async {
     final wasOpen = isOpen;
     if (wasOpen && _mode != 'r') {
       throw StateError('File is not opened for reading.');
@@ -225,7 +231,19 @@ class LoveFilesystemFile {
     }
 
     try {
-      final device = _device!;
+      return await read(_device!);
+    } finally {
+      if (!wasOpen) {
+        await close();
+      }
+    }
+  }
+
+  /// Reads up to [size] bytes from this file.
+  ///
+  /// Opens the file temporarily in read mode when needed.
+  Future<List<int>> readBytes([int size = -1]) async {
+    return _withReadableDevice((device) async {
       final result = await device.read(size < 0 ? 'a' : '$size');
       if (!result.isSuccess) {
         throw StateError(result.error ?? 'Could not read from file.');
@@ -235,30 +253,14 @@ class LoveFilesystemFile {
       }
 
       return _bytesFromIODeviceValue(result.value);
-    } finally {
-      if (!wasOpen) {
-        await close();
-      }
-    }
+    });
   }
 
   /// Reads the next line from this file as bytes.
   ///
   /// Returns `null` at end of file.
   Future<List<int>?> readLineBytes({bool includeLineTerminator = false}) async {
-    final wasOpen = isOpen;
-    if (wasOpen && _mode != 'r') {
-      throw StateError('File is not opened for reading.');
-    }
-    if (!wasOpen) {
-      final opened = await open('r');
-      if (!opened) {
-        throw StateError('Could not open file.');
-      }
-    }
-
-    try {
-      final device = _device!;
+    return _withReadableDevice((device) async {
       final result = await device.read(includeLineTerminator ? 'L' : 'l');
       if (!result.isSuccess) {
         throw StateError(result.error ?? 'Could not read from file.');
@@ -270,11 +272,7 @@ class LoveFilesystemFile {
       }
 
       return _bytesFromIODeviceValue(value);
-    } finally {
-      if (!wasOpen) {
-        await close();
-      }
-    }
+    });
   }
 
   /// Writes [bytes] to this file.
@@ -367,8 +365,7 @@ class LoveFilesystemFile {
     return true;
   }
 
-  /// Returns the file size in bytes, if it can be resolved.
-  Future<int?> getSize() async {
+  Future<T> _withTemporarilyOpenedFile<T>(Future<T> Function() action) async {
     final wasOpen = isOpen;
     if (!wasOpen) {
       final opened = await open('r');
@@ -378,6 +375,17 @@ class LoveFilesystemFile {
     }
 
     try {
+      return await action();
+    } finally {
+      if (!wasOpen) {
+        await close();
+      }
+    }
+  }
+
+  /// Returns the file size in bytes, if it can be resolved.
+  Future<int?> getSize() async {
+    return _withTemporarilyOpenedFile(() async {
       final openedPath = _openedPath;
       if (openedPath != null) {
         return state.adapter.fileSize(openedPath);
@@ -387,11 +395,7 @@ class LoveFilesystemFile {
         filename,
         filterType: LoveFilesystemNodeType.file,
       ))?.size;
-    } finally {
-      if (!wasOpen) {
-        await close();
-      }
-    }
+    });
   }
 }
 
@@ -435,17 +439,7 @@ class LoveFilesystemDroppedFile extends LoveFilesystemFile {
       }
     }
 
-    final effectiveBufferSize = _normalizeLoveBufferSize(
-      bufferMode,
-      bufferSize,
-    );
-    try {
-      await device.setBuffering(bufferMode, effectiveBufferSize);
-      _bufferSize = effectiveBufferSize;
-    } catch (_) {
-      _bufferMode = BufferMode.none;
-      _bufferSize = 0;
-    }
+    await _configureOpenedDevice(device);
 
     _device = device;
     _mode = mode;
@@ -479,20 +473,8 @@ class LoveFilesystemDroppedFile extends LoveFilesystemFile {
   @override
   /// Returns the size of the dropped host file.
   Future<int?> getSize() async {
-    final wasOpen = isOpen;
-    if (!wasOpen) {
-      final opened = await open('r');
-      if (!opened) {
-        throw StateError('Could not open file.');
-      }
-    }
-
-    try {
-      return state.adapter.fileSize(physicalPath);
-    } finally {
-      if (!wasOpen) {
-        await close();
-      }
-    }
+    return _withTemporarilyOpenedFile(
+      () => state.adapter.fileSize(physicalPath),
+    );
   }
 }

@@ -137,15 +137,15 @@ LoveApiImplementation _bindImageNewCompressedData(
 Uint8List? _rawBytesIfPresent(Object? value) {
   final fileData = _filesystemFileDataCompatIfPresent(value);
   if (fileData != null) {
-    return Uint8List.fromList(fileData.bytes);
+    return _loveUint8List(fileData.bytes, copy: true);
   }
 
   final raw = _rawValue(value);
   return switch (raw) {
-    final Uint8List bytes => bytes,
+    final Uint8List bytes => _loveUint8List(bytes),
     final LuaString stringValue => stringValue.bytes,
     final String stringValue => Uint8List.fromList(utf8.encode(stringValue)),
-    final List<int> bytes => Uint8List.fromList(bytes),
+    final List<int> bytes => _loveUint8List(bytes),
     _ => null,
   };
 }

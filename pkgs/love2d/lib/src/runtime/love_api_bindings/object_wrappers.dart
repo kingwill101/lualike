@@ -17,7 +17,7 @@ Value _fontMethodsForContext(LibraryRegistrationContext context) {
     return cached;
   }
 
-  final builder = BuiltinFunctionBuilder(context);
+  final builder = loveBindingBuilderForContext(context);
   const hierarchy = <String>{'Font', 'Object'};
   final methods = ValueClass.table(<Object?, Object?>{
     'getAscent': Value(
@@ -218,12 +218,12 @@ Value _wrapFont(LibraryRegistrationContext context, LoveFont font) {
   }
 
   final methods = _fontMethodsForContext(context);
-  final methodsMap = methods.raw as Map<Object?, Object?>;
-  final table = ValueClass.table(<Object?, Object?>{
-    _loveFontObjectKey: font,
-    ...methodsMap,
-  })..interpreter = context.interpreter;
-  table.setMetatable(<String, dynamic>{'__index': methods});
+  final table = loveObjectWrapperTable(
+    context: loveBindingContextForContext(context),
+    objectKey: _loveFontObjectKey,
+    object: font,
+    methods: methods,
+  );
   _loveFontWrapperCache[font] = table;
   return table;
 }
@@ -271,7 +271,7 @@ Value _wrapTextDrawable(
     return cached;
   }
 
-  final builder = BuiltinFunctionBuilder(context);
+  final builder = loveBindingBuilderForContext(context);
   const hierarchy = <String>{'Text', 'Drawable', 'Object'};
   final table = ValueClass.table(<Object?, Object?>{
     _loveDrawableKindKey: _loveDrawableKindText,
@@ -539,13 +539,15 @@ Value _wrapImage(LibraryRegistrationContext context, LoveImage image) {
   }
 
   final methods = _imageMethodsForContext(context);
-  final methodsMap = methods.raw as Map<Object?, Object?>;
-  final table = ValueClass.table(<Object?, Object?>{
-    _loveDrawableKindKey: _loveDrawableKindImage,
-    _loveImageObjectKey: image,
-    ...methodsMap,
-  })..interpreter = context.interpreter;
-  table.setMetatable(<String, dynamic>{'__index': methods});
+  final table = loveObjectWrapperTable(
+    context: loveBindingContextForContext(context),
+    objectKey: _loveImageObjectKey,
+    object: image,
+    methods: methods,
+    additionalFields: <Object?, Object?>{
+      _loveDrawableKindKey: _loveDrawableKindImage,
+    },
+  );
   _loveImageWrapperCache[image] = table;
   return table;
 }
@@ -562,7 +564,7 @@ Value _imageMethodsForContext(LibraryRegistrationContext context) {
     return cached;
   }
 
-  final builder = BuiltinFunctionBuilder(context);
+  final builder = loveBindingBuilderForContext(context);
   const hierarchy = <String>{'Image', 'Texture', 'Drawable', 'Object'};
   final methods = ValueClass.table(<Object?, Object?>{
     ..._textureEntries(
@@ -813,7 +815,6 @@ Value _imageMethodsForContext(LibraryRegistrationContext context) {
   return methods;
 }
 
-
 /// Whether a canvas has already been released through `Object:release`.
 final Expando<bool> _loveCanvasReleased = Expando<bool>('love2dCanvasReleased');
 
@@ -830,14 +831,16 @@ Value _wrapCanvas(LibraryRegistrationContext context, LoveCanvas canvas) {
   }
 
   final methods = _canvasMethodsForContext(context);
-  final methodsMap = methods.raw as Map<Object?, Object?>;
-  final table = ValueClass.table(<Object?, Object?>{
-    _loveDrawableKindKey: _loveDrawableKindImage,
-    _loveImageObjectKey: canvas,
-    _loveCanvasObjectKey: canvas,
-    ...methodsMap,
-  })..interpreter = context.interpreter;
-  table.setMetatable(<String, dynamic>{'__index': methods});
+  final table = loveObjectWrapperTable(
+    context: loveBindingContextForContext(context),
+    objectKey: _loveCanvasObjectKey,
+    object: canvas,
+    methods: methods,
+    additionalFields: <Object?, Object?>{
+      _loveDrawableKindKey: _loveDrawableKindImage,
+      _loveImageObjectKey: canvas,
+    },
+  );
   _loveCanvasWrapperCache[canvas] = table;
   return table;
 }
@@ -854,7 +857,7 @@ Value _canvasMethodsForContext(LibraryRegistrationContext context) {
     return cached;
   }
 
-  final builder = BuiltinFunctionBuilder(context);
+  final builder = loveBindingBuilderForContext(context);
   final runtime = _runtimeContext(context);
   const hierarchy = <String>{'Canvas', 'Texture', 'Drawable', 'Object'};
   final methods = ValueClass.table(<Object?, Object?>{
@@ -1209,7 +1212,7 @@ Value _wrapImageData(LibraryContext context, LoveImageData imageData) {
     return cached;
   }
 
-  final builder = BuiltinFunctionBuilder(context);
+  final builder = loveBindingBuilderForContext(context);
   final interpreter = context.interpreter;
   if (interpreter == null) {
     throw StateError('No interpreter available for ImageData bindings');
@@ -1479,7 +1482,7 @@ Value _wrapFilesystemFileDataCompat(
     return cached;
   }
 
-  final builder = BuiltinFunctionBuilder(context);
+  final builder = loveBindingBuilderForContext(context);
   const hierarchy = <String>{'FileData', 'Data', 'Object'};
 
   LoveFilesystemFileData requireFileData(
@@ -1908,7 +1911,7 @@ Value _wrapQuad(LibraryRegistrationContext context, LoveQuad quad) {
     return cached;
   }
 
-  final builder = BuiltinFunctionBuilder(context);
+  final builder = loveBindingBuilderForContext(context);
   final table = ValueClass.table(<Object?, Object?>{
     _loveQuadObjectKey: quad,
     'getTextureDimensions': Value(
@@ -1973,7 +1976,7 @@ Value _wrapTransform(
     return cached;
   }
 
-  final builder = BuiltinFunctionBuilder(context);
+  final builder = loveBindingBuilderForContext(context);
   final table = ValueClass.table(<Object?, Object?>{
     _loveTransformObjectKey: transform,
     'apply': Value(

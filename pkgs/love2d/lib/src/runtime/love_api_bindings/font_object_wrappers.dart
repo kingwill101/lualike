@@ -150,7 +150,7 @@ Value _wrapGlyphData(LibraryRegistrationContext context, LoveGlyphData data) {
     return cached;
   }
 
-  final builder = BuiltinFunctionBuilder(context);
+  final builder = loveBindingBuilderForContext(context);
   const hierarchy = <String>{'GlyphData', 'Data', 'Object'};
   final table = _wrapLoveDataObject(
     context,
@@ -293,7 +293,7 @@ Value _wrapRasterizer(
     return cached;
   }
 
-  final builder = BuiltinFunctionBuilder(context);
+  final builder = loveBindingBuilderForContext(context);
   const hierarchy = <String>{'Rasterizer', 'Object'};
   final table = ValueClass.table(<Object?, Object?>{
     _loveRasterizerObjectKey: rasterizer,
@@ -385,15 +385,11 @@ Value _wrapRasterizer(
     'release': Value(
       builder.create((args) {
         final receiver = _valueAt(args, 0);
-        final table = _rasterizerWrapperTableIfPresent(receiver);
-        if (table == null) {
-          _throwLuaStyleTypeError(
-            symbol: 'Object:release',
-            index: 0,
-            expected: 'Rasterizer',
-            actual: receiver,
-          );
-        }
+        final table = loveRequireReleaseWrapperTable(
+          receiver,
+          expected: 'Rasterizer',
+          resolve: _rasterizerWrapperTableIfPresent,
+        );
 
         final rasterizer = table[_loveRasterizerObjectKey];
         if (rasterizer is! LoveRasterizer) {

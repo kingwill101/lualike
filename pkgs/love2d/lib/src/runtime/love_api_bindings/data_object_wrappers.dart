@@ -33,7 +33,6 @@ T _requireLoveDataSubtype<T extends Object>(
   );
 }
 
-
 /// Wraps [data] as a Lua-facing `ByteData` object table.
 Value _wrapByteData(LibraryRegistrationContext context, LoveByteData data) {
   final cached = _loveByteDataWrapperCache[data];
@@ -88,7 +87,7 @@ Value _wrapCompressedData(
     return cached;
   }
 
-  final builder = BuiltinFunctionBuilder(context);
+  final builder = loveBindingBuilderForContext(context);
   final table = _wrapLoveDataObject(
     context,
     cacheKey: 'CompressedData',
@@ -133,11 +132,10 @@ Value _wrapLoveDataObject<T extends LoveDataObject>(
     throw StateError('No Lua runtime available for $typeName bindings');
   }
 
-  final methodsCache = _loveDataMethodsCache[interpreter] ??=
-      <String, Value>{};
+  final methodsCache = _loveDataMethodsCache[interpreter] ??= <String, Value>{};
   Value? cachedMethods = methodsCache[cacheKey];
   if (cachedMethods == null) {
-    final builder = BuiltinFunctionBuilder(context);
+    final builder = loveBindingBuilderForContext(context);
     final methods = ValueClass.table(<Object?, Object?>{
       'clone': Value(builder.create(clone), functionName: 'clone'),
       'getPointer': Value(
@@ -256,14 +254,13 @@ Value _wrapLoveDataObject<T extends LoveDataObject>(
     cachedMethods = methods;
   }
 
-  final methodsMap = cachedMethods.raw as Map<Object?, Object?>;
-  final table = ValueClass.table(<Object?, Object?>{
-    objectKey: rawObject,
-    ...methodsMap,
-    ...extraEntries,
-  })..interpreter = interpreter;
-  table.setMetatable(<String, dynamic>{'__index': cachedMethods});
-  return table;
+  return loveObjectWrapperTable(
+    context: context,
+    objectKey: objectKey,
+    object: rawObject,
+    methods: cachedMethods,
+    additionalFields: extraEntries,
+  );
 }
 
 /// Wraps a transient pointer view for a `Data` object.

@@ -67,6 +67,10 @@ final class LovePhysicsState {
   forge2d.Vector2 scaleUpVector(forge2d.Vector2 value) =>
       forge2d.Vector2(scaleUpScalar(value.x), scaleUpScalar(value.y));
 
+  /// Converts a forge2d vector into a LOVE-space coordinate record.
+  ({double x, double y}) scaleUpVectorXY(forge2d.Vector2 value) =>
+      (x: scaleUpScalar(value.x), y: scaleUpScalar(value.y));
+
   /// Creates a new physics world.
   LovePhysicsWorld newWorld({
     double gravityX = 0,
@@ -179,11 +183,7 @@ final class LovePhysicsWorld {
 
   /// The world gravity in LOVE units.
   ({double x, double y}) get gravity {
-    final gravity = _world.gravity;
-    return (
-      x: state.scaleUpScalar(gravity.x),
-      y: state.scaleUpScalar(gravity.y),
-    );
+    return state.scaleUpVectorXY(_world.gravity);
   }
 
   /// Creates a new body in this world.
@@ -530,38 +530,22 @@ final class LovePhysicsBody {
 
   /// The body's world position in LOVE units.
   ({double x, double y}) get position {
-    final position = _activeBody.position;
-    return (
-      x: _state.scaleUpScalar(position.x),
-      y: _state.scaleUpScalar(position.y),
-    );
+    return _state.scaleUpVectorXY(_activeBody.position);
   }
 
   /// The body's linear velocity in LOVE units.
   ({double x, double y}) get linearVelocity {
-    final velocity = _activeBody.linearVelocity;
-    return (
-      x: _state.scaleUpScalar(velocity.x),
-      y: _state.scaleUpScalar(velocity.y),
-    );
+    return _state.scaleUpVectorXY(_activeBody.linearVelocity);
   }
 
   /// The body's world-space center of mass in LOVE units.
   ({double x, double y}) get worldCenter {
-    final center = _activeBody.worldCenter;
-    return (
-      x: _state.scaleUpScalar(center.x),
-      y: _state.scaleUpScalar(center.y),
-    );
+    return _state.scaleUpVectorXY(_activeBody.worldCenter);
   }
 
   /// The body's local center of mass in LOVE units.
   ({double x, double y}) get localCenter {
-    final center = _activeBody.getLocalCenter();
-    return (
-      x: _state.scaleUpScalar(center.x),
-      y: _state.scaleUpScalar(center.y),
-    );
+    return _state.scaleUpVectorXY(_activeBody.getLocalCenter());
   }
 
   /// The body's x-position in LOVE units.
@@ -654,10 +638,7 @@ final class LovePhysicsBody {
     final vector = _activeBody.localVector(
       _state.scaleDownVectorXY(worldX, worldY),
     );
-    return (
-      x: _state.scaleUpScalar(vector.x),
-      y: _state.scaleUpScalar(vector.y),
-    );
+    return _state.scaleUpVectorXY(vector);
   }
 
   /// Converts a local-space point to world coordinates.
@@ -665,7 +646,7 @@ final class LovePhysicsBody {
     final point = _activeBody.worldPoint(
       _state.scaleDownVectorXY(localX, localY),
     );
-    return (x: _state.scaleUpScalar(point.x), y: _state.scaleUpScalar(point.y));
+    return _state.scaleUpVectorXY(point);
   }
 
   /// Converts local-space [points] to world coordinates.
@@ -682,10 +663,7 @@ final class LovePhysicsBody {
     final vector = _activeBody.worldVector(
       _state.scaleDownVectorXY(localX, localY),
     );
-    return (
-      x: _state.scaleUpScalar(vector.x),
-      y: _state.scaleUpScalar(vector.y),
-    );
+    return _state.scaleUpVectorXY(vector);
   }
 
   /// Returns the linear velocity at the world-space point (`x`, `y`).
@@ -693,10 +671,7 @@ final class LovePhysicsBody {
     final velocity = _activeBody.linearVelocityFromWorldPoint(
       _state.scaleDownVectorXY(x, y),
     );
-    return (
-      x: _state.scaleUpScalar(velocity.x),
-      y: _state.scaleUpScalar(velocity.y),
-    );
+    return _state.scaleUpVectorXY(velocity);
   }
 
   /// Returns the linear velocity at the local-space point (`x`, `y`).
@@ -704,10 +679,7 @@ final class LovePhysicsBody {
     final velocity = _activeBody.linearVelocityFromLocalPoint(
       _state.scaleDownVectorXY(x, y),
     );
-    return (
-      x: _state.scaleUpScalar(velocity.x),
-      y: _state.scaleUpScalar(velocity.y),
-    );
+    return _state.scaleUpVectorXY(velocity);
   }
 
   /// Applies a linear impulse to this body.

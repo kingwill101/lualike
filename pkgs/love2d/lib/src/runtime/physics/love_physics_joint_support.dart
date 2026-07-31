@@ -8,6 +8,39 @@ final Expando<List<LovePhysicsJoint>> _lovePhysicsJointRegistry =
 final Expando<forge2d.Body> _lovePhysicsMouseJointGroundBodyRegistry =
     Expando<forge2d.Body>('love2dPhysicsMouseJointGroundBody');
 
+({forge2d.Vector2 localAnchorA, forge2d.Vector2 localAnchorB})
+_lovePhysicsLocalAnchors(
+  LovePhysicsWorld world,
+  LovePhysicsBody bodyA,
+  LovePhysicsBody bodyB,
+  double x1,
+  double y1,
+  double x2,
+  double y2,
+) {
+  final anchorA = world.state.scaleDownVectorXY(x1, y1);
+  final anchorB = world.state.scaleDownVectorXY(x2, y2);
+  return (
+    localAnchorA: bodyA._activeBody.localPoint(anchorA).clone(),
+    localAnchorB: bodyB._activeBody.localPoint(anchorB).clone(),
+  );
+}
+
+void _validateLovePhysicsJointBodies(
+  LovePhysicsWorld world,
+  LovePhysicsBody bodyA,
+  LovePhysicsBody bodyB,
+) {
+  bodyA._activeBody;
+  bodyB._activeBody;
+  if (!identical(bodyA.world, world) || !identical(bodyB.world, world)) {
+    throw ArgumentError('Bodies must belong to the same world.');
+  }
+  if (identical(bodyA, bodyB)) {
+    throw ArgumentError('Bodies must be different.');
+  }
+}
+
 /// The default spring frequency used for mouse joints.
 const double _lovePhysicsMouseJointDefaultFrequency = 5.0;
 
@@ -59,14 +92,7 @@ extension LovePhysicsWorldJointAccess on LovePhysicsWorld {
     bool collideConnected = false,
   }) {
     _checkActive('world');
-    bodyA._activeBody;
-    bodyB._activeBody;
-    if (!identical(bodyA.world, this) || !identical(bodyB.world, this)) {
-      throw ArgumentError('Bodies must belong to the same world.');
-    }
-    if (identical(bodyA, bodyB)) {
-      throw ArgumentError('Bodies must be different.');
-    }
+    _validateLovePhysicsJointBodies(this, bodyA, bodyB);
 
     final joint = LovePhysicsDistanceJoint._create(
       world: this,
@@ -93,14 +119,7 @@ extension LovePhysicsWorldJointAccess on LovePhysicsWorld {
     bool collideConnected = false,
   }) {
     _checkActive('world');
-    bodyA._activeBody;
-    bodyB._activeBody;
-    if (!identical(bodyA.world, this) || !identical(bodyB.world, this)) {
-      throw ArgumentError('Bodies must belong to the same world.');
-    }
-    if (identical(bodyA, bodyB)) {
-      throw ArgumentError('Bodies must be different.');
-    }
+    _validateLovePhysicsJointBodies(this, bodyA, bodyB);
 
     final joint = LovePhysicsFrictionJoint._create(
       world: this,
@@ -128,14 +147,7 @@ extension LovePhysicsWorldJointAccess on LovePhysicsWorld {
     bool collideConnected = false,
   }) {
     _checkActive('world');
-    bodyA._activeBody;
-    bodyB._activeBody;
-    if (!identical(bodyA.world, this) || !identical(bodyB.world, this)) {
-      throw ArgumentError('Bodies must belong to the same world.');
-    }
-    if (identical(bodyA, bodyB)) {
-      throw ArgumentError('Bodies must be different.');
-    }
+    _validateLovePhysicsJointBodies(this, bodyA, bodyB);
 
     final joint = LovePhysicsRopeJoint._create(
       world: this,
@@ -164,14 +176,7 @@ extension LovePhysicsWorldJointAccess on LovePhysicsWorld {
     double? referenceAngle,
   }) {
     _checkActive('world');
-    bodyA._activeBody;
-    bodyB._activeBody;
-    if (!identical(bodyA.world, this) || !identical(bodyB.world, this)) {
-      throw ArgumentError('Bodies must belong to the same world.');
-    }
-    if (identical(bodyA, bodyB)) {
-      throw ArgumentError('Bodies must be different.');
-    }
+    _validateLovePhysicsJointBodies(this, bodyA, bodyB);
 
     final joint = LovePhysicsWeldJoint._create(
       world: this,
@@ -260,14 +265,7 @@ extension LovePhysicsWorldJointAccess on LovePhysicsWorld {
     bool collideConnected = true,
   }) {
     _checkActive('world');
-    bodyA._activeBody;
-    bodyB._activeBody;
-    if (!identical(bodyA.world, this) || !identical(bodyB.world, this)) {
-      throw ArgumentError('Bodies must belong to the same world.');
-    }
-    if (identical(bodyA, bodyB)) {
-      throw ArgumentError('Bodies must be different.');
-    }
+    _validateLovePhysicsJointBodies(this, bodyA, bodyB);
 
     final joint = LovePhysicsPulleyJoint._create(
       world: this,
@@ -296,14 +294,7 @@ extension LovePhysicsWorldJointAccess on LovePhysicsWorld {
     bool collideConnected = false,
   }) {
     _checkActive('world');
-    bodyA._activeBody;
-    bodyB._activeBody;
-    if (!identical(bodyA.world, this) || !identical(bodyB.world, this)) {
-      throw ArgumentError('Bodies must belong to the same world.');
-    }
-    if (identical(bodyA, bodyB)) {
-      throw ArgumentError('Bodies must be different.');
-    }
+    _validateLovePhysicsJointBodies(this, bodyA, bodyB);
 
     final joint = LovePhysicsMotorJoint._create(
       world: this,
@@ -328,14 +319,7 @@ extension LovePhysicsWorldJointAccess on LovePhysicsWorld {
     double? referenceAngle,
   }) {
     _checkActive('world');
-    bodyA._activeBody;
-    bodyB._activeBody;
-    if (!identical(bodyA.world, this) || !identical(bodyB.world, this)) {
-      throw ArgumentError('Bodies must belong to the same world.');
-    }
-    if (identical(bodyA, bodyB)) {
-      throw ArgumentError('Bodies must be different.');
-    }
+    _validateLovePhysicsJointBodies(this, bodyA, bodyB);
 
     final joint = LovePhysicsRevoluteJoint._create(
       world: this,
@@ -365,14 +349,7 @@ extension LovePhysicsWorldJointAccess on LovePhysicsWorld {
     bool collideConnected = false,
   }) {
     _checkActive('world');
-    bodyA._activeBody;
-    bodyB._activeBody;
-    if (!identical(bodyA.world, this) || !identical(bodyB.world, this)) {
-      throw ArgumentError('Bodies must belong to the same world.');
-    }
-    if (identical(bodyA, bodyB)) {
-      throw ArgumentError('Bodies must be different.');
-    }
+    _validateLovePhysicsJointBodies(this, bodyA, bodyB);
 
     final joint = LovePhysicsWheelJoint._create(
       world: this,
@@ -404,14 +381,7 @@ extension LovePhysicsWorldJointAccess on LovePhysicsWorld {
     double? referenceAngle,
   }) {
     _checkActive('world');
-    bodyA._activeBody;
-    bodyB._activeBody;
-    if (!identical(bodyA.world, this) || !identical(bodyB.world, this)) {
-      throw ArgumentError('Bodies must belong to the same world.');
-    }
-    if (identical(bodyA, bodyB)) {
-      throw ArgumentError('Bodies must be different.');
-    }
+    _validateLovePhysicsJointBodies(this, bodyA, bodyB);
 
     final joint = LovePhysicsPrismaticJoint._create(
       world: this,
@@ -531,21 +501,20 @@ abstract base class LovePhysicsJoint {
     final joint = _activeJoint;
     final anchorA = joint.anchorA;
     final anchorB = joint.anchorB;
+    final loveAnchorA = world.state.scaleUpVectorXY(anchorA);
+    final loveAnchorB = world.state.scaleUpVectorXY(anchorB);
     return (
-      x1: world.state.scaleUpScalar(anchorA.x),
-      y1: world.state.scaleUpScalar(anchorA.y),
-      x2: world.state.scaleUpScalar(anchorB.x),
-      y2: world.state.scaleUpScalar(anchorB.y),
+      x1: loveAnchorA.x,
+      y1: loveAnchorA.y,
+      x2: loveAnchorB.x,
+      y2: loveAnchorB.y,
     );
   }
 
   /// The reaction force in LOVE units for the inverse timestep [invDt].
   ({double x, double y}) reactionForce(double invDt) {
     final force = _activeJoint.reactionForce(invDt);
-    return (
-      x: world.state.scaleUpScalar(force.x),
-      y: world.state.scaleUpScalar(force.y),
-    );
+    return world.state.scaleUpVectorXY(force);
   }
 
   /// The reaction torque in LOVE units for the inverse timestep [invDt].
@@ -630,14 +599,21 @@ final class LovePhysicsDistanceJoint extends LovePhysicsJoint {
     required double y2,
     required bool collideConnected,
   }) {
-    final anchorA = world.state.scaleDownVectorXY(x1, y1);
-    final anchorB = world.state.scaleDownVectorXY(x2, y2);
+    final anchors = _lovePhysicsLocalAnchors(
+      world,
+      bodyA,
+      bodyB,
+      x1,
+      y1,
+      x2,
+      y2,
+    );
     final joint = LovePhysicsDistanceJoint._(
       world: world,
       bodyA: bodyA,
       bodyB: bodyB,
-      localAnchorA: bodyA._activeBody.localPoint(anchorA).clone(),
-      localAnchorB: bodyB._activeBody.localPoint(anchorB).clone(),
+      localAnchorA: anchors.localAnchorA,
+      localAnchorB: anchors.localAnchorB,
       length: math.sqrt(((x2 - x1) * (x2 - x1)) + ((y2 - y1) * (y2 - y1))),
       frequency: 0,
       dampingRatio: 0,
@@ -749,14 +725,21 @@ final class LovePhysicsFrictionJoint extends LovePhysicsJoint {
     required double yB,
     required bool collideConnected,
   }) {
-    final anchorA = world.state.scaleDownVectorXY(xA, yA);
-    final anchorB = world.state.scaleDownVectorXY(xB, yB);
+    final anchors = _lovePhysicsLocalAnchors(
+      world,
+      bodyA,
+      bodyB,
+      xA,
+      yA,
+      xB,
+      yB,
+    );
     final joint = LovePhysicsFrictionJoint._(
       world: world,
       bodyA: bodyA,
       bodyB: bodyB,
-      localAnchorA: bodyA._activeBody.localPoint(anchorA).clone(),
-      localAnchorB: bodyB._activeBody.localPoint(anchorB).clone(),
+      localAnchorA: anchors.localAnchorA,
+      localAnchorB: anchors.localAnchorB,
       collideConnected: collideConnected,
     );
     joint._createJoint();
@@ -839,14 +822,21 @@ final class LovePhysicsRopeJoint extends LovePhysicsJoint {
     required double maxLength,
     required bool collideConnected,
   }) {
-    final anchorA = world.state.scaleDownVectorXY(x1, y1);
-    final anchorB = world.state.scaleDownVectorXY(x2, y2);
+    final anchors = _lovePhysicsLocalAnchors(
+      world,
+      bodyA,
+      bodyB,
+      x1,
+      y1,
+      x2,
+      y2,
+    );
     final joint = LovePhysicsRopeJoint._(
       world: world,
       bodyA: bodyA,
       bodyB: bodyB,
-      localAnchorA: bodyA._activeBody.localPoint(anchorA).clone(),
-      localAnchorB: bodyB._activeBody.localPoint(anchorB).clone(),
+      localAnchorA: anchors.localAnchorA,
+      localAnchorB: anchors.localAnchorB,
       maxLength: maxLength,
       collideConnected: collideConnected,
     );
@@ -1011,11 +1001,13 @@ final class LovePhysicsPulleyJoint extends LovePhysicsJoint {
   ({double x1, double y1, double x2, double y2}) get groundAnchors {
     final anchorA = _activePulleyJoint.getGroundAnchorA();
     final anchorB = _activePulleyJoint.getGroundAnchorB();
+    final loveAnchorA = world.state.scaleUpVectorXY(anchorA);
+    final loveAnchorB = world.state.scaleUpVectorXY(anchorB);
     return (
-      x1: world.state.scaleUpScalar(anchorA.x),
-      y1: world.state.scaleUpScalar(anchorA.y),
-      x2: world.state.scaleUpScalar(anchorB.x),
-      y2: world.state.scaleUpScalar(anchorB.y),
+      x1: loveAnchorA.x,
+      y1: loveAnchorA.y,
+      x2: loveAnchorB.x,
+      y2: loveAnchorB.y,
     );
   }
 
@@ -1280,10 +1272,7 @@ final class LovePhysicsMotorJoint extends LovePhysicsJoint {
   /// The linear offset in LOVE units.
   ({double x, double y}) get linearOffset {
     final offset = _activeMotorJoint.getLinearOffset();
-    return (
-      x: world.state.scaleUpScalar(offset.x),
-      y: world.state.scaleUpScalar(offset.y),
-    );
+    return world.state.scaleUpVectorXY(offset);
   }
 
   /// The angular offset in radians.
@@ -1390,14 +1379,21 @@ final class LovePhysicsRevoluteJoint extends LovePhysicsJoint {
     required bool collideConnected,
     required double? referenceAngle,
   }) {
-    final anchorA = world.state.scaleDownVectorXY(xA, yA);
-    final anchorB = world.state.scaleDownVectorXY(xB, yB);
+    final anchors = _lovePhysicsLocalAnchors(
+      world,
+      bodyA,
+      bodyB,
+      xA,
+      yA,
+      xB,
+      yB,
+    );
     final joint = LovePhysicsRevoluteJoint._(
       world: world,
       bodyA: bodyA,
       bodyB: bodyB,
-      localAnchorA: bodyA._activeBody.localPoint(anchorA).clone(),
-      localAnchorB: bodyB._activeBody.localPoint(anchorB).clone(),
+      localAnchorA: anchors.localAnchorA,
+      localAnchorB: anchors.localAnchorB,
       referenceAngle:
           referenceAngle ?? bodyB._activeBody.angle - bodyA._activeBody.angle,
       collideConnected: collideConnected,
@@ -1555,15 +1551,22 @@ final class LovePhysicsWheelJoint extends LovePhysicsJoint {
     required double ay,
     required bool collideConnected,
   }) {
-    final anchorA = world.state.scaleDownVectorXY(xA, yA);
-    final anchorB = world.state.scaleDownVectorXY(xB, yB);
+    final anchors = _lovePhysicsLocalAnchors(
+      world,
+      bodyA,
+      bodyB,
+      xA,
+      yA,
+      xB,
+      yB,
+    );
     final axis = forge2d.Vector2(ax, ay);
     final joint = LovePhysicsWheelJoint._(
       world: world,
       bodyA: bodyA,
       bodyB: bodyB,
-      localAnchorA: bodyA._activeBody.localPoint(anchorA).clone(),
-      localAnchorB: bodyB._activeBody.localPoint(anchorB).clone(),
+      localAnchorA: anchors.localAnchorA,
+      localAnchorB: anchors.localAnchorB,
       localAxisA: bodyA._activeBody.localVector(axis).clone(),
       motorEnabled: false,
       motorSpeed: 0,
@@ -1813,15 +1816,22 @@ final class LovePhysicsPrismaticJoint extends LovePhysicsJoint {
     required bool collideConnected,
     required double? referenceAngle,
   }) {
-    final anchorA = world.state.scaleDownVectorXY(xA, yA);
-    final anchorB = world.state.scaleDownVectorXY(xB, yB);
+    final anchors = _lovePhysicsLocalAnchors(
+      world,
+      bodyA,
+      bodyB,
+      xA,
+      yA,
+      xB,
+      yB,
+    );
     final axis = forge2d.Vector2(ax, ay);
     final joint = LovePhysicsPrismaticJoint._(
       world: world,
       bodyA: bodyA,
       bodyB: bodyB,
-      localAnchorA: bodyA._activeBody.localPoint(anchorA).clone(),
-      localAnchorB: bodyB._activeBody.localPoint(anchorB).clone(),
+      localAnchorA: anchors.localAnchorA,
+      localAnchorB: anchors.localAnchorB,
       localAxisA: bodyA._activeBody.localVector(axis).clone(),
       referenceAngle:
           referenceAngle ?? bodyB._activeBody.angle - bodyA._activeBody.angle,
@@ -2058,14 +2068,21 @@ final class LovePhysicsWeldJoint extends LovePhysicsJoint {
     required bool collideConnected,
     required double? referenceAngle,
   }) {
-    final anchorA = world.state.scaleDownVectorXY(xA, yA);
-    final anchorB = world.state.scaleDownVectorXY(xB, yB);
+    final anchors = _lovePhysicsLocalAnchors(
+      world,
+      bodyA,
+      bodyB,
+      xA,
+      yA,
+      xB,
+      yB,
+    );
     final joint = LovePhysicsWeldJoint._(
       world: world,
       bodyA: bodyA,
       bodyB: bodyB,
-      localAnchorA: bodyA._activeBody.localPoint(anchorA).clone(),
-      localAnchorB: bodyB._activeBody.localPoint(anchorB).clone(),
+      localAnchorA: anchors.localAnchorA,
+      localAnchorB: anchors.localAnchorB,
       referenceAngle:
           referenceAngle ?? bodyB._activeBody.angle - bodyA._activeBody.angle,
       frequency: 0,
@@ -2228,10 +2245,7 @@ final class LovePhysicsMouseJoint extends LovePhysicsJoint {
   /// The current target position in LOVE units.
   ({double x, double y}) get target {
     _activeJoint;
-    return (
-      x: world.state.scaleUpScalar(_target.x),
-      y: world.state.scaleUpScalar(_target.y),
-    );
+    return world.state.scaleUpVectorXY(_target);
   }
 
   /// The maximum force in LOVE units.

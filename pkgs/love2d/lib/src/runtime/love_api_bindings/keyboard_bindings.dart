@@ -219,19 +219,6 @@ List<String> _keyboardKeySequence(
   return _keyboardKeySequenceWithTouchState(args, symbol, touch: touch);
 }
 
-/// Normalizes scancode arguments into validated LOVE scancode strings.
-List<String> _keyboardScancodeSequence(List<Object?> args, String symbol) {
-  final values = _stringSequence(args, symbol: symbol, coerceNumbers: true);
-  return values
-      .map((value) {
-        if (!loveIsValidScancode(value)) {
-          throw LuaError('$symbol invalid scancode "$value"');
-        }
-        return value;
-      })
-      .toList(growable: false);
-}
-
 /// Returns whether any validated LOVE key constant in [args] is pressed.
 bool _keyboardAnyKeyDown(
   List<Object?> args,

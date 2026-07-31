@@ -43,12 +43,14 @@ Future<LoveFilesystemFileData> _requireVideoFilesystemSource(
 
   final file = _filesystemFileCompatIfPresent(source);
   if (file != null) {
+    var openedHere = false;
     if (!file.isOpen) {
       try {
         final opened = await file.open('r');
         if (!opened) {
           throw LuaError(_loveVideoFileOpenErrorMessage);
         }
+        openedHere = true;
       } on StateError {
         throw LuaError(_loveVideoFileOpenErrorMessage);
       }
@@ -62,6 +64,10 @@ Future<LoveFilesystemFileData> _requireVideoFilesystemSource(
       );
     } on StateError catch (error) {
       throw LuaError(error.message);
+    } finally {
+      if (openedHere) {
+        await file.close();
+      }
     }
   }
 
@@ -98,10 +104,7 @@ LoveVideoStream _newValidatedVideoStream(
 LoveApiImplementation _bindVideoNewVideoStream(
   LibraryRegistrationContext context,
 ) {
-  final libraryContext = LibraryContext(
-    environment: context.environment,
-    interpreter: context.interpreter,
-  );
+  final libraryContext = loveBindingContextForContext(context);
 
   return (args) async {
     const symbol = 'love.video.newVideoStream';

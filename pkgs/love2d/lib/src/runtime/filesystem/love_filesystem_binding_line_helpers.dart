@@ -60,13 +60,32 @@ class _LoveFilesystemFileLineCursor {
   /// Whether iteration has already reached EOF or failed permanently.
   bool _exhausted = false;
 
+  Future<void> _pendingOperation = Future<void>.value();
+
+  Future<void> _finish() async {
+    _exhausted = true;
+    if (file.isOpen) {
+      await file.close();
+    }
+  }
+
   /// Returns the next line without trailing line terminators, if any remain.
   Future<List<int>?> next() async {
+    final operation = _pendingOperation.then((_) => _nextInternal());
+    _pendingOperation = operation.then<void>(
+      (_) {},
+      onError: (Object _, StackTrace _) {},
+    );
+    return operation;
+  }
+
+  Future<List<int>?> _nextInternal() async {
     if (_exhausted) {
       return null;
     }
 
     if (file.mode != 'r') {
+      _exhausted = true;
       throw LuaError('File needs to stay in read mode.');
     }
 
@@ -81,10 +100,7 @@ class _LoveFilesystemFileLineCursor {
 
       final line = await file.readLineBytes();
       if (line == null) {
-        _exhausted = true;
-        if (file.isOpen) {
-          await file.close();
-        }
+        await _finish();
         return null;
       }
 
@@ -99,7 +115,7 @@ class _LoveFilesystemFileLineCursor {
 
       return line;
     } on StateError catch (error) {
-      _exhausted = true;
+      await _finish();
       throw LuaError(error.message);
     }
   }

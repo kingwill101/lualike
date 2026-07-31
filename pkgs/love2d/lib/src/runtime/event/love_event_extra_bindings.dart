@@ -2,7 +2,6 @@ library;
 
 import 'package:lualike/lualike.dart' show LuaRuntime, Value;
 
-import '../../generated/love_api_reference.g.dart' show loveApiEnums;
 import '../love_binding_helpers.dart';
 import '../love_module_table_helpers.dart';
 import '../love_runtime.dart';
@@ -12,23 +11,9 @@ final Expando<bool> _loveEventExtrasInstalled = Expando<bool>(
   'love2dEventExtrasInstalled',
 );
 
-/// Builds the canonical LOVE `Event` enum table from the generated API data.
-Map<String, Object?> _buildEventEnumMap() {
-  final result = <String, Object?>{};
-  for (final enumDoc in loveApiEnums) {
-    if (enumDoc.symbol == 'Event') {
-      for (final constant in enumDoc.constants) {
-        result[constant.name] = constant.name;
-      }
-      break;
-    }
-  }
-  return result;
-}
-
 /// The canonical LOVE `Event` enum constants, built once from the generated
 /// API reference. Each key maps to itself so that `Event.focus == "focus"`.
-final Map<String, Object?> _loveEventEnumMap = _buildEventEnumMap();
+final Map<String, Object?> _loveEventEnumMap = loveEnumMapForSymbol('Event');
 
 /// Extends the installed `love.event` module table with the `Event` enum table
 /// and registers a global `Event` table in [runtime].

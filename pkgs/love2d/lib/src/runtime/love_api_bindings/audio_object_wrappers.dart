@@ -99,12 +99,12 @@ Value _wrapAudioSource(
   }
 
   final methods = _audioSourceMethodsForContext(context);
-  final methodsMap = methods.raw as Map<Object?, Object?>;
-  final table = ValueClass.table(<Object?, Object?>{
-    _loveAudioSourceObjectKey: source,
-    ...methodsMap,
-  })..interpreter = context.interpreter;
-  table.setMetatable(<String, dynamic>{'__index': methods});
+  final table = loveObjectWrapperTable(
+    context: loveBindingContextForContext(context),
+    objectKey: _loveAudioSourceObjectKey,
+    object: source,
+    methods: methods,
+  );
   _loveAudioSourceWrapperCache[source] = table;
   return table;
 }
@@ -121,7 +121,7 @@ Value _audioSourceMethodsForContext(LibraryRegistrationContext context) {
     return cached;
   }
 
-  final builder = BuiltinFunctionBuilder(context);
+  final builder = loveBindingBuilderForContext(context);
   const hierarchy = <String>{'Source', 'Object'};
   final methods = ValueClass.table(<Object?, Object?>{
     'clone': Value(
@@ -317,15 +317,11 @@ Value _audioSourceMethodsForContext(LibraryRegistrationContext context) {
     'release': Value(
       builder.create((args) async {
         final receiver = _valueAt(args, 0);
-        final table = _audioSourceWrapperTableIfPresent(receiver);
-        if (table == null) {
-          _throwLuaStyleTypeError(
-            symbol: 'Object:release',
-            index: 0,
-            expected: 'Source',
-            actual: receiver,
-          );
-        }
+        final table = loveRequireReleaseWrapperTable(
+          receiver,
+          expected: 'Source',
+          resolve: _audioSourceWrapperTableIfPresent,
+        );
 
         final source = table[_loveAudioSourceObjectKey];
         if (source is! LoveAudioSource) {

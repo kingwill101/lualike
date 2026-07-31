@@ -126,7 +126,7 @@ extension _LoveFilesystemObjectBindingMethods on _LoveFilesystemBindings {
       final file = _requireFile(args, 0, 'File:read');
       var startIndex = 1;
       var containerType = _LoveFilesystemContainerType.string;
-      if (_exactStringLike(_valueAt(args, 1)) != null) {
+      if (loveStringLike(_valueAt(args, 1), allowNumber: false) != null) {
         try {
           containerType = _containerType(
             _requireString(args, 1, 'File:read'),
@@ -262,15 +262,7 @@ extension _LoveFilesystemObjectBindingMethods on _LoveFilesystemBindings {
   LoveApiImplementation objectRelease() {
     return (args) async {
       final rawObject = _wrapperObject(args, 0, 'Object:release');
-      if (_loveFilesystemReleased[rawObject] == true) {
-        return false;
-      }
-
-      _loveFilesystemReleased[rawObject] = true;
-      if (rawObject is LoveFilesystemFile && rawObject.isOpen) {
-        await rawObject.close();
-      }
-      return true;
+      return _releaseLoveFilesystemObject(rawObject);
     };
   }
 

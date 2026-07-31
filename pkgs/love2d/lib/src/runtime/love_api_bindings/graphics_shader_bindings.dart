@@ -128,21 +128,17 @@ Value _wrapShader(LibraryContext context, LoveShader shader) {
     return cached;
   }
 
-  final builder = BuiltinFunctionBuilder(context);
+  final builder = loveBindingBuilderForContext(context);
   final table = ValueClass.table(<Object?, Object?>{
     _loveShaderObjectKey: shader,
     'release': Value(
       builder.create((args) {
         final receiver = _valueAt(args, 0);
-        final table = _shaderTableIfPresent(receiver);
-        if (table == null) {
-          _throwLuaStyleTypeError(
-            symbol: 'Object:release',
-            index: 0,
-            expected: 'Shader',
-            actual: receiver,
-          );
-        }
+        final table = loveRequireReleaseWrapperTable(
+          receiver,
+          expected: 'Shader',
+          resolve: _shaderTableIfPresent,
+        );
         if (_shaderWrapperReleased(table)) {
           return false;
         }

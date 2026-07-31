@@ -27,7 +27,7 @@ void _installLoveImageExtraBindings(
   Map<dynamic, dynamic> imageTable,
 ) {
   final context = loveBindingContext(runtime);
-  final builder = BuiltinFunctionBuilder(context);
+  final builder = loveBindingBuilderForContext(context);
 
   imageTable['newCubeFaces'] = Value(
     builder.create((args) {

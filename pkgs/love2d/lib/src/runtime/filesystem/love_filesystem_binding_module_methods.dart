@@ -79,7 +79,7 @@ extension _LoveFilesystemModuleBindingMethods on _LoveFilesystemBindings {
       var tableArgumentIndex = 1;
 
       if (args.length >= 2) {
-        final typeName = _luaStringLike(_valueAt(args, 1));
+        final typeName = loveStringLike(_valueAt(args, 1));
         if (typeName != null) {
           filterType = _fileType(typeName, 'love.filesystem.getInfo');
           tableArgumentIndex = 2;
@@ -183,7 +183,7 @@ extension _LoveFilesystemModuleBindingMethods on _LoveFilesystemBindings {
   /// Implements `love.filesystem.lines`.
   LoveApiImplementation lines() {
     return (args) async {
-      final filename = _luaStringLike(_valueAt(args, 0));
+      final filename = loveStringLike(_valueAt(args, 0));
       if (filename == null) {
         throw LuaError('love.filesystem.lines expected filename.');
       }
@@ -247,7 +247,7 @@ extension _LoveFilesystemModuleBindingMethods on _LoveFilesystemBindings {
         late final bool appendToPath;
 
         if (mountedData.archiveName != null &&
-            !(args.length >= 3 && _luaStringLike(_valueAt(args, 2)) != null)) {
+            !(args.length >= 3 && loveStringLike(_valueAt(args, 2)) != null)) {
           archiveName = mountedData.archiveName!;
           mountpoint = _requireString(args, 1, 'love.filesystem.mount');
           appendToPath = _optionalBool(args, 2, defaultValue: false);
@@ -283,7 +283,7 @@ extension _LoveFilesystemModuleBindingMethods on _LoveFilesystemBindings {
       final filename = _requireString(args, 0, 'love.filesystem.newFile');
       final file = LoveFilesystemFile(state: state, filename: filename);
 
-      final modeName = _luaStringLike(_valueAt(args, 1));
+      final modeName = loveStringLike(_valueAt(args, 1));
       if (modeName != null) {
         final mode = _fileMode(modeName, 'love.filesystem.newFile');
         try {
@@ -305,7 +305,7 @@ extension _LoveFilesystemModuleBindingMethods on _LoveFilesystemBindings {
     return (args) async {
       if (args.length == 1) {
         final source = _valueAt(args, 0);
-        final filename = _luaStringLike(source);
+        final filename = loveStringLike(source);
         if (filename != null) {
           try {
             return wrapFileData(
@@ -359,7 +359,7 @@ extension _LoveFilesystemModuleBindingMethods on _LoveFilesystemBindings {
     return (args) async {
       var startIndex = 0;
       var containerType = _LoveFilesystemContainerType.string;
-      if (args.length >= 2 && _exactStringLike(_valueAt(args, 1)) != null) {
+      if (args.length >= 2 && loveStringLike(_valueAt(args, 1), allowNumber: false) != null) {
         containerType = _containerType(
           _requireString(args, 0, 'love.filesystem.read'),
           'love.filesystem.read',

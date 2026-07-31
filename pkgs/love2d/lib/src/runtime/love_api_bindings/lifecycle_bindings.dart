@@ -11,7 +11,7 @@ LoveApiImplementation _bindLoveRun(LibraryRegistrationContext context) {
     throw StateError('No Lua runtime available for LOVE bindings');
   }
 
-  final builder = BuiltinFunctionBuilder(context);
+  final builder = loveBindingBuilderForContext(context);
   return (args) async {
     await _invokeLoveRunLoadIfDefined(interpreter);
     if (_loveTableField(interpreter, 'timer') != null) {
@@ -53,7 +53,7 @@ LoveApiImplementation _bindLoveRun(LibraryRegistrationContext context) {
 
 /// Invokes `love.load` with parsed and raw command line arguments when present.
 Future<void> _invokeLoveRunLoadIfDefined(LuaRuntime runtime) async {
-  final rawArg = _rawValue(runtime.globals.get('arg'));
+  final rawArg = loveRawValue(runtime.globals.get('arg'));
   final loadArgs = <Object?>[];
   final parsedArgs = await _parseLoveRunArguments(runtime, rawArg);
   if (parsedArgs != null || rawArg != null) {
@@ -82,7 +82,7 @@ Future<Object?> _parseLoveRunArguments(
     debugName: 'love.arg.parseGameArguments',
     debugNameWhat: 'function',
   );
-  return _rawValue(parsed);
+  return loveRawValue(parsed);
 }
 
 /// Pumps queued events and dispatches them to their corresponding callbacks.
@@ -268,7 +268,7 @@ Value? _functionValue(Object? value) {
 
 /// Returns the raw backing map when [value] is a Lua table.
 Map<dynamic, dynamic>? _tableRaw(Object? value) {
-  final raw = value is Value ? value.raw : value;
+  final raw = loveRawValue(value);
   if (raw is! Map<dynamic, dynamic>) {
     return null;
   }

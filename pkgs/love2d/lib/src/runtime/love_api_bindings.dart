@@ -35,17 +35,12 @@ import 'package:lualike/src/upvalue.dart';
 import 'package:path/path.dart' as path;
 import 'package:vector_math/vector_math_64.dart' show Matrix4, Vector3;
 
-import '../generated/love_api_reference.g.dart'
-    as love_api_generated
-    show installLove2d;
 import '../generated/love_api_reference.g.dart' show loveApiEnums;
-import 'audio/love_audio_extra_bindings.dart'
-    show installLoveAudioExtraBindings;
 // ignore: unused_import
 import 'love_binding_helpers.dart';
-import 'data/love_data_extra_bindings.dart' show installLoveDataExtraBindings;
-import 'event/love_event_extra_bindings.dart'
-    show installLoveEventExtraBindings;
+import 'love_runtime_bootstrap.dart';
+// ignore: unused_import
+import 'love_module_table_helpers.dart';
 import 'filesystem/love_filesystem_runtime.dart'
     show
         LoveFilesystemFile,
@@ -54,25 +49,8 @@ import 'filesystem/love_filesystem_runtime.dart'
         LoveFilesystemRuntimeConfig,
         LoveFilesystemRuntimeMountOperations,
         LoveFilesystemState;
-import 'font/love_font_extra_bindings.dart' show installLoveFontExtraBindings;
 import 'filesystem/love_filesystem_bindings.dart'
     show ensureLoveFilesystemRuntimeBindingsLoaded;
-import 'filesystem/love_filesystem_enum_bindings.dart'
-    show installLoveFilesystemEnumBindings;
-import 'filesystem/love_filesystem_extra_bindings.dart'
-    show installLoveFilesystemExtraBindings;
-import 'filesystem/love_filesystem_package_loader.dart'
-    show syncLoveFilesystemPackageInterop;
-import 'graphics/love_graphics_enum_bindings.dart'
-    show installLoveGraphicsEnumBindings;
-import 'input/love_joystick_extra_bindings.dart'
-    show installLoveJoystickExtraBindings;
-import 'physics/love_physics_extra_bindings.dart'
-    show installLovePhysicsExtraBindings;
-import 'system/love_system_extra_bindings.dart'
-    show installLoveSystemExtraBindings;
-import 'window/love_window_extra_bindings.dart'
-    show installLoveWindowExtraBindings;
 import 'flame/love_flame_harness_renderer.dart' show LoveSurfaceSnapshotPainter;
 import 'flame/love_flame_host.dart' show LoveFlameHost;
 import '../love_api_support.dart';
