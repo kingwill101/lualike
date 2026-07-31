@@ -1,3 +1,8 @@
+## 0.5.2
+
+- Require the Lualike-specific `*_lualike_schema.dart` input suffix, avoiding
+  collisions with Drift and other generated part files such as `tables.g.dart`.
+
 ## 0.5.1
 
 - Include `lib/src/build/table_schema_builder.dart` in the published package

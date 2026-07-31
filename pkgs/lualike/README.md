@@ -336,7 +336,7 @@ targets:
       lualike|table_schema:
         enabled: true
         generate_for:
-          - "lib/**_schema.dart"
+          - "lib/**/*_lualike_schema.dart"
 ```
 
 **3. Run the builder**
