@@ -1,3 +1,8 @@
+## 0.5.1
+
+- Include `lib/src/build/table_schema_builder.dart` in the published package
+  so dependent `build_runner` builders can start correctly.
+
 ## 0.5.0
 
 - Centralize runtime bootstrap and library registry setup across AST, IR, and
