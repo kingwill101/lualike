@@ -972,25 +972,13 @@ mixin InterpreterFunctionMixin on AstVisitor<Object?> {
         !hasJoinedUpvalues &&
         !bodyContainsClose(node.body);
 
-    bool containsCall(Object? value) {
-      if (value is Map) {
-        final type = value['type'];
-        if (type == 'FunctionCall' || type == 'MethodCall') {
-          return true;
-        }
-        return value.values.any(containsCall);
-      }
-      return value is Iterable && value.any(containsCall);
-    }
-
+    // An environment is removed from this single-entry pool before execution,
+    // so nested and recursive calls cannot observe an active frame's bindings.
+    // Calls in the body therefore do not make pooling unsafe: a re-entrant call
+    // simply creates its own environment and may return that inactive frame to
+    // the pool when it completes.
     final bool canPoolEnvironmentAcrossCalls =
-        regularParamCount > 0 &&
-        !hasNonEnvUpvalues &&
-        !node.body.any(
-          (statement) =>
-              statement is Dumpable &&
-              containsCall((statement as Dumpable).dump()),
-        );
+        regularParamCount > 0 && !hasNonEnvUpvalues;
 
     // Create a variable to hold the function value for self-reference
     late Value funcValue;

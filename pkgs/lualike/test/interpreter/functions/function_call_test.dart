@@ -18,5 +18,30 @@ void main() {
       var result = await funcCall.accept(vm);
       expect(result, equals(Value(100)));
     });
+
+    test(
+      'reused caller environments preserve escaped closure bindings',
+      () async {
+        final lua = LuaLike();
+        await lua.execute('''
+        local function identity(value)
+          return value
+        end
+
+        local function makeAdder(amount)
+          local captured = identity(amount)
+          return function(value)
+            return captured + value
+          end
+        end
+
+        local addTwo = makeAdder(2)
+        local addTen = makeAdder(10)
+        result = addTwo(3) * 100 + addTen(4)
+      ''');
+
+        expect(lua.getGlobal('result').unwrap(), equals(514));
+      },
+    );
   });
 }
