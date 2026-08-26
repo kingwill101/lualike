@@ -185,9 +185,12 @@ bash tool/benchmark_relic_breach.sh \
 ```
 
 This holds `d` through the Canvas, GPU, and comparison trials, then releases
-it after each window. It exercises LOVE keyboard state, physics, camera
-tracking, animation, command recording, and both render backends without
-depending on host-specific OS key injection.
+it after each window. Before each trial the helper presses `r` and waits for
+the reset to reach a presented frame, so every mode begins from the same world
+state. It exercises LOVE keyboard state, physics, camera tracking, animation,
+command recording, and both render backends without depending on host-specific
+OS key injection. Use `--reset-key none` only for a deliberately continuous
+world-state measurement.
 
 When you reproduce, keep the motion pattern consistent:
 
@@ -474,6 +477,41 @@ mode, plus the identical `assets/main.lua` project captured through the native
 remaining one-pixel intensity difference in the reduced side-by-side panes is
 partly the different downsampling path and should not be mistaken for missing
 segments.
+
+## Lazy Environment Storage Trial
+
+The AST walking allocation profile showed that every short-lived
+`Environment` eagerly owned one explicit-global map and two close-resource
+lists even though ordinary function calls never use them. Those containers are
+now materialized only on their first write. Read-only lookup, GC traversal,
+debug inspection, coroutine cleanup, and bytecode call-name inference use
+non-materializing accessors, while the existing mutable map/list API remains
+available for callers that need it.
+
+The allocation A/B compared parent commit `cd2189a7` with the lazy-storage
+working tree. Both ran the same Relic Breach source in AST mode, GPU-only with
+4x MSAA, at a fixed 1280x720 window. The reset-aware helper pressed `r`, waited
+for presented frames, held `d`, warmed for two seconds, and measured 240-frame
+windows. VM allocation totals varied with service-GC and simulation catch-up,
+so the retained gate is the number of generic containers per allocated
+`Environment`, not the absolute object count.
+
+| Allocation ratio | Eager storage | Lazy storage | Change |
+| --- | ---: | ---: | ---: |
+| `_Map` per `Environment` | 2.100 | 1.101 | -47.6% |
+| `_GrowableList` per `Environment` | 2.074 | 0.062 | -97.0% |
+
+Five independent reset-aware GPU timing windows did not establish a frame-time
+speedup: median p95 update was 43 microseconds on both revisions. Total CPU and
+render p95s varied between launches and remained renderer-dominated, so retain
+this change for its measured allocation reduction rather than claiming lower
+frame time. The full Lualike suite passed 1,937 tests with three expected skips.
+
+Use `tool/profile_relic_allocations.sh` for follow-up Value/Environment work.
+It resets allocation accumulators around the same deterministic timing helper
+and writes both raw VM responses and a normalized summary. Run it against a
+fresh profile-mode app; it intentionally avoids a service GC because that pause
+can perturb the game workload being measured.
 
 ## Standalone Bytecode Stress Profiles
 

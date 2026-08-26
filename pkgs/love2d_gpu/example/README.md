@@ -59,6 +59,10 @@ bash tool/capture_native_love.sh \
   --output /tmp/love2d-benchmark/neon-relay-native.png
 ```
 
+The helper floats the native window at 1280x720 by default so repeated native
+captures use the same presentation size. Pass `--window-size current` only when
+the compositor-controlled tiled size is intentionally part of the comparison.
+
 Capture the Flutter window with the Flutter development helper, then inspect
 the native frame beside the Canvas/GPU comparison:
 
@@ -108,6 +112,25 @@ bash tool/benchmark_relic_breach.sh \
 ```
 
 The helper waits for each renderer replacement to report `ready`, settles the
-scene, resets the rolling window, then writes compact Canvas, GPU, and
-comparison records to `/tmp/love2d-benchmark/relic-timings.jsonl`. Omit
-`--hold-key` for an idle trial.
+scene, presses `r` and waits for the reset frame, resets the rolling window,
+then writes compact Canvas, GPU, and comparison records to
+`/tmp/love2d-benchmark/relic-timings.jsonl`. Omit `--hold-key` for an idle trial,
+or pass `--reset-key none` when the current world state is intentional.
+
+For Value/Environment and garbage-churn work, capture VM allocation counters
+around that same deterministic window:
+
+```bash
+bash tool/profile_relic_allocations.sh \
+  --vm 'http://127.0.0.1:PORT/AUTH_TOKEN=' \
+  --samples 240 \
+  --mode gpu \
+  --hold-key d \
+  --reset-key r \
+  --output-prefix /tmp/love2d-benchmark/relic-allocations
+```
+
+Run this against a fresh profile-mode app. It writes the raw reset/profile
+responses, timing JSONL, and a compact summary including maps and growable
+lists per `Environment`. Those normalized ratios remain useful when absolute
+allocation counts differ because a world state or sampling interval changed.

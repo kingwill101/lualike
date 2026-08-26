@@ -14,6 +14,9 @@ Options:
   --samples <n>    Samples required per mode (default: 240).
   --mode <name>    Measure only canvas, gpu, or comparison (default: all).
   --hold-key <key> Hold a LOVE key during each timing window (for example d).
+  --reset-key <key>
+                   Press this key before every trial and wait for it to render
+                   (default: r; use "none" to preserve the current world).
   --warmup-seconds <n>
                    Settle each renderer before resetting timing (default: 2).
   --output <path>  JSONL output path (default: /tmp/love2d-benchmark/relic-timings.jsonl).
@@ -26,6 +29,7 @@ isolate_id="${LOVE2D_ISOLATE_ID:-}"
 sample_target="${LOVE2D_SAMPLE_TARGET:-240}"
 requested_mode="${LOVE2D_RENDER_MODE:-}"
 hold_key="${LOVE2D_HOLD_KEY:-}"
+reset_key="${LOVE2D_RESET_KEY:-r}"
 warmup_seconds="${LOVE2D_WARMUP_SECONDS:-2}"
 output_path="${LOVE2D_BENCHMARK_OUTPUT:-/tmp/love2d-benchmark/relic-timings.jsonl}"
 
@@ -49,6 +53,10 @@ while (($# > 0)); do
       ;;
     --hold-key)
       hold_key="$2"
+      shift 2
+      ;;
+    --reset-key)
+      reset_key="$2"
       shift 2
       ;;
     --warmup-seconds)
@@ -148,6 +156,28 @@ wait_for_samples() {
   return 1
 }
 
+wait_for_presented_frame_after() {
+  local expected_mode="$1"
+  local previous_frame="$2"
+  local state ready mode presented_frame
+  for _ in $(seq 1 60); do
+    state="$(extension getRenderState)"
+    ready="$(jq --raw-output '.result.ready' <<<"$state")"
+    mode="$(jq --raw-output '.result.mode' <<<"$state")"
+    presented_frame="$(jq --raw-output '.result.presentedFrame' <<<"$state")"
+    if [[ "$ready" == true &&
+          "$mode" == "$expected_mode" &&
+          "$presented_frame" -gt "$previous_frame" ]]; then
+      printf '%s' "$state"
+      return 0
+    fi
+    sleep 0.1
+  done
+  echo "Timed out waiting for mode=$expected_mode after frame=$previous_frame" >&2
+  jq '.' <<<"$state" >&2
+  return 1
+}
+
 : >"$output_path"
 modes=(canvas gpu comparison)
 if [[ -n "$requested_mode" ]]; then
@@ -155,8 +185,20 @@ if [[ -n "$requested_mode" ]]; then
 fi
 for mode in "${modes[@]}"; do
   extension setRenderMode --data-urlencode "mode=$mode" >/dev/null
-  wait_for_ready_mode "$mode" >/dev/null
+  state="$(wait_for_ready_mode "$mode")"
   extension resetInputState >/dev/null
+  if [[ "$reset_key" != "none" ]]; then
+    presented_frame="$(jq --raw-output '.result.presentedFrame' <<<"$state")"
+    extension setVirtualKey \
+      --data-urlencode "key=$reset_key" \
+      --data-urlencode 'down=true' >/dev/null
+    state="$(wait_for_presented_frame_after "$mode" "$presented_frame")"
+    extension setVirtualKey \
+      --data-urlencode "key=$reset_key" \
+      --data-urlencode 'down=false' >/dev/null
+    presented_frame="$(jq --raw-output '.result.presentedFrame' <<<"$state")"
+    wait_for_presented_frame_after "$mode" "$presented_frame" >/dev/null
+  fi
   if [[ -n "$hold_key" ]]; then
     extension setVirtualKey \
       --data-urlencode "key=$hold_key" \
