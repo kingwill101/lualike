@@ -284,6 +284,35 @@ end
       expect(host.mouse.isDown(const <int>[1]), isFalse);
     });
 
+    test(
+      'applies optional point and delta transforms after viewport mapping',
+      () async {
+        adapter = LoveFlameInputAdapter(
+          host: host,
+          runtimeProvider: () => runtime,
+          viewportSizeProvider: () => const Size(800, 600),
+          pointTransform: (point, _) => point + const Offset(100, 200),
+          deltaTransform: (delta, _, __) => delta * 2,
+        );
+
+        adapter.handlePointerHover(
+          const PointerHoverEvent(
+            kind: PointerDeviceKind.mouse,
+            position: Offset(10, 20),
+            delta: Offset(3, 4),
+          ),
+        );
+        await _flushQueuedInput(adapter, runtime);
+
+        expect(
+          runtime.unwrapGlobalTable('testbed')!['mousemoved'],
+          '110,220,6,8,false',
+        );
+        expect(host.mouse.x, 110);
+        expect(host.mouse.y, 220);
+      },
+    );
+
     test('dispatches touch callbacks and tracks touch state', () async {
       adapter.handlePointerDown(
         const PointerDownEvent(

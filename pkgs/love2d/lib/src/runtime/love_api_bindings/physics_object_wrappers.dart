@@ -247,13 +247,13 @@ Value _physicsArray(Iterable<Object?> values) {
 }
 
 /// Packs a point sequence into Lua multi-return `x, y` pairs.
-Value _physicsPointMulti(Iterable<({double x, double y})> points) {
+LuaResults _physicsPointMulti(Iterable<({double x, double y})> points) {
   final values = <Object?>[];
   for (final point in points) {
     values.add(point.x);
     values.add(point.y);
   }
-  return Value.multi(values);
+  return LuaResults(values);
 }
 
 /// Returns a validated collision-category sequence from positional args or one table.
@@ -346,7 +346,7 @@ Future<Object?> _physicsInvokeLuaCallback(
 }
 
 /// A shared empty multi-result value for Lua-facing physics methods.
-Value _physicsNoResults() => Value.multi(const <Object?>[]);
+LuaResults _physicsNoResults() => const LuaResults.empty();
 
 /// Builds the common `Object` methods shared by wrapped physics objects.
 ///
@@ -457,7 +457,7 @@ Value _wrapPhysicsWorld(LibraryContext context, LovePhysicsWorld world) {
           0,
           'World:getGravity',
         ).gravity;
-        return Value.multi(<Object?>[gravity.x, gravity.y]);
+        return LuaResults(<Object?>[gravity.x, gravity.y]);
       }),
       functionName: 'getGravity',
     ),
@@ -615,19 +615,15 @@ Value _wrapPhysicsWorld(LibraryContext context, LovePhysicsWorld world) {
             _requireNumber(args, 3, 'World:rayCast'),
             _requireNumber(args, 4, 'World:rayCast'),
             (fixture, x, y, normalX, normalY, fraction) async {
-              final result = await _physicsInvokeLuaCallback(
-                context,
-                callback,
-                <Object?>[
-                  _wrapPhysicsFixture(context, fixture),
-                  x,
-                  y,
-                  normalX,
-                  normalY,
-                  fraction,
-                ],
-                'World:rayCast',
-              );
+              final result =
+                  await _physicsInvokeLuaCallback(context, callback, <Object?>[
+                    _wrapPhysicsFixture(context, fixture),
+                    x,
+                    y,
+                    normalX,
+                    normalY,
+                    fraction,
+                  ], 'World:rayCast');
               final number = _numberIfPresent(result);
               if (number == null) {
                 throw LuaError("Raycast callback didn't return a number!");
@@ -716,7 +712,7 @@ Value _wrapPhysicsBody(LibraryContext context, LovePhysicsBody body) {
           0,
           'Body:getPosition',
         ).position;
-        return Value.multi(<Object?>[position.x, position.y]);
+        return LuaResults(<Object?>[position.x, position.y]);
       }),
       functionName: 'getPosition',
     ),
@@ -724,7 +720,7 @@ Value _wrapPhysicsBody(LibraryContext context, LovePhysicsBody body) {
       builder.create((args) {
         final body = _requirePhysicsBody(args, 0, 'Body:getTransform');
         final position = body.position;
-        return Value.multi(<Object?>[position.x, position.y, body.angle]);
+        return LuaResults(<Object?>[position.x, position.y, body.angle]);
       }),
       functionName: 'getTransform',
     ),
@@ -735,7 +731,7 @@ Value _wrapPhysicsBody(LibraryContext context, LovePhysicsBody body) {
           0,
           'Body:getLinearVelocity',
         ).linearVelocity;
-        return Value.multi(<Object?>[velocity.x, velocity.y]);
+        return LuaResults(<Object?>[velocity.x, velocity.y]);
       }),
       functionName: 'getLinearVelocity',
     ),
@@ -750,7 +746,7 @@ Value _wrapPhysicsBody(LibraryContext context, LovePhysicsBody body) {
               _requireNumber(args, 1, 'Body:getLinearVelocityFromLocalPoint'),
               _requireNumber(args, 2, 'Body:getLinearVelocityFromLocalPoint'),
             );
-        return Value.multi(<Object?>[velocity.x, velocity.y]);
+        return LuaResults(<Object?>[velocity.x, velocity.y]);
       }),
       functionName: 'getLinearVelocityFromLocalPoint',
     ),
@@ -765,7 +761,7 @@ Value _wrapPhysicsBody(LibraryContext context, LovePhysicsBody body) {
               _requireNumber(args, 1, 'Body:getLinearVelocityFromWorldPoint'),
               _requireNumber(args, 2, 'Body:getLinearVelocityFromWorldPoint'),
             );
-        return Value.multi(<Object?>[velocity.x, velocity.y]);
+        return LuaResults(<Object?>[velocity.x, velocity.y]);
       }),
       functionName: 'getLinearVelocityFromWorldPoint',
     ),
@@ -776,7 +772,7 @@ Value _wrapPhysicsBody(LibraryContext context, LovePhysicsBody body) {
           0,
           'Body:getWorldCenter',
         ).worldCenter;
-        return Value.multi(<Object?>[center.x, center.y]);
+        return LuaResults(<Object?>[center.x, center.y]);
       }),
       functionName: 'getWorldCenter',
     ),
@@ -787,7 +783,7 @@ Value _wrapPhysicsBody(LibraryContext context, LovePhysicsBody body) {
               _requireNumber(args, 1, 'Body:getWorldPoint'),
               _requireNumber(args, 2, 'Body:getWorldPoint'),
             );
-        return Value.multi(<Object?>[point.x, point.y]);
+        return LuaResults(<Object?>[point.x, point.y]);
       }),
       functionName: 'getWorldPoint',
     ),
@@ -816,7 +812,7 @@ Value _wrapPhysicsBody(LibraryContext context, LovePhysicsBody body) {
               _requireNumber(args, 1, 'Body:getWorldVector'),
               _requireNumber(args, 2, 'Body:getWorldVector'),
             );
-        return Value.multi(<Object?>[vector.x, vector.y]);
+        return LuaResults(<Object?>[vector.x, vector.y]);
       }),
       functionName: 'getWorldVector',
     ),
@@ -827,7 +823,7 @@ Value _wrapPhysicsBody(LibraryContext context, LovePhysicsBody body) {
           0,
           'Body:getLocalCenter',
         ).localCenter;
-        return Value.multi(<Object?>[center.x, center.y]);
+        return LuaResults(<Object?>[center.x, center.y]);
       }),
       functionName: 'getLocalCenter',
     ),
@@ -838,7 +834,7 @@ Value _wrapPhysicsBody(LibraryContext context, LovePhysicsBody body) {
               _requireNumber(args, 1, 'Body:getLocalPoint'),
               _requireNumber(args, 2, 'Body:getLocalPoint'),
             );
-        return Value.multi(<Object?>[point.x, point.y]);
+        return LuaResults(<Object?>[point.x, point.y]);
       }),
       functionName: 'getLocalPoint',
     ),
@@ -867,7 +863,7 @@ Value _wrapPhysicsBody(LibraryContext context, LovePhysicsBody body) {
               _requireNumber(args, 1, 'Body:getLocalVector'),
               _requireNumber(args, 2, 'Body:getLocalVector'),
             );
-        return Value.multi(<Object?>[vector.x, vector.y]);
+        return LuaResults(<Object?>[vector.x, vector.y]);
       }),
       functionName: 'getLocalVector',
     ),
@@ -896,7 +892,7 @@ Value _wrapPhysicsBody(LibraryContext context, LovePhysicsBody body) {
     'getMassData': Value(
       builder.create((args) {
         final data = _requirePhysicsBody(args, 0, 'Body:getMassData').massData;
-        return Value.multi(<Object?>[data.x, data.y, data.mass, data.inertia]);
+        return LuaResults(<Object?>[data.x, data.y, data.mass, data.inertia]);
       }),
       functionName: 'getMassData',
     ),
@@ -1583,7 +1579,7 @@ Value _wrapPhysicsFixture(LibraryContext context, LovePhysicsFixture fixture) {
           0,
           'Fixture:getFilterData',
         ).filterData;
-        return Value.multi(<Object?>[
+        return LuaResults(<Object?>[
           filterData.categories,
           filterData.mask,
           filterData.group,
@@ -1594,14 +1590,14 @@ Value _wrapPhysicsFixture(LibraryContext context, LovePhysicsFixture fixture) {
     'getCategory': Value(
       builder.create((args) {
         final fixture = _requirePhysicsFixture(args, 0, 'Fixture:getCategory');
-        return Value.multi(fixture.categories.cast<Object?>());
+        return LuaResults(fixture.categories.cast<Object?>());
       }),
       functionName: 'getCategory',
     ),
     'getMask': Value(
       builder.create((args) {
         final fixture = _requirePhysicsFixture(args, 0, 'Fixture:getMask');
-        return Value.multi(fixture.maskCategories.cast<Object?>());
+        return LuaResults(fixture.maskCategories.cast<Object?>());
       }),
       functionName: 'getMask',
     ),
@@ -1655,7 +1651,7 @@ Value _wrapPhysicsFixture(LibraryContext context, LovePhysicsFixture fixture) {
                     ? _requireRoundedInt(args, 1, 'Fixture:getBoundingBox')
                     : 1,
               );
-          return Value.multi(<Object?>[box.minX, box.minY, box.maxX, box.maxY]);
+          return LuaResults(<Object?>[box.minX, box.minY, box.maxX, box.maxY]);
         }),
       ),
       functionName: 'getBoundingBox',
@@ -1667,7 +1663,7 @@ Value _wrapPhysicsFixture(LibraryContext context, LovePhysicsFixture fixture) {
           0,
           'Fixture:getMassData',
         ).getMassData();
-        return Value.multi(<Object?>[data.x, data.y, data.mass, data.inertia]);
+        return LuaResults(<Object?>[data.x, data.y, data.mass, data.inertia]);
       }),
       functionName: 'getMassData',
     ),
@@ -1687,7 +1683,7 @@ Value _wrapPhysicsFixture(LibraryContext context, LovePhysicsFixture fixture) {
         );
         return hit == null
             ? _physicsNoResults()
-            : Value.multi(<Object?>[hit.normalX, hit.normalY, hit.fraction]);
+            : LuaResults(<Object?>[hit.normalX, hit.normalY, hit.fraction]);
       }),
       functionName: 'rayCast',
     ),
@@ -1813,7 +1809,7 @@ Value _wrapPhysicsShape(LibraryContext context, LovePhysicsShape shape) {
         );
         return hit == null
             ? _physicsNoResults()
-            : Value.multi(<Object?>[hit.normalX, hit.normalY, hit.fraction]);
+            : LuaResults(<Object?>[hit.normalX, hit.normalY, hit.fraction]);
       }),
       functionName: 'rayCast',
     ),
@@ -1829,7 +1825,7 @@ Value _wrapPhysicsShape(LibraryContext context, LovePhysicsShape shape) {
                 : 1,
           ),
         );
-        return Value.multi(<Object?>[
+        return LuaResults(<Object?>[
           result.minX,
           result.minY,
           result.maxX,
@@ -1845,7 +1841,7 @@ Value _wrapPhysicsShape(LibraryContext context, LovePhysicsShape shape) {
           0,
           'Shape:computeMass',
         ).computeMass(_requireNumber(args, 1, 'Shape:computeMass'));
-        return Value.multi(<Object?>[
+        return LuaResults(<Object?>[
           result.x,
           result.y,
           result.mass,
@@ -1873,7 +1869,7 @@ Value _wrapPhysicsShape(LibraryContext context, LovePhysicsShape shape) {
                 (_requirePhysicsShape(args, 0, 'CircleShape:getPoint')
                         as LovePhysicsCircleShape)
                     .point;
-            return Value.multi(<Object?>[point.x, point.y]);
+            return LuaResults(<Object?>[point.x, point.y]);
           }),
           functionName: 'getPoint',
         ),
@@ -1939,7 +1935,7 @@ Value _wrapPhysicsShape(LibraryContext context, LovePhysicsShape shape) {
                     .nextVertex;
             return point == null
                 ? _physicsNoResults()
-                : Value.multi(<Object?>[point.x, point.y]);
+                : LuaResults(<Object?>[point.x, point.y]);
           }),
           functionName: 'getNextVertex',
         ),
@@ -1951,7 +1947,7 @@ Value _wrapPhysicsShape(LibraryContext context, LovePhysicsShape shape) {
                     .previousVertex;
             return point == null
                 ? _physicsNoResults()
-                : Value.multi(<Object?>[point.x, point.y]);
+                : LuaResults(<Object?>[point.x, point.y]);
           }),
           functionName: 'getPreviousVertex',
         ),
@@ -2024,7 +2020,7 @@ Value _wrapPhysicsShape(LibraryContext context, LovePhysicsShape shape) {
                       .pointAt(
                         _requireRoundedInt(args, 1, 'ChainShape:getPoint'),
                       );
-              return Value.multi(<Object?>[point.x, point.y]);
+              return LuaResults(<Object?>[point.x, point.y]);
             }),
           ),
           functionName: 'getPoint',
@@ -2046,7 +2042,7 @@ Value _wrapPhysicsShape(LibraryContext context, LovePhysicsShape shape) {
                     .nextVertex;
             return point == null
                 ? _physicsNoResults()
-                : Value.multi(<Object?>[point.x, point.y]);
+                : LuaResults(<Object?>[point.x, point.y]);
           }),
           functionName: 'getNextVertex',
         ),
@@ -2058,7 +2054,7 @@ Value _wrapPhysicsShape(LibraryContext context, LovePhysicsShape shape) {
                     .previousVertex;
             return point == null
                 ? _physicsNoResults()
-                : Value.multi(<Object?>[point.x, point.y]);
+                : LuaResults(<Object?>[point.x, point.y]);
           }),
           functionName: 'getPreviousVertex',
         ),

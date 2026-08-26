@@ -14,7 +14,11 @@ export 'src/love_api_overrides.dart' show loveApiOverrides;
 export 'src/love_api_support.dart';
 export 'src/runtime/flame/love_flame_harness.dart' show LoveFlameHarness;
 export 'src/runtime/flame/love_flame_host.dart' show LoveFlameHost;
-export 'src/runtime/flame/love_flame_input.dart' show LoveFlameInputAdapter;
+export 'src/runtime/flame/love_flame_input.dart'
+    show
+        LoveFlameInputAdapter,
+        LoveFlameInputDeltaTransform,
+        LoveFlameInputPointTransform;
 export 'src/runtime/flame/love_touch_controls.dart'
     show
         LoveTouchButtonConfig,

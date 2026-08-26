@@ -33,6 +33,10 @@ const int _loveTraceFrameThresholdMilliseconds = int.fromEnvironment(
   'LOVE2D_TRACE_FRAME_MS',
   defaultValue: 0,
 );
+const bool _loveProfileFramePhases = bool.fromEnvironment(
+  'LOVE2D_PROFILE_FRAME_PHASES',
+  defaultValue: false,
+);
 final RegExp _loveFlamePrewarmableImageAssetPattern = RegExp(
   r'\.(png|jpg|jpeg|gif|webp|bmp|wbmp)$',
   caseSensitive: false,
@@ -91,6 +95,8 @@ class LoveFlameHarness extends StatefulWidget {
     this.debugImageWarmupOverride,
     this.debugOnGameCreated,
     this.renderBackend,
+    this.inputPointTransform,
+    this.inputDeltaTransform,
   });
 
   /// The mounted LOVE entry asset, typically `main.lua`.
@@ -150,6 +156,12 @@ class LoveFlameHarness extends StatefulWidget {
   /// Optional render backend override used by tests and GPU demo builds.
   final LoveRenderBackend? renderBackend;
 
+  /// Optional transform for logical pointer points after viewport conversion.
+  final LoveFlameInputPointTransform? inputPointTransform;
+
+  /// Optional transform for logical pointer deltas after viewport conversion.
+  final LoveFlameInputDeltaTransform? inputDeltaTransform;
+
   @override
   State<LoveFlameHarness> createState() => _LoveFlameHarnessState();
 }
@@ -175,6 +187,8 @@ class _LoveFlameHarnessState extends State<LoveFlameHarness>
         automaticGc: widget.automaticGc,
         imageWarmupAssetKeys: widget.imageWarmupAssetKeys,
         debugImageWarmupOverride: widget.debugImageWarmupOverride,
+        inputPointTransform: widget.inputPointTransform,
+        inputDeltaTransform: widget.inputDeltaTransform,
       );
 
   Future<void> _defaultQuitRequested() async {
@@ -350,6 +364,8 @@ class _LoveFlameHarnessController extends ChangeNotifier {
     required this.automaticGc,
     this.imageWarmupAssetKeys,
     this.debugImageWarmupOverride,
+    this.inputPointTransform,
+    this.inputDeltaTransform,
   });
 
   final LoveFlameHarnessGame game;
@@ -365,6 +381,8 @@ class _LoveFlameHarnessController extends ChangeNotifier {
     LoveFilesystemState filesystem,
   )?
   debugImageWarmupOverride;
+  final LoveFlameInputPointTransform? inputPointTransform;
+  final LoveFlameInputDeltaTransform? inputDeltaTransform;
 
   late final LoveJoystickInputAdapter joystickInput = LoveJoystickInputAdapter(
     host: game.host,
@@ -381,6 +399,8 @@ class _LoveFlameHarnessController extends ChangeNotifier {
     viewportSizeProvider: () => _viewportSize,
     cameraProvider: () => game.camera,
     joystickInput: joystickInput,
+    pointTransform: inputPointTransform,
+    deltaTransform: inputDeltaTransform,
     onError: (error, stackTrace) => _recordError(
       error,
       phase: 'while dispatching LOVE input callbacks',
@@ -701,18 +721,31 @@ class _LoveFlameHarnessController extends ChangeNotifier {
 
   Future<void> _runFrame(double dt) async {
     final traceEnabled = _loveTraceFrameThresholdMilliseconds > 0;
+    final profileFramePhases = _loveProfileFramePhases;
 
-    if (traceEnabled) {
-      final frameTraceStopwatch = Stopwatch()..start();
+    if (traceEnabled || profileFramePhases) {
+      final frameTraceStopwatch = traceEnabled ? (Stopwatch()..start()) : null;
       final frameTracePhases = <String, int>{};
 
       Future<T> tracePhase<T>(String name, Future<T> Function() body) async {
-        final phaseStopwatch = Stopwatch()..start();
+        final phaseStopwatch = traceEnabled ? (Stopwatch()..start()) : null;
         try {
+          if (profileFramePhases) {
+            return await _runProfileRegion(
+              'love2d-frame-$name',
+              body,
+              attributes: <String, String>{
+                'entryAsset': entryAsset,
+                'phase': name,
+              },
+            );
+          }
           return await body();
         } finally {
-          phaseStopwatch.stop();
-          frameTracePhases[name] = phaseStopwatch.elapsedMicroseconds;
+          if (phaseStopwatch case final stopwatch?) {
+            stopwatch.stop();
+            frameTracePhases[name] = stopwatch.elapsedMicroseconds;
+          }
         }
       }
 
@@ -758,23 +791,26 @@ class _LoveFlameHarnessController extends ChangeNotifier {
         );
       } finally {
         await tracePhase('profileAdvance', _advanceMainLoopProfileRegion);
-        frameTraceStopwatch.stop();
-        if (frameTraceStopwatch.elapsedMilliseconds >=
-            _loveTraceFrameThresholdMilliseconds) {
-          _frameTraceIndex += 1;
-          final phases = frameTracePhases.entries
-              .map(
-                (entry) =>
-                    '${entry.key}=${(entry.value / 1000).toStringAsFixed(2)}ms',
-              )
-              .join(' ');
-          debugPrint(
-            'love2d-frame-trace '
-            'frame=$_frameTraceIndex '
-            'dtMs=${(dt * 1000).toStringAsFixed(2)} '
-            'totalMs=${frameTraceStopwatch.elapsedMicroseconds / 1000} '
-            '$phases',
-          );
+        if (traceEnabled) {
+          final stopwatch = frameTraceStopwatch!;
+          stopwatch.stop();
+          if (stopwatch.elapsedMilliseconds >=
+              _loveTraceFrameThresholdMilliseconds) {
+            _frameTraceIndex += 1;
+            final phases = frameTracePhases.entries
+                .map(
+                  (entry) =>
+                      '${entry.key}=${(entry.value / 1000).toStringAsFixed(2)}ms',
+                )
+                .join(' ');
+            debugPrint(
+              'love2d-frame-trace '
+              'frame=$_frameTraceIndex '
+              'dtMs=${(dt * 1000).toStringAsFixed(2)} '
+              'totalMs=${stopwatch.elapsedMicroseconds / 1000} '
+              '$phases',
+            );
+          }
         }
         _updateInFlight = false;
       }

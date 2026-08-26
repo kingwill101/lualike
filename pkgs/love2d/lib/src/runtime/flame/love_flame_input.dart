@@ -25,6 +25,21 @@ const bool _loveTraceTouchLeak = bool.fromEnvironment(
   'LOVE2D_TRACE_TOUCH_LEAK',
 );
 
+/// Maps a logical LOVE point after the standard viewport conversion.
+typedef LoveFlameInputPointTransform =
+    Offset Function(
+      Offset logicalPoint,
+      LoveFlamePresentationGeometry geometry,
+    );
+
+/// Maps a logical LOVE delta after the standard viewport conversion.
+typedef LoveFlameInputDeltaTransform =
+    Offset Function(
+      Offset logicalDelta,
+      Offset logicalPoint,
+      LoveFlamePresentationGeometry geometry,
+    );
+
 /// Emits a debug trace line for touch input processing when enabled.
 void _loveTraceTouchInput(
   String stage, {
@@ -56,6 +71,8 @@ class LoveFlameInputAdapter {
     LoveJoystickInputAdapter? joystickInput,
     this.onError,
     this.consumeKeyboardEvents = true,
+    this.pointTransform,
+    this.deltaTransform,
   }) : _host = host,
        _runtimeProvider = runtimeProvider,
        _viewportSizeProvider = viewportSizeProvider,
@@ -88,6 +105,12 @@ class LoveFlameInputAdapter {
 
   /// Whether handled keyboard events should be consumed from Flutter.
   final bool consumeKeyboardEvents;
+
+  /// Optional transform applied to converted LOVE logical pointer points.
+  final LoveFlameInputPointTransform? pointTransform;
+
+  /// Optional transform applied to converted LOVE logical pointer deltas.
+  final LoveFlameInputDeltaTransform? deltaTransform;
 
   /// The active mouse button tracked for each Flutter pointer identifier.
   final Map<int, int> _pointerButtons = <int, int>{};
@@ -249,6 +272,15 @@ class LoveFlameInputAdapter {
     }
   }
 
+  /// Clears synthesized and host pointer/keyboard state for automation.
+  ///
+  /// This is intentionally a hard boundary for test harnesses: it prevents a
+  /// failed or interrupted pointer gesture from changing a later benchmark's
+  /// LOVE input stimulus.
+  void resetInputState() {
+    handleVisibilityChanged(false);
+  }
+
   /// Updates LOVE focus state when the viewport focus changes.
   void handleFocusChanged(bool focused) {
     _setFocusState(focused);
@@ -291,11 +323,12 @@ class LoveFlameInputAdapter {
   void handlePointerHover(PointerHoverEvent event) {
     final geometry = _presentationGeometry();
     final logicalPosition = _logicalPoint(event.localPosition, geometry);
-    final logicalDelta = _logicalDelta(event.localDelta, geometry);
-    _updateMousePosition(
-      event.localPosition,
-      logicalPosition: logicalPosition,
+    final logicalDelta = _logicalDelta(
+      event.localDelta,
+      geometry: geometry,
+      logicalPoint: logicalPosition,
     );
+    _updateMousePosition(event.localPosition, logicalPosition: logicalPosition);
     final isTouch = _isTouch(event);
     _dispatch(
       (runtime) => runtime.queueMouseMoved(
@@ -312,11 +345,12 @@ class LoveFlameInputAdapter {
   void handlePointerMove(PointerMoveEvent event) {
     final geometry = _presentationGeometry();
     final logicalPosition = _logicalPoint(event.localPosition, geometry);
-    final logicalDelta = _logicalDelta(event.localDelta, geometry);
-    _updateMousePosition(
-      event.localPosition,
-      logicalPosition: logicalPosition,
+    final logicalDelta = _logicalDelta(
+      event.localDelta,
+      geometry: geometry,
+      logicalPoint: logicalPosition,
     );
+    _updateMousePosition(event.localPosition, logicalPosition: logicalPosition);
     final isTouch = _isTouch(event);
     if (isTouch) {
       if (_loveTraceTouchLeak) {
@@ -376,10 +410,7 @@ class LoveFlameInputAdapter {
   void handlePointerDown(PointerDownEvent event) {
     final geometry = _presentationGeometry();
     final logicalPosition = _logicalPoint(event.localPosition, geometry);
-    _updateMousePosition(
-      event.localPosition,
-      logicalPosition: logicalPosition,
-    );
+    _updateMousePosition(event.localPosition, logicalPosition: logicalPosition);
     final isTouch = _isTouch(event);
     if (isTouch) {
       if (_loveTraceTouchLeak) {
@@ -429,12 +460,8 @@ class LoveFlameInputAdapter {
     _pointerButtons[event.pointer] = button;
     mouse.setButtonDown(button, down: true);
     _dispatch(
-      (runtime) => runtime.queueMousePressed(
-        mouse.x,
-        mouse.y,
-        button,
-        isTouch: isTouch,
-      ),
+      (runtime) =>
+          runtime.queueMousePressed(mouse.x, mouse.y, button, isTouch: isTouch),
     );
   }
 
@@ -442,11 +469,12 @@ class LoveFlameInputAdapter {
   void handlePointerUp(PointerUpEvent event) {
     final geometry = _presentationGeometry();
     final logicalPosition = _logicalPoint(event.localPosition, geometry);
-    final logicalDelta = _logicalDelta(event.localDelta, geometry);
-    _updateMousePosition(
-      event.localPosition,
-      logicalPosition: logicalPosition,
+    final logicalDelta = _logicalDelta(
+      event.localDelta,
+      geometry: geometry,
+      logicalPoint: logicalPosition,
     );
+    _updateMousePosition(event.localPosition, logicalPosition: logicalPosition);
     final isTouch = _isTouch(event);
     if (isTouch) {
       if (_loveTraceTouchLeak) {
@@ -569,10 +597,7 @@ class LoveFlameInputAdapter {
   }
 
   /// Updates LOVE mouse coordinates from a viewport-local Flutter position.
-  void _updateMousePosition(
-    Offset localPosition, {
-    Offset? logicalPosition,
-  }) {
+  void _updateMousePosition(Offset localPosition, {Offset? logicalPosition}) {
     final resolvedLogicalPosition =
         logicalPosition ?? _logicalPoint(localPosition);
     mouse.setPosition(
@@ -606,20 +631,30 @@ class LoveFlameInputAdapter {
       return localPosition;
     }
 
-    return resolvedGeometry.viewportToLogicalPoint(localPosition);
+    final logicalPoint = resolvedGeometry.viewportToLogicalPoint(localPosition);
+    return pointTransform?.call(logicalPoint, resolvedGeometry) ?? logicalPoint;
   }
 
   /// Converts a viewport-local Flutter delta to LOVE logical coordinates.
   Offset _logicalDelta(
-    Offset localDelta, [
+    Offset localDelta, {
     LoveFlamePresentationGeometry? geometry,
-  ]) {
+    Offset? logicalPoint,
+  }) {
     final resolvedGeometry = geometry ?? _presentationGeometry();
     if (resolvedGeometry == null) {
       return localDelta;
     }
 
-    return resolvedGeometry.viewportDeltaToLogicalDelta(localDelta);
+    final logicalDelta = resolvedGeometry.viewportDeltaToLogicalDelta(
+      localDelta,
+    );
+    return deltaTransform?.call(
+          logicalDelta,
+          logicalPoint ?? Offset.zero,
+          resolvedGeometry,
+        ) ??
+        logicalDelta;
   }
 
   /// Whether [event] originated from a touch pointer.
@@ -797,7 +832,9 @@ class LoveFlameInputAdapter {
   /// Input adapters only call synchronous `queue*` methods that push onto the
   /// LOVE event queue; callbacks run later in the main loop. Avoiding a
   /// Future chain keeps high-rate pointer moves off the microtask queue.
-  void _dispatch(FutureOr<Object?> Function(LoveScriptRuntime runtime) callback) {
+  void _dispatch(
+    FutureOr<Object?> Function(LoveScriptRuntime runtime) callback,
+  ) {
     final runtime = _runtimeProvider();
     if (runtime == null) {
       return;
