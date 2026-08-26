@@ -4,13 +4,24 @@ extension LuaBytecodeVmArithmetic on LuaBytecodeVm {
   void _executeBinaryInstruction(
     LuaBytecodeFrame frame, {
     required int targetRegister,
-    required Value left,
-    required Value right,
+    required LuaSlot left,
+    required LuaSlot right,
     int? leftRegister,
     int? rightRegister,
     required LuaBinaryOperation operation,
   }) {
-    final fastPath = _tryBinaryFastPath(operation, left, right);
+    if (!operation.isConcat &&
+        _canFastPathBinaryOperation(operation, left, right)) {
+      frame.setRegisterSlot(
+        targetRegister,
+        _forceFastBinarySlot(operation, left, right),
+      );
+      _skipBinaryMetamethodFollowup(frame);
+      return;
+    }
+    final leftValue = valueFromLuaSlot(runtime, left);
+    final rightValue = valueFromLuaSlot(runtime, right);
+    final fastPath = _tryBinaryFastPath(operation, leftValue, rightValue);
     if (fastPath != null) {
       // Fast path returns private transients (not the constant pool).
       // storeRegisterRaw skips setRegister reboxing — ADD/SUB dominate
@@ -27,10 +38,10 @@ extension LuaBytecodeVmArithmetic on LuaBytecodeVm {
     try {
       frame.setRegister(
         targetRegister,
-        _forceBinaryOperation(operation, left, right),
+        _forceBinaryOperation(operation, leftValue, rightValue),
       );
     } on LuaError catch (error) {
-      throw _rewriteBinaryOperandError(frame, left, right, error);
+      throw _rewriteBinaryOperandError(frame, leftValue, rightValue, error);
     }
   }
 
@@ -277,6 +288,45 @@ extension LuaBytecodeVmArithmetic on LuaBytecodeVm {
     return runtimeValue(runtime, rawResult);
   }
 
+  LuaSlot _forceFastBinarySlot(
+    LuaBinaryOperation operation,
+    LuaSlot left,
+    LuaSlot right,
+  ) {
+    final leftRaw = rawLuaSlot(left);
+    final rightRaw = rawLuaSlot(right);
+    if (leftRaw is int && rightRaw is int) {
+      return switch (operation) {
+        LuaBinaryOperation.add => leftRaw + rightRaw,
+        LuaBinaryOperation.sub => leftRaw - rightRaw,
+        LuaBinaryOperation.mul => leftRaw * rightRaw,
+        _ => NumberUtils.performArithmetic(
+          operation.operatorSymbol,
+          leftRaw,
+          rightRaw,
+        ),
+      };
+    }
+    if (leftRaw is num && rightRaw is num) {
+      return switch (operation) {
+        LuaBinaryOperation.add => leftRaw + rightRaw,
+        LuaBinaryOperation.sub => leftRaw - rightRaw,
+        LuaBinaryOperation.mul => leftRaw * rightRaw,
+        LuaBinaryOperation.div => leftRaw / rightRaw,
+        _ => NumberUtils.performArithmetic(
+          operation.operatorSymbol,
+          leftRaw,
+          rightRaw,
+        ),
+      };
+    }
+    return NumberUtils.performArithmetic(
+      operation.operatorSymbol,
+      leftRaw,
+      rightRaw,
+    );
+  }
+
   Value _forceBinaryOperation(
     LuaBinaryOperation operation,
     Value left,
@@ -297,8 +347,8 @@ extension LuaBytecodeVmArithmetic on LuaBytecodeVm {
 
   bool _canFastPathBinaryOperation(
     LuaBinaryOperation operation,
-    Value left,
-    Value right,
+    LuaSlot left,
+    LuaSlot right,
   ) {
     if (operation.isConcat) {
       return canFastPathConcat(left) && canFastPathConcat(right);

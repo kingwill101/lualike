@@ -380,50 +380,39 @@ extension LuaBytecodeVmControlFlow on LuaBytecodeVm {
   }
 
   bool _forLoop(LuaBytecodeFrame frame, int base) {
-    final countValue = frame.register(base);
-    final stepValue = frame.register(base + 1);
-    final indexValue = frame.register(base + 2);
+    final countSlot = frame.rawSlot(base);
+    final stepSlot = frame.rawSlot(base + 1);
+    final indexSlot = frame.rawSlot(base + 2);
+    final rawCount = rawLuaSlot(countSlot);
+    final rawStep = rawLuaSlot(stepSlot);
+    final rawIndex = rawLuaSlot(indexSlot);
 
-    if (isInteger(stepValue)) {
-      final rawCount = rawLuaSlot(countValue);
-      final rawStep = rawLuaSlot(stepValue);
-      final rawIndex = rawLuaSlot(indexValue);
+    if (rawStep is int || rawStep is BigInt) {
       if (rawCount is int &&
           rawCount > 0 &&
           rawStep is int &&
           rawIndex is int) {
-        // Fresh transient Values (not the shared constant pool) so a closure
-        // that captures the loop register cannot see later in-place mutation.
-        // storeRegisterRaw: transients are already frame-private and skip
-        // setRegister's shared-primitive reboxing (FORLOOP is a top opcode
-        // on LUALIKE_PROFILE_BYTECODE pure-loop benches).
-        frame.storeRegisterRaw(
-          base,
-          transientPrimitiveValue(runtime, rawCount - 1),
-        );
-        frame.storeRegisterRaw(
-          base + 2,
-          transientPrimitiveValue(runtime, rawIndex + rawStep),
-        );
+        frame.setRegisterSlot(base, rawCount - 1);
+        frame.setRegisterSlot(base + 2, rawIndex + rawStep);
         return true;
       }
+      final countValue = valueFromLuaSlot(runtime, countSlot);
+      final stepValue = valueFromLuaSlot(runtime, stepSlot);
+      final indexValue = valueFromLuaSlot(runtime, indexSlot);
       final count = unsignedForLoopCounter(countValue);
       if (count <= BigInt.zero) {
         return false;
       }
       final step = integerValue(stepValue);
       final nextIndex = NumberUtils.add(integerValue(indexValue), step);
-      frame.setRegister(
-        base,
-        framePrimitiveValue(
-          runtime,
-          signedInt64FromUnsigned(count - BigInt.one),
-        ),
-      );
-      frame.setRegister(base + 2, framePrimitiveValue(runtime, nextIndex));
+      frame.setRegisterSlot(base, signedInt64FromUnsigned(count - BigInt.one));
+      frame.setRegisterSlot(base + 2, nextIndex);
       return true;
     }
 
+    final countValue = valueFromLuaSlot(runtime, countSlot);
+    final stepValue = valueFromLuaSlot(runtime, stepSlot);
+    final indexValue = valueFromLuaSlot(runtime, indexSlot);
     final step = numericValue(stepValue).toDouble();
     final limit = numericValue(countValue).toDouble();
     final nextIndex = numericValue(indexValue).toDouble() + step;
@@ -431,7 +420,7 @@ extension LuaBytecodeVmControlFlow on LuaBytecodeVm {
     if (!shouldContinue) {
       return false;
     }
-    frame.setRegister(base + 2, runtimeValue(runtime, nextIndex));
+    frame.setRegisterSlot(base + 2, nextIndex);
     return true;
   }
 

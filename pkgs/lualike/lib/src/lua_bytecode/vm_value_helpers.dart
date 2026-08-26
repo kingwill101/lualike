@@ -552,21 +552,21 @@ Value firstResultValue(LuaRuntime runtime, Object? result) {
   return runtimeValue(runtime, result);
 }
 
-bool canFastPathNumeric(Value value) =>
+bool canFastPathNumeric(Object? value) =>
     coerceLuaNumber(rawLuaSlot(value)) != null;
 
-bool canFastPathInteger(Value value) =>
+bool canFastPathInteger(Object? value) =>
     coerceLuaInteger(rawLuaSlot(value)) != null;
 
-bool canFastPathConcat(Value value) {
+bool canFastPathConcat(Object? value) {
   return switch (rawLuaSlot(value)) {
     num() || String() || LuaString() => true,
     _ => false,
   };
 }
 
-bool canFastPathLength(Value value) =>
-    !value.hasMetamethod('__len') &&
+bool canFastPathLength(Object? value) =>
+    (value is! Value || !value.hasMetamethod('__len')) &&
     switch (rawLuaSlot(value)) {
       LuaString() ||
       String() ||
