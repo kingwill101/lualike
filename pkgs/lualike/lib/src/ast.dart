@@ -29,11 +29,25 @@ sealed class AstNode {
   /// Cached end line (0-based) from [span], set once in [setSpan].
   int cachedEndLine = -1;
 
+  /// Cached line selected for statement debug hooks.
+  ///
+  /// `-2` means unresolved and `-1` means that this node has no hook line.
+  /// Parsed AST nodes are immutable during execution, so resolving this once
+  /// avoids repeating span inspection on every visit through a hot loop.
+  int cachedDebugHookLine = -2;
+
+  /// Cached line selected for error-trace frames.
+  ///
+  /// `-2` means unresolved and `-1` means that this node has no trace line.
+  int cachedTraceLine = -2;
+
   // A helper to set/update the position information.
   void setSpan(SourceSpan span) {
     this.span = span;
     cachedStartLine = span.start.line;
     cachedEndLine = span.end.line;
+    cachedDebugHookLine = -2;
+    cachedTraceLine = -2;
   }
 
   // A getter so you can easily access the span.

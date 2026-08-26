@@ -490,6 +490,11 @@ class Interpreter extends AstVisitor<Object?>
   }
 
   int? _debugHookLineForNode(AstNode node) {
+    final cachedLine = node.cachedDebugHookLine;
+    if (cachedLine != -2) {
+      return cachedLine >= 0 ? cachedLine : null;
+    }
+
     int lastMeaningfulSpanLine(AstNode n, SourceSpan span) {
       final endLine = n.cachedEndLine;
       if (span.end.column == 0 && endLine > n.cachedStartLine) {
@@ -502,6 +507,7 @@ class Interpreter extends AstVisitor<Object?>
       return endLine;
     }
 
+    int? resolvedLine;
     if (node case Assignment(exprs: final exprs) when exprs.length == 1) {
       final expr = exprs.first;
       if (expr is BinaryExpression &&
@@ -509,58 +515,69 @@ class Interpreter extends AstVisitor<Object?>
           expr.cachedStartLine >= 0 &&
           expr.right.cachedStartLine >= 0 &&
           expr.left.cachedStartLine != expr.right.cachedStartLine) {
-        return expr.operatorLine;
+        resolvedLine = expr.operatorLine;
       }
     }
 
-    final span = node.span;
-    if (span == null) {
-      return null;
+    if (resolvedLine == null) {
+      final span = node.span;
+      if (span != null) {
+        var endLine = node.cachedEndLine;
+        if (span.end.column == 0 && endLine > node.cachedStartLine) {
+          endLine -= 1;
+        }
+
+        resolvedLine = switch (node) {
+          LocalDeclaration(exprs: final exprs, span: final SourceSpan span)
+              when exprs.any((expr) => expr is FunctionLiteral) =>
+            lastMeaningfulSpanLine(node, span),
+          DoBlock() => null,
+          IfStatement() ||
+          ElseIfClause() ||
+          WhileStatement() ||
+          RepeatUntilLoop() ||
+          ForLoop() ||
+          ForInLoop() ||
+          FunctionDef() ||
+          LocalFunctionDef() => endLine,
+          _ =>
+            node.cachedStartLine >= 0 ? node.cachedStartLine : span.start.line,
+        };
+      }
     }
 
-    var endLine = node.cachedEndLine;
-    if (span.end.column == 0 && endLine > node.cachedStartLine) {
-      endLine -= 1;
-    }
-
-    return switch (node) {
-      LocalDeclaration(exprs: final exprs, span: final SourceSpan span)
-          when exprs.any((expr) => expr is FunctionLiteral) =>
-        lastMeaningfulSpanLine(node, span),
-      DoBlock() => null,
-      IfStatement() ||
-      ElseIfClause() ||
-      WhileStatement() ||
-      RepeatUntilLoop() ||
-      ForLoop() ||
-      ForInLoop() ||
-      FunctionDef() ||
-      LocalFunctionDef() => endLine,
-      _ => node.cachedStartLine >= 0 ? node.cachedStartLine : span.start.line,
-    };
+    node.cachedDebugHookLine = resolvedLine ?? -1;
+    return resolvedLine;
   }
 
   int? _traceLineForNode(AstNode node) {
-    if (node.span == null) {
-      return null;
+    final cachedLine = node.cachedTraceLine;
+    if (cachedLine != -2) {
+      return cachedLine >= 0 ? cachedLine : null;
     }
 
-    return switch (node) {
-      BinaryExpression(operatorLine: final operatorLine?) => operatorLine,
-      UnaryExpression(operatorLine: final operatorLine?) => operatorLine,
-      UnaryExpression() ||
-      FunctionCall() ||
-      MethodCall() ||
-      ReturnStatement() =>
-        node.cachedStartLine >= 0
-            ? node.cachedStartLine
-            : node.span!.start.line,
-      _ =>
-        _debugHookLineForNode(node) ??
-            (node.cachedStartLine >= 0
-                ? node.cachedStartLine
-                : node.span!.start.line),
-    };
+    int? resolvedLine;
+    if (node.span != null) {
+      resolvedLine = switch (node) {
+        BinaryExpression(operatorLine: final operatorLine?) => operatorLine,
+        UnaryExpression(operatorLine: final operatorLine?) => operatorLine,
+        UnaryExpression() ||
+        FunctionCall() ||
+        MethodCall() ||
+        ReturnStatement() =>
+          node.cachedStartLine >= 0
+              ? node.cachedStartLine
+              : node.span!.start.line,
+        _ =>
+          _debugHookLineForNode(node) ??
+              (node.cachedStartLine >= 0
+                  ? node.cachedStartLine
+                  : node.span!.start.line),
+      };
+    }
+
+    node.cachedTraceLine = resolvedLine ?? -1;
+    return resolvedLine;
   }
 
   bool _fireStatementHookAfterExecution(AstNode node) {
