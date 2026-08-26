@@ -217,7 +217,8 @@ class SetMetatableFunction extends BuiltinFunction {
         );
         // Preserve identity by keeping a reference to the original Value.
         table.metatableRef = metatable;
-        // Reuse the same map instance so identity comparisons work as expected.
+        // Reuse the same map instance so mutations through getmetatable are
+        // immediately visible to metamethod dispatch.
         final rawMeta = Map.castFrom<dynamic, dynamic, String, dynamic>(
           rawMetatable,
         );

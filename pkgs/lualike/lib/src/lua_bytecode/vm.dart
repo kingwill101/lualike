@@ -1106,44 +1106,69 @@ final class LuaBytecodeVm {
           case Opcode.getTable:
             {
               final receiver = frame.register(word.b);
-              final key = frame.register(word.c);
-              final fastValue = _tryFastTableGet(receiver, key);
-              if (fastValue != null) {
-                frame.setRegister(word.a, fastValue);
+              final keySlot = frame.rawSlot(word.c);
+              final fastSlot = _tryFastTableGetSlot(receiver, keySlot);
+              if (!identical(fastSlot, _unhandledTableSlot)) {
+                frame.setRegisterSlot(word.a, fastSlot);
                 break;
               }
+              final key = valueFromLuaSlot(runtime, keySlot);
               try {
                 final value = await _tableGet(receiver, key);
                 frame.setRegister(word.a, value);
               } on YieldException catch (error) {
                 _suspendStoreRegister(frame, word.a, error);
               } on LuaError catch (error) {
-                throw _rewriteIndexOperandError(frame, receiver, error);
+                throw _rewriteIndexOperandError(
+                  frame,
+                  receiver,
+                  error,
+                  labelOverride: _registerSourceLabelBefore(
+                    frame,
+                    word.b,
+                    beforePc: frame.pc - 2,
+                  ),
+                );
               }
               break;
             }
           case Opcode.getI:
             {
               final receiver = frame.register(word.b);
-              final key = transientPrimitiveValue(runtime, word.c);
-              final fastValue = _tryFastTableGet(receiver, key);
-              if (fastValue != null) {
-                frame.setRegister(word.a, fastValue);
+              final fastSlot = _tryFastTableGetSlot(receiver, word.c);
+              if (!identical(fastSlot, _unhandledTableSlot)) {
+                frame.setRegisterSlot(word.a, fastSlot);
                 break;
               }
+              final key = transientPrimitiveValue(runtime, word.c);
               try {
                 final value = await _tableGet(receiver, key);
                 frame.setRegister(word.a, value);
               } on YieldException catch (error) {
                 _suspendStoreRegister(frame, word.a, error);
               } on LuaError catch (error) {
-                throw _rewriteIndexOperandError(frame, receiver, error);
+                throw _rewriteIndexOperandError(
+                  frame,
+                  receiver,
+                  error,
+                  labelOverride: _registerSourceLabelBefore(
+                    frame,
+                    word.b,
+                    beforePc: frame.pc - 2,
+                  ),
+                );
               }
               break;
             }
           case Opcode.getField:
             {
               final receiver = frame.register(word.b);
+              final rawKey = stringConstantRaw(prototype, word.c);
+              final fastSlot = _tryFastTableGetStringKeySlot(receiver, rawKey);
+              if (!identical(fastSlot, _unhandledTableSlot)) {
+                frame.setRegisterSlot(word.a, fastSlot);
+                break;
+              }
               final key = stringConstant(runtime, prototype, word.c);
               try {
                 final value = await _tableGet(receiver, key);
@@ -1151,7 +1176,16 @@ final class LuaBytecodeVm {
               } on YieldException catch (error) {
                 _suspendStoreRegister(frame, word.a, error);
               } on LuaError catch (error) {
-                throw _rewriteIndexOperandError(frame, receiver, error);
+                throw _rewriteIndexOperandError(
+                  frame,
+                  receiver,
+                  error,
+                  labelOverride: _registerSourceLabelBefore(
+                    frame,
+                    word.b,
+                    beforePc: frame.pc - 2,
+                  ),
+                );
               }
               break;
             }
@@ -1193,34 +1227,59 @@ final class LuaBytecodeVm {
           case Opcode.setTable:
             {
               final receiver = frame.register(word.a);
-              final key = frame.register(word.b);
-              final value = rkValue(frame, word.c, word.kFlag);
-              if (_tryFastTableSet(receiver, key, value)) {
+              final keySlot = frame.rawSlot(word.b);
+              final valueSlot = word.kFlag
+                  ? constantValue(runtime, prototype, word.c)
+                  : frame.rawSlot(word.c);
+              if (_tryFastTableSetSlot(receiver, keySlot, valueSlot)) {
                 break;
               }
+              final key = valueFromLuaSlot(runtime, keySlot);
+              final value = valueFromLuaSlot(runtime, valueSlot);
               try {
                 await _tableSet(receiver, key, value);
               } on YieldException catch (error) {
                 _suspendResumeOnly(frame, error);
               } on LuaError catch (error) {
-                throw _rewriteIndexOperandError(frame, receiver, error);
+                throw _rewriteIndexOperandError(
+                  frame,
+                  receiver,
+                  error,
+                  labelOverride: _registerSourceLabelBefore(
+                    frame,
+                    word.a,
+                    beforePc: frame.pc - 2,
+                  ),
+                );
               }
               break;
             }
           case Opcode.setI:
             {
               final receiver = frame.register(word.a);
-              final key = transientPrimitiveValue(runtime, word.b);
-              final value = rkValue(frame, word.c, word.kFlag);
-              if (_tryFastTableSet(receiver, key, value)) {
+              final valueSlot = word.kFlag
+                  ? constantValue(runtime, prototype, word.c)
+                  : frame.rawSlot(word.c);
+              if (_tryFastTableSetSlot(receiver, word.b, valueSlot)) {
                 break;
               }
+              final key = transientPrimitiveValue(runtime, word.b);
+              final value = valueFromLuaSlot(runtime, valueSlot);
               try {
                 await _tableSet(receiver, key, value);
               } on YieldException catch (error) {
                 _suspendResumeOnly(frame, error);
               } on LuaError catch (error) {
-                throw _rewriteIndexOperandError(frame, receiver, error);
+                throw _rewriteIndexOperandError(
+                  frame,
+                  receiver,
+                  error,
+                  labelOverride: _registerSourceLabelBefore(
+                    frame,
+                    word.a,
+                    beforePc: frame.pc - 2,
+                  ),
+                );
               }
               break;
             }
@@ -1228,17 +1287,29 @@ final class LuaBytecodeVm {
             {
               final receiver = frame.register(word.a);
               final rawKey = stringConstantRaw(prototype, word.b);
-              final value = rkValue(frame, word.c, word.kFlag);
-              if (_tryFastTableSetStringKey(receiver, rawKey, value)) {
+              final valueSlot = word.kFlag
+                  ? constantValue(runtime, prototype, word.c)
+                  : frame.rawSlot(word.c);
+              if (_tryFastTableSetStringKeySlot(receiver, rawKey, valueSlot)) {
                 break;
               }
               final key = stringConstant(runtime, prototype, word.b);
+              final value = valueFromLuaSlot(runtime, valueSlot);
               try {
                 await _tableSet(receiver, key, value);
               } on YieldException catch (error) {
                 _suspendResumeOnly(frame, error);
               } on LuaError catch (error) {
-                throw _rewriteIndexOperandError(frame, receiver, error);
+                throw _rewriteIndexOperandError(
+                  frame,
+                  receiver,
+                  error,
+                  labelOverride: _registerSourceLabelBefore(
+                    frame,
+                    word.a,
+                    beforePc: frame.pc - 2,
+                  ),
+                );
               }
               break;
             }
