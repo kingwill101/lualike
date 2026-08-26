@@ -291,236 +291,252 @@ mixin InterpreterAssignmentMixin on AstVisitor<Object?> {
 
     // Evaluate the expressions on the right-hand side into a list
     final expressions = <Object?>[];
-    for (int i = 0; i < node.exprs.length; i++) {
-      final expr = node.exprs[i];
-      Logger.debugLazy(
-        () => 'visitAssignment: Evaluating expr of type: ${expr.runtimeType}',
-        category: 'Assignment',
-        contextBuilder: () => {
-          'exprIndex': i,
-          'exprType': expr.runtimeType.toString(),
-        },
-      );
-      var value = await expr.accept(this);
-      Logger.debugLazy(
-        () =>
-            'visitAssignment: Evaluated value: $value '
-            '(type: ${value.runtimeType})',
-        category: 'Assignment',
-        contextBuilder: () => {
-          'exprIndex': i,
-          'valueType': value.runtimeType.toString(),
-        },
-      );
-
-      // Handle Future values - both direct Futures and Values containing Futures
-      if (value is Future) {
-        value = await value;
-        Logger.debugLazy(
-          () => 'visitAssignment: Awaited direct future value: $value',
-          category: 'Assignment',
-          contextBuilder: () => {'exprIndex': i},
-        );
-      } else {
-        final resolvedValue = _resolveAssignmentFutureValue(interpreter, value);
-        if (!identical(resolvedValue, value)) {
-          value = await resolvedValue;
-          Logger.debugLazy(
-            () =>
-                'visitAssignment: Awaited future value from Value.raw: $value',
-            category: 'Assignment',
-            contextBuilder: () => {'exprIndex': i},
-          );
-        }
-      }
-
-      // Special handling for grouped expressions with function calls
-      if (expr is GroupedExpression) {
-        Logger.debugLazy(
-          () => 'Assignment: handling GroupedExpression result: $value',
-          category: 'Interpreter',
-          contextBuilder: () => {
-            'exprIndex': i,
-            'isMulti': luaResultValues(value) != null,
-          },
-        );
-
-        // In Lua, when a function call is wrapped in parentheses (e.g., (f())),
-        // only the first return value is used, and the rest are discarded
-        if (luaResultValues(value) != null || value is List) {
-          // Take only the first value
-          expressions.add(
-            _snapshotAssignmentResult(
-              _firstLuaResultOrNil(value, interpreter: this as Interpreter),
-            ),
-          );
-        } else {
-          // Regular value, add directly
-          expressions.add(_snapshotAssignmentResult(value));
-        }
-      } else if (value is List) {
-        if (expr is TableConstructor && value.isEmpty) {
-          final tableValue = await expr.accept(this);
-          Logger.debugLazy(
-            () =>
-                'visitAssignment: TableConstructor with empty list, '
-                'using tableValue: $tableValue',
-            category: 'Assignment',
-            contextBuilder: () => {'exprIndex': i},
-          );
-          expressions.add(tableValue);
-        } else {
-          expressions.addAll(value.map(_snapshotAssignmentResult));
-        }
-      } else if (luaResultValues(value) case final resultValues?) {
-        // For multi-value expressions (like varargs or function calls):
-        // - If it's the last expression, expand all values
-        // - If it's not the last expression, only use the first value
-        if (i == node.exprs.length - 1) {
-          // Last expression: expand all values
-          Logger.debugLazy(
-            () =>
-                'Assignment: Last expression is multi-value, '
-                'expanding all: $resultValues',
-            category: 'Assignment',
-            contextBuilder: () => {
-              'exprIndex': i,
-              'valueCount': resultValues.length,
-            },
-          );
-          expressions.addAll(resultValues);
-        } else {
-          // Not last expression: only use first value
-          final firstValue = resultValues.isNotEmpty
-              ? resultValues.first
-              : interpreter.constantPrimitiveValue(null);
-          Logger.debugLazy(
-            () =>
-                'Assignment: Non-last expression is multi-value, '
-                'taking first: $firstValue',
-            category: 'Assignment',
-            contextBuilder: () => {
-              'exprIndex': i,
-              'totalValues': resultValues.length,
-            },
-          );
-          expressions.add(_snapshotAssignmentResult(firstValue));
-        }
-      } else if (expr is TableAccessExpr &&
-          value is Value &&
-          rawLuaSlot(value) is Coroutine) {
-        // Patch: If the right-hand side is a TableAccessExpr and the value is a Coroutine, assign an empty table
-        Logger.debugLazy(
-          () =>
-              'visitAssignment: TableAccessExpr evaluated to Coroutine, '
-              'assigning empty table instead',
-          category: 'Assignment',
-          contextBuilder: () => {'exprIndex': i},
-        );
-        expressions.add(ValueClass.table());
-      } else {
-        expressions.add(_snapshotAssignmentResult(value));
-      }
-      if (expressions.isNotEmpty) {
-        Logger.debugLazy(
-          () =>
-              'visitAssignment: Final value added to expressions: '
-              '${expressions.last}',
-          category: 'Assignment',
-          contextBuilder: () => {
-            'exprIndex': i,
-            'expressionsCount': expressions.length,
-          },
-        );
-      } else {
-        Logger.debugLazy(
-          () => 'visitAssignment: Expression produced no values',
-          category: 'Assignment',
-          contextBuilder: () => {'exprIndex': i},
-        );
-      }
-    }
-    Logger.debugLazy(
-      () => 'Assignment expressions evaluated: $expressions',
-      category: 'Interpreter',
-      contextBuilder: () => {'expressionsCount': expressions.length},
-    );
-
-    // For multiple targets, value should be a list or multi-value
-    List<Object?> values = expressions;
-
-    // Pre-evaluate table and index expressions for targets
     final preTables = <Value?>[];
     final preIndices = <Object?>[];
-    for (final t in node.targets) {
-      if (t is TableFieldAccess) {
-        var tableVal = await t.table.accept(this);
-        if (luaResultValues(tableVal) != null) {
-          tableVal = _firstLuaResultOrNil(tableVal, interpreter: interpreter);
-        }
-        preTables.add(valueFromLuaSlot(interpreter, tableVal));
-        preIndices.add(t.fieldName.name);
-      } else if (t is TableIndexAccess) {
-        var tableVal = await t.table.accept(this);
-        if (luaResultValues(tableVal) != null) {
-          tableVal = _firstLuaResultOrNil(tableVal, interpreter: interpreter);
-        }
-        var indexVal = await t.index.accept(this);
-        if (luaResultValues(indexVal) != null) {
-          indexVal = _firstLuaResultOrNil(indexVal, interpreter: interpreter);
-        }
-        preTables.add(valueFromLuaSlot(interpreter, tableVal));
-        preIndices.add(_snapshotAssignmentResult(indexVal));
-      } else {
-        preTables.add(null);
-        preIndices.add(null);
-      }
+    Iterable<Object?> assignmentRoots() sync* {
+      yield* expressions;
+      yield* preTables;
+      yield* preIndices;
     }
 
-    // Assign each value to corresponding target
-    for (var i = 0; i < node.targets.length; i++) {
-      final target = node.targets[i];
-      final targetValue = i < values.length
-          ? values[i]
-          : interpreter.constantPrimitiveValue(null);
+    // Dart locals are invisible to the Lua collector. Keep evaluated RHS and
+    // target values alive until they have been installed in Lua storage.
+    interpreter.pushExternalGcRoots(assignmentRoots);
+    try {
+      for (int i = 0; i < node.exprs.length; i++) {
+        final expr = node.exprs[i];
+        Logger.debugLazy(
+          () => 'visitAssignment: Evaluating expr of type: ${expr.runtimeType}',
+          category: 'Assignment',
+          contextBuilder: () => {
+            'exprIndex': i,
+            'exprType': expr.runtimeType.toString(),
+          },
+        );
+        var value = await expr.accept(this);
+        Logger.debugLazy(
+          () =>
+              'visitAssignment: Evaluated value: $value '
+              '(type: ${value.runtimeType})',
+          category: 'Assignment',
+          contextBuilder: () => {
+            'exprIndex': i,
+            'valueType': value.runtimeType.toString(),
+          },
+        );
 
+        // Handle Future values - both direct Futures and Values containing Futures
+        if (value is Future) {
+          value = await value;
+          Logger.debugLazy(
+            () => 'visitAssignment: Awaited direct future value: $value',
+            category: 'Assignment',
+            contextBuilder: () => {'exprIndex': i},
+          );
+        } else {
+          final resolvedValue = _resolveAssignmentFutureValue(
+            interpreter,
+            value,
+          );
+          if (!identical(resolvedValue, value)) {
+            value = await resolvedValue;
+            Logger.debugLazy(
+              () =>
+                  'visitAssignment: Awaited future value from Value.raw: $value',
+              category: 'Assignment',
+              contextBuilder: () => {'exprIndex': i},
+            );
+          }
+        }
+
+        // Special handling for grouped expressions with function calls
+        if (expr is GroupedExpression) {
+          Logger.debugLazy(
+            () => 'Assignment: handling GroupedExpression result: $value',
+            category: 'Interpreter',
+            contextBuilder: () => {
+              'exprIndex': i,
+              'isMulti': luaResultValues(value) != null,
+            },
+          );
+
+          // In Lua, when a function call is wrapped in parentheses (e.g., (f())),
+          // only the first return value is used, and the rest are discarded
+          if (luaResultValues(value) != null || value is List) {
+            // Take only the first value
+            expressions.add(
+              _snapshotAssignmentResult(
+                _firstLuaResultOrNil(value, interpreter: this as Interpreter),
+              ),
+            );
+          } else {
+            // Regular value, add directly
+            expressions.add(_snapshotAssignmentResult(value));
+          }
+        } else if (value is List) {
+          if (expr is TableConstructor && value.isEmpty) {
+            final tableValue = await expr.accept(this);
+            Logger.debugLazy(
+              () =>
+                  'visitAssignment: TableConstructor with empty list, '
+                  'using tableValue: $tableValue',
+              category: 'Assignment',
+              contextBuilder: () => {'exprIndex': i},
+            );
+            expressions.add(tableValue);
+          } else {
+            expressions.addAll(value.map(_snapshotAssignmentResult));
+          }
+        } else if (luaResultValues(value) case final resultValues?) {
+          // For multi-value expressions (like varargs or function calls):
+          // - If it's the last expression, expand all values
+          // - If it's not the last expression, only use the first value
+          if (i == node.exprs.length - 1) {
+            // Last expression: expand all values
+            Logger.debugLazy(
+              () =>
+                  'Assignment: Last expression is multi-value, '
+                  'expanding all: $resultValues',
+              category: 'Assignment',
+              contextBuilder: () => {
+                'exprIndex': i,
+                'valueCount': resultValues.length,
+              },
+            );
+            expressions.addAll(resultValues);
+          } else {
+            // Not last expression: only use first value
+            final firstValue = resultValues.isNotEmpty
+                ? resultValues.first
+                : interpreter.constantPrimitiveValue(null);
+            Logger.debugLazy(
+              () =>
+                  'Assignment: Non-last expression is multi-value, '
+                  'taking first: $firstValue',
+              category: 'Assignment',
+              contextBuilder: () => {
+                'exprIndex': i,
+                'totalValues': resultValues.length,
+              },
+            );
+            expressions.add(_snapshotAssignmentResult(firstValue));
+          }
+        } else if (expr is TableAccessExpr &&
+            value is Value &&
+            rawLuaSlot(value) is Coroutine) {
+          // Patch: If the right-hand side is a TableAccessExpr and the value is a Coroutine, assign an empty table
+          Logger.debugLazy(
+            () =>
+                'visitAssignment: TableAccessExpr evaluated to Coroutine, '
+                'assigning empty table instead',
+            category: 'Assignment',
+            contextBuilder: () => {'exprIndex': i},
+          );
+          expressions.add(ValueClass.table());
+        } else {
+          expressions.add(_snapshotAssignmentResult(value));
+        }
+        if (expressions.isNotEmpty) {
+          Logger.debugLazy(
+            () =>
+                'visitAssignment: Final value added to expressions: '
+                '${expressions.last}',
+            category: 'Assignment',
+            contextBuilder: () => {
+              'exprIndex': i,
+              'expressionsCount': expressions.length,
+            },
+          );
+        } else {
+          Logger.debugLazy(
+            () => 'visitAssignment: Expression produced no values',
+            category: 'Assignment',
+            contextBuilder: () => {'exprIndex': i},
+          );
+        }
+      }
       Logger.debugLazy(
-        () => '[visitAssignment] Assigning $targetValue to $target',
+        () => 'Assignment expressions evaluated: $expressions',
         category: 'Interpreter',
-        contextBuilder: () => {
-          'targetIndex': i,
-          'targetType': target.runtimeType.toString(),
-        },
+        contextBuilder: () => {'expressionsCount': expressions.length},
       );
-      final Value wrappedValue = valueFromLuaSlot(interpreter, targetValue);
 
-      if (target is TableAccessExpr) {
-        await _handleTableAccessAssignment(target, wrappedValue);
-      } else if (target is Identifier) {
-        await _handleIdentifierAssignment(target, wrappedValue);
-      } else if (target is FunctionLiteral || target is Function) {
-        await _handleFunctionAssignment(target, wrappedValue);
-      } else if (target is TableFieldAccess) {
-        await _handleTableFieldAssignment(
-          target,
-          wrappedValue,
-          preTable: preTables[i],
-        );
-      } else if (target is TableIndexAccess) {
-        await _handleTableIndexAssignment(
-          target,
-          wrappedValue,
-          preTable: preTables[i],
-          preIndex: preIndices[i],
-        );
-      } else {
-        throw Exception("Invalid assignment target");
+      // For multiple targets, value should be a list or multi-value
+      List<Object?> values = expressions;
+
+      // Pre-evaluate table and index expressions for targets
+      for (final t in node.targets) {
+        if (t is TableFieldAccess) {
+          var tableVal = await t.table.accept(this);
+          if (luaResultValues(tableVal) != null) {
+            tableVal = _firstLuaResultOrNil(tableVal, interpreter: interpreter);
+          }
+          preTables.add(valueFromLuaSlot(interpreter, tableVal));
+          preIndices.add(t.fieldName.name);
+        } else if (t is TableIndexAccess) {
+          var tableVal = await t.table.accept(this);
+          if (luaResultValues(tableVal) != null) {
+            tableVal = _firstLuaResultOrNil(tableVal, interpreter: interpreter);
+          }
+          var indexVal = await t.index.accept(this);
+          if (luaResultValues(indexVal) != null) {
+            indexVal = _firstLuaResultOrNil(indexVal, interpreter: interpreter);
+          }
+          preTables.add(valueFromLuaSlot(interpreter, tableVal));
+          preIndices.add(_snapshotAssignmentResult(indexVal));
+        } else {
+          preTables.add(null);
+          preIndices.add(null);
+        }
       }
-    }
 
-    return values.isNotEmpty
-        ? values[0]
-        : interpreter.constantPrimitiveValue(null);
+      // Assign each value to corresponding target
+      for (var i = 0; i < node.targets.length; i++) {
+        final target = node.targets[i];
+        final targetValue = i < values.length
+            ? values[i]
+            : interpreter.constantPrimitiveValue(null);
+
+        Logger.debugLazy(
+          () => '[visitAssignment] Assigning $targetValue to $target',
+          category: 'Interpreter',
+          contextBuilder: () => {
+            'targetIndex': i,
+            'targetType': target.runtimeType.toString(),
+          },
+        );
+        final Value wrappedValue = valueFromLuaSlot(interpreter, targetValue);
+
+        if (target is TableAccessExpr) {
+          await _handleTableAccessAssignment(target, wrappedValue);
+        } else if (target is Identifier) {
+          await _handleIdentifierAssignment(target, wrappedValue);
+        } else if (target is FunctionLiteral || target is Function) {
+          await _handleFunctionAssignment(target, wrappedValue);
+        } else if (target is TableFieldAccess) {
+          await _handleTableFieldAssignment(
+            target,
+            wrappedValue,
+            preTable: preTables[i],
+          );
+        } else if (target is TableIndexAccess) {
+          await _handleTableIndexAssignment(
+            target,
+            wrappedValue,
+            preTable: preTables[i],
+            preIndex: preIndices[i],
+          );
+        } else {
+          throw Exception("Invalid assignment target");
+        }
+      }
+
+      return values.isNotEmpty
+          ? values[0]
+          : interpreter.constantPrimitiveValue(null);
+    } finally {
+      interpreter.popExternalGcRoots(assignmentRoots);
+    }
   }
 
   /// Handles assignment to a table field.
