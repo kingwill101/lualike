@@ -417,8 +417,12 @@ The timing fields have distinct meanings:
   simulation or VM work.
 - `p95RenderMicros` covers command replay into the selected backend.
 - `p95CpuFrameMicros` is the sum of the recorded update and render regions.
+- `p99CpuFrameMicros` exposes the slowest few frames without relying on one
+  potentially noisy maximum.
 - `maxCpuFrameMicros` is the stutter signal; inspect it alongside p95 rather
   than using average FPS alone.
+- `cpuFramesOver120HzBudget` and `cpuFramesOver60HzBudget` count samples whose
+  recorded update-plus-render CPU work exceeded 8.333 ms or 16.667 ms.
 
 Use Canvas-only and GPU-only windows for backend decisions. Comparison mode is
 valuable for visual parity and total “both backends at once” cost, but it
@@ -512,6 +516,46 @@ It resets allocation accumulators around the same deterministic timing helper
 and writes both raw VM responses and a normalized summary. Run it against a
 fresh profile-mode app; it intentionally avoids a service GC because that pause
 can perturb the game workload being measured.
+
+## Neon Relay Asset, Sampling, and Trace Trial
+
+The expanded Neon Relay source now loads five art assets through
+`flutter_lualike`, including the generated transparent relay-cell sprite. The
+same `assets/main.lua` project was run with native LOVE 11.5 and the Flutter
+Canvas/GPU comparison. The VM-synchronized capture helper waited for a ready
+80-command source snapshot, reset the scene and virtual pointer, and captured
+392x294 integer-aligned panes. The normalized Canvas/GPU RMSE was `0.0522899`.
+This metric covers the complete frame; text antialiasing and strongly minified
+rotated textures remain the most visible differences.
+
+The GPU renderer previously ignored each `LoveImage` filter and wrap state and
+used one hard-coded nearest/clamp sampler. Image, SpriteBatch, particle, and
+mesh draws now reuse an identity-cached `SamplerOptions` derived from the LOVE
+minification, magnification, and per-axis wrap modes. Flutter GPU has no
+transparent-border address mode, so LOVE `clampzero` remains an explicit clamp
+approximation. The synchronized comparison and native capture are the visual
+gate; the sampler tests are the state-mapping gate.
+
+The same AST/GPU walking profile identified repeated source-line resolution in
+`recordTrace`. Parsed AST nodes now cache their debug-hook and error-trace line
+once, invalidating the cache when their span changes. Before the change,
+`_debugHookLineForNode` and `_traceLineForNode` accounted for 1.78% and 0.59%
+self CPU in a 4,715-sample profile. Both disappeared from the post-change hot
+list while 105 focused debug-info, hook, traceback, and source-engine tests
+passed.
+
+Three 240-frame backend-only windows were recorded before and after the trace
+cache. The GPU update p99 median moved from 90 to 66 microseconds and Canvas
+update p95 from 55 to 47 microseconds. Total renderer timing also improved in
+that launch, but it varied independently between runs, so it is not attributed
+to this AST-only change. Every measured window had zero 8.333 ms and 16.667 ms
+CPU-budget violations and zero software fallbacks.
+
+An attempted shortcut that skipped the identity-index probe in
+`Generation.add` was rejected. Weak-table collection can temporarily clear an
+object's `gcSpace` while its generation index still contains the identity; the
+100-test GC suite caught the duplicate insertion assertion. Keep the probe
+until generation membership has one authoritative state representation.
 
 ## Standalone Bytecode Stress Profiles
 
