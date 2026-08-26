@@ -10,6 +10,7 @@ import 'gpu_api_compat.dart';
 import 'gpu_draw_state.dart';
 import 'gpu_host_buffer_pool.dart';
 import 'gpu_pipeline_cache.dart';
+import 'gpu_stroke_tessellator.dart';
 
 const int _kCircleSegments = 48;
 const int _kRoundedCornerSegments = 8;
@@ -31,12 +32,14 @@ class GpuShapeHandler {
 
   final GpuPipelineCache _pipelineCache;
   final GpuHostBufferPool _hostBufferPool;
+  final GpuStrokeTessellator _strokeTessellator = GpuStrokeTessellator();
   // Shape rendering is synchronous: _drawRaw uploads the used prefix before
   // the next command can overwrite this scratch storage. Reusing it avoids a
   // typed-list allocation for every circle, arc, rectangle, and line.
   Float32List _vertexScratch = Float32List(0);
   int _vertexScratchLength = 0;
   final List<({double x, double y})> _pointScratch = <({double x, double y})>[];
+  final List<({double x, double y})> _pathScratch = <({double x, double y})>[];
 
   Float32List _prepareVertices(int requiredLength) {
     if (requiredLength <= 0) {
@@ -69,6 +72,7 @@ class GpuShapeHandler {
       cmd.cornerRadiusY,
       isLine: isLine,
       lineWidth: isLine ? cmd.lineWidth : 0,
+      lineJoin: cmd.lineJoin,
     );
     if (_vertexScratchLength == 0) return false;
     final transform = vm.Matrix4.copy(cmd.transform);
@@ -97,6 +101,7 @@ class GpuShapeHandler {
       cmd.radius,
       isLine: isLine,
       lineWidth: isLine ? cmd.lineWidth : 0,
+      lineJoin: cmd.lineJoin,
     );
     if (_vertexScratchLength == 0) return false;
     final transform = vm.Matrix4.copy(cmd.transform);
@@ -125,6 +130,7 @@ class GpuShapeHandler {
       cmd.radiusY,
       isLine: isLine,
       lineWidth: isLine ? cmd.lineWidth : 0,
+      lineJoin: cmd.lineJoin,
     );
     if (_vertexScratchLength == 0) return false;
     final transform = vm.Matrix4.copy(cmd.transform);
@@ -147,7 +153,7 @@ class GpuShapeHandler {
   ) {
     final pts = cmd.points;
     if (pts.length < 2) return false;
-    final vertices = _lineVertices(pts, cmd.lineWidth);
+    final vertices = _lineVertices(pts, cmd.lineWidth, cmd.lineJoin);
     if (_vertexScratchLength == 0) return false;
     final transform = vm.Matrix4.copy(cmd.transform);
     applyGpuDrawState(pass, cmd, viewportSize);
@@ -174,6 +180,7 @@ class GpuShapeHandler {
       pts,
       isLine: isLine,
       lineWidth: isLine ? cmd.lineWidth : 0,
+      lineJoin: cmd.lineJoin,
     );
     if (_vertexScratchLength == 0) return false;
     final transform = vm.Matrix4.copy(cmd.transform);
@@ -199,17 +206,26 @@ class GpuShapeHandler {
     final transform = vm.Matrix4.copy(cmd.transform);
 
     if (isLine) {
-      // Line mode — use outline-to-quads for the arc path
-      List<({double x, double y})> outlinePts;
+      List<({double x, double y})> outlinePts = pts;
+      var closed = false;
       switch (cmd.arcMode) {
         case LoveGraphicsArcMode.open:
-          outlinePts = pts;
+          break;
         case LoveGraphicsArcMode.closed:
-          outlinePts = [...pts, pts.first];
+          closed = true;
         case LoveGraphicsArcMode.pie:
-          outlinePts = [(x: cmd.x, y: cmd.y), ...pts, (x: cmd.x, y: cmd.y)];
+          outlinePts = _pathScratch
+            ..clear()
+            ..add((x: cmd.x, y: cmd.y))
+            ..addAll(pts);
+          closed = true;
       }
-      final vertices = _outlineToQuads(outlinePts, cmd.lineWidth);
+      final vertices = _strokeVertices(
+        outlinePts,
+        cmd.lineWidth,
+        cmd.lineJoin,
+        closed: closed,
+      );
       if (_vertexScratchLength == 0) return false;
       applyGpuDrawState(pass, cmd, viewportSize);
       _drawVertices(
@@ -227,7 +243,7 @@ class GpuShapeHandler {
     switch (cmd.arcMode) {
       case LoveGraphicsArcMode.open:
         // Open arc has no interior, draw as thin line
-        final vertices = _outlineToQuads(pts, cmd.lineWidth);
+        final vertices = _strokeVertices(pts, cmd.lineWidth, cmd.lineJoin);
         if (_vertexScratchLength == 0) return false;
         applyGpuDrawState(pass, cmd, viewportSize);
         _drawVertices(
@@ -317,7 +333,7 @@ class GpuShapeHandler {
   ) {
     var sweep = a2 - a1;
     if (sweep.abs() > 2 * math.pi) sweep = sweep.sign * 2 * math.pi;
-    final steps = math.max(8, (r.abs() * sweep.abs() * 2).ceil());
+    final steps = gpuArcSegmentCount(r, sweep);
     final pts = _pointScratch;
     pts.clear();
     for (var i = 0; i <= steps; i++) {
@@ -380,6 +396,7 @@ class GpuShapeHandler {
     double ry, {
     required bool isLine,
     double lineWidth = 0,
+    required LoveGraphicsLineJoin lineJoin,
   }) {
     if (w <= 0 || h <= 0) {
       _vertexScratchLength = 0;
@@ -388,7 +405,7 @@ class GpuShapeHandler {
 
     if (isLine) {
       final path = _roundedRectanglePath(x, y, w, h, rx, ry);
-      return _outlineToQuads([...path, path.first], lineWidth);
+      return _strokeVertices(path, lineWidth, lineJoin, closed: true);
     }
 
     final path = _roundedRectanglePath(x, y, w, h, rx, ry);
@@ -431,15 +448,15 @@ class GpuShapeHandler {
     final rx = radiusX.clamp(0.0, w * 0.5).toDouble();
     final ry = radiusY.clamp(0.0, h * 0.5).toDouble();
     if (rx <= _kEpsilon || ry <= _kEpsilon) {
-      return <({double x, double y})>[
-        (x: x, y: y),
-        (x: x + w, y: y),
-        (x: x + w, y: y + h),
-        (x: x, y: y + h),
-      ];
+      return _pathScratch
+        ..clear()
+        ..add((x: x, y: y))
+        ..add((x: x + w, y: y))
+        ..add((x: x + w, y: y + h))
+        ..add((x: x, y: y + h));
     }
 
-    final points = <({double x, double y})>[];
+    final points = _pathScratch..clear();
     void addCorner(double cx, double cy, double startAngle) {
       for (var index = 0; index < _kRoundedCornerSegments; index++) {
         final angle =
@@ -465,6 +482,7 @@ class GpuShapeHandler {
     double ry, {
     required bool isLine,
     double lineWidth = 0,
+    required LoveGraphicsLineJoin lineJoin,
   }) {
     if (rx <= 0 || ry <= 0) {
       _vertexScratchLength = 0;
@@ -475,11 +493,11 @@ class GpuShapeHandler {
     if (isLine) {
       final pts = _pointScratch;
       pts.clear();
-      for (var i = 0; i <= segments; i++) {
+      for (var i = 0; i < segments; i++) {
         final unit = _kCircleUnitPoints[i];
         pts.add((x: cx + rx * unit.cos, y: cy + ry * unit.sin));
       }
-      return _outlineToQuads(pts, lineWidth);
+      return _strokeVertices(pts, lineWidth, lineJoin, closed: true);
     }
 
     // Triangle fan from center
@@ -510,21 +528,23 @@ class GpuShapeHandler {
   Float32List _lineVertices(
     List<({double x, double y})> points,
     double lineWidth,
+    LoveGraphicsLineJoin lineJoin,
   ) {
-    return _outlineToQuads(points, lineWidth);
+    return _strokeVertices(points, lineWidth, lineJoin);
   }
 
   Float32List _polygonVertices(
     List<({double x, double y})> points, {
     required bool isLine,
     double lineWidth = 0,
+    required LoveGraphicsLineJoin lineJoin,
   }) {
     if (points.length < 3) {
       _vertexScratchLength = 0;
       return _vertexScratch;
     }
     if (isLine) {
-      return _outlineToQuads([...points, points[0]], lineWidth);
+      return _strokeVertices(points, lineWidth, lineJoin, closed: true);
     }
     // Triangle fan from first vertex (convex polygons only)
     final vertices = _prepareVertices((points.length - 2) * 3 * 8);
@@ -549,55 +569,19 @@ class GpuShapeHandler {
     return vertices;
   }
 
-  /// Converts a polyline to thin quads (2 triangles per segment).
-  Float32List _outlineToQuads(
+  Float32List _strokeVertices(
     List<({double x, double y})> points,
     double lineWidth,
-  ) {
-    if (points.length < 2 || lineWidth <= 0) {
-      _vertexScratchLength = 0;
-      return _vertexScratch;
-    }
-    final half = lineWidth / 2.0;
-    final vertices = _prepareVertices((points.length - 1) * 6 * 8);
-    var offset = 0;
-    void write(double vx, double vy) {
-      vertices[offset++] = vx;
-      vertices[offset++] = vy;
-      vertices[offset++] = 0;
-      vertices[offset++] = 0;
-      vertices[offset++] = 1;
-      vertices[offset++] = 1;
-      vertices[offset++] = 1;
-      vertices[offset++] = 1;
-    }
-
-    for (var i = 1; i < points.length; i++) {
-      final dx = points[i].x - points[i - 1].x;
-      final dy = points[i].y - points[i - 1].y;
-      final len = math.sqrt(dx * dx + dy * dy);
-      if (len < _kEpsilon) continue;
-
-      final nx = -dy / len * half;
-      final ny = dx / len * half;
-
-      final ax = points[i - 1].x + nx;
-      final ay = points[i - 1].y + ny;
-      final bx = points[i - 1].x - nx;
-      final by = points[i - 1].y - ny;
-      final cx = points[i].x + nx;
-      final cy = points[i].y + ny;
-      final dx2 = points[i].x - nx;
-      final dy2 = points[i].y - ny;
-
-      write(ax, ay);
-      write(bx, by);
-      write(cx, cy);
-      write(bx, by);
-      write(dx2, dy2);
-      write(cx, cy);
-    }
-    _vertexScratchLength = offset;
+    LoveGraphicsLineJoin lineJoin, {
+    bool closed = false,
+  }) {
+    final vertices = _strokeTessellator.tessellate(
+      points,
+      lineWidth,
+      lineJoin: lineJoin,
+      closed: closed,
+    );
+    _vertexScratchLength = _strokeTessellator.floatLength;
     return vertices;
   }
 

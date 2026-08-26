@@ -439,6 +439,42 @@ The profiler evidence that motivated this narrow change showed `Box`,
 physics wrapper helpers in the call tree. The next tuning change should be
 chosen from a fresh profile, not from the renderer numbers alone.
 
+## Neon Relay Stroke Tessellation Trial
+
+The synchronized comparison exposed a GPU-only raster mismatch that was easy
+to miss in aggregate timing: one-pixel circles and arcs looked perforated while
+the Canvas pane and native LOVE 11.5 produced continuous rings. The GPU path
+was expanding every polyline segment into an independent quad, so adjacent
+segments had no shared join geometry. Its arc step rule also emitted roughly
+855 quads for a full 68-pixel ring.
+
+The retained trial uses one reusable stroke tessellator. Miter joins share an
+identical vertex pair, bevel joins fill the outer wedge, and `none` preserves
+disconnected segments. Arc subdivision now uses a 0.125-logical-pixel chord
+error bound, which selects about 52 segments for that same 68-pixel ring.
+
+The profile A/B used the bundled Neon Relay source in AST mode, GPU-only
+rendering, 4x MSAA, a fixed 1280x720 outer window, an 822.67x617 presentation
+rectangle, a two-second warmup, and five 240-frame windows per revision. The
+baseline was commit `9015339b`; both revisions rendered 65 GPU commands with
+zero software fallbacks.
+
+| Metric (median of five windows) | Baseline | Joined stroke mesh | Change |
+| --- | ---: | ---: | ---: |
+| p95 CPU frame | 5247 us | 2042 us | -61.1% |
+| p95 render | 5219 us | 1995 us | -61.8% |
+| maximum CPU frame | 10505 us | 5657 us | -46.1% |
+| p95 update | 58 us | 51 us | -12.1% |
+
+This is evidence for the Neon Relay renderer workload, not a universal engine
+speedup. Keep the Relic Breach walking gate separate. The visual proof is the
+same immutable draw snapshot replayed into Canvas and Flutter GPU in comparison
+mode, plus the identical `assets/main.lua` project captured through the native
+`love` CLI. At full GPU resolution the revised rings are continuous; any
+remaining one-pixel intensity difference in the reduced side-by-side panes is
+partly the different downsampling path and should not be mistaken for missing
+segments.
+
 ## Standalone Bytecode Stress Profiles
 
 Used `devtools-profiler` against standalone Lua stress scripts run with the
