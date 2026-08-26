@@ -32,19 +32,35 @@ import 'package:flutter_gpu/gpu.dart' as gpu;
 /// eliminates per-frame allocation churn.
 class GpuSurfaceManager {
   /// Creates a surface manager rooted at [gpuContext].
-  GpuSurfaceManager(this._gpuContext);
+  GpuSurfaceManager(this._gpuContext, {bool enableMsaa = true})
+    : _enableMsaa = enableMsaa;
 
   static const _retiredCapacity = 8;
 
   final gpu.GpuContext _gpuContext;
+  final bool _enableMsaa;
 
   gpu.Texture? _colorTexture;
+  gpu.Texture? _msaaColorTexture;
   gpu.Texture? _depthStencilTexture;
   ui.Image? _currentImage;
   final List<(ui.Image, int)> _retiredImages = [];
   bool _timingsHooked = false;
   int _cachedWidth = 0;
   int _cachedHeight = 0;
+  bool _cachedUsesMsaa = false;
+  bool _msaaUnavailable = false;
+
+  /// Whether this manager can use the optional offscreen MSAA path.
+  bool get usesMultisampleAntialiasing =>
+      _enableMsaa && !_msaaUnavailable && _gpuContext.doesSupportOffscreenMSAA;
+
+  /// The sample count of the currently allocated render target.
+  ///
+  /// This is observable for diagnostics: capability flags only say that the
+  /// backend can attempt MSAA, while this value confirms what the pooled
+  /// surface actually allocated after size-dependent fallback.
+  int get renderSampleCount => _msaaColorTexture?.sampleCount ?? 1;
 
   /// Returns a [Frame] containing color and depth-stencil textures sized to
   /// [width]×[height].
@@ -53,17 +69,20 @@ class GpuSurfaceManager {
   /// calls, and then call [Frame.present] to blit the result to the canvas.
   /// Textures are reused across frames for the same viewport size.
   Frame acquire(int width, int height) {
-    _ensureSize(width, height);
+    _ensureSize(width, height, usesMsaa: usesMultisampleAntialiasing);
     return Frame._(
       manager: this,
       colorTexture: _colorTexture!,
+      renderColorTexture: _msaaColorTexture ?? _colorTexture!,
       depthStencilTexture: _depthStencilTexture!,
     );
   }
 
-  void _ensureSize(int width, int height) {
-    if (_cachedWidth == width && _cachedHeight == height) {
-      return;
+  bool _ensureSize(int width, int height, {required bool usesMsaa}) {
+    if (_cachedWidth == width &&
+        _cachedHeight == height &&
+        _cachedUsesMsaa == usesMsaa) {
+      return _cachedUsesMsaa;
     }
 
     _colorTexture = _gpuContext.createTexture(
@@ -75,15 +94,49 @@ class GpuSurfaceManager {
       enableShaderReadUsage: true,
     );
 
-    _depthStencilTexture = _gpuContext.createTexture(
+    if (usesMsaa) {
+      try {
+        _msaaColorTexture = _gpuContext.createTexture(
+          gpu.StorageMode.devicePrivate,
+          width,
+          height,
+          format: gpu.PixelFormat.r8g8b8a8UNormInt,
+          sampleCount: 4,
+          enableRenderTargetUsage: true,
+        );
+        _depthStencilTexture = _gpuContext.createTexture(
+          gpu.StorageMode.deviceTransient,
+          width,
+          height,
+          format: gpu.PixelFormat.d24UnormS8Uint,
+          sampleCount: 4,
+        );
+      } catch (_) {
+        // Some backends report MSAA support but reject a particular format or
+        // surface size. Keep the GPU backend alive on the single-sample path.
+        _msaaUnavailable = true;
+        _msaaColorTexture = null;
+        _depthStencilTexture = _createDepthTexture(width, height);
+        usesMsaa = false;
+      }
+    } else {
+      _msaaColorTexture = null;
+      _depthStencilTexture = _createDepthTexture(width, height);
+    }
+
+    _cachedWidth = width;
+    _cachedHeight = height;
+    _cachedUsesMsaa = usesMsaa;
+    return usesMsaa;
+  }
+
+  gpu.Texture _createDepthTexture(int width, int height) {
+    return _gpuContext.createTexture(
       gpu.StorageMode.deviceTransient,
       width,
       height,
       format: gpu.PixelFormat.d24UnormS8Uint,
     );
-
-    _cachedWidth = width;
-    _cachedHeight = height;
   }
 
   /// Releases the pooled GPU textures.
@@ -93,9 +146,12 @@ class GpuSurfaceManager {
   /// will create fresh textures.
   void release() {
     _colorTexture = null;
+    _msaaColorTexture = null;
     _depthStencilTexture = null;
     _cachedWidth = 0;
     _cachedHeight = 0;
+    _cachedUsesMsaa = false;
+    _msaaUnavailable = false;
   }
 
   /// Releases all retained frame images and unregisters the timing callback.
@@ -172,13 +228,16 @@ class Frame {
   Frame._({
     required GpuSurfaceManager manager,
     required gpu.Texture colorTexture,
+    required gpu.Texture renderColorTexture,
     required gpu.Texture depthStencilTexture,
   }) : _manager = manager,
        _colorTexture = colorTexture,
+       _renderColorTexture = renderColorTexture,
        _depthStencilTexture = depthStencilTexture;
 
   final GpuSurfaceManager _manager;
   final gpu.Texture _colorTexture;
+  final gpu.Texture _renderColorTexture;
   final gpu.Texture _depthStencilTexture;
 
   /// The color texture used as the render target attachment.
@@ -186,6 +245,13 @@ class Frame {
   /// Exposed so callers can construct a [gpu.RenderTarget] with this as the
   /// color attachment.
   gpu.Texture get colorTexture => _colorTexture;
+
+  /// The color texture used while rendering the frame.
+  ///
+  /// This is the multisampled texture when offscreen MSAA is enabled and the
+  /// single-sample [colorTexture] otherwise. The resolved [colorTexture] is
+  /// always the texture that is presented to Flutter.
+  gpu.Texture get renderColorTexture => _renderColorTexture;
 
   /// The depth-stencil texture used as the depth/stencil attachment.
   gpu.Texture get depthStencilTexture => _depthStencilTexture;
@@ -203,7 +269,11 @@ class Frame {
       image,
       ui.Rect.fromLTWH(0, 0, image.width.toDouble(), image.height.toDouble()),
       ui.Rect.fromLTWH(0, 0, viewportSize.width, viewportSize.height),
-      ui.Paint(),
+      // The LOVE surface is rendered at its fixed logical resolution and the
+      // harness scales it to the window. Use filtered sampling at this final
+      // presentation step so that coverage from the resolved MSAA image is
+      // not turned into nearest-neighbour stair steps by the outer transform.
+      ui.Paint()..filterQuality = ui.FilterQuality.medium,
     );
     _manager._presentImage(image);
   }

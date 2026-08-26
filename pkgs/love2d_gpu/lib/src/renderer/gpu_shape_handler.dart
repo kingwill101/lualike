@@ -12,6 +12,7 @@ import 'gpu_host_buffer_pool.dart';
 import 'gpu_pipeline_cache.dart';
 
 const int _kCircleSegments = 48;
+const int _kRoundedCornerSegments = 8;
 const double _kEpsilon = 1e-6;
 final List<({double cos, double sin})> _kCircleUnitPoints =
     List<({double cos, double sin})>.unmodifiable(
@@ -30,6 +31,28 @@ class GpuShapeHandler {
 
   final GpuPipelineCache _pipelineCache;
   final GpuHostBufferPool _hostBufferPool;
+  // Shape rendering is synchronous: _drawRaw uploads the used prefix before
+  // the next command can overwrite this scratch storage. Reusing it avoids a
+  // typed-list allocation for every circle, arc, rectangle, and line.
+  Float32List _vertexScratch = Float32List(0);
+  int _vertexScratchLength = 0;
+  final List<({double x, double y})> _pointScratch = <({double x, double y})>[];
+
+  Float32List _prepareVertices(int requiredLength) {
+    if (requiredLength <= 0) {
+      _vertexScratchLength = 0;
+      return _vertexScratch;
+    }
+    if (_vertexScratch.length < requiredLength) {
+      var capacity = _vertexScratch.isEmpty ? 256 : _vertexScratch.length;
+      while (capacity < requiredLength) {
+        capacity *= 2;
+      }
+      _vertexScratch = Float32List(capacity);
+    }
+    _vertexScratchLength = 0;
+    return _vertexScratch;
+  }
 
   bool renderRectangle(
     gpu.RenderPass pass,
@@ -47,10 +70,17 @@ class GpuShapeHandler {
       isLine: isLine,
       lineWidth: isLine ? cmd.lineWidth : 0,
     );
-    if (vertices.isEmpty) return false;
-    final transform = vm.Matrix4.fromList(cmd.transform.storage.toList());
+    if (_vertexScratchLength == 0) return false;
+    final transform = vm.Matrix4.copy(cmd.transform);
     applyGpuDrawState(pass, cmd, viewportSize);
-    _drawVertices(pass, vertices, transform, viewportSize, cmd.color);
+    _drawVertices(
+      pass,
+      vertices,
+      transform,
+      viewportSize,
+      cmd.color,
+      floatLength: _vertexScratchLength,
+    );
     return true;
   }
 
@@ -68,10 +98,17 @@ class GpuShapeHandler {
       isLine: isLine,
       lineWidth: isLine ? cmd.lineWidth : 0,
     );
-    if (vertices.isEmpty) return false;
-    final transform = vm.Matrix4.fromList(cmd.transform.storage.toList());
+    if (_vertexScratchLength == 0) return false;
+    final transform = vm.Matrix4.copy(cmd.transform);
     applyGpuDrawState(pass, cmd, viewportSize);
-    _drawVertices(pass, vertices, transform, viewportSize, cmd.color);
+    _drawVertices(
+      pass,
+      vertices,
+      transform,
+      viewportSize,
+      cmd.color,
+      floatLength: _vertexScratchLength,
+    );
     return true;
   }
 
@@ -89,10 +126,17 @@ class GpuShapeHandler {
       isLine: isLine,
       lineWidth: isLine ? cmd.lineWidth : 0,
     );
-    if (vertices.isEmpty) return false;
-    final transform = vm.Matrix4.fromList(cmd.transform.storage.toList());
+    if (_vertexScratchLength == 0) return false;
+    final transform = vm.Matrix4.copy(cmd.transform);
     applyGpuDrawState(pass, cmd, viewportSize);
-    _drawVertices(pass, vertices, transform, viewportSize, cmd.color);
+    _drawVertices(
+      pass,
+      vertices,
+      transform,
+      viewportSize,
+      cmd.color,
+      floatLength: _vertexScratchLength,
+    );
     return true;
   }
 
@@ -104,10 +148,17 @@ class GpuShapeHandler {
     final pts = cmd.points;
     if (pts.length < 2) return false;
     final vertices = _lineVertices(pts, cmd.lineWidth);
-    if (vertices.isEmpty) return false;
-    final transform = vm.Matrix4.fromList(cmd.transform.storage.toList());
+    if (_vertexScratchLength == 0) return false;
+    final transform = vm.Matrix4.copy(cmd.transform);
     applyGpuDrawState(pass, cmd, viewportSize);
-    _drawVertices(pass, vertices, transform, viewportSize, cmd.color);
+    _drawVertices(
+      pass,
+      vertices,
+      transform,
+      viewportSize,
+      cmd.color,
+      floatLength: _vertexScratchLength,
+    );
     return true;
   }
 
@@ -124,9 +175,16 @@ class GpuShapeHandler {
       isLine: isLine,
       lineWidth: isLine ? cmd.lineWidth : 0,
     );
-    if (vertices.isEmpty) return false;
-    final transform = vm.Matrix4.fromList(cmd.transform.storage.toList());
-    _drawVertices(pass, vertices, transform, viewportSize, cmd.color);
+    if (_vertexScratchLength == 0) return false;
+    final transform = vm.Matrix4.copy(cmd.transform);
+    _drawVertices(
+      pass,
+      vertices,
+      transform,
+      viewportSize,
+      cmd.color,
+      floatLength: _vertexScratchLength,
+    );
     return true;
   }
 
@@ -138,7 +196,7 @@ class GpuShapeHandler {
     final pts = _arcPoints(cmd.x, cmd.y, cmd.radius, cmd.angle1, cmd.angle2);
     if (pts.length < 2) return false;
     final isLine = cmd.drawMode == LoveGraphicsDrawMode.line;
-    final transform = vm.Matrix4.fromList(cmd.transform.storage.toList());
+    final transform = vm.Matrix4.copy(cmd.transform);
 
     if (isLine) {
       // Line mode — use outline-to-quads for the arc path
@@ -152,9 +210,16 @@ class GpuShapeHandler {
           outlinePts = [(x: cmd.x, y: cmd.y), ...pts, (x: cmd.x, y: cmd.y)];
       }
       final vertices = _outlineToQuads(outlinePts, cmd.lineWidth);
-      if (vertices.isEmpty) return false;
+      if (_vertexScratchLength == 0) return false;
       applyGpuDrawState(pass, cmd, viewportSize);
-      _drawVertices(pass, vertices, transform, viewportSize, cmd.color);
+      _drawVertices(
+        pass,
+        vertices,
+        transform,
+        viewportSize,
+        cmd.color,
+        floatLength: _vertexScratchLength,
+      );
       return true;
     }
 
@@ -163,14 +228,21 @@ class GpuShapeHandler {
       case LoveGraphicsArcMode.open:
         // Open arc has no interior, draw as thin line
         final vertices = _outlineToQuads(pts, cmd.lineWidth);
-        if (vertices.isEmpty) return false;
+        if (_vertexScratchLength == 0) return false;
         applyGpuDrawState(pass, cmd, viewportSize);
-        _drawVertices(pass, vertices, transform, viewportSize, cmd.color);
+        _drawVertices(
+          pass,
+          vertices,
+          transform,
+          viewportSize,
+          cmd.color,
+          floatLength: _vertexScratchLength,
+        );
         return true;
       case LoveGraphicsArcMode.closed:
         // Closed arc: fan from first point
         {
-          final vertices = Float32List((pts.length - 1) * 3 * 8);
+          final vertices = _prepareVertices((pts.length - 1) * 3 * 8);
           var offset = 0;
           void write(double vx, double vy) {
             vertices[offset++] = vx;
@@ -188,14 +260,22 @@ class GpuShapeHandler {
             write(pts[i].x, pts[i].y);
             write(pts[(i + 1) % pts.length].x, pts[(i + 1) % pts.length].y);
           }
+          _vertexScratchLength = offset;
           applyGpuDrawState(pass, cmd, viewportSize);
-          _drawVertices(pass, vertices, transform, viewportSize, cmd.color);
+          _drawVertices(
+            pass,
+            vertices,
+            transform,
+            viewportSize,
+            cmd.color,
+            floatLength: _vertexScratchLength,
+          );
           return true;
         }
       case LoveGraphicsArcMode.pie:
         // Pie: fan from center
         {
-          final vertices = Float32List((pts.length - 1) * 3 * 8);
+          final vertices = _prepareVertices((pts.length - 1) * 3 * 8);
           var offset = 0;
           void write(double vx, double vy) {
             vertices[offset++] = vx;
@@ -213,8 +293,16 @@ class GpuShapeHandler {
             write(pts[i - 1].x, pts[i - 1].y);
             write(pts[i].x, pts[i].y);
           }
+          _vertexScratchLength = offset;
           applyGpuDrawState(pass, cmd, viewportSize);
-          _drawVertices(pass, vertices, transform, viewportSize, cmd.color);
+          _drawVertices(
+            pass,
+            vertices,
+            transform,
+            viewportSize,
+            cmd.color,
+            floatLength: _vertexScratchLength,
+          );
           return true;
         }
     }
@@ -230,7 +318,8 @@ class GpuShapeHandler {
     var sweep = a2 - a1;
     if (sweep.abs() > 2 * math.pi) sweep = sweep.sign * 2 * math.pi;
     final steps = math.max(8, (r.abs() * sweep.abs() * 2).ceil());
-    final pts = <({double x, double y})>[];
+    final pts = _pointScratch;
+    pts.clear();
     for (var i = 0; i <= steps; i++) {
       final angle = a1 + sweep * i / steps;
       pts.add((x: cx + math.cos(angle) * r, y: cy + math.sin(angle) * r));
@@ -271,7 +360,7 @@ class GpuShapeHandler {
       write(cx + r, cy - r, c);
     }
     if (vertices.isEmpty) return false;
-    final transform = vm.Matrix4.fromList(cmd.transform.storage.toList());
+    final transform = vm.Matrix4.copy(cmd.transform);
     applyGpuDrawState(pass, cmd, viewportSize);
     final mvp = _buildMVP(transform, viewportSize);
     _drawRaw(pass, vertices, mvp, cmd.color);
@@ -292,19 +381,18 @@ class GpuShapeHandler {
     required bool isLine,
     double lineWidth = 0,
   }) {
-    if (w <= 0 || h <= 0) return Float32List(0);
-
-    if (isLine) {
-      return _outlineToQuads([
-        (x: x, y: y),
-        (x: x + w, y: y),
-        (x: x + w, y: y + h),
-        (x: x, y: y + h),
-        (x: x, y: y),
-      ], lineWidth);
+    if (w <= 0 || h <= 0) {
+      _vertexScratchLength = 0;
+      return _vertexScratch;
     }
 
-    final vertices = Float32List(6 * 8);
+    if (isLine) {
+      final path = _roundedRectanglePath(x, y, w, h, rx, ry);
+      return _outlineToQuads([...path, path.first], lineWidth);
+    }
+
+    final path = _roundedRectanglePath(x, y, w, h, rx, ry);
+    final vertices = _prepareVertices(path.length * 3 * 8);
     var offset = 0;
     void write(double vx, double vy) {
       vertices[offset++] = vx;
@@ -317,14 +405,57 @@ class GpuShapeHandler {
       vertices[offset++] = 1;
     }
 
-    // Two triangles with white per-vertex color (shader multiplies by uniform)
-    write(x, y);
-    write(x + w, y);
-    write(x, y + h);
-    write(x + w, y);
-    write(x + w, y + h);
-    write(x, y + h);
+    final centerX = x + w * 0.5;
+    final centerY = y + h * 0.5;
+    for (var index = 0; index < path.length; index++) {
+      final current = path[index];
+      final next = path[(index + 1) % path.length];
+      // Triangle fan with white per-vertex color (shader multiplies by the
+      // command's uniform color).
+      write(centerX, centerY);
+      write(current.x, current.y);
+      write(next.x, next.y);
+    }
+    _vertexScratchLength = offset;
     return vertices;
+  }
+
+  List<({double x, double y})> _roundedRectanglePath(
+    double x,
+    double y,
+    double w,
+    double h,
+    double radiusX,
+    double radiusY,
+  ) {
+    final rx = radiusX.clamp(0.0, w * 0.5).toDouble();
+    final ry = radiusY.clamp(0.0, h * 0.5).toDouble();
+    if (rx <= _kEpsilon || ry <= _kEpsilon) {
+      return <({double x, double y})>[
+        (x: x, y: y),
+        (x: x + w, y: y),
+        (x: x + w, y: y + h),
+        (x: x, y: y + h),
+      ];
+    }
+
+    final points = <({double x, double y})>[];
+    void addCorner(double cx, double cy, double startAngle) {
+      for (var index = 0; index < _kRoundedCornerSegments; index++) {
+        final angle =
+            startAngle + (math.pi * 0.5) * index / _kRoundedCornerSegments;
+        points.add((
+          x: cx + math.cos(angle) * rx,
+          y: cy + math.sin(angle) * ry,
+        ));
+      }
+    }
+
+    addCorner(x + rx, y + ry, math.pi);
+    addCorner(x + w - rx, y + ry, math.pi * 1.5);
+    addCorner(x + w - rx, y + h - ry, 0);
+    addCorner(x + rx, y + h - ry, math.pi * 0.5);
+    return points;
   }
 
   Float32List _ellipseVertices(
@@ -335,11 +466,15 @@ class GpuShapeHandler {
     required bool isLine,
     double lineWidth = 0,
   }) {
-    if (rx <= 0 || ry <= 0) return Float32List(0);
+    if (rx <= 0 || ry <= 0) {
+      _vertexScratchLength = 0;
+      return _vertexScratch;
+    }
     final segments = _kCircleSegments;
 
     if (isLine) {
-      final pts = <({double x, double y})>[];
+      final pts = _pointScratch;
+      pts.clear();
       for (var i = 0; i <= segments; i++) {
         final unit = _kCircleUnitPoints[i];
         pts.add((x: cx + rx * unit.cos, y: cy + ry * unit.sin));
@@ -348,7 +483,7 @@ class GpuShapeHandler {
     }
 
     // Triangle fan from center
-    final vertices = Float32List(segments * 3 * 8);
+    final vertices = _prepareVertices(segments * 3 * 8);
     var offset = 0;
     void write(double vx, double vy) {
       vertices[offset++] = vx;
@@ -368,6 +503,7 @@ class GpuShapeHandler {
       write(cx + rx * p1.cos, cy + ry * p1.sin);
       write(cx + rx * p2.cos, cy + ry * p2.sin);
     }
+    _vertexScratchLength = offset;
     return vertices;
   }
 
@@ -383,12 +519,15 @@ class GpuShapeHandler {
     required bool isLine,
     double lineWidth = 0,
   }) {
-    if (points.length < 3) return Float32List(0);
+    if (points.length < 3) {
+      _vertexScratchLength = 0;
+      return _vertexScratch;
+    }
     if (isLine) {
       return _outlineToQuads([...points, points[0]], lineWidth);
     }
     // Triangle fan from first vertex (convex polygons only)
-    final vertices = Float32List((points.length - 2) * 3 * 8);
+    final vertices = _prepareVertices((points.length - 2) * 3 * 8);
     var offset = 0;
     void write(double vx, double vy) {
       vertices[offset++] = vx;
@@ -406,6 +545,7 @@ class GpuShapeHandler {
       write(points[i].x, points[i].y);
       write(points[i + 1].x, points[i + 1].y);
     }
+    _vertexScratchLength = offset;
     return vertices;
   }
 
@@ -414,9 +554,12 @@ class GpuShapeHandler {
     List<({double x, double y})> points,
     double lineWidth,
   ) {
-    if (points.length < 2 || lineWidth <= 0) return Float32List(0);
+    if (points.length < 2 || lineWidth <= 0) {
+      _vertexScratchLength = 0;
+      return _vertexScratch;
+    }
     final half = lineWidth / 2.0;
-    final vertices = Float32List((points.length - 1) * 6 * 8);
+    final vertices = _prepareVertices((points.length - 1) * 6 * 8);
     var offset = 0;
     void write(double vx, double vy) {
       vertices[offset++] = vx;
@@ -454,6 +597,7 @@ class GpuShapeHandler {
       write(dx2, dy2);
       write(cx, cy);
     }
+    _vertexScratchLength = offset;
     return vertices;
   }
 
@@ -466,23 +610,29 @@ class GpuShapeHandler {
     Float32List floats,
     vm.Matrix4 transform,
     ui.Size viewportSize,
-    LoveColor color,
-  ) {
+    LoveColor color, {
+    required int floatLength,
+  }) {
     final mvp = _buildMVP(transform, viewportSize);
-    _drawRaw(pass, floats, mvp, color);
+    _drawRaw(pass, floats, mvp, color, floatLength: floatLength);
   }
 
   void _drawRaw(
     gpu.RenderPass pass,
     Float32List floats,
     vm.Matrix4 mvp,
-    LoveColor color,
-  ) {
-    if (floats.isEmpty) return;
-    if (floats.length % 8 != 0) return;
+    LoveColor color, {
+    int? floatLength,
+  }) {
+    final usedLength = floatLength ?? floats.length;
+    if (usedLength <= 0 || usedLength > floats.length) return;
+    if (usedLength % 8 != 0) return;
 
-    final vertexBuffer = _hostBufferPool.emplaceFloats(floats);
-    final vertexCount = floats.length ~/ 8;
+    final vertexBuffer = _hostBufferPool.emplaceFloat32List(
+      floats,
+      length: usedLength,
+    );
+    final vertexCount = usedLength ~/ 8;
 
     final pipeline = _pipelineCache.get(
       const PipelineKey(vertexStride: 32, isTextured: false),

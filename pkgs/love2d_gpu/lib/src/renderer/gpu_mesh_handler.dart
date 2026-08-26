@@ -121,14 +121,12 @@ class GpuMeshHandler {
         renderPass,
         indexBuffer,
         indexType: gpu.IndexType.int16,
-        indexCount: indexCount,
       );
     }
 
     // Build and bind the VertInfo uniform (MVP + color)
-    final fullTransform = vm.Matrix4.fromList(
-      command.transform.storage.toList(),
-    )..multiply(vm.Matrix4.fromList(command.drawTransform.storage.toList()));
+    final fullTransform = vm.Matrix4.copy(command.transform)
+      ..multiply(command.drawTransform);
     final mvp = _buildMVP(fullTransform, viewportSize);
     final color = vm.Vector4(
       command.color.r,

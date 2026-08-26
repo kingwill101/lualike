@@ -7,6 +7,11 @@ import 'package:love2d/love2d.dart';
 import 'renderer/renderer.dart';
 import 'shader/love_shader_bundle.dart';
 
+const bool _loveGpuMsaaEnabled = bool.fromEnvironment(
+  'LOVE2D_GPU_MSAA',
+  defaultValue: true,
+);
+
 /// Renders LOVE2D draw commands through [package:flutter_gpu]'s low-level
 /// GPU API instead of the standard Flutter Canvas 2D pipeline.
 ///
@@ -49,7 +54,10 @@ class LoveGpuRenderBackend implements LoveRenderBackend {
       _instance = LoveGpuRenderBackend._(
         GpuCommandRenderer(
           gpuContext: gpuContext,
-          surfaceManager: GpuSurfaceManager(gpuContext),
+          surfaceManager: GpuSurfaceManager(
+            gpuContext,
+            enableMsaa: _loveGpuMsaaEnabled,
+          ),
           pipelineCache: GpuPipelineCache(gpuContext),
           textureCache: GpuTextureCache(gpuContext),
           hostBufferPool: GpuHostBufferPool(gpuContext),
@@ -71,6 +79,12 @@ class LoveGpuRenderBackend implements LoveRenderBackend {
 
   @override
   bool get isAvailable => true;
+
+  /// Whether the backend is currently rendering through offscreen MSAA.
+  bool get usesMultisampleAntialiasing => _renderer.usesMultisampleAntialiasing;
+
+  /// The sample count of the currently allocated offscreen color target.
+  int get renderSampleCount => _renderer.renderSampleCount;
 
   @override
   void renderSurface(

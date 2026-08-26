@@ -31,6 +31,7 @@ class GpuHostBufferPool {
        );
 
   final gpu.HostBuffer _hostBuffer;
+  final Float32List _vertInfoScratch = Float32List(20);
 
   /// Advances the host buffer to the next internal frame.
   ///
@@ -48,8 +49,16 @@ class GpuHostBufferPool {
   }
 
   /// Appends a typed float list to the host buffer without per-element copies.
-  gpu.BufferView emplaceFloat32List(Float32List floats) {
-    return _hostBuffer.emplace(ByteData.sublistView(floats));
+  ///
+  /// When [length] is provided, only the prefix containing meaningful floats
+  /// is uploaded. This lets synchronous geometry handlers reuse a larger
+  /// scratch buffer without padding every draw to its high-water mark.
+  gpu.BufferView emplaceFloat32List(Float32List floats, {int? length}) {
+    final usedLength = length ?? floats.length;
+    if (usedLength < 0 || usedLength > floats.length) {
+      throw RangeError.range(usedLength, 0, floats.length, 'length');
+    }
+    return _hostBuffer.emplace(ByteData.sublistView(floats, 0, usedLength));
   }
 
   /// Appends raw byte data to the host buffer and returns a [BufferView].
@@ -63,16 +72,17 @@ class GpuHostBufferPool {
   ///   mat4 mvp;   // 16 floats = 64 bytes
   ///   vec4 color; // 4 floats = 16 bytes
   gpu.BufferView emplaceVertInfo(vm.Matrix4 mvp, vm.Vector4 color) {
-    final floats = Float32List(20);
     final matrix = mvp.storage;
     for (var i = 0; i < 16; i++) {
-      floats[i] = matrix[i];
+      _vertInfoScratch[i] = matrix[i];
     }
-    floats[16] = color.x;
-    floats[17] = color.y;
-    floats[18] = color.z;
-    floats[19] = color.w;
-    return emplaceFloat32List(floats);
+    _vertInfoScratch[16] = color.x;
+    _vertInfoScratch[17] = color.y;
+    _vertInfoScratch[18] = color.z;
+    _vertInfoScratch[19] = color.w;
+    // HostBuffer.emplace copies into its bump-allocated frame block before
+    // the next command can reuse this scratch array.
+    return emplaceFloat32List(_vertInfoScratch);
   }
 
   static ByteData _toByteData(List<double> floats) {

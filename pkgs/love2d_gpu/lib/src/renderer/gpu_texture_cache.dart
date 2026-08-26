@@ -26,25 +26,46 @@ class GpuTextureCache {
   GpuTextureCache(this._gpuContext);
 
   final gpu.GpuContext _gpuContext;
-  final Map<Object, _CachedTexture> _cache = {};
+  // Identity maps avoid constructing a composite string key on every draw.
+  // LOVE may create a lightweight copyWith wrapper when filter or wrap state
+  // changes, so the image-data/native-image maps retain texture reuse across
+  // those wrappers as well as the common stable LoveImage identity path.
+  final Map<LoveImage, _CachedTexture> _loveImageCache =
+      Map<LoveImage, _CachedTexture>.identity();
+  final Map<LoveImageData, _CachedTexture> _imageDataCache =
+      Map<LoveImageData, _CachedTexture>.identity();
+  final Map<ui.Image, _CachedTexture> _uiImageCache =
+      Map<ui.Image, _CachedTexture>.identity();
 
   /// Returns a cached [gpu.Texture] for [image], or `null` if not yet uploaded.
   ///
   /// This is synchronous — use it during the render phase.
   gpu.Texture? getCached(ui.Image? image) {
     if (image == null) return null;
-    final entry = _cache[_LoveImageCacheKey.fromUiImage(image)];
-    if (entry != null && identical(entry.source, image)) {
-      return entry.texture;
-    }
-    return null;
+    return _uiImageCache[image]?.texture;
   }
 
   /// Returns a cached [gpu.Texture] for a [LoveImage], or null if not cached.
   gpu.Texture? getCachedLoveImage(LoveImage image) {
-    final entry = _cache[_LoveImageCacheKey.fromLoveImage(image)];
-    if (entry != null && identical(entry.source, image)) {
-      return entry.texture;
+    final direct = _loveImageCache[image];
+    if (direct != null) {
+      return direct.texture;
+    }
+    final nativeImage = image.nativeImage;
+    if (nativeImage is ui.Image) {
+      final native = _uiImageCache[nativeImage];
+      if (native != null) {
+        _loveImageCache[image] = native;
+        return native.texture;
+      }
+    }
+    final imageData = image.imageData;
+    if (imageData != null) {
+      final decoded = _imageDataCache[imageData];
+      if (decoded != null) {
+        _loveImageCache[image] = decoded;
+        return decoded.texture;
+      }
     }
     return null;
   }
@@ -56,7 +77,7 @@ class GpuTextureCache {
     if (image == null) return null;
     if (image.width <= 0 || image.height <= 0) return null;
 
-    final existing = _cache[_LoveImageCacheKey.fromUiImage(image)];
+    final existing = _uiImageCache[image];
     if (existing != null && identical(existing.source, image)) {
       return existing.texture;
     }
@@ -73,7 +94,7 @@ class GpuTextureCache {
     );
 
     texture.overwrite(byteData.buffer.asByteData());
-    _cache[_LoveImageCacheKey.fromUiImage(image)] = _CachedTexture(
+    _uiImageCache[image] = _CachedTexture(
       source: image,
       texture: texture,
     );
@@ -154,15 +175,14 @@ class GpuTextureCache {
         );
         texture.overwrite(ByteData.sublistView(pixels));
 
-        _cache[_LoveImageCacheKey.fromLoveImage(image)] = _CachedTexture(
+        final cached = _CachedTexture(
           source: image,
           texture: texture,
         );
+        _loveImageCache[image] = cached;
+        _imageDataCache[imageData] = cached;
         if (nativeImage is ui.Image) {
-          _cache[_LoveImageCacheKey.fromUiImage(nativeImage)] = _CachedTexture(
-            source: nativeImage,
-            texture: texture,
-          );
+          _uiImageCache[nativeImage] = cached;
         }
         return texture;
       }
@@ -175,7 +195,9 @@ class GpuTextureCache {
 
   /// Removes all entries from the cache.
   void clear() {
-    _cache.clear();
+    _loveImageCache.clear();
+    _imageDataCache.clear();
+    _uiImageCache.clear();
   }
 }
 
@@ -184,28 +206,4 @@ class _CachedTexture {
 
   final Object source;
   final gpu.Texture texture;
-}
-
-final class _LoveImageCacheKey {
-  const _LoveImageCacheKey._(this.value);
-
-  factory _LoveImageCacheKey.fromUiImage(ui.Image image) {
-    return _LoveImageCacheKey._('ui:${identityHashCode(image)}');
-  }
-
-  factory _LoveImageCacheKey.fromLoveImage(LoveImage image) {
-    final imageData = image.imageData;
-    return _LoveImageCacheKey._(
-      'love:${image.source}:${image.width}x${image.height}:${image.textureType}:${image.mipmapCount}:${image.layerCount}:${identityHashCode(imageData)}',
-    );
-  }
-
-  final String value;
-
-  @override
-  bool operator ==(Object other) =>
-      other is _LoveImageCacheKey && other.value == value;
-
-  @override
-  int get hashCode => value.hashCode;
 }

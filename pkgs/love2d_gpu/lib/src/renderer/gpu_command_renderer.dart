@@ -225,6 +225,13 @@ class GpuCommandRenderer {
   String? _lastLoggedFallbackSummaryKey;
   final Map<String, String> _fallbackDescriptionCache = {};
 
+  /// Whether the current surface manager can use offscreen multisampling.
+  bool get usesMultisampleAntialiasing =>
+      _surfaceManager.usesMultisampleAntialiasing;
+
+  /// The sample count of the currently allocated offscreen color target.
+  int get renderSampleCount => _surfaceManager.renderSampleCount;
+
   /// Renders a single LOVE frame onto [canvas].
   ///
   /// [snapshot] contains the frame's clear color and command list.
@@ -321,10 +328,15 @@ class GpuCommandRenderer {
     Frame frame,
   ) {
     final c = snapshot.clearColor;
+    final usesMsaa = frame.renderColorTexture.sampleCount > 1;
     return gpu.RenderTarget.singleColor(
       gpu.ColorAttachment(
-        texture: frame.colorTexture,
+        texture: frame.renderColorTexture,
         clearValue: vm.Vector4(c.r, c.g, c.b, c.a),
+        storeAction: usesMsaa
+            ? gpu.StoreAction.multisampleResolve
+            : gpu.StoreAction.store,
+        resolveTexture: usesMsaa ? frame.colorTexture : null,
       ),
       depthStencilAttachment: gpu.DepthStencilAttachment(
         texture: frame.depthStencilTexture,

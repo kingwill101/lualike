@@ -32,7 +32,7 @@ import 'gpu_texture_samplers.dart';
 /// to the image's source rectangle via UV coordinates.
 class GpuImageHandler {
   /// Creates an image handler.
-  const GpuImageHandler({
+  GpuImageHandler({
     required GpuPipelineCache pipelineCache,
     required GpuTextureCache textureCache,
     required GpuHostBufferPool hostBufferPool,
@@ -43,6 +43,7 @@ class GpuImageHandler {
   final GpuPipelineCache _pipelineCache;
   final GpuTextureCache _textureCache;
   final GpuHostBufferPool _hostBufferPool;
+  final Float32List _quadVertices = Float32List(6 * 8);
 
   /// Renders [command] into [renderPass] synchronously.
   ///
@@ -69,7 +70,7 @@ class GpuImageHandler {
     final v1 = (quadY + quadH) / imageH;
 
     // Quad rendered as two triangles (six vertices), avoiding indexed draws.
-    final vertices = Float32List(6 * 8);
+    final vertices = _quadVertices;
     var offset = 0;
     void write(double x, double y, double u, double v) {
       vertices[offset++] = x;
@@ -98,14 +99,16 @@ class GpuImageHandler {
     applyGpuDrawState(renderPass, command, viewportSize);
     bindVertexBufferCompat(renderPass, vertexBuffer);
 
-    final fullTransform = vm.Matrix4.fromList(
-      command.transform.storage.toList(),
-    )..multiply(vm.Matrix4.fromList(command.drawTransform.storage.toList()));
+    final fullTransform = vm.Matrix4.copy(command.transform)
+      ..multiply(command.drawTransform);
     final mvp = _buildMVP(fullTransform, viewportSize);
-    final vertInfo = _hostBufferPool.emplaceVertInfo(
-      mvp,
-      vm.Vector4(1, 1, 1, 1),
+    final color = vm.Vector4(
+      command.color.r,
+      command.color.g,
+      command.color.b,
+      command.color.a,
     );
+    final vertInfo = _hostBufferPool.emplaceVertInfo(mvp, color);
     final vertInfoSlot = pipeline.vertexShader.getUniformSlot('VertInfo');
     renderPass.bindUniform(vertInfoSlot, vertInfo);
 

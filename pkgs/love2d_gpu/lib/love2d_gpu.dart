@@ -17,3 +17,4 @@
 // ```
 
 export 'src/love2d_gpu_render_backend.dart';
+export 'src/love_side_by_side_render_backend.dart';
