@@ -68,7 +68,7 @@ class GpuSpriteBatchHandler {
     renderPass.bindTexture(
       textureSlot,
       gpuTexture,
-      sampler: kNearestClampSampler,
+      sampler: gpuSamplerForLoveImage(loveImage),
     );
 
     applyGpuDrawState(renderPass, command, viewportSize);
@@ -163,7 +163,7 @@ class GpuSpriteBatchHandler {
     renderPass.bindTexture(
       textureSlot,
       gpuTexture,
-      sampler: kNearestClampSampler,
+      sampler: gpuSamplerForLoveImage(loveImage),
     );
 
     final batchBase = vm.Matrix4.copy(command.transform)

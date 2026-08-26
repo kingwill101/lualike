@@ -116,7 +116,11 @@ class GpuImageHandler {
     final textureSlot = pipeline.fragmentShader.getUniformSlot(
       'texture_sampler',
     );
-    renderPass.bindTexture(textureSlot, texture, sampler: kNearestClampSampler);
+    renderPass.bindTexture(
+      textureSlot,
+      texture,
+      sampler: gpuSamplerForLoveImage(image),
+    );
 
     drawVerticesCompat(renderPass, 6);
 

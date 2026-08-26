@@ -77,9 +77,11 @@ class GpuMeshHandler {
 
     // Look up texture from cache (must be pre-warmed)
     gpu.Texture? gpuTexture;
+    LoveImage? loveTexture;
     if (isTextured) {
       final texObj = mesh.textureObject;
       if (texObj is LoveImage) {
+        loveTexture = texObj;
         gpuTexture = _textureCache.getCachedLoveImage(texObj);
         if (gpuTexture == null) return false;
       } else {
@@ -146,7 +148,7 @@ class GpuMeshHandler {
       renderPass.bindTexture(
         textureSlot,
         gpuTexture,
-        sampler: kNearestClampSampler,
+        sampler: gpuSamplerForLoveImage(loveTexture!),
       );
     }
 
