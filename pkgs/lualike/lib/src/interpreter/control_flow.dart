@@ -204,12 +204,12 @@ mixin InterpreterControlFlowMixin on AstVisitor<Object?> {
     final prevEnv = globals;
     final baseBindings = Map<String, Box<dynamic>>.from(loopEnv.values);
     final baseKeys = baseBindings.keys.toSet();
-    final baseToBeClosedLen = loopEnv.toBeClosedVars.length;
+    final baseToBeClosedLen = loopEnv.toBeClosedVariableCount;
 
     Future<void> resetLoopEnvironment([Object? error]) async {
-      if (loopEnv.toBeClosedVars.length > baseToBeClosedLen) {
+      if (loopEnv.toBeClosedVariableCount > baseToBeClosedLen) {
         final namesToClose = <String>[];
-        while (loopEnv.toBeClosedVars.length > baseToBeClosedLen) {
+        while (loopEnv.toBeClosedVariableCount > baseToBeClosedLen) {
           namesToClose.add(loopEnv.toBeClosedVars.removeLast());
         }
         for (final name in namesToClose) {
@@ -532,12 +532,12 @@ mixin InterpreterControlFlowMixin on AstVisitor<Object?> {
 
     final baseBindings = Map<String, Box<dynamic>>.from(loopEnv.values);
     final baseKeys = baseBindings.keys.toSet();
-    final baseToBeClosedLen = loopEnv.toBeClosedVars.length;
+    final baseToBeClosedLen = loopEnv.toBeClosedVariableCount;
 
     Future<void> resetLoopEnvironment([Object? error]) async {
-      if (loopEnv.toBeClosedVars.length > baseToBeClosedLen) {
+      if (loopEnv.toBeClosedVariableCount > baseToBeClosedLen) {
         final namesToClose = <String>[];
-        while (loopEnv.toBeClosedVars.length > baseToBeClosedLen) {
+        while (loopEnv.toBeClosedVariableCount > baseToBeClosedLen) {
           namesToClose.add(loopEnv.toBeClosedVars.removeLast());
         }
         for (final name in namesToClose) {
@@ -668,12 +668,12 @@ mixin InterpreterControlFlowMixin on AstVisitor<Object?> {
     final prevEnv = globals;
     final baseBindings = Map<String, Box<dynamic>>.from(loopEnv.values);
     final baseKeys = baseBindings.keys.toSet();
-    final baseToBeClosedLen = loopEnv.toBeClosedVars.length;
+    final baseToBeClosedLen = loopEnv.toBeClosedVariableCount;
 
     Future<void> resetLoopEnvironment([Object? error]) async {
-      if (loopEnv.toBeClosedVars.length > baseToBeClosedLen) {
+      if (loopEnv.toBeClosedVariableCount > baseToBeClosedLen) {
         final namesToClose = <String>[];
-        while (loopEnv.toBeClosedVars.length > baseToBeClosedLen) {
+        while (loopEnv.toBeClosedVariableCount > baseToBeClosedLen) {
           namesToClose.add(loopEnv.toBeClosedVars.removeLast());
         }
         for (final name in namesToClose) {
@@ -825,7 +825,7 @@ mixin InterpreterControlFlowMixin on AstVisitor<Object?> {
 
       final baseBindings = Map<String, Box<dynamic>>.from(loopEnv.values);
       final baseKeys = baseBindings.keys.toSet();
-      final baseToBeClosedLen = loopEnv.toBeClosedVars.length;
+      final baseToBeClosedLen = loopEnv.toBeClosedVariableCount;
       final interpreter = this as Interpreter;
 
       // This loop state exists only in Dart async locals while the coroutine is
@@ -840,9 +840,9 @@ mixin InterpreterControlFlowMixin on AstVisitor<Object?> {
       interpreter.pushExternalGcRoots(directLoopRoots);
 
       Future<void> resetLoopEnvironment([Object? error]) async {
-        if (loopEnv.toBeClosedVars.length > baseToBeClosedLen) {
+        if (loopEnv.toBeClosedVariableCount > baseToBeClosedLen) {
           final namesToClose = <String>[];
-          while (loopEnv.toBeClosedVars.length > baseToBeClosedLen) {
+          while (loopEnv.toBeClosedVariableCount > baseToBeClosedLen) {
             namesToClose.add(loopEnv.toBeClosedVars.removeLast());
           }
           for (final name in namesToClose) {
@@ -1078,7 +1078,7 @@ mixin InterpreterControlFlowMixin on AstVisitor<Object?> {
 
     final baseBindings = Map<String, Box<dynamic>>.from(loopEnv.values);
     final baseKeys = baseBindings.keys.toSet();
-    final baseToBeClosedLen = loopEnv.toBeClosedVars.length;
+    final baseToBeClosedLen = loopEnv.toBeClosedVariableCount;
 
     // Generic-for iterator state is stored in these Dart locals rather than a
     // Lua-visible environment. If a coroutine yields inside the loop body, the
@@ -1097,9 +1097,9 @@ mixin InterpreterControlFlowMixin on AstVisitor<Object?> {
     interpreter.pushExternalGcRoots(loopRoots);
 
     Future<void> resetLoopEnvironment([Object? error]) async {
-      if (loopEnv.toBeClosedVars.length > baseToBeClosedLen) {
+      if (loopEnv.toBeClosedVariableCount > baseToBeClosedLen) {
         final namesToClose = <String>[];
-        while (loopEnv.toBeClosedVars.length > baseToBeClosedLen) {
+        while (loopEnv.toBeClosedVariableCount > baseToBeClosedLen) {
           namesToClose.add(loopEnv.toBeClosedVars.removeLast());
         }
         for (final name in namesToClose) {
@@ -1129,10 +1129,10 @@ mixin InterpreterControlFlowMixin on AstVisitor<Object?> {
         loopEnv.values[entry.key] = entry.value;
       }
 
-      if (loopEnv.implicitToBeClosedValues.length > 1) {
+      if (loopEnv.implicitToBeClosedValueCount > 1) {
         loopEnv.implicitToBeClosedValues.removeRange(
           1,
-          loopEnv.implicitToBeClosedValues.length,
+          loopEnv.implicitToBeClosedValueCount,
         );
       }
 
@@ -1571,7 +1571,7 @@ mixin InterpreterControlFlowMixin on AstVisitor<Object?> {
 
     final baseBindings = Map<String, Box<dynamic>>.from(loopEnv.values);
     final baseKeys = baseBindings.keys.toSet();
-    final baseToBeClosedLen = loopEnv.toBeClosedVars.length;
+    final baseToBeClosedLen = loopEnv.toBeClosedVariableCount;
 
     // `pairs(next, t, nil)` loops that were optimized into a direct table walk
     // still suspend through coroutine yields. Root both the source table and
@@ -1585,9 +1585,9 @@ mixin InterpreterControlFlowMixin on AstVisitor<Object?> {
     interpreter.pushExternalGcRoots(directPairsRoots);
 
     Future<void> resetLoopEnvironment([Object? error]) async {
-      if (loopEnv.toBeClosedVars.length > baseToBeClosedLen) {
+      if (loopEnv.toBeClosedVariableCount > baseToBeClosedLen) {
         final namesToClose = <String>[];
-        while (loopEnv.toBeClosedVars.length > baseToBeClosedLen) {
+        while (loopEnv.toBeClosedVariableCount > baseToBeClosedLen) {
           namesToClose.add(loopEnv.toBeClosedVars.removeLast());
         }
         for (final name in namesToClose) {

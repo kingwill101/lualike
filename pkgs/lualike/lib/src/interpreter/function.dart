@@ -65,7 +65,7 @@ Object? _resolveCurrentVarargSource(Interpreter interpreter, Environment env) {
 String _bindingScopeLabel(Environment env, String name) {
   Environment? current = env;
   while (current != null) {
-    final box = current.values[name] ?? current.declaredGlobals[name];
+    final box = current.values[name] ?? current.declaredGlobalBox(name);
     if (box != null) {
       if (box.isLocal) {
         return identical(current, env) ? "local '$name'" : "upvalue '$name'";
@@ -227,7 +227,7 @@ int? _callSiteLineNumber(AstNode? callNode) {
 bool _hasPendingToBeClosed(Environment? env) {
   var current = env;
   while (current != null) {
-    if (current.toBeClosedVars.isNotEmpty ||
+    if (current.hasToBeClosedVariables ||
         current.pendingImplicitToBeClosed > 0) {
       return true;
     }
@@ -1244,8 +1244,8 @@ mixin InterpreterFunctionMixin on AstVisitor<Object?> {
             );
           }
 
-          if (execEnv.toBeClosedVars.isNotEmpty) {
-            execEnv.toBeClosedVars.clear();
+          if (execEnv.hasToBeClosedVariables) {
+            execEnv.clearToBeClosedVariables();
           }
 
           for (var i = 0; i < regularParamCount; i++) {
@@ -1590,14 +1590,17 @@ mixin InterpreterFunctionMixin on AstVisitor<Object?> {
       }
     }
 
-    for (final entry in sourceEnv.declaredGlobals.entries) {
+    for (final entry in sourceEnv.declaredGlobalEntries) {
       if (!excludeNames.contains(entry.key)) {
         filteredEnv.declaredGlobals[entry.key] = entry.value;
       }
     }
 
     // Copy toBeClosedVars
-    filteredEnv.toBeClosedVars.addAll(sourceEnv.toBeClosedVars);
+    final closeVariables = sourceEnv.existingToBeClosedVariables;
+    if (closeVariables.isNotEmpty) {
+      filteredEnv.toBeClosedVars.addAll(closeVariables);
+    }
 
     Logger.debugLazy(
       () =>
