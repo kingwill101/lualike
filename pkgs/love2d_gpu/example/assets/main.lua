@@ -2,7 +2,7 @@
 --
 -- The hot paths deliberately use fixed-capacity arrays.  The game is small,
 -- but it is busy enough to expose frame pacing, texture filtering, batching,
--- alpha blending, mesh colors, input, and text in both render backends. Four
+-- alpha blending, mesh colors, input, and text in both render backends. Five
 -- generated textures keep the asset path real without allocating per frame.
 
 local SCREEN_W = 800
@@ -10,23 +10,32 @@ local SCREEN_H = 600
 local ENEMY_COUNT = 8
 local SHOT_COUNT = 24
 local PARTICLE_COUNT = 72
+local CELL_COUNT = 5
 
 local arena_image = nil
 local player_image = nil
 local drone_image = nil
 local beacon_image = nil
+local cell_image = nil
 local drone_batch = nil
+local cell_batch = nil
 local target_mesh = nil
+local drone_origin_x = 0
+local drone_origin_y = 0
+local cell_origin_x = 0
+local cell_origin_y = 0
 
 local elapsed = 0
 local frame_count = 0
 local fps_timer = 0
 local fps = 0
 local hud_fps = "FPS --"
+local hud_cells = "CELLS 00"
 local score = 0
 local wave = 1
 local energy = 100
 local kills = 0
+local cells_collected = 0
 local fire_cooldown = 0
 local damage_flash = 0
 
@@ -59,6 +68,13 @@ local particle_size = {}
 local particle_r = {}
 local particle_g = {}
 local particle_b = {}
+
+local cell_x = { 150, 650, 150, 650, 400 }
+local cell_y = { 160, 160, 400, 400, 220 }
+local cell_phase = { 0.0, 1.1, 2.2, 3.3, 4.4 }
+local cell_active = { true, true, true, true, true }
+local cell_respawn = { 0, 0, 0, 0, 0 }
+local cell_batch_index = { 1, 2, 3, 4, 5 }
 
 local function clamp(value, low, high)
   if value < low then return low end
@@ -116,6 +132,8 @@ local function reset_game()
   kills = 0
   fire_cooldown = 0
   damage_flash = 0
+  cells_collected = 0
+  hud_cells = "CELLS 00"
 
   for i = 1, SHOT_COUNT do
     shot_x[i] = 0
@@ -140,6 +158,10 @@ local function reset_game()
     enemy_alive[i] = true
     enemy_respawn[i] = 0
     enemy_health[i] = i <= 4 and 3 or 2
+  end
+  for i = 1, CELL_COUNT do
+    cell_active[i] = true
+    cell_respawn[i] = 0
   end
 end
 
@@ -192,7 +214,7 @@ local function update_enemies(dt)
           enemy_x[i], enemy_y[i],
           elapsed * 0.28 + enemy_phase[i],
           0.105, 0.105,
-          drone_image:getWidth() * 0.5, drone_image:getHeight() * 0.5
+          drone_origin_x, drone_origin_y
         )
       else
         drone_batch:set(enemy_batch_index[i], -200, -200, 0, 0.1, 0.1)
@@ -247,6 +269,46 @@ local function update_particles(dt)
   end
 end
 
+local function update_cells(dt)
+  for i = 1, CELL_COUNT do
+    if cell_active[i] then
+      local dx = player_x - cell_x[i]
+      local dy = player_y - cell_y[i]
+      if dx * dx + dy * dy < 34 * 34 then
+        cell_active[i] = false
+        cell_respawn[i] = 4.5
+        cells_collected = cells_collected + 1
+        hud_cells = "CELLS " .. string.format("%02d", cells_collected)
+        energy = math.min(100, energy + 28)
+        score = score + 75
+        spawn_burst(cell_x[i], cell_y[i], 0.18, 0.92, 1.0, 9)
+      end
+    else
+      cell_respawn[i] = cell_respawn[i] - dt
+      if cell_respawn[i] <= 0 then
+        cell_active[i] = true
+        spawn_burst(cell_x[i], cell_y[i], 0.18, 0.92, 1.0, 5)
+      end
+    end
+
+    if cell_batch ~= nil then
+      if cell_active[i] then
+        local pulse = 0.5 + 0.5 * math.sin(elapsed * 4.2 + cell_phase[i])
+        local scale = 0.042 + pulse * 0.003
+        cell_batch:set(
+          cell_batch_index[i],
+          cell_x[i], cell_y[i],
+          elapsed * 0.34 + cell_phase[i],
+          scale, scale,
+          cell_origin_x, cell_origin_y
+        )
+      else
+        cell_batch:set(cell_batch_index[i], -200, -200, 0, 0.04, 0.04)
+      end
+    end
+  end
+end
+
 function love.load()
   love.graphics.setBackgroundColor(0.015, 0.02, 0.05)
   love.graphics.setLineStyle("rough")
@@ -255,17 +317,33 @@ function love.load()
   player_image = love.graphics.newImage("art/neon_relay_player.png", { linear = true })
   drone_image = love.graphics.newImage("art/neon_relay_drone.png", { linear = true })
   beacon_image = love.graphics.newImage("art/neon_relay_beacon.png", { linear = true })
+  cell_image = love.graphics.newImage("art/neon_relay_cell.png", { linear = true })
   arena_image:setFilter("linear", "linear")
   player_image:setFilter("linear", "linear")
   drone_image:setFilter("linear", "linear")
   beacon_image:setFilter("linear", "linear")
+  cell_image:setFilter("linear", "linear")
+
+  drone_origin_x = drone_image:getWidth() * 0.5
+  drone_origin_y = drone_image:getHeight() * 0.5
+  cell_origin_x = cell_image:getWidth() * 0.5
+  cell_origin_y = cell_image:getHeight() * 0.5
 
   drone_batch = love.graphics.newSpriteBatch(drone_image, ENEMY_COUNT, "dynamic")
   for i = 1, ENEMY_COUNT do
     drone_batch:add(
       enemy_x[i], enemy_y[i], enemy_phase[i],
       0.105, 0.105,
-      drone_image:getWidth() * 0.5, drone_image:getHeight() * 0.5
+      drone_origin_x, drone_origin_y
+    )
+  end
+
+  cell_batch = love.graphics.newSpriteBatch(cell_image, CELL_COUNT, "dynamic")
+  for i = 1, CELL_COUNT do
+    cell_batch:add(
+      cell_x[i], cell_y[i], cell_phase[i],
+      0.042, 0.042,
+      cell_origin_x, cell_origin_y
     )
   end
 
@@ -306,6 +384,7 @@ function love.update(dt)
     player_x = clamp(player_x + move_x * 250 * dt, 70, SCREEN_W - 70)
     player_y = clamp(player_y + move_y * 250 * dt, 92, SCREEN_H - 92)
     player_angle = math.atan(move_y, move_x) + math.pi * 0.5
+    energy = math.max(0, energy - dt * 3)
   end
 
   local aim_x, aim_y = pointer_in_world()
@@ -314,8 +393,9 @@ function love.update(dt)
   end
 
   fire_cooldown = math.max(0, fire_cooldown - dt)
-  if fire_cooldown <= 0 and (love.keyboard.isDown("space") or love.mouse.isDown(1)) then
+  if energy >= 2 and fire_cooldown <= 0 and (love.keyboard.isDown("space") or love.mouse.isDown(1)) then
     fire_shot(aim_x, aim_y)
+    energy = math.max(0, energy - 2)
     fire_cooldown = 0.13
   end
 
@@ -323,6 +403,7 @@ function love.update(dt)
   update_enemies(dt)
   update_shots(dt)
   update_particles(dt)
+  update_cells(dt)
 
   if kills >= 8 then
     wave = 2
@@ -399,6 +480,20 @@ local function draw_particles()
   end
 end
 
+local function draw_cells()
+  for i = 1, CELL_COUNT do
+    if cell_active[i] then
+      local pulse = 0.5 + 0.5 * math.sin(elapsed * 4.2 + cell_phase[i])
+      love.graphics.setColor(0.12, 0.88, 1.0, 0.10 + pulse * 0.10)
+      love.graphics.circle("fill", cell_x[i], cell_y[i], 26 + pulse * 6)
+    end
+  end
+  love.graphics.setColor(1, 1, 1, 0.94)
+  if cell_batch ~= nil then
+    love.graphics.draw(cell_batch)
+  end
+end
+
 local function draw_enemy_readouts()
   love.graphics.setLineWidth(1)
   for i = 1, ENEMY_COUNT do
@@ -437,6 +532,8 @@ local function draw_hud()
   love.graphics.print("NEON RELAY  //  SECTOR 07", 52, 52)
   love.graphics.setColor(0.96, 0.28, 0.72, 0.90)
   love.graphics.print("LIVE COMBAT", 625, 52)
+  love.graphics.setColor(0.42, 0.92, 1.0, 0.88)
+  love.graphics.print(hud_cells, 672, 102)
 
   love.graphics.setColor(0.70, 0.86, 0.95, 0.88)
   love.graphics.print("WAVE " .. string.format("%02d", wave), 52, SCREEN_H - 52)
@@ -467,6 +564,8 @@ function love.draw()
   love.graphics.scale(scale, scale)
 
   draw_arena()
+
+  draw_cells()
 
   love.graphics.setColor(1, 1, 1, 1)
   if drone_batch ~= nil then

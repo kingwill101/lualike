@@ -267,6 +267,8 @@ class _Love2dGpuDemoState extends State<Love2dGpuDemo> {
                       );
                     }
                   : null,
+              showProgrammaticCursorOverlay:
+                  _mode != _DemoRenderMode.comparison,
             ),
             Positioned(
               top: 12,

@@ -4,11 +4,14 @@ This is a small top-down technical game used to compare the `love2d` Canvas
 renderer with the experimental Flutter GPU renderer. It loads the arena,
 player, drone, and relay-beacon art through the Flutter asset bundle, then runs
 the same LOVE draw snapshot through either backend or both side by side.
+Relay-cell pickups add deterministic collection, energy, particle, respawn, and
+second-SpriteBatch behavior without changing the shared source path.
 
 Controls:
 
 - WASD or arrow keys: move the skiff
 - Space or left click: fire
+- Fly over relay cells: recharge energy and score
 - R: reset the deterministic encounter
 - The top-right control: cycle comparison, GPU-only, and Canvas-only modes
 
@@ -74,8 +77,28 @@ python3 ~/.codex/skills/flutter-dev/scripts/flutter_capture.py window \
   /tmp/love2d-benchmark/neon-relay-flutter.png
 ```
 
+For a renderer-to-renderer pixel metric, keep the app in comparison mode and
+use the checked-in capture helper. It resizes the window so the 800x600 LOVE
+surface is presented at exactly 1:1, removes fractional pane alignment from the
+measurement, crops the synchronized Canvas/GPU panes, and records normalized
+RMSE:
+
+```bash
+bash tool/capture_renderer_comparison.sh \
+  --vm 'http://127.0.0.1:PORT/AUTH_TOKEN=' \
+  --output-prefix /tmp/love2d-benchmark/neon-relay-comparison
+```
+
+The default `--chrome-height 103` matches this Linux/Hyprland Flutter window.
+Override it when window decorations differ; the helper rejects fractional pane
+geometry rather than producing a misleading comparison. With `--vm`, it also
+switches to comparison mode, waits for `ready=true` with a non-empty command
+snapshot, resets input and the scene, fixes the logical pointer, and waits for
+the reset frame. Omit `--vm` only when that synchronization was performed by a
+different harness.
+
 The generated images are project assets, not placeholders: `flutter_lualike`
-indexes and prewarms all four files under `assets/art/`, while native LOVE
+indexes and prewarms all five files under `assets/art/`, while native LOVE
 loads the same files through its regular filesystem.
 
 For a renderer benchmark grounded in a real LOVE workload, run the vendored

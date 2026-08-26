@@ -97,6 +97,7 @@ class LoveFlameHarness extends StatefulWidget {
     this.renderBackend,
     this.inputPointTransform,
     this.inputDeltaTransform,
+    this.showProgrammaticCursorOverlay = true,
   });
 
   /// The mounted LOVE entry asset, typically `main.lua`.
@@ -161,6 +162,13 @@ class LoveFlameHarness extends StatefulWidget {
 
   /// Optional transform for logical pointer deltas after viewport conversion.
   final LoveFlameInputDeltaTransform? inputDeltaTransform;
+
+  /// Whether programmatic LOVE pointer movement paints a Flutter cursor.
+  ///
+  /// Disable this for mirrored renderer comparisons: the LOVE draw snapshot
+  /// already contains any game cursor, while this host overlay is painted only
+  /// once and would contaminate one comparison pane.
+  final bool showProgrammaticCursorOverlay;
 
   @override
   State<LoveFlameHarness> createState() => _LoveFlameHarnessState();
@@ -263,6 +271,8 @@ class _LoveFlameHarnessState extends State<LoveFlameHarness>
                   game: _game,
                   controller: _controller,
                   onViewportSizeChanged: _controller.reportViewportSize,
+                  showProgrammaticCursorOverlay:
+                      widget.showProgrammaticCursorOverlay,
                 ),
                 if (title != null && title.isNotEmpty)
                   Positioned(
@@ -1274,11 +1284,13 @@ class _LoveHarnessViewport extends StatefulWidget {
     required this.game,
     required this.controller,
     required this.onViewportSizeChanged,
+    required this.showProgrammaticCursorOverlay,
   });
 
   final LoveFlameHarnessGame game;
   final _LoveFlameHarnessController controller;
   final ValueChanged<Size> onViewportSizeChanged;
+  final bool showProgrammaticCursorOverlay;
 
   @override
   State<_LoveHarnessViewport> createState() => _LoveHarnessViewportState();
@@ -1547,7 +1559,8 @@ class _LoveHarnessViewportState extends State<_LoveHarnessViewport> {
     final cursorValue = mouse.cursor;
     final overlayActive =
         mouse.visible &&
-        (mouse.programmaticPositionActive ||
+        ((widget.showProgrammaticCursorOverlay &&
+                mouse.programmaticPositionActive) ||
             (cursorValue != null &&
                 !cursorValue.isSystemCursor &&
                 cursorValue.imageData != null));
