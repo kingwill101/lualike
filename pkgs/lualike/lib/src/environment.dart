@@ -218,6 +218,9 @@ class Environment with GCObject {
   Iterable<MapEntry<String, Box<dynamic>>> get declaredGlobalEntries =>
       _declaredGlobals?.entries ?? const <MapEntry<String, Box<dynamic>>>[];
 
+  /// Clears explicit-global storage only when it has been materialized.
+  void clearDeclaredGlobals() => _declaredGlobals?.clear();
+
   /// Tracks the order in which to-be-closed variables were declared
   List<String>? _toBeClosedVars;
 
@@ -260,6 +263,9 @@ class Environment with GCObject {
   /// Number of currently tracked implicit close resources.
   int get implicitToBeClosedValueCount =>
       _implicitToBeClosedValues?.length ?? 0;
+
+  /// Clears implicit close resources only when storage has been materialized.
+  void clearImplicitToBeClosedValues() => _implicitToBeClosedValues?.clear();
 
   /// The parent environment in the scope chain, if any.
   final Environment? parent;

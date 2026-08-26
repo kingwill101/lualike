@@ -1417,9 +1417,9 @@ mixin InterpreterFunctionMixin on AstVisitor<Object?> {
         if (canPoolEnvironmentAcrossCalls) {
           if (reusableEnv case final environment?) {
             environment.values.clear();
-            environment.declaredGlobals.clear();
-            environment.toBeClosedVars.clear();
-            environment.implicitToBeClosedValues.clear();
+            environment.clearDeclaredGlobals();
+            environment.clearToBeClosedVariables();
+            environment.clearImplicitToBeClosedValues();
             environment.pendingImplicitToBeClosed = 0;
             idleReusableEnvironment ??= environment;
           }
