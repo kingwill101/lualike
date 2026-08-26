@@ -260,6 +260,32 @@ class LoveFlameInputAdapter {
     );
   }
 
+  /// Moves LOVE's logical pointer without depending on a host pointer event.
+  ///
+  /// Automation can use this to begin repeated runs from the same input state.
+  /// The coordinates are already in LOVE window space, so viewport and
+  /// side-by-side presentation transforms are intentionally not applied.
+  void setVirtualPointerPosition(double x, double y) {
+    if (!x.isFinite || !y.isFinite) {
+      throw ArgumentError('Virtual pointer coordinates must be finite.');
+    }
+
+    final previousX = mouse.x;
+    final previousY = mouse.y;
+    mouse.setPosition(x, y);
+    final nextX = mouse.x;
+    final nextY = mouse.y;
+    _dispatch(
+      (runtime) => runtime.queueMouseMoved(
+        nextX,
+        nextY,
+        nextX - previousX,
+        nextY - previousY,
+        isTouch: false,
+      ),
+    );
+  }
+
   /// Releases every active synthesized virtual keyboard key.
   void resetVirtualKeyboardState() {
     final entries = _virtualKeysDown.toList(growable: false);

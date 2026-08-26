@@ -38,8 +38,10 @@ point for automated screenshots and timing trials.
 
 In comparison mode, corresponding points in either pane are converted back to
 the same LOVE coordinate before `love.mousemoved`, `love.mousepressed`, and
-touch callbacks are queued. The debug-only `love2d.setVirtualKey` extension
-can hold a LOVE key for repeatable walking and performance trials.
+touch callbacks are queued. The `love2d.setVirtualKey` and
+`love2d.setVirtualPointer` diagnostic extensions provide deterministic walking
+and aim state through Marionette in debug builds and the VM service in profile
+builds.
 
 ## Benchmark the native LOVE samples
 
@@ -108,14 +110,19 @@ bash tool/benchmark_relic_breach.sh \
   --vm 'http://127.0.0.1:PORT/AUTH_TOKEN=' \
   --samples 240 \
   --hold-key d \
+  --pointer 640,360 \
   --warmup-seconds 2
 ```
 
-The helper waits for each renderer replacement to report `ready`, settles the
+The helper waits for each renderer replacement to report `ready`, clears stale
+input, moves LOVE's logical pointer to the requested coordinate, settles the
 scene, presses `r` and waits for the reset frame, resets the rolling window,
 then writes compact Canvas, GPU, and comparison records to
 `/tmp/love2d-benchmark/relic-timings.jsonl`. Omit `--hold-key` for an idle trial,
-or pass `--reset-key none` when the current world state is intentional.
+or pass `--reset-key none` when the current world state is intentional. Timing
+history is a 240-frame ring, so `--samples` accepts 1 through 240 and rejects
+larger windows instead of waiting for a count that cannot be retained.
+Pass `--pointer none` only when preserving interactive aim state is intentional.
 
 For Value/Environment and garbage-churn work, capture VM allocation counters
 around that same deterministic window:
@@ -126,11 +133,12 @@ bash tool/profile_relic_allocations.sh \
   --samples 240 \
   --mode gpu \
   --hold-key d \
+  --pointer 640,360 \
   --reset-key r \
   --output-prefix /tmp/love2d-benchmark/relic-allocations
 ```
 
 Run this against a fresh profile-mode app. It writes the raw reset/profile
-responses, timing JSONL, and a compact summary including maps and growable
-lists per `Environment`. Those normalized ratios remain useful when absolute
+responses, timing JSONL, and a compact summary including maps, fixed lists, and
+growable lists per `Environment`. Those normalized ratios remain useful when absolute
 allocation counts differ because a world state or sampling interval changed.

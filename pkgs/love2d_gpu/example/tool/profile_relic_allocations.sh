@@ -12,9 +12,12 @@ timing window and reports allocation counts normalized per Environment.
 Options:
   --vm <url>       VM service URL printed by `flutter run --print-dtd`.
   --isolate <id>   Isolate id; defaults to the first live isolate.
-  --samples <n>    Frame samples in the measured window (default: 240).
+  --samples <n>    Frame samples in the measured window (default: 240;
+                   maximum: 240).
   --mode <name>    canvas, gpu, or comparison (default: gpu).
   --hold-key <key> Hold a LOVE key during the timing window (default: d).
+  --pointer <x,y>  Logical LOVE pointer used for every trial (default: 640,360;
+                   use "none" to preserve the current pointer position).
   --reset-key <key>
                    Reset key passed to the timing helper (default: r).
   --warmup-seconds <n>
@@ -34,6 +37,7 @@ isolate_id="${LOVE2D_ISOLATE_ID:-}"
 sample_target="${LOVE2D_SAMPLE_TARGET:-240}"
 requested_mode="${LOVE2D_RENDER_MODE:-gpu}"
 hold_key="${LOVE2D_HOLD_KEY:-d}"
+pointer_position="${LOVE2D_POINTER_POSITION:-640,360}"
 reset_key="${LOVE2D_RESET_KEY:-r}"
 warmup_seconds="${LOVE2D_WARMUP_SECONDS:-2}"
 output_prefix="${LOVE2D_ALLOCATION_OUTPUT_PREFIX:-/tmp/love2d-benchmark/relic-allocations}"
@@ -58,6 +62,10 @@ while (($# > 0)); do
       ;;
     --hold-key)
       hold_key="$2"
+      shift 2
+      ;;
+    --pointer)
+      pointer_position="$2"
       shift 2
       ;;
     --reset-key)
@@ -89,8 +97,8 @@ if [[ -z "$vm_service_url" ]]; then
   usage >&2
   exit 2
 fi
-if ! [[ "$sample_target" =~ ^[1-9][0-9]*$ ]]; then
-  echo "--samples must be a positive integer" >&2
+if ! [[ "$sample_target" =~ ^[1-9][0-9]*$ ]] || ((sample_target > 240)); then
+  echo "--samples must be an integer from 1 through 240" >&2
   exit 2
 fi
 if [[ "$requested_mode" != "canvas" &&
@@ -136,6 +144,7 @@ benchmark_args=(
   --isolate "$isolate_id"
   --samples "$sample_target"
   --mode "$requested_mode"
+  --pointer "$pointer_position"
   --reset-key "$reset_key"
   --warmup-seconds "$warmup_seconds"
   --output "$timing_path"
@@ -160,7 +169,7 @@ jq -n \
       ][0] // 0);
     (count("Environment")) as $environmentCount |
     {
-      schemaVersion: 1,
+      schemaVersion: 2,
       profilePath: $profilePath,
       timingPath: $timingPath,
       timing: $timing[0],
@@ -173,6 +182,11 @@ jq -n \
           mapsPerEnvironment:
             (if $environmentCount > 0
              then count("_Map") / $environmentCount
+             else null
+             end),
+          fixedListsPerEnvironment:
+            (if $environmentCount > 0
+             then count("_List") / $environmentCount
              else null
              end),
           growableListsPerEnvironment:

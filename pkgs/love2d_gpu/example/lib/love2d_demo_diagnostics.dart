@@ -68,6 +68,19 @@ final class Love2dDemoDiagnostics {
     return null;
   }
 
+  /// Moves the LOVE pointer to a logical window coordinate for automation.
+  String? setVirtualPointer(double x, double y) {
+    final input = _input;
+    if (input == null) {
+      return 'LOVE input adapter is not ready';
+    }
+    if (!x.isFinite || !y.isFinite) {
+      return 'x and y must be finite numbers';
+    }
+    input.setVirtualPointerPosition(x, y);
+    return null;
+  }
+
   String? resetInputState() {
     final input = _input;
     if (input == null) {
@@ -298,6 +311,25 @@ void registerLove2dMarionetteExtensions(Love2dDemoDiagnostics diagnostics) {
       return MarionetteExtensionResult.success(diagnostics.state());
     },
   );
+  registerMarionetteExtension(
+    name: 'love2d.setVirtualPointer',
+    description:
+        'Moves the LOVE pointer to a logical window coordinate for testing.',
+    callback: (params) async {
+      final x = double.tryParse(params['x'] ?? '');
+      final y = double.tryParse(params['y'] ?? '');
+      if (x == null || y == null) {
+        return MarionetteExtensionResult.invalidParams(
+          'x and y must be numbers',
+        );
+      }
+      final error = diagnostics.setVirtualPointer(x, y);
+      if (error != null) {
+        return MarionetteExtensionResult.invalidParams(error);
+      }
+      return MarionetteExtensionResult.success(diagnostics.state());
+    },
+  );
 }
 
 /// Registers the same controls through the Dart VM service protocol.
@@ -381,6 +413,31 @@ void registerLove2dVmExtensions(Love2dDemoDiagnostics diagnostics) {
     _,
   ) async {
     final error = diagnostics.resetInputState();
+    if (error != null) {
+      return developer.ServiceExtensionResponse.error(
+        developer.ServiceExtensionResponse.invalidParams,
+        convert.jsonEncode(<String, Object?>{'error': error}),
+      );
+    }
+    return developer.ServiceExtensionResponse.result(
+      convert.jsonEncode(diagnostics.state()),
+    );
+  });
+  developer.registerExtension('ext.flutter.love2d.setVirtualPointer', (
+    _,
+    parameters,
+  ) async {
+    final x = double.tryParse(parameters['x'] ?? '');
+    final y = double.tryParse(parameters['y'] ?? '');
+    if (x == null || y == null) {
+      return developer.ServiceExtensionResponse.error(
+        developer.ServiceExtensionResponse.invalidParams,
+        convert.jsonEncode(<String, Object?>{
+          'error': 'x and y must be numbers',
+        }),
+      );
+    }
+    final error = diagnostics.setVirtualPointer(x, y);
     if (error != null) {
       return developer.ServiceExtensionResponse.error(
         developer.ServiceExtensionResponse.invalidParams,

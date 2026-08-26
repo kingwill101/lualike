@@ -284,6 +284,19 @@ end
       expect(host.mouse.isDown(const <int>[1]), isFalse);
     });
 
+    test('dispatches deterministic virtual pointer movement', () async {
+      adapter.setVirtualPointerPosition(12.9, 18.1);
+      await _flushQueuedInput(adapter, runtime);
+
+      expect(host.mouse.x, 12);
+      expect(host.mouse.y, 18);
+      expect(host.mouse.programmaticPositionActive, isTrue);
+      expect(
+        runtime.unwrapGlobalTable('testbed')!['mousemoved'],
+        '12,18,12,18,false',
+      );
+    });
+
     test(
       'applies optional point and delta transforms after viewport mapping',
       () async {

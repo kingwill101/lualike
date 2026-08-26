@@ -11,9 +11,11 @@ Collects one JSONL timing record for Canvas, GPU, and comparison modes.
 Options:
   --vm <url>       VM service URL printed by `flutter run --print-dtd`.
   --isolate <id>   Isolate id; defaults to the first live isolate.
-  --samples <n>    Samples required per mode (default: 240).
+  --samples <n>    Samples required per mode (default: 240; maximum: 240).
   --mode <name>    Measure only canvas, gpu, or comparison (default: all).
   --hold-key <key> Hold a LOVE key during each timing window (for example d).
+  --pointer <x,y>  Logical LOVE pointer used for every trial (default: 640,360;
+                   use "none" to preserve the current pointer position).
   --reset-key <key>
                    Press this key before every trial and wait for it to render
                    (default: r; use "none" to preserve the current world).
@@ -29,6 +31,7 @@ isolate_id="${LOVE2D_ISOLATE_ID:-}"
 sample_target="${LOVE2D_SAMPLE_TARGET:-240}"
 requested_mode="${LOVE2D_RENDER_MODE:-}"
 hold_key="${LOVE2D_HOLD_KEY:-}"
+pointer_position="${LOVE2D_POINTER_POSITION:-640,360}"
 reset_key="${LOVE2D_RESET_KEY:-r}"
 warmup_seconds="${LOVE2D_WARMUP_SECONDS:-2}"
 output_path="${LOVE2D_BENCHMARK_OUTPUT:-/tmp/love2d-benchmark/relic-timings.jsonl}"
@@ -53,6 +56,10 @@ while (($# > 0)); do
       ;;
     --hold-key)
       hold_key="$2"
+      shift 2
+      ;;
+    --pointer)
+      pointer_position="$2"
       shift 2
       ;;
     --reset-key)
@@ -85,8 +92,8 @@ if [[ -z "$vm_service_url" ]]; then
   exit 2
 fi
 
-if ! [[ "$sample_target" =~ ^[1-9][0-9]*$ ]]; then
-  echo "--samples must be a positive integer" >&2
+if ! [[ "$sample_target" =~ ^[1-9][0-9]*$ ]] || ((sample_target > 240)); then
+  echo "--samples must be an integer from 1 through 240" >&2
   exit 2
 fi
 
@@ -101,6 +108,16 @@ fi
 if ! [[ "$warmup_seconds" =~ ^[0-9]+$ ]]; then
   echo "--warmup-seconds must be a non-negative integer" >&2
   exit 2
+fi
+
+pointer_x=""
+pointer_y=""
+if [[ "$pointer_position" != "none" ]]; then
+  if ! [[ "$pointer_position" =~ ^-?[0-9]+([.][0-9]+)?,-?[0-9]+([.][0-9]+)?$ ]]; then
+    echo "--pointer must be x,y or none" >&2
+    exit 2
+  fi
+  IFS=',' read -r pointer_x pointer_y <<<"$pointer_position"
 fi
 
 vm_service_url="${vm_service_url%/}"
@@ -118,6 +135,11 @@ extension() {
     --data-urlencode "isolateId=$isolate_id" \
     "$@"
 }
+
+cleanup_input() {
+  extension resetInputState >/dev/null 2>&1 || true
+}
+trap cleanup_input EXIT INT TERM
 
 wait_for_ready_mode() {
   local expected_mode="$1"
@@ -187,6 +209,11 @@ for mode in "${modes[@]}"; do
   extension setRenderMode --data-urlencode "mode=$mode" >/dev/null
   state="$(wait_for_ready_mode "$mode")"
   extension resetInputState >/dev/null
+  if [[ -n "$pointer_x" ]]; then
+    state="$(extension setVirtualPointer \
+      --data-urlencode "x=$pointer_x" \
+      --data-urlencode "y=$pointer_y")"
+  fi
   if [[ "$reset_key" != "none" ]]; then
     presented_frame="$(jq --raw-output '.result.presentedFrame' <<<"$state")"
     extension setVirtualKey \
