@@ -31,6 +31,134 @@ fvm flutter run -d linux --enable-impeller --enable-flutter-gpu
 Use the running app as the baseline. Keep the scene and the input pattern as
 stable as possible while you measure.
 
+For frame-phase regions, use a profile build and opt in explicitly:
+
+```bash
+fvm flutter run -d linux --profile \
+  --dart-define=LOVE2D_PROFILE_MAIN_LOOP_MS=30000 \
+  --dart-define=LOVE2D_PROFILE_FRAME_PHASES=true
+```
+
+This adds DevTools regions for the main-loop phases (`resize`, `signals`,
+`events`, `update`, `draw`, and `commit`). Run one profile without the phase
+flag for the timing baseline, then a separate diagnostic run with it enabled;
+the extra regions and region bookkeeping can change frame timings.
+
+The GPU backend requests 4x offscreen MSAA when the device supports it. The
+multisampled color target is resolved into a single-sample texture before it is
+presented to Flutter. Devices that reject the MSAA texture or depth target
+automatically fall back to the single-sample path.
+
+The demo reports the selected lualike engine in `love2d.getRenderState`.
+`LOVE_ENGINE_MODE=ast` is the compatibility baseline; `ir` can be used for a
+separate profile A/B trial against the same source and input pattern. Do not
+combine AST and IR samples in one timing series.
+
+For an A/B comparison without MSAA, run:
+
+```bash
+fvm flutter run -d linux --profile \
+  --dart-define=LOVE2D_GPU_MSAA=false \
+  --enable-impeller --enable-flutter-gpu
+```
+
+The GPU demo starts in a synchronized Canvas-versus-GPU comparison mode when
+the GPU backend is available. Both panes receive the same immutable LOVE draw
+snapshot from one runtime frame. The control cycles through the comparison,
+GPU-only, and Canvas-only views. Use the comparison mode for visual checks;
+use GPU-only or Canvas-only for cleaner renderer timing measurements.
+
+## Automated Renderer Checks
+
+The demo includes `marionette_flutter` in debug mode. Marionette and Flutter
+Driver are mutually exclusive: use the normal debug run for Marionette, and
+pass `--dart-define=ENABLE_FLUTTER_DRIVER=true` only for legacy Driver flows.
+
+The demo registers these Marionette extensions:
+
+- `love2d.getRenderState` returns readiness, renderer mode, MSAA state, command
+  count, effective GPU sample count, and rolling CPU frame timing.
+- `love2d.setRenderMode` accepts `comparison`, `gpu`, or `canvas`.
+- `love2d.resetFrameTiming` clears the rolling timing window before a trial.
+- `love2d.setVirtualKey` presses or releases a LOVE key for deterministic
+  interaction tests and walking trials.
+- `love2d.resetInputState` clears interrupted pointer/key state before a trial.
+
+In comparison mode, pointer input is mapped back through the same pane layout
+used for rendering. The left and right panes therefore deliver identical LOVE
+coordinates for corresponding screen positions; pointer deltas are scaled by
+the pane scale as well. The render-state extension includes the delivered
+mouse coordinates and pressed scancodes, which makes this behavior observable
+in automation.
+
+The app also emits Love2D-specific VM extension events on the `Love2D` stream:
+`harness_attached`, `frame_ready`, `render_mode_changed`, and
+`frame_timing_reset`. Sampled frame events are opt-in because per-frame event
+traffic can perturb a performance run:
+
+```bash
+fvm flutter run -d linux --debug \
+  --dart-define=LOVE2D_DTD_FRAME_EVENTS=true \
+  --enable-impeller --enable-flutter-gpu \
+  --print-dtd
+```
+
+Use `frame_ready` as the synchronization point before taking a screenshot;
+do not sleep for an arbitrary number of milliseconds. Query
+`love2d.getRenderState` after each mode change and include the returned
+`presentedFrame` and timing sample count with the screenshot evidence.
+The events are emitted with `dart:developer.postEvent` on the VM Extension
+stream named `Love2D`; the app does not open a DTD connection itself.
+
+## Neon Relay Workload
+
+The bundled `assets/main.lua` is a repeatable technical-game workload rather
+than a static shape gallery. It combines four generated RGBA textures, a
+dynamic `SpriteBatch` for eight enemies, a colored mesh reticle, alpha-blended
+shapes, lines, arcs, text, pointer input, and fixed-capacity pools for 24
+projectiles and 72 particles. The simulation uses deterministic enemy phases
+and a reset key so visual and timing trials can start from the same state.
+
+Run this exact source through native LOVE as a visual reference:
+
+```bash
+cd pkgs/love2d_gpu/example
+love assets
+bash tool/capture_native_love.sh \
+  --project assets \
+  --output /tmp/love2d-benchmark/neon-relay-native.png
+```
+
+The Flutter run should use its default `assets/main.lua` entrypoint for this
+comparison. `flutter_lualike` reports the four indexed art files during startup;
+that lookup and prewarm cost is intentionally outside the rolling frame window.
+
+The generated art is indexed and prewarmed through `flutter_lualike`'s
+`AssetBundleFileSystemBackend`, while LOVE continues to use its runtime
+filesystem adapter for script and image loads. Keep this split explicit when
+profiling: the Flutter asset manifest lookup belongs to startup, not the frame
+loop.
+
+Relic Breach is the native-LOVE reference workload. Run the same source with
+`love ../../love2d/example/assets/relic_breach`, then run the Flutter demo with
+`LOVE_ENTRY_ASSET` pointing at that checkout's `main.lua`. This avoids comparing
+two different scenes or hiding asset-decoding and blend-state problems behind a
+synthetic benchmark.
+
+The sample intentionally uses `add` + `alphamultiply` for light masks. The GPU
+backend now maps straight-alpha sources to the correct source-alpha blend
+factor, preserves destination alpha for additive/subtractive color modes, and
+passes LOVE image tint colors into textured draws. The Canvas backend may still
+take its software fallback for that combination, so record the separate
+comparison counters when interpreting timing results rather than treating the
+two pane timings as interchangeable.
+
+Comparison-mode `love2d.getRenderState` includes `comparisonStats.canvas` and
+`comparisonStats.gpu`; each reports rendered commands, software fallbacks,
+atlas work, text cache activity, and save-layer counts. The aggregate timing
+fields remain useful for total frame cost, while the per-pane counters identify
+which backend owns a fallback or unsupported feature.
+
 ## Establish A Repeatable Repro
 
 Pick one action that clearly reproduces the slowdown:
@@ -43,6 +171,23 @@ Pick one action that clearly reproduces the slowdown:
 
 For this project, cursor motion is currently a useful repro because it pushes
 the frame rate down hard enough to show up in both the app and the profiler.
+
+Walking Relic Breach is the preferred active-scene repro when comparing the
+runtime and renderer together. The benchmark helper can hold a LOVE key during
+each mode's timing window:
+
+```bash
+bash tool/benchmark_relic_breach.sh \
+  --vm 'http://127.0.0.1:PORT/AUTH_TOKEN=' \
+  --samples 240 \
+  --hold-key d \
+  --warmup-seconds 2
+```
+
+This holds `d` through the Canvas, GPU, and comparison trials, then releases
+it after each window. It exercises LOVE keyboard state, physics, camera
+tracking, animation, command recording, and both render backends without
+depending on host-specific OS key injection.
 
 When you reproduce, keep the motion pattern consistent:
 
@@ -254,6 +399,45 @@ From the latest live profiles:
 The current code changes are aimed at reducing generic list churn in the GPU
 buffer packing path first, because that is low-risk and directly reflected in
 the profiler.
+
+## Walking Measurement Gate
+
+The active renderer/runtime repro is walking the native Relic Breach source
+while holding `d`. Use a profile build, a fixed 1280x720 window, a two-second
+warmup, and 240 samples per mode. Keep AST and IR in separate launches and
+record the entry path, presentation rectangle, average command count, and
+software-fallback count with every result.
+
+The timing fields have distinct meanings:
+
+- `p95UpdateMicros` covers the Flame/LOVE update callback and helps identify
+  simulation or VM work.
+- `p95RenderMicros` covers command replay into the selected backend.
+- `p95CpuFrameMicros` is the sum of the recorded update and render regions.
+- `maxCpuFrameMicros` is the stutter signal; inspect it alongside p95 rather
+  than using average FPS alone.
+
+Use Canvas-only and GPU-only windows for backend decisions. Comparison mode is
+valuable for visual parity and total “both backends at once” cost, but it
+intentionally doubles replay work and has a larger tail, so it is not a clean
+GPU-versus-Canvas timing sample.
+
+The latest AST walking baseline and optimized trial illustrate the required
+interpretation. The baseline was Canvas/GPU/comparison p95 CPU times of
+765/2457/3458 microseconds with approximately 146/136/278 commands. The first
+trial after replacing physics binding `Value.multi` allocations with the
+internal `LuaResults` carrier measured 571/2152/2721 microseconds at the same
+geometry and with zero software fallbacks. A repeat measured
+1893/2167/5088 microseconds, demonstrating that the first result is not by
+itself proof of a stable win. Keep the allocation fix because it preserves
+multi-return semantics and removes GC-tracked `Value` wrappers from the hot
+physics crossings, but require repeated trials and profiler/allocation evidence
+before claiming a headline frame-time improvement.
+
+The profiler evidence that motivated this narrow change showed `Box`,
+`Environment`, `Value`, and `LoveImageCommand` allocations during walking, with
+physics wrapper helpers in the call tree. The next tuning change should be
+chosen from a fresh profile, not from the renderer numbers alone.
 
 ## Standalone Bytecode Stress Profiles
 

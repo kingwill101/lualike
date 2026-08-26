@@ -11,13 +11,18 @@ dependencies:
     sdk: flutter
   flutter_driver:
     sdk: flutter
+  marionette_flutter: ^0.6.0
   flame: ^1.37.0
+  flutter_lualike:
+    path: ../../flutter_lualike
   love2d:
     path: ../../love2d
   love2d_gpu:
     path: ../
 
 dependency_overrides:
+  lualike:
+    path: ../../lualike
   love2d:
     path: ../../love2d
 
@@ -34,3 +39,4 @@ flutter:
     - assets/conf.lua
     - assets/main.lua
     - assets/issue_probe.lua
+    - assets/art/
