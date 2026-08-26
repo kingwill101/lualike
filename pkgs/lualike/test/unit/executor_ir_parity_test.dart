@@ -144,5 +144,10 @@ dynamic _normalize(dynamic value) {
   if (value is List) {
     return value.map(_normalize).toList();
   }
+  if (value is Map) {
+    return value.map(
+      (key, entryValue) => MapEntry(_normalize(key), _normalize(entryValue)),
+    );
+  }
   return value;
 }

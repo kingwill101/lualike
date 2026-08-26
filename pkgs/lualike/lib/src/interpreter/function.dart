@@ -972,10 +972,31 @@ mixin InterpreterFunctionMixin on AstVisitor<Object?> {
         !hasJoinedUpvalues &&
         !bodyContainsClose(node.body);
 
+    bool containsCall(Object? value) {
+      if (value is Map) {
+        final type = value['type'];
+        if (type == 'FunctionCall' || type == 'MethodCall') {
+          return true;
+        }
+        return value.values.any(containsCall);
+      }
+      return value is Iterable && value.any(containsCall);
+    }
+
+    final bool canPoolEnvironmentAcrossCalls =
+        regularParamCount > 0 &&
+        !hasNonEnvUpvalues &&
+        !node.body.any(
+          (statement) =>
+              statement is Dumpable &&
+              containsCall((statement as Dumpable).dump()),
+        );
+
     // Create a variable to hold the function value for self-reference
     late Value funcValue;
 
     late Value self;
+    Environment? idleReusableEnvironment;
 
     Future<Object?> regularCall(List<Object?> args) async {
       final simpleCapturedCounterPlan =
@@ -1165,7 +1186,15 @@ mixin InterpreterFunctionMixin on AstVisitor<Object?> {
         parameterNames,
         self.functionName,
       );
-      Environment? reusableEnv;
+      Environment? reusableEnv = canPoolEnvironmentAcrossCalls
+          ? idleReusableEnvironment
+          : null;
+      if (canPoolEnvironmentAcrossCalls) {
+        idleReusableEnvironment = null;
+      }
+      if (reusableEnv case final environment?) {
+        interpreter.gc.ensureTracked(environment);
+      }
       final paramBoxes = List<Box<dynamic>?>.filled(
         regularParamCount,
         null,
@@ -1385,6 +1414,16 @@ mixin InterpreterFunctionMixin on AstVisitor<Object?> {
         }
       } finally {
         interpreter.setCurrentFastLocals(prevFastLocals);
+        if (canPoolEnvironmentAcrossCalls) {
+          if (reusableEnv case final environment?) {
+            environment.values.clear();
+            environment.declaredGlobals.clear();
+            environment.toBeClosedVars.clear();
+            environment.implicitToBeClosedValues.clear();
+            environment.pendingImplicitToBeClosed = 0;
+            idleReusableEnvironment ??= environment;
+          }
+        }
       }
     }
 

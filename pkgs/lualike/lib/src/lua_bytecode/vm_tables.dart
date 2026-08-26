@@ -1,5 +1,7 @@
 part of 'vm.dart';
 
+const Object _unhandledTableSlot = Object();
+
 extension LuaBytecodeVmTables on LuaBytecodeVm {
   Future<void> _setList(
     LuaBytecodeFrame frame,
@@ -14,10 +16,13 @@ extension LuaBytecodeVmTables on LuaBytecodeVm {
           (LuaBytecodeInstructionLayout.maxArgVC + 1);
     }
     for (var remaining = count; remaining > 0; remaining--) {
-      final value = frame.register(word.a + remaining);
-      final key = runtimeValue(frame.runtime, last);
-      if (!_tryFastTableSet(table, key, value)) {
-        await _tableSet(table, key, value);
+      final valueSlot = frame.rawSlot(word.a + remaining);
+      if (!_tryFastTableSetSlot(table, last, valueSlot)) {
+        await _tableSet(
+          table,
+          runtimeValue(frame.runtime, last),
+          valueFromLuaSlot(frame.runtime, valueSlot),
+        );
       }
       last--;
     }
@@ -41,6 +46,46 @@ extension LuaBytecodeVmTables on LuaBytecodeVm {
     key.interpreter ??= runtime;
     final result = await table.getValueAsync(key);
     return runtimeValue(runtime, result);
+  }
+
+  LuaSlot _tryFastTableGetSlot(Value table, LuaSlot key) {
+    final rawTable = rawLuaSlot(table);
+    final storageKey = _plainTableStorageKey(key);
+    if (rawTable is Map &&
+        table.globalProxyEnvironment != null &&
+        table.tableWeakMode == null) {
+      if (!rawTable.containsKey(storageKey)) {
+        return _unhandledTableSlot;
+      }
+      return rawTable[storageKey];
+    }
+    if (rawTable is TableStorage && _canReadPlainTable(table)) {
+      final value = switch (_plainPositiveIntegerKey(key)) {
+        final int index => rawTable.arrayValueAt(index),
+        _ => rawTable[storageKey],
+      };
+      return value;
+    }
+    if (rawTable is Map && _canReadPlainTable(table)) {
+      return rawTable[storageKey];
+    }
+    return _unhandledTableSlot;
+  }
+
+  LuaSlot _tryFastTableGetStringKeySlot(Value table, String rawKey) {
+    final rawTable = rawLuaSlot(table);
+    if (rawTable is Map &&
+        table.globalProxyEnvironment != null &&
+        table.tableWeakMode == null) {
+      if (!rawTable.containsKey(rawKey)) {
+        return _unhandledTableSlot;
+      }
+      return rawTable[rawKey];
+    }
+    if (rawTable is Map && _canReadPlainTable(table)) {
+      return rawTable[rawKey];
+    }
+    return _unhandledTableSlot;
   }
 
   Value? _tryFastTableGet(Value table, Value key) {
@@ -111,15 +156,26 @@ extension LuaBytecodeVmTables on LuaBytecodeVm {
   }
 
   bool _tryFastTableSetStringKey(Value table, String rawKey, Value value) {
+    return _tryFastTableSetStringKeySlot(table, rawKey, value);
+  }
+
+  bool _tryFastTableSetStringKeySlot(
+    Value table,
+    String rawKey,
+    LuaSlot value,
+  ) {
     final rawTable = rawLuaSlot(table);
     final rawValue = rawLuaSlot(value);
+    if (value is Value) {
+      _writeBarrier(table, value);
+    }
     if (rawTable is TableStorage &&
         _canWritePlainTable(table) &&
         _isPlainPrimitiveValue(rawValue)) {
       if (rawValue == null) {
         rawTable.remove(rawKey);
       } else {
-        rawTable[rawKey] = value;
+        rawTable[rawKey] = rawValue;
       }
       table.markTableModified();
       return true;
@@ -130,7 +186,7 @@ extension LuaBytecodeVmTables on LuaBytecodeVm {
       if (rawValue == null) {
         rawTable.remove(rawKey);
       } else {
-        rawTable[rawKey] = value;
+        rawTable[rawKey] = rawValue;
       }
       table.markTableModified();
       return true;
@@ -145,12 +201,25 @@ extension LuaBytecodeVmTables on LuaBytecodeVm {
   }
 
   bool _tryFastTableSet(Value table, Value key, Value value) {
-    _writeBarrier(table, value);
+    return _tryFastTableSetSlot(table, key, value);
+  }
+
+  bool _tryFastTableSetSlot(Value table, LuaSlot key, LuaSlot value) {
+    if (value is Value) {
+      _writeBarrier(table, value);
+    }
     final rawTable = rawLuaSlot(table);
     final rawValue = rawLuaSlot(value);
     if (rawTable is TableStorage && _canWritePlainTable(table)) {
       if (_plainPositiveIntegerKey(key) case final int index) {
-        table.setNumericIndex(index, value);
+        if (rawValue == null) {
+          rawTable.remove(index);
+        } else if (_isPlainPrimitiveValue(rawValue)) {
+          rawTable.setDense(index, rawValue);
+        } else {
+          return false;
+        }
+        table.markTableModified();
         return true;
       }
       if (_canFastSetPlainPrimitiveEntry(key, value)) {
@@ -158,7 +227,7 @@ extension LuaBytecodeVmTables on LuaBytecodeVm {
         if (rawValue == null) {
           rawTable.remove(storageKey);
         } else {
-          rawTable[storageKey] = value;
+          rawTable[storageKey] = rawValue;
         }
         table.markTableModified();
         return true;
@@ -172,7 +241,7 @@ extension LuaBytecodeVmTables on LuaBytecodeVm {
       if (rawValue == null) {
         rawTable.remove(storageKey);
       } else {
-        rawTable[storageKey] = value;
+        rawTable[storageKey] = rawValue;
       }
       table.markTableModified();
       return true;
@@ -192,7 +261,7 @@ extension LuaBytecodeVmTables on LuaBytecodeVm {
     await table.setValueAsync(key, value);
   }
 
-  Object? _plainTableStorageKey(Value key) {
+  Object? _plainTableStorageKey(LuaSlot key) {
     final rawKey = rawLuaSlot(key);
     return switch (rawKey) {
       final LuaString string => string.toString(),
@@ -204,7 +273,7 @@ extension LuaBytecodeVmTables on LuaBytecodeVm {
     };
   }
 
-  int? _plainPositiveIntegerKey(Value key) {
+  int? _plainPositiveIntegerKey(LuaSlot key) {
     final rawKey = rawLuaSlot(key);
     return switch (rawKey) {
       final int integer when integer > 0 => integer,
@@ -217,7 +286,7 @@ extension LuaBytecodeVmTables on LuaBytecodeVm {
     };
   }
 
-  bool _canFastSetPlainPrimitiveEntry(Value key, Value value) {
+  bool _canFastSetPlainPrimitiveEntry(LuaSlot key, LuaSlot value) {
     final rawKey = rawLuaSlot(key);
     final rawValue = rawLuaSlot(value);
     return _isPlainPrimitiveKey(rawKey) && _isPlainPrimitiveValue(rawValue);
