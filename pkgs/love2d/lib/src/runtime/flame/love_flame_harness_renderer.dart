@@ -31,6 +31,8 @@ final Map<ui.Image, SpriteBatch> _flameAtlasSpriteBatchCache =
 const int _loveCanvasSnapshotPictureCacheCapacity = 128;
 const int _loveTextPainterCacheCapacity = 256;
 const int _loveFrameTimingHistoryCapacity = 240;
+const int _love120HzCpuBudgetMicros = 8333;
+const int _love60HzCpuBudgetMicros = 16667;
 final LinkedHashMap<_LoveTextPainterCacheKey, TextPainter>
 _loveTextPainterCache = LinkedHashMap<_LoveTextPainterCacheKey, TextPainter>();
 final LinkedHashMap<LoveCanvasSnapshot, ui.Picture>
@@ -162,16 +164,22 @@ class LoveFlameFrameTimingStats {
     this.sampleCount = 0,
     this.averageDeltaSeconds = 0,
     this.p95DeltaSeconds = 0,
+    this.p99DeltaSeconds = 0,
     this.maxDeltaSeconds = 0,
     this.averageUpdateDuration = Duration.zero,
     this.p95UpdateDuration = Duration.zero,
+    this.p99UpdateDuration = Duration.zero,
     this.maxUpdateDuration = Duration.zero,
     this.averageRenderDuration = Duration.zero,
     this.p95RenderDuration = Duration.zero,
+    this.p99RenderDuration = Duration.zero,
     this.maxRenderDuration = Duration.zero,
     this.averageCpuFrameDuration = Duration.zero,
     this.p95CpuFrameDuration = Duration.zero,
+    this.p99CpuFrameDuration = Duration.zero,
     this.maxCpuFrameDuration = Duration.zero,
+    this.cpuFramesOver120HzBudget = 0,
+    this.cpuFramesOver60HzBudget = 0,
     this.averageRenderedCommands = 0,
     this.maxRenderedCommands = 0,
     this.averageAtlasBatchCommands = 0,
@@ -200,6 +208,9 @@ class LoveFlameFrameTimingStats {
   /// The p95 recorded frame delta in seconds.
   final double p95DeltaSeconds;
 
+  /// The p99 recorded frame delta in seconds.
+  final double p99DeltaSeconds;
+
   /// The maximum recorded frame delta in seconds.
   final double maxDeltaSeconds;
 
@@ -208,6 +219,9 @@ class LoveFlameFrameTimingStats {
 
   /// The p95 CPU time spent updating sampled frames.
   final Duration p95UpdateDuration;
+
+  /// The p99 CPU time spent updating sampled frames.
+  final Duration p99UpdateDuration;
 
   /// The maximum CPU time spent updating a sampled frame.
   final Duration maxUpdateDuration;
@@ -218,6 +232,9 @@ class LoveFlameFrameTimingStats {
   /// The p95 CPU time spent rendering sampled frames.
   final Duration p95RenderDuration;
 
+  /// The p99 CPU time spent rendering sampled frames.
+  final Duration p99RenderDuration;
+
   /// The maximum CPU time spent rendering a sampled frame.
   final Duration maxRenderDuration;
 
@@ -227,8 +244,17 @@ class LoveFlameFrameTimingStats {
   /// The p95 combined CPU update+render time across sampled frames.
   final Duration p95CpuFrameDuration;
 
+  /// The p99 combined CPU update+render time across sampled frames.
+  final Duration p99CpuFrameDuration;
+
   /// The maximum combined CPU update+render time across sampled frames.
   final Duration maxCpuFrameDuration;
+
+  /// Sampled CPU frames that exceeded the 8.333 ms budget for 120 Hz.
+  final int cpuFramesOver120HzBudget;
+
+  /// Sampled CPU frames that exceeded the 16.667 ms budget for 60 Hz.
+  final int cpuFramesOver60HzBudget;
 
   /// The average number of renderer commands processed per sampled frame.
   final double averageRenderedCommands;
@@ -319,6 +345,8 @@ class _LoveFlameFrameTimingRecorder {
     var totalTextLayoutMicros = 0;
     var totalSaveLayers = 0;
     var totalSoftwareSurfaceFallbacks = 0;
+    var cpuFramesOver120HzBudget = 0;
+    var cpuFramesOver60HzBudget = 0;
     var maxRenderedCommands = 0;
     var maxAtlasBatchCommands = 0;
     var maxAtlasBatchItems = 0;
@@ -361,6 +389,12 @@ class _LoveFlameFrameTimingRecorder {
       totalTextLayoutMicros += sampleTextLayoutMicros;
       totalSaveLayers += sampleSaveLayers;
       totalSoftwareSurfaceFallbacks += sampleSoftwareSurfaceFallbacks;
+      if (sampleCpuFrameMicros > _love120HzCpuBudgetMicros) {
+        cpuFramesOver120HzBudget++;
+      }
+      if (sampleCpuFrameMicros > _love60HzCpuBudgetMicros) {
+        cpuFramesOver60HzBudget++;
+      }
       maxRenderedCommands = math.max(
         maxRenderedCommands,
         sampleRenderedCommands,
@@ -402,6 +436,7 @@ class _LoveFlameFrameTimingRecorder {
       sampleCount: samples.length,
       averageDeltaSeconds: totalDeltaSeconds / samples.length,
       p95DeltaSeconds: _percentileDouble(deltaSeconds, 0.95),
+      p99DeltaSeconds: _percentileDouble(deltaSeconds, 0.99),
       maxDeltaSeconds: deltaSeconds.last,
       averageUpdateDuration: _averageDuration(
         totalMicroseconds: totalUpdateMicros,
@@ -409,6 +444,9 @@ class _LoveFlameFrameTimingRecorder {
       ),
       p95UpdateDuration: _durationFromMicroseconds(
         _percentileInt(updateMicros, 0.95),
+      ),
+      p99UpdateDuration: _durationFromMicroseconds(
+        _percentileInt(updateMicros, 0.99),
       ),
       maxUpdateDuration: _durationFromMicroseconds(updateMicros.last),
       averageRenderDuration: _averageDuration(
@@ -418,6 +456,9 @@ class _LoveFlameFrameTimingRecorder {
       p95RenderDuration: _durationFromMicroseconds(
         _percentileInt(renderMicros, 0.95),
       ),
+      p99RenderDuration: _durationFromMicroseconds(
+        _percentileInt(renderMicros, 0.99),
+      ),
       maxRenderDuration: _durationFromMicroseconds(renderMicros.last),
       averageCpuFrameDuration: _averageDuration(
         totalMicroseconds: totalCpuFrameMicros,
@@ -426,7 +467,12 @@ class _LoveFlameFrameTimingRecorder {
       p95CpuFrameDuration: _durationFromMicroseconds(
         _percentileInt(cpuFrameMicros, 0.95),
       ),
+      p99CpuFrameDuration: _durationFromMicroseconds(
+        _percentileInt(cpuFrameMicros, 0.99),
+      ),
       maxCpuFrameDuration: _durationFromMicroseconds(cpuFrameMicros.last),
+      cpuFramesOver120HzBudget: cpuFramesOver120HzBudget,
+      cpuFramesOver60HzBudget: cpuFramesOver60HzBudget,
       averageRenderedCommands: totalRenderedCommands / samples.length,
       maxRenderedCommands: maxRenderedCommands,
       averageAtlasBatchCommands: totalAtlasBatchCommands / samples.length,
@@ -3053,10 +3099,11 @@ Paint? _shaderLayerPaintForCommand(LoveDrawCommand command) {
     LoveShaderKind.desaturationTint => switch (_desaturationTintColorFilter(
       shader,
     )) {
-      final ui.ColorFilter filter => _loveImagePaint
-        ..shader = null
-        ..filterQuality = FilterQuality.low
-        ..colorFilter = filter,
+      final ui.ColorFilter filter =>
+        _loveImagePaint
+          ..shader = null
+          ..filterQuality = FilterQuality.low
+          ..colorFilter = filter,
       null => null,
     },
     _ => null,
@@ -3184,12 +3231,7 @@ void renderSurfaceSnapshot(
   final internalStats = stats != null
       ? _LoveFlameRenderStatsAccumulator()
       : null;
-  _renderSurfaceSnapshot(
-    canvas,
-    surface,
-    viewportSize,
-    stats: internalStats,
-  );
+  _renderSurfaceSnapshot(canvas, surface, viewportSize, stats: internalStats);
   if (stats != null && internalStats != null) {
     stats.renderedCommands = internalStats.renderedCommands;
     stats.softwareSurfaceFallbacks = internalStats.softwareSurfaceFallbacks;
@@ -3197,8 +3239,9 @@ void renderSurfaceSnapshot(
     stats.atlasBatchItems = internalStats.atlasBatchItems;
     stats.textPainterCacheHits = internalStats.textPainterCacheHits;
     stats.textPainterCacheMisses = internalStats.textPainterCacheMisses;
-    stats.textLayoutDuration =
-        Duration(microseconds: internalStats.textLayoutMicros);
+    stats.textLayoutDuration = Duration(
+      microseconds: internalStats.textLayoutMicros,
+    );
     stats.surfaceClearLayers = internalStats.surfaceClearLayers;
     stats.commandBlendLayers = internalStats.commandBlendLayers;
     stats.commandShaderLayers = internalStats.commandShaderLayers;

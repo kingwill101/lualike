@@ -162,12 +162,18 @@ final class Love2dDemoDiagnostics {
       'frameTiming': <String, Object?>{
         'sampleCount': frameTiming?.sampleCount ?? 0,
         'p95UpdateMicros': frameTiming?.p95UpdateDuration.inMicroseconds ?? 0,
+        'p99UpdateMicros': frameTiming?.p99UpdateDuration.inMicroseconds ?? 0,
         'maxUpdateMicros': frameTiming?.maxUpdateDuration.inMicroseconds ?? 0,
         'p95CpuFrameMicros':
             frameTiming?.p95CpuFrameDuration.inMicroseconds ?? 0,
+        'p99CpuFrameMicros':
+            frameTiming?.p99CpuFrameDuration.inMicroseconds ?? 0,
         'p95RenderMicros': frameTiming?.p95RenderDuration.inMicroseconds ?? 0,
+        'p99RenderMicros': frameTiming?.p99RenderDuration.inMicroseconds ?? 0,
         'maxCpuFrameMicros':
             frameTiming?.maxCpuFrameDuration.inMicroseconds ?? 0,
+        'cpuFramesOver120HzBudget': frameTiming?.cpuFramesOver120HzBudget ?? 0,
+        'cpuFramesOver60HzBudget': frameTiming?.cpuFramesOver60HzBudget ?? 0,
         'lastRenderedCommands': lastFrame?.renderStats.renderedCommands ?? 0,
         'averageRenderedCommands': frameTiming?.averageRenderedCommands ?? 0,
         'averageSoftwareSurfaceFallbacks':

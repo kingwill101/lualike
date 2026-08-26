@@ -66,6 +66,7 @@ void main() {
       closeTo(((1 / 60) + (1 / 30) + (1 / 15)) / 3, 1e-9),
     );
     expect(stats.p95DeltaSeconds, closeTo(1 / 15, 1e-9));
+    expect(stats.p99DeltaSeconds, closeTo(1 / 15, 1e-9));
     expect(stats.maxDeltaSeconds, closeTo(1 / 15, 1e-9));
     expect(stats.averageRenderedCommands, closeTo(2 / 3, 1e-9));
     expect(stats.maxRenderedCommands, 1);
@@ -89,15 +90,33 @@ void main() {
     expect(game.recentFrameTimingSamples, hasLength(3));
     expect(
       stats.maxUpdateDuration.inMicroseconds,
+      greaterThanOrEqualTo(stats.p99UpdateDuration.inMicroseconds),
+    );
+    expect(
+      stats.p99UpdateDuration.inMicroseconds,
       greaterThanOrEqualTo(stats.p95UpdateDuration.inMicroseconds),
     );
     expect(
       stats.maxRenderDuration.inMicroseconds,
+      greaterThanOrEqualTo(stats.p99RenderDuration.inMicroseconds),
+    );
+    expect(
+      stats.p99RenderDuration.inMicroseconds,
       greaterThanOrEqualTo(stats.p95RenderDuration.inMicroseconds),
     );
     expect(
       stats.maxCpuFrameDuration.inMicroseconds,
+      greaterThanOrEqualTo(stats.p99CpuFrameDuration.inMicroseconds),
+    );
+    expect(
+      stats.p99CpuFrameDuration.inMicroseconds,
       greaterThanOrEqualTo(stats.p95CpuFrameDuration.inMicroseconds),
+    );
+    expect(stats.cpuFramesOver120HzBudget, inInclusiveRange(0, 3));
+    expect(stats.cpuFramesOver60HzBudget, inInclusiveRange(0, 3));
+    expect(
+      stats.cpuFramesOver60HzBudget,
+      lessThanOrEqualTo(stats.cpuFramesOver120HzBudget),
     );
   });
 
