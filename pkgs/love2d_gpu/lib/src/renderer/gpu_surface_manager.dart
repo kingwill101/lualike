@@ -1,7 +1,13 @@
 import 'dart:ui' as ui;
 
+import 'package:flutter/foundation.dart';
 import 'package:flutter/scheduler.dart';
 import 'package:flutter_gpu/gpu.dart' as gpu;
+
+gpu.PixelFormat get _depthStencilFormat =>
+    defaultTargetPlatform == TargetPlatform.macOS
+    ? gpu.PixelFormat.d32FloatS8UInt
+    : gpu.PixelFormat.d24UnormS8Uint;
 
 /// Manages a pool of offscreen [gpu.Texture] objects used as render targets.
 ///
@@ -108,7 +114,7 @@ class GpuSurfaceManager {
           gpu.StorageMode.deviceTransient,
           width,
           height,
-          format: gpu.PixelFormat.d24UnormS8Uint,
+          format: _depthStencilFormat,
           sampleCount: 4,
         );
       } catch (_) {
@@ -135,7 +141,7 @@ class GpuSurfaceManager {
       gpu.StorageMode.deviceTransient,
       width,
       height,
-      format: gpu.PixelFormat.d24UnormS8Uint,
+      format: _depthStencilFormat,
     );
   }
 
