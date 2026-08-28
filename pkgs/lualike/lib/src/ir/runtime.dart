@@ -11,6 +11,7 @@ import 'package:lualike/src/coroutine.dart';
 import 'package:lualike/src/environment.dart';
 import 'package:lualike/src/file_manager.dart';
 import 'package:lualike/src/gc/generational_gc.dart';
+import 'package:lualike/src/gc/gc.dart' show LuaGcPolicy;
 import 'package:lualike/src/interpreter/interpreter.dart';
 import 'package:lualike/src/lua_error.dart';
 import 'package:lualike/src/lua_bytecode/runtime.dart';
@@ -38,11 +39,14 @@ import 'package:lualike/src/value.dart';
 /// Runtime wrapper that executes code via the lualike IR VM while satisfying
 /// the [LuaRuntime] contract expected by higher-level tooling.
 class LualikeIrRuntime implements LuaRuntime {
-  LualikeIrRuntime({FileManager? fileManager})
-    : _interpreter = Interpreter(
-        fileManager: fileManager,
-        initializeStandardLibraries: false,
-      ) {
+  LualikeIrRuntime({
+    FileManager? fileManager,
+    LuaGcPolicy gcPolicy = LuaGcPolicy.luaCompatible,
+  }) : _interpreter = Interpreter(
+         fileManager: fileManager,
+         initializeStandardLibraries: false,
+         gcPolicy: gcPolicy,
+       ) {
     _libraryRegistry = LibraryRegistry(this);
     final runtimeEnv = Environment(interpreter: this);
     _globalEnvironment = runtimeEnv;

@@ -195,6 +195,10 @@ class _MathAbs extends _MathBuiltin {
   );
 
   @override
+  Object? fastCall1(Object? arg0) =>
+      NumberUtils.abs(_getFastNumber(arg0, "abs", 1));
+
+  @override
   Object? call(List<Object?> args) {
     if (args.isEmpty) {
       throw LuaError.typeError(
@@ -277,6 +281,16 @@ class _MathAtan extends _MathBuiltin {
   );
 
   @override
+  Object? fastCall1(Object? arg0) =>
+      math.atan(NumberUtils.toDouble(_getFastNumber(arg0, functionName, 1)));
+
+  @override
+  Object? fastCall2(Object? arg0, Object? arg1) => math.atan2(
+    NumberUtils.toDouble(_getFastNumber(arg0, functionName, 1)),
+    NumberUtils.toDouble(_getFastNumber(arg1, functionName, 2)),
+  );
+
+  @override
   Object? call(List<Object?> args) {
     if (args.isEmpty) {
       throw LuaError.typeError(
@@ -310,6 +324,15 @@ class _MathCeil extends _MathBuiltin {
   );
 
   @override
+  Object? fastCall1(Object? arg0) {
+    final number = _getFastNumber(arg0, "ceil", 1);
+    if (number is BigInt || number is int) return number;
+    final n = NumberUtils.toDouble(number);
+    if (!n.isFinite) return n;
+    return NumberUtils.optimizeNumericResult(n.ceilToDouble());
+  }
+
+  @override
   Object? call(List<Object?> args) {
     if (args.isEmpty) {
       throw LuaError.typeError(
@@ -339,6 +362,10 @@ class _MathCos extends _MathBuiltin {
     category: 'math',
     example: 'print(math.cos(0)) --> 1',
   );
+
+  @override
+  Object? fastCall1(Object? arg0) =>
+      math.cos(NumberUtils.toDouble(_getFastNumber(arg0, "cos", 1)));
 
   @override
   Object? call(List<Object?> args) {
@@ -411,6 +438,15 @@ class _MathFloor extends _MathBuiltin {
     category: 'math',
     example: 'print(math.floor(3.14)) --> 3',
   );
+
+  @override
+  Object? fastCall1(Object? arg0) {
+    final number = _getFastNumber(arg0, "floor", 1);
+    if (number is BigInt || number is int) return number;
+    final n = NumberUtils.toDouble(number);
+    if (!n.isFinite) return n;
+    return NumberUtils.optimizeNumericResult(n.floorToDouble());
+  }
 
   @override
   Object? call(List<Object?> args) {
@@ -958,6 +994,10 @@ class _MathSin extends _MathBuiltin {
   );
 
   @override
+  Object? fastCall1(Object? arg0) =>
+      math.sin(NumberUtils.toDouble(_getFastNumber(arg0, "sin", 1)));
+
+  @override
   Object? call(List<Object?> args) {
     if (args.isEmpty) {
       throw LuaError.typeError("math.sin requires a number argument");
@@ -978,6 +1018,10 @@ class _MathSqrt extends _MathBuiltin {
     category: 'math',
     example: 'print(math.sqrt(9)) --> 3',
   );
+
+  @override
+  Object? fastCall1(Object? arg0) =>
+      math.sqrt(NumberUtils.toDouble(_getFastNumber(arg0, "sqrt", 1)));
 
   @override
   Object? call(List<Object?> args) {

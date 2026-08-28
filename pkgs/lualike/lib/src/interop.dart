@@ -18,6 +18,7 @@ import 'package:lualike/src/stdlib/lib_debug.dart';
 import 'package:lualike/src/value.dart';
 import 'package:lualike/src/utils/file_system_utils.dart' as fs;
 import 'package:lualike/src/file_manager.dart';
+import 'package:lualike/src/gc/gc.dart' show LuaGcPolicy;
 import 'package:lualike/src/ir/runtime.dart';
 import 'package:lualike/src/stdlib/library.dart';
 import 'package:path/path.dart' as path;
@@ -200,7 +201,11 @@ class LuaLike {
   ///
   /// If [runtime] is omitted, [engineMode] selects the runtime implementation.
   /// When [engineMode] is omitted, [LuaLikeConfig.defaultEngineMode] is used.
-  factory LuaLike({LuaRuntime? runtime, EngineMode? engineMode}) {
+  factory LuaLike({
+    LuaRuntime? runtime,
+    EngineMode? engineMode,
+    LuaGcPolicy gcPolicy = LuaGcPolicy.luaCompatible,
+  }) {
     final EngineMode selectedMode;
     if (engineMode != null) {
       selectedMode = engineMode;
@@ -227,11 +232,17 @@ class LuaLike {
         '$selectedMode',
       );
     }
+    if (runtime != null && runtime.gc.policy != gcPolicy) {
+      throw ArgumentError(
+        'runtime GC policy ${runtime.gc.policy.name} does not match '
+        'requested policy ${gcPolicy.name}',
+      );
+    }
 
     runtime ??= switch (selectedMode) {
-      EngineMode.ir => LualikeIrRuntime(),
-      EngineMode.luaBytecode => LuaBytecodeRuntime(),
-      EngineMode.ast => Interpreter(),
+      EngineMode.ir => LualikeIrRuntime(gcPolicy: gcPolicy),
+      EngineMode.luaBytecode => LuaBytecodeRuntime(gcPolicy: gcPolicy),
+      EngineMode.ast => Interpreter(gcPolicy: gcPolicy),
     };
     return LuaLike._internal(runtime, selectedMode);
   }

@@ -81,6 +81,9 @@ extension LuaBytecodeVmTables on LuaBytecodeVm {
       }
       return rawTable[rawKey];
     }
+    if (rawTable is TableStorage && _canReadPlainTable(table)) {
+      return rawTable[rawKey];
+    }
     if (rawTable is Map && _canReadPlainTable(table)) {
       return rawTable[rawKey];
     }

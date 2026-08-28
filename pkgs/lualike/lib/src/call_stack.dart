@@ -55,9 +55,10 @@ class CallFrame {
 
   /// Engine-specific execution state associated with this call frame.
   ///
-  /// The AST interpreter leaves this unset. The bytecode VM uses it to keep
-  /// the live register frame attached even when coroutine machinery snapshots
-  /// and restores [CallFrame] objects.
+  /// The AST interpreter stores its indexed local frame here and the bytecode
+  /// VM stores its live register frame here. Keeping engine state attached to
+  /// the logical call frame lets coroutine and tail-call machinery snapshot
+  /// and restore it without reconstructing locals from debug facades.
   Object? engineFrameState;
 
   /// Creates a new call frame with the given function name and call node.
@@ -198,6 +199,22 @@ class CallStack {
 
   /// Returns the top frame of the call stack.
   CallFrame? get top => _frames.isNotEmpty ? _frames.last : null;
+
+  /// Returns the newest frame associated with [callable].
+  ///
+  /// Recursive calls can place the same callable on the stack more than once,
+  /// so lookup proceeds from the active end of the backing list. Iterating by
+  /// index avoids materializing the unmodifiable [frames] view and a reversed
+  /// copy for every identifier read.
+  CallFrame? findLatestFrameForCallable(Value callable) {
+    for (var index = _frames.length - 1; index >= 0; index--) {
+      final frame = _frames[index];
+      if (identical(frame.callable, callable)) {
+        return frame;
+      }
+    }
+    return null;
+  }
 
   /// Exposes the current frames without allowing external mutation.
   ///

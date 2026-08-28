@@ -1,5 +1,20 @@
 part of 'interpreter.dart';
 
+const bool _reusePooledFunctionBindings = bool.fromEnvironment(
+  'LUALIKE_FUNCTION_BINDING_POOL',
+  defaultValue: true,
+);
+
+const bool _inlineAstBuiltinWithoutManagedFrame = bool.fromEnvironment(
+  'LUALIKE_AST_INLINE_BUILTIN_FRAME',
+  defaultValue: true,
+);
+
+const bool _inlineAstBuiltinFastArity = bool.fromEnvironment(
+  'LUALIKE_AST_INLINE_BUILTIN_FAST_ARITY',
+  defaultValue: true,
+);
+
 typedef _SimpleNumericSelfTailLoopPlan = ({
   int paramIndex,
   num threshold,
@@ -77,6 +92,22 @@ String _bindingScopeLabel(Environment env, String name) {
   return "global '$name'";
 }
 
+String _bindingScopeLabelWithFastLocals(
+  Environment env,
+  String name,
+  Interpreter? interpreter,
+) {
+  if (interpreter != null &&
+      (interpreter.getCurrentFastLocals()?.containsName(
+            name,
+            interpreter.getCurrentEnv(),
+          ) ??
+          false)) {
+    return "local '$name'";
+  }
+  return _bindingScopeLabel(env, name);
+}
+
 void _ensureClosureDebugSpan(
   Value closure,
   AstNode definitionNode,
@@ -151,7 +182,11 @@ String? _sourceLabelForAst(
   AstNode node, {
   Interpreter? interpreter,
 }) => switch (node) {
-  Identifier(name: final name) => _bindingScopeLabel(env, name),
+  Identifier(name: final name) => _bindingScopeLabelWithFastLocals(
+    env,
+    name,
+    interpreter,
+  ),
   TableFieldAccess(fieldName: final Identifier fieldName) =>
     "field '${fieldName.name}'",
   MethodCall(methodName: final Identifier methodName) =>
@@ -165,6 +200,7 @@ String? _sourceLabelForAst(
   Environment env,
   AstNode? callNode,
   String fallbackFunctionName,
+  AstLocalFrame? fastLocals,
 ) {
   if (callNode == null) {
     final fallbackName = switch (fallbackFunctionName) {
@@ -179,6 +215,9 @@ String? _sourceLabelForAst(
   }
   if (callNode case FunctionCall(name: final AstNode callee)) {
     if (callee case Identifier(name: final name)) {
+      if (fastLocals?.containsName(name, env) ?? false) {
+        return (name: name, namewhat: 'local');
+      }
       final label = _bindingScopeLabel(env, name);
       if (label.startsWith("local '") || label.startsWith("upvalue '")) {
         return (name: name, namewhat: 'local');
@@ -922,6 +961,11 @@ mixin InterpreterFunctionMixin on AstVisitor<Object?> {
     final List<String> parameterNames = node.parameters == null
         ? const <String>[]
         : node.parameters!.map((param) => param.name).toList();
+    final localLayout = AstLocalLayout(
+      parameterNames: parameterNames,
+      hasVarargs: hasVarargs,
+      namedVararg: namedVararg,
+    );
 
     bool bodyContainsClose(List<AstNode> statements) {
       final pending = <AstNode>[...statements];
@@ -967,10 +1011,9 @@ mixin InterpreterFunctionMixin on AstVisitor<Object?> {
       }
       return name != '_ENV';
     });
+    final bool bodyHasClose = bodyContainsClose(node.body);
     final bool canReuseEnvironment =
-        !hasNonEnvUpvalues &&
-        !hasJoinedUpvalues &&
-        !bodyContainsClose(node.body);
+        !hasNonEnvUpvalues && !hasJoinedUpvalues && !bodyHasClose;
 
     bool containsCall(Object? value) {
       if (value is Map) {
@@ -983,20 +1026,112 @@ mixin InterpreterFunctionMixin on AstVisitor<Object?> {
       return value is Iterable && value.any(containsCall);
     }
 
+    bool containsNestedFunction(Object? value) {
+      if (value is Map) {
+        final type = value['type'];
+        if (type == 'FunctionDef' ||
+            type == 'LocalFunctionDef' ||
+            type == 'FunctionBody' ||
+            type == 'FunctionLiteral') {
+          return true;
+        }
+        return value.values.any(containsNestedFunction);
+      }
+      return value is Iterable && value.any(containsNestedFunction);
+    }
+
+    List<LocalDeclaration> collectLocalDeclarations(List<AstNode> statements) {
+      final declarations = <LocalDeclaration>[];
+      final pending = <AstNode>[...statements];
+      while (pending.isNotEmpty) {
+        final current = pending.removeLast();
+        switch (current) {
+          case final LocalDeclaration declaration:
+            declarations.add(declaration);
+          case final DoBlock block:
+            pending.addAll(block.body);
+          case final IfStatement statement:
+            pending.addAll(statement.thenBlock);
+            for (final clause in statement.elseIfs) {
+              pending.addAll(clause.thenBlock);
+            }
+            pending.addAll(statement.elseBlock);
+          case final WhileStatement loop:
+            pending.addAll(loop.body);
+          case final RepeatUntilLoop loop:
+            pending.addAll(loop.body);
+          case final ForLoop loop:
+            pending.addAll(loop.body);
+          case final ForInLoop loop:
+            pending.addAll(loop.body);
+          // Nested functions own a different layout. The closure eligibility
+          // gate below keeps their outer function on the boxed path, but do
+          // not accidentally assign their declarations to this layout.
+          case FunctionDef() || LocalFunctionDef() || FunctionLiteral():
+            break;
+          default:
+            break;
+        }
+      }
+      return declarations;
+    }
+
+    final bool bodyCanCreateClosure = node.body.any(
+      (statement) =>
+          statement is Dumpable &&
+          containsNestedFunction((statement as Dumpable).dump()),
+    );
+    final potentiallyCapturedNames = bodyCanCreateClosure
+        ? potentiallyCapturedAstNames(node.body)
+        : const <String>{};
+
+    // Regular calls include functions with captured game state and functions
+    // that invoke other Lua or host functions. Their frame can still be idle-
+    // pooled when the body cannot create a closure or expose a <close> local.
+    // Reentrant calls are safe: the borrowed frame is removed from the single
+    // idle slot before execution, so a nested invocation receives a new frame.
+    final bool canPoolRegularCallEnvironment =
+        !bodyCanCreateClosure && !bodyHasClose;
+
+    final bool bodyContainsCall = node.body.any(
+      (statement) =>
+          statement is Dumpable && containsCall((statement as Dumpable).dump()),
+    );
+
+    final bool canUseSlotOnlyFrame =
+        (!bodyCanCreateClosure ||
+            AstLocalFrame.slotOnlyUncapturedClosureBindingsEnabled) &&
+        (!bodyContainsCall || AstLocalFrame.slotOnlyCallCapableFramesEnabled);
+
+    if (AstLocalFrame.indexedLookupEnabled &&
+        AstLocalFrame.slotOnlyLocalsEnabled &&
+        canUseSlotOnlyFrame) {
+      localLayout.enableSlotOnlyDeclarations(
+        (AstLocalFrame.slotOnlyNestedLocalsEnabled
+                ? collectLocalDeclarations(node.body)
+                : node.body.whereType<LocalDeclaration>())
+            .where(
+              (declaration) => declaration.names.every(
+                (name) => !potentiallyCapturedNames.contains(name.name),
+              ),
+            ),
+      );
+    }
+
+    bool canStoreParameterInSlot(bool frameEligible, String name) =>
+        frameEligible &&
+        name != '_ENV' &&
+        !potentiallyCapturedNames.contains(name);
+
     final bool canPoolEnvironmentAcrossCalls =
-        regularParamCount > 0 &&
-        !hasNonEnvUpvalues &&
-        !node.body.any(
-          (statement) =>
-              statement is Dumpable &&
-              containsCall((statement as Dumpable).dump()),
-        );
+        regularParamCount > 0 && !hasNonEnvUpvalues && !bodyContainsCall;
 
     // Create a variable to hold the function value for self-reference
     late Value funcValue;
 
     late Value self;
     Environment? idleReusableEnvironment;
+    AstLocalFrame? idleReusableLocalFrame;
 
     Future<Object?> regularCall(List<Object?> args) async {
       final simpleCapturedCounterPlan =
@@ -1009,26 +1144,48 @@ mixin InterpreterFunctionMixin on AstVisitor<Object?> {
         _applySimpleCapturedCounterSelfTailLoopPlan(plan, self);
       }
       final interpreter = this as Interpreter;
+      final useSlotOnlyParameters =
+          AstLocalFrame.indexedLookupEnabled &&
+          AstLocalFrame.slotOnlyParametersEnabled &&
+          canUseSlotOnlyFrame;
+      final canUseIdleEnvironment =
+          _reusePooledFunctionBindings &&
+          canPoolRegularCallEnvironment &&
+          interpreter.debugHookFunction == null;
 
       Environment execEnv;
-      if (hasJoinedUpvalues) {
-        final joinedUpvalueNames = joinedUpvalues.map((u) => u.name!).toSet();
-        execEnv = Environment(
-          parent: _createFilteredEnvironment(closureEnv, joinedUpvalueNames),
-          interpreter: interpreter,
-          isClosure: false,
-        );
-        Logger.debugLazy(
-          () =>
-              'Created filtered environment for function with ${joinedUpvalueNames.length} joined upvalues: ${joinedUpvalueNames.join(', ')}',
-          category: 'Interpreter',
-        );
+      final reusableEnv = canUseIdleEnvironment
+          ? idleReusableEnvironment
+          : null;
+      if (canUseIdleEnvironment) {
+        idleReusableEnvironment = null;
+      }
+      if (reusableEnv != null) {
+        execEnv = reusableEnv;
+        interpreter.gc.ensureTracked(execEnv);
       } else {
-        execEnv = Environment(
-          parent: closureEnv,
-          interpreter: interpreter,
-          isClosure: false,
-        );
+        if (hasJoinedUpvalues) {
+          final joinedUpvalueNames = joinedUpvalues.map((u) => u.name!).toSet();
+          execEnv = Environment(
+            parent: _createFilteredEnvironment(closureEnv, joinedUpvalueNames),
+            interpreter: interpreter,
+            isClosure: false,
+          );
+          Logger.debugLazy(
+            () =>
+                'Created filtered environment for function with ${joinedUpvalueNames.length} joined upvalues: ${joinedUpvalueNames.join(', ')}',
+            category: 'Interpreter',
+          );
+        } else {
+          execEnv = Environment(
+            parent: closureEnv,
+            interpreter: interpreter,
+            isClosure: false,
+          );
+        }
+        if (canUseIdleEnvironment) {
+          execEnv.enableTransientLocalBindingReuse();
+        }
       }
 
       Logger.debugLazy(
@@ -1037,18 +1194,34 @@ mixin InterpreterFunctionMixin on AstVisitor<Object?> {
         category: 'Interpreter',
       );
 
-      final fastLocals = <String, Box<dynamic>>{};
+      final reusableLocalFrame =
+          canUseIdleEnvironment && AstLocalFrame.indexedLookupEnabled
+          ? idleReusableLocalFrame
+          : null;
+      if (canUseIdleEnvironment && AstLocalFrame.indexedLookupEnabled) {
+        idleReusableLocalFrame = null;
+      }
+      final fastLocals = reusableLocalFrame ?? AstLocalFrame(localLayout);
+      fastLocals.beginCall(reused: reusableLocalFrame != null);
 
       for (var i = 0; i < regularParamCount; i++) {
         final paramName = parameterNames[i];
         final arg = i < args.length
             ? args[i]
             : interpreter.constantPrimitiveValue(null);
-        final stored = valueFromLuaSlot(interpreter, arg);
-        execEnv.declare(paramName, stored);
-        final box = execEnv.values[paramName];
-        if (box != null) {
-          fastLocals[paramName] = box;
+        if (canStoreParameterInSlot(useSlotOnlyParameters, paramName)) {
+          fastLocals.bindParameterSlot(
+            paramName,
+            _mutableLocalStorageValue(arg),
+            execEnv,
+          );
+        } else {
+          final stored = valueFromLuaSlot(interpreter, arg);
+          execEnv.declare(paramName, stored);
+          final box = execEnv.values[paramName];
+          if (box != null) {
+            fastLocals.bindParameter(paramName, box, execEnv);
+          }
         }
       }
 
@@ -1060,14 +1233,14 @@ mixin InterpreterFunctionMixin on AstVisitor<Object?> {
         execEnv.declare('...', varargValue);
         final varargBox = execEnv.values['...'];
         if (varargBox != null) {
-          fastLocals['...'] = varargBox;
+          fastLocals.bindSynthetic('...', varargBox, execEnv);
         }
         if (namedVararg != null) {
           final packedVarargs = _packVarargsTable(interpreter, varargs);
           execEnv.declare(namedVararg, packedVarargs);
           final namedVarargBox = execEnv.values[namedVararg];
           if (namedVarargBox != null) {
-            fastLocals[namedVararg] = namedVarargBox;
+            fastLocals.bindSynthetic(namedVararg, namedVarargBox, execEnv);
           }
         }
       }
@@ -1079,7 +1252,9 @@ mixin InterpreterFunctionMixin on AstVisitor<Object?> {
       void seedFrameDebugLocals(CallFrame frame) {
         frame.debugLocals.clear();
         for (final name in parameterNames) {
-          final rawValue = execEnv.values[name]?.value;
+          final rawValue = fastLocals.containsName(name, execEnv)
+              ? fastLocals.readName(name, execEnv)
+              : execEnv.values[name]?.value;
           final value = _wrapMutableLocalReadValue(interpreter, rawValue);
           frame.debugLocals.add(MapEntry(name, value));
         }
@@ -1098,13 +1273,12 @@ mixin InterpreterFunctionMixin on AstVisitor<Object?> {
         interpreter._functionBodyDepth++;
         interpreter.restoreCurrentEnv(execEnv);
         interpreter.setCurrentFunction(self);
-        interpreter.setCurrentFastLocals(
-          fastLocals.isEmpty ? null : fastLocals,
-        );
+        interpreter.setCurrentFastLocals(fastLocals);
         final frame =
             interpreter.findFrameForCallable(self) ?? interpreter.callStack.top;
         if (frame != null) {
           frame.env = execEnv;
+          frame.engineFrameState = fastLocals;
           seedFrameDebugLocals(frame);
           if (!frame.isDebugHook && interpreter.debugHookMask.contains('l')) {
             if (self.strippedDebugInfo) {
@@ -1160,6 +1334,18 @@ mixin InterpreterFunctionMixin on AstVisitor<Object?> {
         }
       }
 
+      if (canUseIdleEnvironment) {
+        execEnv.recycleTransientLocalBindingsExcept(const <String>{});
+        execEnv.clearDeclaredGlobals();
+        execEnv.clearToBeClosedVariables();
+        execEnv.clearImplicitToBeClosedValues();
+        execEnv.pendingImplicitToBeClosed = 0;
+        idleReusableEnvironment ??= execEnv;
+        if (AstLocalFrame.indexedLookupEnabled) {
+          idleReusableLocalFrame ??= fastLocals;
+        }
+      }
+
       if (deferredError != null) {
         Error.throwWithStackTrace(deferredError, deferredStackTrace!);
       }
@@ -1189,6 +1375,12 @@ mixin InterpreterFunctionMixin on AstVisitor<Object?> {
       final canUseIdleEnvironment =
           canPoolEnvironmentAcrossCalls &&
           interpreter.debugHookFunction == null;
+      final canReuseTransientBindings =
+          canUseIdleEnvironment && !bodyCanCreateClosure;
+      final useSlotOnlyParameters =
+          AstLocalFrame.indexedLookupEnabled &&
+          AstLocalFrame.slotOnlyParametersEnabled &&
+          canUseSlotOnlyFrame;
       Environment? reusableEnv = canUseIdleEnvironment
           ? idleReusableEnvironment
           : null;
@@ -1205,14 +1397,24 @@ mixin InterpreterFunctionMixin on AstVisitor<Object?> {
       );
       Box<dynamic>? varargBox;
       Box<dynamic>? namedVarargBox;
-      final fastLocals = <String, Box<dynamic>>{};
+      final reusableLocalFrame = AstLocalFrame.indexedLookupEnabled
+          ? idleReusableLocalFrame
+          : null;
+      final fastLocals = reusableLocalFrame ?? AstLocalFrame(localLayout);
+      final reusedLocalFrame = reusableLocalFrame != null;
+      if (AstLocalFrame.indexedLookupEnabled) {
+        idleReusableLocalFrame = null;
+      }
+      fastLocals.beginCall(reused: reusedLocalFrame);
       final prevFastLocals = interpreter.getCurrentFastLocals();
       var fastLocalsInitialized = false;
 
       void seedFrameDebugLocals(CallFrame frame, Environment env) {
         frame.debugLocals.clear();
         for (final name in parameterNames) {
-          final rawValue = env.values[name]?.value;
+          final rawValue = fastLocals.containsName(name, env)
+              ? fastLocals.readName(name, env)
+              : env.values[name]?.value;
           final value = _wrapMutableLocalReadValue(interpreter, rawValue);
           frame.debugLocals.add(MapEntry(name, value));
         }
@@ -1240,6 +1442,9 @@ mixin InterpreterFunctionMixin on AstVisitor<Object?> {
 
           if (!reuse) {
             reusableEnv = execEnv;
+            if (canReuseTransientBindings && _reusePooledFunctionBindings) {
+              execEnv.enableTransientLocalBindingReuse();
+            }
             Logger.debugLazy(
               () =>
                   "visitFunctionBody: Created execEnv (${execEnv.hashCode}) with parent ${closureEnv.hashCode}",
@@ -1255,13 +1460,22 @@ mixin InterpreterFunctionMixin on AstVisitor<Object?> {
             final arg = i < args.length
                 ? args[i]
                 : interpreter.constantPrimitiveValue(null);
-            if (!reuse || paramBoxes[i] == null) {
+            if (canStoreParameterInSlot(
+              useSlotOnlyParameters,
+              parameterNames[i],
+            )) {
+              fastLocals.bindParameterSlot(
+                parameterNames[i],
+                _mutableLocalStorageValue(arg),
+                execEnv,
+              );
+            } else if (!reuse || paramBoxes[i] == null) {
               final stored = valueFromLuaSlot(interpreter, arg);
               execEnv.declare(parameterNames[i], stored);
               paramBoxes[i] = execEnv.values[parameterNames[i]];
               final box = paramBoxes[i];
               if (box != null) {
-                fastLocals[parameterNames[i]] = box;
+                fastLocals.bindParameter(parameterNames[i], box, execEnv);
               }
             } else {
               final box = paramBoxes[i]!;
@@ -1287,7 +1501,7 @@ mixin InterpreterFunctionMixin on AstVisitor<Object?> {
               execEnv.declare('...', stored);
               varargBox = execEnv.values['...'];
               if (varargBox != null) {
-                fastLocals['...'] = varargBox;
+                fastLocals.bindSynthetic('...', varargBox, execEnv);
               }
             } else {
               final box = varargBox;
@@ -1299,7 +1513,11 @@ mixin InterpreterFunctionMixin on AstVisitor<Object?> {
                 execEnv.declare(namedVararg, packedVarargs);
                 namedVarargBox = execEnv.values[namedVararg];
                 if (namedVarargBox != null) {
-                  fastLocals[namedVararg] = namedVarargBox;
+                  fastLocals.bindSynthetic(
+                    namedVararg,
+                    namedVarargBox,
+                    execEnv,
+                  );
                 }
               } else {
                 namedVarargBox.value = packedVarargs;
@@ -1317,7 +1535,7 @@ mixin InterpreterFunctionMixin on AstVisitor<Object?> {
           StackTrace? deferredStackTrace;
 
           try {
-            if (!fastLocalsInitialized && fastLocals.isNotEmpty) {
+            if (!fastLocalsInitialized) {
               interpreter.setCurrentFastLocals(fastLocals);
               fastLocalsInitialized = true;
             }
@@ -1330,6 +1548,7 @@ mixin InterpreterFunctionMixin on AstVisitor<Object?> {
                 interpreter.callStack.top;
             if (frame != null) {
               frame.env = execEnv;
+              frame.engineFrameState = fastLocals;
               seedFrameDebugLocals(frame, execEnv);
               if (!frame.isDebugHook &&
                   interpreter.debugHookMask.contains('l')) {
@@ -1422,12 +1641,25 @@ mixin InterpreterFunctionMixin on AstVisitor<Object?> {
         if (canPoolEnvironmentAcrossCalls &&
             interpreter.debugHookFunction == null) {
           if (reusableEnv case final environment?) {
-            environment.values.clear();
+            if (_reusePooledFunctionBindings && canReuseTransientBindings) {
+              // The environment itself was already eligible for reuse. Keep
+              // its transient parameter/local boxes as well, but only through
+              // Environment's closure-aware pool. A body that can create a
+              // nested function stays on the clear-only path as an additional
+              // guard for legacy chunks whose restored upvalue metadata does
+              // not increment Box reference counts.
+              environment.recycleTransientLocalBindingsExcept(const <String>{});
+            } else {
+              environment.values.clear();
+            }
             environment.clearDeclaredGlobals();
             environment.clearToBeClosedVariables();
             environment.clearImplicitToBeClosedValues();
             environment.pendingImplicitToBeClosed = 0;
             idleReusableEnvironment ??= environment;
+            if (AstLocalFrame.indexedLookupEnabled) {
+              idleReusableLocalFrame ??= fastLocals;
+            }
           }
         }
       }
@@ -1731,6 +1963,13 @@ mixin InterpreterFunctionMixin on AstVisitor<Object?> {
       }
       // Fallback to normal path when not safe
     }
+    final rawFunction = rawLuaSlot(func);
+    final inlineBuiltinWithoutManagedFrame =
+        _inlineAstBuiltinWithoutManagedFrame &&
+        rawFunction is BuiltinFunction &&
+        rawFunction.canBytecodeInlineWithoutManagedFrame &&
+        interpreter.debugHookFunction == null &&
+        !interpreter._runningDebugHook;
     // Evaluate the arguments with proper multi-value handling
     final args = <Object?>[];
 
@@ -1761,6 +2000,37 @@ mixin InterpreterFunctionMixin on AstVisitor<Object?> {
           args[i] = canon;
         }
       }
+    }
+
+    // LOVE's draw/state bindings and selected standard-library builtins are
+    // leaf calls which explicitly opt in to execution without a managed Lua
+    // frame. The bytecode VM already honors this contract. Do the same for the
+    // AST engine after arguments have been evaluated and canonicalized, but
+    // only while debug hooks are inactive because hooks require observable
+    // call/return frames.
+    // A successful assert is a leaf and remains eligible for the fast path.
+    // A failing assert needs the managed frame so the builtin can attribute
+    // its error to this exact call-site node (including a required module's
+    // source URL) rather than to the caller that invoked the containing Lua
+    // function.
+    final inlineBuiltinNeedsFailureFrame =
+        rawFunction is BuiltinFunction &&
+        rawFunction.isBytecodeAssertBuiltin &&
+        (args.isEmpty || !isLuaTruthy(args.first));
+    if (inlineBuiltinWithoutManagedFrame && !inlineBuiltinNeedsFailureFrame) {
+      if (_inlineAstBuiltinFastArity) {
+        final fastResult = switch (args.length) {
+          0 => rawFunction.fastCall0(),
+          1 => rawFunction.fastCall1(args[0]),
+          2 => rawFunction.fastCall2(args[0], args[1]),
+          _ => BuiltinFunction.fastCallUnsupported,
+        };
+        if (!identical(fastResult, BuiltinFunction.fastCallUnsupported)) {
+          return fastResult;
+        }
+      }
+      final result = rawFunction.call(args);
+      return result is Future ? await result : result;
     }
 
     // Get function name for call stack
@@ -2061,6 +2331,7 @@ mixin InterpreterFunctionMixin on AstVisitor<Object?> {
             callNode: e,
             callName: e.name is Identifier ? (e.name as Identifier).name : null,
             callEnv: currentEnv,
+            callFrameState: interpreter.getCurrentFastLocals(),
           );
         } else if (e is MethodCall) {
           // Prepare method call as a tail call
@@ -2109,6 +2380,7 @@ mixin InterpreterFunctionMixin on AstVisitor<Object?> {
             callNode: e,
             callName: methodName,
             callEnv: currentEnv,
+            callFrameState: interpreter.getCurrentFastLocals(),
           );
         }
       }
@@ -2242,10 +2514,6 @@ mixin InterpreterFunctionMixin on AstVisitor<Object?> {
         coroutineCallDepth >= Interpreter.maxCallDepth) {
       throw LuaError('C stack overflow');
     }
-    final frameNameInfo =
-        debugNameOverride != null || debugNameWhatOverride.isNotEmpty
-        ? (name: debugNameOverride, namewhat: debugNameWhatOverride)
-        : _frameNameInfoForCall(currentEnv, callNode, functionName);
     // Save the caller state before this frame is pushed. Nested yields can
     // resume through pcall/xpcall, generic-for iterators, and wrapped
     // coroutines; if we restore the callee state instead of the caller state,
@@ -2253,6 +2521,15 @@ mixin InterpreterFunctionMixin on AstVisitor<Object?> {
     final callerEnv = currentEnv;
     final callerFunction = interpreter.getCurrentFunction();
     final callerFastLocals = interpreter.getCurrentFastLocals();
+    final frameNameInfo =
+        debugNameOverride != null || debugNameWhatOverride.isNotEmpty
+        ? (name: debugNameOverride, namewhat: debugNameWhatOverride)
+        : _frameNameInfoForCall(
+            currentEnv,
+            callNode,
+            functionName,
+            callerFastLocals,
+          );
     callStack.push(
       functionName,
       callNode: callNode,
@@ -2417,12 +2694,17 @@ mixin InterpreterFunctionMixin on AstVisitor<Object?> {
           frame.functionName = functionName;
           frame.callNode = callNode;
           frame.env = result.callEnv ?? frame.env;
+          frame.engineFrameState =
+              result.callFrameState ?? frame.engineFrameState;
           frame.callable = func is Value ? func : frame.callable;
           frame.isTailCall = true;
           final reboundInfo = _frameNameInfoForCall(
             frame.env ?? interpreter.getCurrentEnv(),
             callNode,
             functionName,
+            result.callFrameState is AstLocalFrame
+                ? result.callFrameState as AstLocalFrame
+                : null,
           );
           frame.debugName = reboundInfo.name;
           frame.debugNameWhat = reboundInfo.namewhat;

@@ -188,6 +188,52 @@ class LuaValueMetadata {
 /// that defines their behavior for various operations. Values that represent
 /// tables implement the Map interface for easy interaction with Dart code.
 class Value with GCObject implements Map<String, dynamic> {
+  static const bool allocationDiagnosticsEnabled = bool.fromEnvironment(
+    'LUALIKE_BINDING_DIAGNOSTICS',
+    defaultValue: false,
+  );
+
+  static int _diagnosticCreated = 0;
+  static int _diagnosticGeneralCreated = 0;
+  static int _diagnosticPrimitiveCreated = 0;
+  static int _diagnosticTransientPrimitiveCreated = 0;
+  static int _diagnosticMetadataCreated = 0;
+  static int _diagnosticClosurePayloadCreated = 0;
+
+  /// Resets opt-in allocation counters used by profile-mode harnesses.
+  static void resetAllocationDiagnostics() {
+    if (!allocationDiagnosticsEnabled) return;
+    _diagnosticCreated = 0;
+    _diagnosticGeneralCreated = 0;
+    _diagnosticPrimitiveCreated = 0;
+    _diagnosticTransientPrimitiveCreated = 0;
+    _diagnosticMetadataCreated = 0;
+    _diagnosticClosurePayloadCreated = 0;
+  }
+
+  /// Returns exact constructor counts when allocation diagnostics are enabled.
+  static Map<String, Object> allocationDiagnostics() => <String, Object>{
+    'enabled': allocationDiagnosticsEnabled,
+    'created': _diagnosticCreated,
+    'generalCreated': _diagnosticGeneralCreated,
+    'primitiveCreated': _diagnosticPrimitiveCreated,
+    'transientPrimitiveCreated': _diagnosticTransientPrimitiveCreated,
+    'metadataCreated': _diagnosticMetadataCreated,
+    'closurePayloadCreated': _diagnosticClosurePayloadCreated,
+  };
+
+  static void _noteAllocation({
+    bool general = false,
+    bool primitive = false,
+    bool transientPrimitive = false,
+  }) {
+    if (!allocationDiagnosticsEnabled) return;
+    _diagnosticCreated++;
+    if (general) _diagnosticGeneralCreated++;
+    if (primitive) _diagnosticPrimitiveCreated++;
+    if (transientPrimitive) _diagnosticTransientPrimitiveCreated++;
+  }
+
   /// The underlying raw value being wrapped.
   dynamic _raw;
 
@@ -214,11 +260,20 @@ class Value with GCObject implements Map<String, dynamic> {
   /// runtime value while public accessors remain source-compatible.
   LuaClosurePayload? _closurePayload;
 
-  LuaClosurePayload _closurePayloadForWrite() =>
-      _closurePayload ??= LuaClosurePayload();
+  LuaClosurePayload _closurePayloadForWrite() {
+    final existing = _closurePayload;
+    if (existing != null) return existing;
+    if (allocationDiagnosticsEnabled) {
+      _diagnosticClosurePayloadCreated++;
+    }
+    return _closurePayload = LuaClosurePayload();
+  }
 
   LuaValueMetadata _metadataPayloadForWrite() {
     if (_metadataPayload == null) {
+      if (allocationDiagnosticsEnabled) {
+        _diagnosticMetadataCreated++;
+      }
       _metadataPayload = LuaValueMetadata();
       // Transfer inline flags to the newly-created metadata.
       if ((_inlineFlags & _skipAllocationDebtBit) != 0) {
@@ -451,6 +506,9 @@ class Value with GCObject implements Map<String, dynamic> {
       return;
     }
 
+    if (allocationDiagnosticsEnabled) {
+      _diagnosticClosurePayloadCreated++;
+    }
     _closurePayload = LuaClosurePayload(
       upvalues: upvalues,
       functionBody: functionBody,
@@ -850,6 +908,9 @@ class Value with GCObject implements Map<String, dynamic> {
     int? debugLineDefined,
     bool strippedDebugInfo = false,
   }) {
+    if (allocationDiagnosticsEnabled) {
+      _noteAllocation(general: true);
+    }
     _setValueFlags(
       isMulti: isMulti,
       isConst: isConst,
@@ -900,10 +961,12 @@ class Value with GCObject implements Map<String, dynamic> {
       setMetatable(metatable);
     }
 
-    // Always register with the GC so mark/unmark and separation logic
-    // remains correct, but avoid charging allocation debt for
-    // primitive-like wrappers to reduce auto-trigger overhead.
-    if (!skipGcRegistration) {
+    // Scalar wrappers are host execution facades, not collectable Lua heap
+    // objects. Keeping every temporary number/bool/nil wrapper in the custom
+    // generations pins it until a Lua GC cycle even though Dart can reclaim it
+    // as soon as the expression is done. A scalar that later reaches a tracked
+    // container is enrolled by ensureTracked for compatibility.
+    if (!skipGcRegistration && !isLuaScalarPrimitiveSlot(_raw)) {
       final gcLocal2 = GCAccess.fromValue(this);
       gcLocal2?.register(this, countAllocation: _shouldCountAllocation());
     }
@@ -927,6 +990,9 @@ class Value with GCObject implements Map<String, dynamic> {
     int? debugLineDefined,
     bool strippedDebugInfo = false,
   }) : _raw = raw {
+    if (allocationDiagnosticsEnabled) {
+      _noteAllocation(primitive: true);
+    }
     _setValueFlags(
       isMulti: isMulti,
       isConst: isConst,
@@ -958,7 +1024,7 @@ class Value with GCObject implements Map<String, dynamic> {
       MetaTable().applyDefaultMetatable(this);
     }
 
-    if (!skipGcRegistration) {
+    if (!skipGcRegistration && !isLuaScalarPrimitiveSlot(_raw)) {
       final gcLocal = GCAccess.fromValue(this);
       gcLocal?.register(this, countAllocation: _shouldCountAllocation());
     }
@@ -966,6 +1032,9 @@ class Value with GCObject implements Map<String, dynamic> {
 
   Value.transientPrimitive(Object? raw, {LuaRuntime? interpreter})
     : _raw = raw {
+    if (allocationDiagnosticsEnabled) {
+      _noteAllocation(transientPrimitive: true);
+    }
     // Set common flags and interpreter inline — no metadata allocation.
     _inlineFlags |= _skipAllocationDebtBit | _skipGcRegistrationBit;
     _inlineInterpreter = interpreter;

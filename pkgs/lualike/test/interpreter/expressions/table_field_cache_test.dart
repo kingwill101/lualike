@@ -48,4 +48,59 @@ void main() {
       expect(callCount, equals(2));
     });
   });
+
+  group('TableIndexAccess inline cache', () {
+    test(
+      'reuses an identical primitive key and observes table mutation',
+      () async {
+        final vm = Interpreter();
+        final table = ValueClass.table();
+        table[Value(1)] = Value(10);
+        vm.globals.define('indexed', table);
+
+        final access = TableIndexAccess(
+          Identifier('indexed'),
+          NumberLiteral(1),
+        );
+
+        final first = await access.accept(vm) as Value;
+        final second = await access.accept(vm) as Value;
+
+        expect(identical(first, second), isTrue);
+        expect(first.raw, equals(10));
+
+        table[Value(1)] = Value(25);
+
+        final third = await access.accept(vm) as Value;
+        expect(third.raw, equals(25));
+        expect(identical(third, second), isFalse);
+      },
+    );
+
+    test('skips caching when __index metamethod is present', () async {
+      final vm = Interpreter();
+      final table = ValueClass.table();
+      var callCount = 0;
+
+      table.setMetatable({
+        '__index': Value((List<Object?> args) {
+          callCount++;
+          return Value(callCount);
+        }),
+      });
+      vm.globals.define('indexedMeta', table);
+
+      final access = TableIndexAccess(
+        Identifier('indexedMeta'),
+        NumberLiteral(1),
+      );
+
+      final first = await access.accept(vm) as Value;
+      final second = await access.accept(vm) as Value;
+
+      expect(first.raw, equals(1));
+      expect(second.raw, equals(2));
+      expect(callCount, equals(2));
+    });
+  });
 }

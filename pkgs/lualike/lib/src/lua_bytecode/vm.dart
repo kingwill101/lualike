@@ -53,6 +53,14 @@ final bool _profileBytecode =
     platform.getEnvironmentVariable('LUALIKE_PROFILE_BYTECODE') == '1';
 final bool _debugBytecodeHooks =
     platform.getEnvironmentVariable('LUALIKE_DEBUG_BYTECODE_HOOKS') == '1';
+const bool _defaultSyncPlainTableOpcodes = bool.fromEnvironment(
+  'LUALIKE_SYNC_PLAIN_TABLE_OPCODES',
+  defaultValue: true,
+);
+const bool _runtimeSyncPlainTableTuning = bool.fromEnvironment(
+  'LUALIKE_RUNTIME_SYNC_PLAIN_TABLE_TUNING',
+  defaultValue: false,
+);
 
 final RegExp _bytecodeFormattedLuaErrorPattern = RegExp(
   r'^(?:\[[^\n]+\]|[^:\n]+):(?:\d+|\?): ',
@@ -75,6 +83,27 @@ final class LuaBytecodeVm {
   final LuaRuntime runtime;
   final Interpreter? _debugInterpreter;
   LuaBytecodeProfile? _activeProfile;
+  static bool _runtimeSyncPlainTableOpcodes = _defaultSyncPlainTableOpcodes;
+
+  /// Whether the synchronous bytecode lane handles proven plain-table ops.
+  static bool get usesSyncPlainTableOpcodes => _runtimeSyncPlainTableTuning
+      ? _runtimeSyncPlainTableOpcodes
+      : _defaultSyncPlainTableOpcodes;
+
+  /// Whether this build permits live sync-table A/B selection.
+  static bool get supportsRuntimeSyncPlainTableTuning =>
+      _runtimeSyncPlainTableTuning;
+
+  /// Selects the synchronous plain-table path in an instrumentation build.
+  static void setSyncPlainTableOpcodesForDiagnostics(bool enabled) {
+    if (!_runtimeSyncPlainTableTuning) {
+      throw StateError(
+        'Runtime sync-table tuning requires '
+        'LUALIKE_RUNTIME_SYNC_PLAIN_TABLE_TUNING=true',
+      );
+    }
+    _runtimeSyncPlainTableOpcodes = enabled;
+  }
 
   /// Cache for call-site name computations, keyed by
   /// `Object.hash(prototype, pc)`.  Avoids the backward instruction walk
@@ -462,6 +491,7 @@ final class LuaBytecodeVm {
     if (_debugInterpreter?.debugHookFunction != null) return null;
     final prototype = frame.closure.prototype;
     final opcodesByPc = prototype.opcodesByPc;
+    final syncPlainTableOpcodes = usesSyncPlainTableOpcodes;
     while (frame.pc < prototype.code.length) {
       frame.expireDeadLocals();
       if (++frame.safePointCounter >= 2048) {
@@ -686,6 +716,125 @@ final class LuaBytecodeVm {
           case Opcode.setUpval:
             frame.closure.writeUpvalue(word.b, frame.register(word.a));
             break;
+          case Opcode.getTable:
+            {
+              if (!syncPlainTableOpcodes) {
+                _rewindSyncPc(frame);
+                return null;
+              }
+              final receiver = frame.register(word.b);
+              final fastSlot = _tryFastTableGetSlot(
+                receiver,
+                frame.rawSlot(word.c),
+              );
+              if (identical(fastSlot, _unhandledTableSlot)) {
+                _rewindSyncPc(frame);
+                return null;
+              }
+              frame.setRegisterSlot(word.a, fastSlot);
+              break;
+            }
+          case Opcode.getI:
+            {
+              if (!syncPlainTableOpcodes) {
+                _rewindSyncPc(frame);
+                return null;
+              }
+              final receiver = frame.register(word.b);
+              final fastSlot = _tryFastTableGetSlot(receiver, word.c);
+              if (identical(fastSlot, _unhandledTableSlot)) {
+                _rewindSyncPc(frame);
+                return null;
+              }
+              frame.setRegisterSlot(word.a, fastSlot);
+              break;
+            }
+          case Opcode.getField:
+            {
+              if (!syncPlainTableOpcodes) {
+                _rewindSyncPc(frame);
+                return null;
+              }
+              final receiver = frame.register(word.b);
+              final rawKey = stringConstantRaw(prototype, word.c);
+              final fastSlot = _tryFastTableGetStringKeySlot(receiver, rawKey);
+              if (identical(fastSlot, _unhandledTableSlot)) {
+                _rewindSyncPc(frame);
+                return null;
+              }
+              frame.setRegisterSlot(word.a, fastSlot);
+              break;
+            }
+          case Opcode.setTable:
+            {
+              if (!syncPlainTableOpcodes) {
+                _rewindSyncPc(frame);
+                return null;
+              }
+              final receiver = frame.register(word.a);
+              final valueSlot = word.kFlag
+                  ? constantValue(runtime, prototype, word.c)
+                  : frame.rawSlot(word.c);
+              if (!_tryFastTableSetSlot(
+                receiver,
+                frame.rawSlot(word.b),
+                valueSlot,
+              )) {
+                _rewindSyncPc(frame);
+                return null;
+              }
+              break;
+            }
+          case Opcode.setI:
+            {
+              if (!syncPlainTableOpcodes) {
+                _rewindSyncPc(frame);
+                return null;
+              }
+              final receiver = frame.register(word.a);
+              final valueSlot = word.kFlag
+                  ? constantValue(runtime, prototype, word.c)
+                  : frame.rawSlot(word.c);
+              if (!_tryFastTableSetSlot(receiver, word.b, valueSlot)) {
+                _rewindSyncPc(frame);
+                return null;
+              }
+              break;
+            }
+          case Opcode.setField:
+            {
+              if (!syncPlainTableOpcodes) {
+                _rewindSyncPc(frame);
+                return null;
+              }
+              final receiver = frame.register(word.a);
+              final valueSlot = word.kFlag
+                  ? constantValue(runtime, prototype, word.c)
+                  : frame.rawSlot(word.c);
+              final rawKey = stringConstantRaw(prototype, word.b);
+              if (!_tryFastTableSetStringKeySlot(receiver, rawKey, valueSlot)) {
+                _rewindSyncPc(frame);
+                return null;
+              }
+              break;
+            }
+          case Opcode.self:
+            {
+              if (!syncPlainTableOpcodes) {
+                _rewindSyncPc(frame);
+                return null;
+              }
+              final receiver = frame.register(word.b);
+              final rawKey = stringConstantRaw(prototype, word.c);
+              final fastSlot = _tryFastTableGetStringKeySlot(receiver, rawKey);
+              if (identical(fastSlot, _unhandledTableSlot)) {
+                _rewindSyncPc(frame);
+                return null;
+              }
+              frame.setRegister(word.a + 1, receiver);
+              frame.setRegisterSlot(word.a, fastSlot);
+              break;
+            }
           case Opcode.newTable:
             frame.setRegister(
               word.a,

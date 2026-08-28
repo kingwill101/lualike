@@ -7,9 +7,84 @@ import 'package:lualike/src/runtime/lua_slot.dart';
 import 'package:lualike/src/gc/gc_access.dart';
 import 'package:lualike/src/gc/memory_credits.dart';
 
+const bool _singleMapEnvironmentLookup = bool.fromEnvironment(
+  'LUALIKE_SINGLE_MAP_ENVIRONMENT_LOOKUP',
+  defaultValue: true,
+);
+
 /// A generic box class that wraps a single value of type T.
 /// Used to create mutable references to values in the environment.
 class Box<T> with GCObject {
+  static const bool bindingDiagnosticsEnabled = bool.fromEnvironment(
+    'LUALIKE_BINDING_DIAGNOSTICS',
+    defaultValue: false,
+  );
+
+  static int _diagnosticCreated = 0;
+  static int _diagnosticReused = 0;
+  static int _diagnosticLocalBindingClones = 0;
+  static int _diagnosticSharedScalarClones = 0;
+  static int _diagnosticUnsharedScalarClones = 0;
+  static int _diagnosticStringPrimitiveClones = 0;
+  static int _diagnosticDecoratedPrimitiveClones = 0;
+  static int _diagnosticOtherLocalClones = 0;
+
+  /// Resets opt-in binding counters used by profile-mode harnesses.
+  static void resetBindingDiagnostics() {
+    if (!bindingDiagnosticsEnabled) return;
+    _diagnosticCreated = 0;
+    _diagnosticReused = 0;
+    _diagnosticLocalBindingClones = 0;
+    _diagnosticSharedScalarClones = 0;
+    _diagnosticUnsharedScalarClones = 0;
+    _diagnosticStringPrimitiveClones = 0;
+    _diagnosticDecoratedPrimitiveClones = 0;
+    _diagnosticOtherLocalClones = 0;
+  }
+
+  /// Attributes local-binding wrapper clones in diagnostic builds only.
+  static void noteLocalBindingClone(Value value) {
+    if (!bindingDiagnosticsEnabled) return;
+    _diagnosticLocalBindingClones++;
+    final raw = rawLuaSlot(value);
+    final decorated =
+        value.metatable != null ||
+        value.metatableRef != null ||
+        value.upvalues != null ||
+        value.functionBody != null ||
+        value.closureEnvironment != null ||
+        value.globalProxyEnvironment != null ||
+        value.functionName != null ||
+        value.debugLineDefined != null ||
+        value.strippedDebugInfo;
+    if (decorated && isLuaPrimitiveSlot(raw)) {
+      _diagnosticDecoratedPrimitiveClones++;
+    } else if (isLuaScalarPrimitiveSlot(raw)) {
+      if (value.isSharedPrimitive) {
+        _diagnosticSharedScalarClones++;
+      } else {
+        _diagnosticUnsharedScalarClones++;
+      }
+    } else if (raw is String || raw is LuaString) {
+      _diagnosticStringPrimitiveClones++;
+    } else {
+      _diagnosticOtherLocalClones++;
+    }
+  }
+
+  /// Returns opt-in binding counters without instrumenting normal builds.
+  static Map<String, Object> bindingDiagnostics() => <String, Object>{
+    'enabled': bindingDiagnosticsEnabled,
+    'created': _diagnosticCreated,
+    'reused': _diagnosticReused,
+    'localBindingClones': _diagnosticLocalBindingClones,
+    'sharedScalarClones': _diagnosticSharedScalarClones,
+    'unsharedScalarClones': _diagnosticUnsharedScalarClones,
+    'stringPrimitiveClones': _diagnosticStringPrimitiveClones,
+    'decoratedPrimitiveClones': _diagnosticDecoratedPrimitiveClones,
+    'otherLocalClones': _diagnosticOtherLocalClones,
+  };
+
   /// The wrapped value.
   T _value;
 
@@ -69,8 +144,11 @@ class Box<T> with GCObject {
   }) : isConst = isConst ?? _valueIsConst(value),
        isToBeClose = isToBeClose ?? _valueIsToBeClose(value),
        _value = value {
+    if (bindingDiagnosticsEnabled) {
+      _diagnosticCreated++;
+    }
     _applyBindingAttributes(_value);
-    // Register with GC, but don't count allocation for transient boxes
+    // Register with GC, but don't count allocation for transient boxes.
     final gc = interpreter?.gc ?? GCAccess.fromEnv(null);
     gc?.register(this, countAllocation: !isTransient);
   }
@@ -123,6 +201,42 @@ class Box<T> with GCObject {
 
   /// Whether this box still has live upvalues referencing it.
   bool get hasUpvalueReferences => _upvalueRefCount > 0;
+
+  /// Reinitializes a transient local binding whose lexical lifetime ended.
+  ///
+  /// Callers must prove that no closure or active debug scope can still observe
+  /// the old binding. The box is re-enrolled because an idle recycled binding
+  /// may have been swept from the custom generations while it held `nil`.
+  void rebindTransientLocal(T newValue) {
+    assert(isLocal);
+    assert(isTransient);
+    assert(!hasUpvalueReferences);
+    if (bindingDiagnosticsEnabled) {
+      _diagnosticReused++;
+    }
+    isConst = _valueIsConst(newValue);
+    isToBeClose = _valueIsToBeClose(newValue);
+    final gc = interpreter?.gc ?? GCAccess.defaultManager;
+    gc?.ensureTracked(this);
+    value = newValue;
+  }
+
+  /// Clears this binding while it is parked in a closure-free reuse pool.
+  ///
+  /// Unlike [rebindTransientLocal], parking does not re-enroll the box with
+  /// the custom collector. The next declaration does that exactly once when
+  /// the box becomes observable again. Dropping the old value here prevents
+  /// an idle pooled environment from retaining the previous call's objects.
+  void parkTransientLocalForReuse() {
+    assert(isLocal);
+    assert(isTransient);
+    assert(!hasUpvalueReferences);
+    isConst = false;
+    isToBeClose = false;
+    _value = null as T;
+    final gc = interpreter?.gc ?? GCAccess.defaultManager;
+    gc?.noteReferenceWrite(this, null);
+  }
 
   @override
   String toString() {
@@ -188,6 +302,74 @@ class Environment with GCObject {
 
   /// Storage for variable bindings in this scope.
   final Map<String, Box<dynamic>> values = {};
+
+  /// Boxes from completed, closure-free lexical iterations, keyed by name.
+  ///
+  /// These bindings are deliberately separate from [values], so a read before
+  /// the next declaration still resolves to the outer scope as required by Lua.
+  Map<String, Box<dynamic>>? _reusableTransientLocals;
+
+  /// Idle closure-free child scopes keyed by their stable AST body identity.
+  ///
+  /// The parent owns this cache, so a loop's branch scopes disappear with that
+  /// loop environment and can never be reused under a different lexical parent.
+  Map<Object, Environment>? _reusableChildScopes;
+
+  bool _reuseTransientLocalBindings = false;
+
+  /// Enables name-based recycling for transient local declarations.
+  ///
+  /// This is only valid for scopes whose body cannot create a closure. A box
+  /// with an upvalue reference is never admitted to the reuse pool.
+  void enableTransientLocalBindingReuse() {
+    _reuseTransientLocalBindings = true;
+  }
+
+  /// Borrows an idle closure-free child scope for [scopeKey].
+  Environment? takeReusableChildScope(Object scopeKey) {
+    return _reusableChildScopes?.remove(scopeKey);
+  }
+
+  /// Returns a completed closure-free [scope] to this lexical parent.
+  void returnReusableChildScope(Object scopeKey, Environment scope) {
+    assert(identical(scope.parent, this));
+    (_reusableChildScopes ??= Map<Object, Environment>.identity()).putIfAbsent(
+      scopeKey,
+      () => scope,
+    );
+  }
+
+  /// Ends the current lexical iteration and hides recyclable local bindings.
+  ///
+  /// Bindings named by [retainedNames] remain active. Other locals are removed
+  /// from lookup immediately and may be reused by a same-name declaration in a
+  /// later iteration. Closable and captured bindings retain the old lifecycle.
+  void recycleTransientLocalBindingsExcept(Set<String> retainedNames) {
+    if (!_reuseTransientLocalBindings ||
+        values.length <= retainedNames.length) {
+      return;
+    }
+
+    final names = <String>[];
+    values.forEach((name, _) {
+      if (!retainedNames.contains(name)) {
+        names.add(name);
+      }
+    });
+
+    for (final name in names) {
+      final box = values.remove(name);
+      if (box == null ||
+          !box.isLocal ||
+          !box.isTransient ||
+          box.isToBeClose ||
+          box.hasUpvalueReferences) {
+        continue;
+      }
+      box.parkTransientLocalForReuse();
+      (_reusableTransientLocals ??= <String, Box<dynamic>>{})[name] = box;
+    }
+  }
 
   /// Names explicitly declared as globals in this lexical scope.
   ///
@@ -296,8 +478,10 @@ class Environment with GCObject {
     this.isClosure = false,
     this.isLoadIsolated = false,
   }) {
-    final gc = GCAccess.fromEnv(this);
-    gc?.register(this, countAllocation: false);
+    // Environments are host scope frames. They remain visible to Lua GC root
+    // traversal through active frames and closure references, but deliberately
+    // stay out of the strongly held custom generations so completed calls can
+    // be reclaimed by Dart immediately.
     Logger.debugLazy(
       () => "Environment($hashCode) created. Parent: ${parent?.hashCode}",
       category: 'Env',
@@ -514,8 +698,11 @@ class Environment with GCObject {
       );
     }
 
-    if (values.containsKey(name)) {
-      final val = values[name]!.value;
+    final box = _singleMapEnvironmentLookup
+        ? values[name]
+        : (values.containsKey(name) ? values[name] : null);
+    if (box != null) {
+      final val = box.value;
       if (Logger.enabled) {
         Logger.debugLazy(
           () =>
@@ -538,15 +725,16 @@ class Environment with GCObject {
       return val;
     }
 
-    if (parent != null) {
+    final parentEnv = parent;
+    if (parentEnv != null) {
       if (Logger.enabled) {
         Logger.debugLazy(
           () =>
-              "'$name' not found in current env, checking parent env (${parent!.hashCode})",
+              "'$name' not found in current env, checking parent env (${parentEnv.hashCode})",
           category: 'Env',
         );
       }
-      return parent!.get(name);
+      return parentEnv.get(name);
     }
 
     if (Logger.enabled) {
@@ -720,14 +908,18 @@ class Environment with GCObject {
       category: 'Env',
     );
 
-    // Create a fresh Box that shadows any previous binding
-    // Mark as transient since function-local variables aren't counted in Lua's memory
-    final box = Box(
-      value,
-      isLocal: true,
-      isTransient: true,
-      interpreter: interpreter,
-    );
+    // Closure-free loop scopes can recycle a binding after its previous
+    // lexical lifetime ended. It stays outside `values` while idle so reads
+    // before this declaration still see an outer binding.
+    final reusable = _reuseTransientLocalBindings
+        ? _reusableTransientLocals?.remove(name)
+        : null;
+    final box =
+        reusable ??
+        Box(value, isLocal: true, isTransient: true, interpreter: interpreter);
+    if (reusable != null) {
+      reusable.rebindTransientLocal(value);
+    }
     values[name] = box;
     _noteChildReference(box);
     _updateCredits();

@@ -267,11 +267,14 @@ LuaChunkLoadResult loadLuaBytecodeSourceChunk(
 /// Runtime wrapper that executes source by emitting real `lua_bytecode`
 /// chunks and running them through the bytecode VM.
 class LuaBytecodeRuntime implements LuaRuntime {
-  LuaBytecodeRuntime({FileManager? fileManager})
-    : _interpreter = Interpreter(
-        fileManager: fileManager,
-        initializeStandardLibraries: false,
-      ) {
+  LuaBytecodeRuntime({
+    FileManager? fileManager,
+    LuaGcPolicy gcPolicy = LuaGcPolicy.luaCompatible,
+  }) : _interpreter = Interpreter(
+         fileManager: fileManager,
+         initializeStandardLibraries: false,
+         gcPolicy: gcPolicy,
+       ) {
     _interpreter.gc.bindRuntime(this);
     _libraryRegistry = LibraryRegistry(this);
     final runtimeEnv = Environment(interpreter: this);

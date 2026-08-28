@@ -52,6 +52,7 @@ class TailCallSignal {
   final AstNode? callNode;
   final String? callName;
   final Environment? callEnv;
+  final Object? callFrameState;
 
   const TailCallSignal(
     this.functionValue,
@@ -59,6 +60,7 @@ class TailCallSignal {
     this.callNode,
     this.callName,
     this.callEnv,
+    this.callFrameState,
   });
 
   @override

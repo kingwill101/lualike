@@ -1,5 +1,63 @@
 part of 'interpreter.dart';
 
+final Expando<bool> _forLoopBodyMayCreateClosure = Expando<bool>(
+  'forLoopBodyMayCreateClosure',
+);
+final Expando<bool> _bodyMayCreateClosureCache = Expando<bool>(
+  'bodyMayCreateClosure',
+);
+
+const bool _reuseClosureFreeLoopLocalBindings = bool.fromEnvironment(
+  'LUALIKE_LOOP_LOCAL_REUSE',
+  defaultValue: true,
+);
+const bool _cacheAstClosureScans = bool.fromEnvironment(
+  'LUALIKE_AST_CLOSURE_SCAN_CACHE',
+  defaultValue: true,
+);
+
+bool _bodyMayCreateClosure(List<AstNode> statements) {
+  if (_cacheAstClosureScans) {
+    final cached = _bodyMayCreateClosureCache[statements];
+    if (cached != null) {
+      return cached;
+    }
+  }
+
+  bool dumpedNodeMayCreateClosure(Object? value) {
+    if (value is Map) {
+      final type = value['type'];
+      if (type == 'FunctionLiteral' ||
+          type == 'FunctionDef' ||
+          type == 'LocalFunctionDef') {
+        return true;
+      }
+      return value.values.any(dumpedNodeMayCreateClosure);
+    }
+    return value is Iterable && value.any(dumpedNodeMayCreateClosure);
+  }
+
+  for (final statement in statements) {
+    if (statement is FunctionDef || statement is LocalFunctionDef) {
+      if (_cacheAstClosureScans) {
+        _bodyMayCreateClosureCache[statements] = true;
+      }
+      return true;
+    }
+    if (statement is Dumpable &&
+        dumpedNodeMayCreateClosure((statement as Dumpable).dump())) {
+      if (_cacheAstClosureScans) {
+        _bodyMayCreateClosureCache[statements] = true;
+      }
+      return true;
+    }
+  }
+  if (_cacheAstClosureScans) {
+    _bodyMayCreateClosureCache[statements] = false;
+  }
+  return false;
+}
+
 mixin InterpreterControlFlowMixin on AstVisitor<Object?> {
   // Required getters that must be implemented by the class using this mixin
   Environment get globals;
@@ -58,10 +116,17 @@ mixin InterpreterControlFlowMixin on AstVisitor<Object?> {
     }
 
     final prevEnv = globals;
-    final blockEnv = Environment(
-      parent: prevEnv,
-      interpreter: this as Interpreter,
-    );
+    final reuseBranchScope =
+        _reuseClosureFreeLoopLocalBindings &&
+        !_bodyMayCreateClosure(statements);
+    final blockEnv =
+        (reuseBranchScope
+            ? prevEnv.takeReusableChildScope(statements)
+            : null) ??
+        Environment(parent: prevEnv, interpreter: this as Interpreter);
+    if (reuseBranchScope) {
+      blockEnv.enableTransientLocalBindingReuse();
+    }
 
     try {
       setCurrentEnv(blockEnv);
@@ -81,6 +146,13 @@ mixin InterpreterControlFlowMixin on AstVisitor<Object?> {
     } finally {
       await blockEnv.closeVariables();
       setCurrentEnv(prevEnv);
+      if (reuseBranchScope) {
+        blockEnv.recycleTransientLocalBindingsExcept(const <String>{});
+        blockEnv.clearDeclaredGlobals();
+        blockEnv.clearImplicitToBeClosedValues();
+        blockEnv.pendingImplicitToBeClosed = 0;
+        prevEnv.returnReusableChildScope(statements, blockEnv);
+      }
     }
   }
 
@@ -533,6 +605,16 @@ mixin InterpreterControlFlowMixin on AstVisitor<Object?> {
     final baseBindings = Map<String, Box<dynamic>>.from(loopEnv.values);
     final baseKeys = baseBindings.keys.toSet();
     final baseToBeClosedLen = loopEnv.toBeClosedVariableCount;
+    final bodyMayCreateClosure = _forLoopBodyMayCreateClosure[node] ??=
+        _bodyMayCreateClosure(node.body);
+    final reusableLoopVarBox = bodyMayCreateClosure
+        ? null
+        : baseBindings[loopVarName];
+    final reuseBodyLocalBindings =
+        _reuseClosureFreeLoopLocalBindings && !bodyMayCreateClosure;
+    if (reuseBodyLocalBindings) {
+      loopEnv.enableTransientLocalBindingReuse();
+    }
 
     Future<void> resetLoopEnvironment([Object? error]) async {
       if (loopEnv.toBeClosedVariableCount > baseToBeClosedLen) {
@@ -551,7 +633,9 @@ mixin InterpreterControlFlowMixin on AstVisitor<Object?> {
         }
       }
 
-      if (loopEnv.values.length > baseKeys.length) {
+      if (reuseBodyLocalBindings) {
+        loopEnv.recycleTransientLocalBindingsExcept(baseKeys);
+      } else if (loopEnv.values.length > baseKeys.length) {
         final keysToRemove = <String>[];
         loopEnv.values.forEach((key, _) {
           if (!baseKeys.contains(key)) {
@@ -583,12 +667,17 @@ mixin InterpreterControlFlowMixin on AstVisitor<Object?> {
           await interpreter.maybeFireLineDebugHook(headerLine + 1, force: true);
         }
 
-        final iterationLoopVarBox = Box<dynamic>(
-          current,
-          isLocal: true,
-          isTransient: true,
-          interpreter: loopEnv.interpreter,
-        )..debugName = loopVarName;
+        final iterationLoopVarBox =
+            reusableLoopVarBox ??
+            (Box<dynamic>(
+              current,
+              isLocal: true,
+              isTransient: true,
+              interpreter: loopEnv.interpreter,
+            )..debugName = loopVarName);
+        if (reusableLoopVarBox != null) {
+          reusableLoopVarBox.value = current;
+        }
         loopEnv.values[loopVarName] = iterationLoopVarBox;
         Logger.debugLazy(
           () => 'ForLoop iteration: i = $current',
@@ -778,7 +867,7 @@ mixin InterpreterControlFlowMixin on AstVisitor<Object?> {
     );
     // Get iterator components from node.iterators
     final iterComponents = await Future.wait(
-      node.iterators.map((e) => e.accept(this)),
+      node.iterators.map((e) => Future<Object?>.sync(() => e.accept(this))),
     );
 
     Logger.debugLazy(

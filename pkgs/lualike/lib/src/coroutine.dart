@@ -9,6 +9,7 @@ import 'package:lualike/src/call_stack.dart';
 // GC access occurs via environment.interpreter.gc
 import 'package:lualike/src/ast.dart';
 import 'package:lualike/src/interpreter/interpreter.dart';
+import 'package:lualike/src/interpreter/ast_local_frame.dart';
 import 'package:lualike/src/lua_error.dart';
 import 'package:lualike/src/runtime/lua_results.dart';
 import 'package:lualike/src/runtime/lua_slot.dart';
@@ -1423,6 +1424,15 @@ class Coroutine with GCObject {
     for (final root in _savedExternalGcRoots) {
       if (root is GCObject) {
         refs.add(root);
+      }
+    }
+    for (final frame in _savedCallStack ?? const <CallFrame>[]) {
+      if (frame.engineFrameState case final AstLocalFrame astFrame) {
+        for (final root in astFrame.slotOnlyGcRoots) {
+          if (root is GCObject) {
+            refs.add(root);
+          }
+        }
       }
     }
     // if (_originalArgs != null) {

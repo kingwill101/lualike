@@ -1,5 +1,15 @@
 part of 'interpreter.dart';
 
+const bool _normalizeEmptyLocalAttributes = bool.fromEnvironment(
+  'LUALIKE_NORMALIZE_EMPTY_LOCAL_ATTRIBUTES',
+  defaultValue: true,
+);
+
+String? _normalizedLocalAttribute(String? attribute) =>
+    _normalizeEmptyLocalAttributes && (attribute?.isEmpty ?? false)
+    ? null
+    : attribute;
+
 bool _isInlineableMutableLocalPrimitive(Object? value) {
   if (value is Value) {
     final raw = rawLuaSlot(value);
@@ -60,7 +70,11 @@ mixin InterpreterAssignmentMixin on AstVisitor<Object?> {
     Value tableValue,
     AstNode node,
   ) {
-    final sourceLabel = _sourceLabelForAst(globals, tableExpr);
+    final sourceLabel = _sourceLabelForAst(
+      globals,
+      tableExpr,
+      interpreter: this as Interpreter,
+    );
     final type = getLuaType(tableValue);
     throw LuaError(
       sourceLabel != null
@@ -145,6 +159,7 @@ mixin InterpreterAssignmentMixin on AstVisitor<Object?> {
     bool isConst = false,
     bool isToBeClose = false,
   }) {
+    Box.noteLocalBindingClone(value);
     if (_isPlainDetachedPrimitive(value)) {
       final raw = rawLuaSlot(value);
       return Value.primitive(
@@ -232,10 +247,26 @@ mixin InterpreterAssignmentMixin on AstVisitor<Object?> {
   }
 
   bool _updateActiveFunctionLocal(
-    String name,
+    Identifier target,
     dynamic value,
     Interpreter interpreter,
   ) {
+    final name = target.name;
+    final fastLocals = interpreter.getCurrentFastLocals();
+    final activeEnvironment = interpreter.getCurrentEnv();
+    final cachedSlot = fastLocals?.cachedSlot(target, activeEnvironment) ?? -1;
+    if (cachedSlot >= 0) {
+      fastLocals!.writeSlot(cachedSlot, _mutableLocalStorageValue(value));
+      return true;
+    }
+
+    final activeSlot =
+        fastLocals?.lookupAndCacheSlot(target, activeEnvironment) ?? -1;
+    if (activeSlot >= 0) {
+      fastLocals!.writeSlot(activeSlot, _mutableLocalStorageValue(value));
+      return true;
+    }
+
     final currentFunction = interpreter.getCurrentFunction();
     if (currentFunction == null) {
       return globals.updateLocal(name, _mutableLocalStorageValue(value));
@@ -246,6 +277,7 @@ mixin InterpreterAssignmentMixin on AstVisitor<Object?> {
     while (current != null && !identical(current, closureBoundary)) {
       final box = current.values[name];
       if (box != null && box.isLocal) {
+        fastLocals?.cacheResolvedBox(target, box);
         if (box.preventsAssignment) {
           throw LuaError("attempt to assign to const variable '$name'");
         }
@@ -257,6 +289,7 @@ mixin InterpreterAssignmentMixin on AstVisitor<Object?> {
 
     final closureBox = closureBoundary?.values[name];
     if (closureBox != null && closureBox.isLocal) {
+      fastLocals?.cacheResolvedBox(target, closureBox);
       if (closureBox.preventsAssignment) {
         throw LuaError("attempt to assign to const variable '$name'");
       }
@@ -574,9 +607,18 @@ mixin InterpreterAssignmentMixin on AstVisitor<Object?> {
       final storedValue = wrappedValue;
       if (tableValue.isTable) {
         if (target.index is! Identifier) {
-          final table = await target.table.accept(this).toValue();
+          final tableResult = target.table.accept(this);
+          final Value table;
+          if (tableResult is Future) {
+            table = await tableResult.toValue();
+          } else {
+            table = tableResult.toValue();
+          }
           if (!table.isNil) {
-            dynamic index = await target.index.accept(this);
+            dynamic index = target.index.accept(this);
+            if (index is Future) {
+              index = await index;
+            }
             if (luaResultValues(index) != null) {
               index = _firstLuaResultOrNil(index, interpreter: interpreter);
             }
@@ -772,15 +814,41 @@ mixin InterpreterAssignmentMixin on AstVisitor<Object?> {
       // final isIsolatedEnvironment = globals.isLoadIsolated;
 
       // First, check if this is a local variable in the current environment chain
+      final fastLocals = interpreter.getCurrentFastLocals();
+      final activeEnvironment = interpreter.getCurrentEnv();
+      final cachedSlot =
+          fastLocals?.cachedSlot(target, activeEnvironment) ?? -1;
+      if (cachedSlot >= 0) {
+        fastLocals!.writeSlot(
+          cachedSlot,
+          _mutableLocalStorageValue(storedValue),
+        );
+        return storedValue;
+      }
+      final activeSlot =
+          fastLocals?.lookupAndCacheSlot(target, activeEnvironment) ?? -1;
+      if (activeSlot >= 0) {
+        fastLocals!.writeSlot(
+          activeSlot,
+          _mutableLocalStorageValue(storedValue),
+        );
+        return storedValue;
+      }
+
       Environment? env = globals;
       while (env != null) {
         if (env.values.containsKey(name) && env.values[name]!.isLocal) {
+          final box = env.values[name]!;
+          fastLocals?.cacheResolvedBox(target, box);
           Logger.debugLazy(
             () => 'Updating local variable: $name',
             category: 'Assignment',
             contextBuilder: () => {'name': name, 'envHash': env.hashCode},
           );
-          env.define(name, storedValue);
+          if (box.preventsAssignment) {
+            throw LuaError("attempt to assign to const variable '$name'");
+          }
+          box.value = _mutableLocalStorageValue(storedValue);
           return storedValue;
         }
         env = env.parent;
@@ -841,7 +909,7 @@ mixin InterpreterAssignmentMixin on AstVisitor<Object?> {
     // Step 1: Check if this is a local variable assignment
     // updateLocal() searches only for variables with isLocal=true and updates
     // the first one found. Returns true if a local was updated.
-    if (_updateActiveFunctionLocal(name, storedValue, interpreter)) {
+    if (_updateActiveFunctionLocal(target, storedValue, interpreter)) {
       Logger.debugLazy(
         () => 'Updated local variable: $name',
         category: 'Assignment',
@@ -1214,13 +1282,58 @@ mixin InterpreterAssignmentMixin on AstVisitor<Object?> {
       contextBuilder: () => {'namesCount': node.names.length},
     );
 
-    void updateFastLocalBinding(String name) {
+    AstLocalFrame? activeFastLocals() => interpreter.getCurrentFastLocals();
+
+    bool bindDirectLocal(
+      int nameIndex,
+      String name,
+      String? attribute,
+      Object? value,
+    ) {
+      final fastLocals = activeFastLocals();
+      if (fastLocals == null ||
+          !fastLocals.canBindDeclarationSlot(node) ||
+          interpreter.debugHookFunction != null ||
+          name == '_ENV' ||
+          name == '_G' ||
+          attribute != null) {
+        return false;
+      }
+
+      final Object? stored;
+      final bool identityBearing;
+      if (_isInlineableMutableLocalPrimitive(value)) {
+        stored = _mutableLocalStorageValue(value);
+        identityBearing = false;
+      } else if (AstLocalFrame.slotOnlyIdentityLocalsEnabled) {
+        // Preserve canonical identity for tables/functions/userdata and clone
+        // binding-decorated primitive facades exactly as the boxed path does.
+        // Only the Box is omitted; Lua-visible value semantics are unchanged.
+        stored = _cloneValueForLocalBinding(
+          valueFromLuaSlot(interpreter, value),
+        );
+        identityBearing = true;
+      } else {
+        return false;
+      }
+      fastLocals.bindDeclarationSlot(
+        node,
+        nameIndex,
+        name,
+        stored,
+        globals,
+        identityBearing: identityBearing,
+      );
+      return true;
+    }
+
+    void updateFastLocalBinding(int nameIndex, String name) {
       if (this is Interpreter) {
-        final fastLocals = (this as Interpreter).getCurrentFastLocals();
+        final fastLocals = activeFastLocals();
         if (fastLocals != null) {
           final box = globals.values[name];
           if (box != null) {
-            fastLocals[name] = box;
+            fastLocals.bindDeclaration(node, nameIndex, name, box, globals);
           }
         }
       }
@@ -1306,7 +1419,7 @@ mixin InterpreterAssignmentMixin on AstVisitor<Object?> {
 
     if (node.names.length == 1) {
       final name = node.names.first.name;
-      final attribute = node.attributes.firstOrNull;
+      final attribute = _normalizedLocalAttribute(node.attributes.firstOrNull);
       final Value rawValue = values.isNotEmpty
           ? valueFromLuaSlot(interpreter, values.first)
           : valueFromLuaSlot(
@@ -1314,7 +1427,16 @@ mixin InterpreterAssignmentMixin on AstVisitor<Object?> {
               null,
             ); // Default to nil if no values provided
 
-      // Apply attributes
+      if (bindDirectLocal(0, name, attribute, rawValue)) {
+        return null;
+      }
+
+      if (attribute == null && _isInlineableMutableLocalPrimitive(rawValue)) {
+        globals.declare(name, rawLuaSlot(rawValue));
+        updateFastLocalBinding(0, name);
+        return null;
+      }
+      // Apply attributes or preserve identity-bearing values.
       Value valueWithAttributes;
       if (attribute == 'const') {
         valueWithAttributes = _cloneValueForLocalBinding(
@@ -1342,17 +1464,22 @@ mixin InterpreterAssignmentMixin on AstVisitor<Object?> {
         _mutableLocalStorageValue(valueWithAttributes),
         trackToBeClosed: attribute == 'close',
       );
-      updateFastLocalBinding(name);
+      updateFastLocalBinding(0, name);
     } else {
       // Assign values to the respective names, defaulting to nil if fewer expressions than names.
       for (var i = 0; i < node.names.length; i++) {
         final name = node.names[i].name;
-        final attribute = node.attributes.length > i
+        final parsedAttribute = node.attributes.length > i
             ? node.attributes[i]
             : null;
+        final attribute = _normalizedLocalAttribute(parsedAttribute);
         final rawValue = i < values.length
             ? values[i]
             : valueFromLuaSlot(interpreter, null);
+
+        if (bindDirectLocal(i, name, attribute, rawValue)) {
+          continue;
+        }
 
         // Apply attributes
         Value valueWithAttributes;
@@ -1399,7 +1526,11 @@ mixin InterpreterAssignmentMixin on AstVisitor<Object?> {
             }
           }
         } else {
-          if (rawValue is Value) {
+          if (_isInlineableMutableLocalPrimitive(rawValue)) {
+            globals.declare(name, rawLuaSlot(rawValue));
+            updateFastLocalBinding(i, name);
+            continue;
+          } else if (rawValue is Value) {
             valueWithAttributes = _cloneValueForLocalBinding(rawValue);
           } else {
             valueWithAttributes = valueFromLuaSlot(interpreter, rawValue);
@@ -1423,7 +1554,7 @@ mixin InterpreterAssignmentMixin on AstVisitor<Object?> {
           _mutableLocalStorageValue(valueWithAttributes),
           trackToBeClosed: attribute == 'close',
         );
-        updateFastLocalBinding(name);
+        updateFastLocalBinding(i, name);
       }
     }
 
