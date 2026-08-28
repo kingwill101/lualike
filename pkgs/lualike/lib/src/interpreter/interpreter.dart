@@ -44,6 +44,7 @@ import 'package:lualike/src/value_class.dart';
 import 'package:lualike/src/table_storage.dart';
 import 'package:lualike/src/utils/file_system_utils.dart' as fs;
 import 'package:lualike/src/interpreter/upvalue_assignment.dart';
+import 'package:lualike/src/interpreter/ast_local_frame.dart';
 import 'package:lualike/src/ir/loop_compiler.dart';
 import 'package:lualike/src/ir/serialization.dart';
 import 'package:lualike/src/ir/vm.dart';
@@ -268,7 +269,7 @@ class Interpreter extends AstVisitor<Object?>
   final Set<AstNode> _skipPostExecutionHooks = HashSet<AstNode>.identity();
 
   /// Fast path cache for local variable boxes in the current function.
-  Map<String, Box<dynamic>>? _currentFastLocals;
+  AstLocalFrame? _currentFastLocals;
 
   /// Counts AST safe points so finalizer-sensitive loops can receive sparse
   /// incremental GC progress without requiring loop-specific bookkeeping.
@@ -1005,6 +1006,9 @@ class Interpreter extends AstVisitor<Object?>
       for (final frame in callStack.frames) frame.env,
       for (final frame in callStack.frames) frame.callable,
       for (final frame in callStack.frames)
+        if (frame.engineFrameState case final AstLocalFrame astFrame)
+          ...astFrame.slotOnlyGcRoots,
+      for (final frame in callStack.frames)
         if (frame.callable case final Value callable?) ...[
           callable.closureEnvironment,
           if (callable.upvalues != null) ...[
@@ -1222,7 +1226,17 @@ class Interpreter extends AstVisitor<Object?>
   /// Fast locals let identifier resolution bypass a full environment walk for
   /// ordinary local reads and writes. The cache is valid only for the exact
   /// function context that created it.
-  Map<String, Box<dynamic>>? getCurrentFastLocals() => _currentFastLocals;
+  AstLocalFrame? getCurrentFastLocals() => _currentFastLocals;
+
+  /// Resets opt-in indexed AST local-frame counters.
+  static void resetAstLocalFrameDiagnostics() {
+    AstLocalFrame.resetDiagnostics();
+  }
+
+  /// Returns indexed AST local-frame counters for profile harnesses.
+  static Map<String, Object> astLocalFrameDiagnostics() {
+    return AstLocalFrame.diagnostics();
+  }
 
   /// Installs the cached local boxes for the ambient active function.
   ///
@@ -1231,7 +1245,7 @@ class Interpreter extends AstVisitor<Object?>
   /// debug helpers. Reusing the caller's cache in a different function can make
   /// identifier resolution read or write the wrong locals before it ever
   /// consults the callee's own environment or upvalues.
-  void setCurrentFastLocals(Map<String, Box<dynamic>>? locals) {
+  void setCurrentFastLocals(AstLocalFrame? locals) {
     _currentFastLocals = locals;
   }
 
@@ -1959,7 +1973,7 @@ class Interpreter extends AstVisitor<Object?>
   }
 
   @override
-  Future<Object?> evaluateAst(AstNode node) => node.accept(this);
+  Future<Object?> evaluateAst(AstNode node) async => await node.accept(this);
 
   @override
   Future<LuaChunkLoadResult> loadChunk(LuaChunkLoadRequest request) async {

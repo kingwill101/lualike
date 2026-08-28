@@ -122,6 +122,7 @@ import 'dart:typed_data';
 
 import 'package:lualike/lualike.dart';
 import 'package:lualike/src/goto_validator.dart';
+import 'package:lualike/src/interpreter/ast_local_frame.dart';
 import 'package:lualike/src/interpreter/upvalue_analyzer.dart';
 import 'package:lualike/src/legacy_ast_chunk_transport.dart';
 import 'package:lualike/src/runtime/lua_results.dart';
@@ -246,8 +247,10 @@ void _rebindActiveLoadedChunkFrame(
 
 /// Saves the runtime's current function context and pushes a new one for
 /// the loaded chunk. Returns the saved context for restoration.
-({Value? function, Map<String, Box<dynamic>>? fastLocals})?
-_pushLoadedChunkFunctionContext(LuaRuntime runtime, Value callable) {
+({Value? function, AstLocalFrame? fastLocals})? _pushLoadedChunkFunctionContext(
+  LuaRuntime runtime,
+  Value callable,
+) {
   if (runtime case Interpreter interpreter) {
     final savedFunction = interpreter.getCurrentFunction();
     final savedFastLocals = interpreter.getCurrentFastLocals();
@@ -261,7 +264,7 @@ _pushLoadedChunkFunctionContext(LuaRuntime runtime, Value callable) {
 /// Restores a previously saved function context.
 void _popLoadedChunkFunctionContext(
   LuaRuntime runtime,
-  ({Value? function, Map<String, Box<dynamic>>? fastLocals})? savedContext,
+  ({Value? function, AstLocalFrame? fastLocals})? savedContext,
 ) {
   if (savedContext == null) {
     return;

@@ -6,6 +6,7 @@ import 'package:lualike/lualike.dart';
 
 import 'package:lualike/src/coroutine.dart';
 import 'package:lualike/src/gc/gc.dart';
+import 'package:lualike/src/interpreter/ast_local_frame.dart';
 import 'package:lualike/src/runtime/lua_results.dart';
 import 'package:lualike/src/runtime/lua_slot.dart';
 import 'package:lualike/src/runtime/runtime_hints.dart';
@@ -661,6 +662,38 @@ Object? _packProtectedCallSuccess(Object? result) {
 Object? _packProtectedCallFailure(LuaRuntime interpreter, Object error) {
   final normalizedError = _normalizeProtectedCallError(interpreter, error);
   return LuaResults(<Object?>[false, normalizedError]);
+}
+
+final class _AstProtectedCallerState {
+  const _AstProtectedCallerState({
+    required this.runtime,
+    required this.environment,
+    required this.function,
+    required this.frame,
+  });
+
+  final Interpreter runtime;
+  final Environment environment;
+  final Value? function;
+  final AstLocalFrame? frame;
+
+  static _AstProtectedCallerState? capture(LuaRuntime runtime) {
+    if (runtime is! Interpreter) {
+      return null;
+    }
+    return _AstProtectedCallerState(
+      runtime: runtime,
+      environment: runtime.getCurrentEnv(),
+      function: runtime.getCurrentFunction(),
+      frame: runtime.getCurrentFastLocals(),
+    );
+  }
+
+  void restore() {
+    runtime.setCurrentFunction(function);
+    runtime.setCurrentFastLocals(frame);
+    runtime.restoreCurrentEnv(environment);
+  }
 }
 
 Object? _packXProtectedCallFailure(Object? result) {
@@ -2007,6 +2040,7 @@ class PCAllFunction extends BuiltinFunction {
     if (args.isEmpty) throw LuaError("pcall requires a function");
     final func = args[0] as Value;
     final callArgs = args.sublist(1);
+    final callerState = _AstProtectedCallerState.capture(interpreter!);
 
     // Enter protected call context
     interpreter!.enterProtectedCall();
@@ -2046,6 +2080,7 @@ class PCAllFunction extends BuiltinFunction {
     } finally {
       // Exit protected call context
       interpreter!.exitProtectedCall();
+      callerState?.restore();
     }
   }
 }
@@ -2232,6 +2267,7 @@ class XPCallFunction extends BuiltinFunction {
     final func = args[0] as Value;
     final msgh = args[1] as Value;
     final callArgs = args.sublist(2);
+    final callerState = _AstProtectedCallerState.capture(interpreter!);
 
     if (!func.isCallable()) {
       throw LuaError.typeError(
@@ -2277,6 +2313,7 @@ class XPCallFunction extends BuiltinFunction {
     } finally {
       // Exit protected-call context and restore state
       interpreter!.exitProtectedCall();
+      callerState?.restore();
     }
   }
 }

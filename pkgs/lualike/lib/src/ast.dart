@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 
 import 'package:source_span/source_span.dart';
@@ -184,12 +185,16 @@ sealed class AstNode {
     }
   }
 
-  Future<T> accept<T>(AstVisitor<T> visitor);
+  /// Dispatches this node to [visitor].
+  ///
+  /// Most node kinds complete asynchronously. Identifier reads may complete
+  /// synchronously when no yielding `_ENV` metamethod is involved.
+  FutureOr<T> accept<T>(AstVisitor<T> visitor);
 
   String toSource();
 }
 
-/// Visitor interface for ASFuture`<T>` nodes.
+/// Visitor interface for AST nodes.
 abstract class AstVisitor<T> {
   Future<T> visitAssignment(Assignment node);
 
@@ -235,7 +240,9 @@ abstract class AstVisitor<T> {
 
   Future<T> visitBooleanLiteral(BooleanLiteral node);
 
-  Future<T> visitIdentifier(Identifier node);
+  /// Visits an identifier, synchronously when resolution needs no async Lua
+  /// metamethod work.
+  FutureOr<T> visitIdentifier(Identifier node);
 
   Future<T> visitForInLoop(ForInLoop forInLoop);
 
@@ -1760,10 +1767,20 @@ class BooleanLiteral extends AstNode implements Dumpable {
 class Identifier extends AstNode implements Dumpable {
   final String name;
 
+  /// Runtime-owned cache key for the AST engine's indexed local-frame view.
+  ///
+  /// This is deliberately omitted from serialization. Parsed syntax can be
+  /// reused by another interpreter or function instance, which replaces the
+  /// owner before trusting [runtimeLocalSlotCache].
+  Object? runtimeLocalLayoutCache;
+
+  /// Cached local slot for [runtimeLocalLayoutCache], or -1 when unresolved.
+  int runtimeLocalSlotCache = -1;
+
   Identifier(this.name);
 
   @override
-  Future<T> accept<T>(AstVisitor<T> visitor) => visitor.visitIdentifier(this);
+  FutureOr<T> accept<T>(AstVisitor<T> visitor) => visitor.visitIdentifier(this);
 
   @override
   String toSource() => name;
