@@ -1,3 +1,16 @@
+## Unreleased
+
+- Add an opt-in `LuaGcPolicy.hostManaged` mode for hosts that delegate object
+  reclamation to Dart and do not require Lua weak-table or `__gc` semantics.
+- Reduce AST and bytecode wrapper churn with raw primitive register slots,
+  bounded primitive caches, recyclable closure-free bindings, synchronous
+  plain-table bytecode operations, and indexed direct-local AST frames.
+- Add exact allocation diagnostics and focused runtime microbenchmarks for
+  environment lookup, binding pools, builtin calls, table access, and
+  slot-backed parameters and locals.
+- Preserve debugger, closure, coroutine, protected-call, `<const>`, `<close>`,
+  and Lua-compatible GC behavior on the default execution paths.
+
 ## 0.5.2
 
 - Require the Lualike-specific `*_lualike_schema.dart` input suffix, avoiding
