@@ -5,7 +5,6 @@ import 'dart:math' as math;
 import 'package:archive/archive.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:lualike/lualike.dart';
-import 'package:lualike/src/io/io_device.dart';
 import 'package:love2d/love2d.dart';
 import 'package:love2d/src/runtime/filesystem/love_filesystem_bindings.dart';
 import 'package:love2d/src/runtime/filesystem/love_filesystem_runtime.dart';

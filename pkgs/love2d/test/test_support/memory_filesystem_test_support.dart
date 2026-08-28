@@ -1,5 +1,4 @@
 import 'package:lualike/lualike.dart';
-import 'package:lualike/src/io/io_device.dart';
 import 'package:love2d/src/runtime/filesystem/love_filesystem_runtime.dart';
 
 const String loveTestMountedSourceRoot = 'game';

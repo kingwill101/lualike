@@ -3,7 +3,6 @@
 import 'dart:convert';
 
 import 'package:lualike/lualike.dart';
-import 'package:lualike/src/io/io_device.dart';
 
 /// Shared read-only byte-backed device used for bundled assets and mounted
 /// virtual filesystem entries.
