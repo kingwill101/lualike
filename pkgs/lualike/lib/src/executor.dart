@@ -13,6 +13,7 @@ import 'lua_error.dart';
 import 'lua_bytecode/runtime.dart';
 import 'lua_bytecode/vm_value_helpers.dart';
 import 'lua_string.dart';
+import 'gc/gc.dart' show LuaGcPolicy;
 import 'runtime/lua_slot.dart';
 import 'value.dart';
 
@@ -48,15 +49,33 @@ Future<Object?> executeCode(
   EngineMode? mode,
   Object? url,
   bool? foldEnabled,
+  LuaGcPolicy? gcPolicy,
 }) async {
   final selectedMode = mode ?? LuaLikeConfig().defaultEngineMode;
+  final selectedGcPolicy =
+      gcPolicy ?? vm?.gc.policy ?? LuaGcPolicy.luaCompatible;
   final runtime =
       vm ??
       switch (selectedMode) {
-        EngineMode.ir => LualikeIrRuntime(fileManager: fileManager),
-        EngineMode.luaBytecode => LuaBytecodeRuntime(fileManager: fileManager),
-        EngineMode.ast => Interpreter(fileManager: fileManager),
+        EngineMode.ir => LualikeIrRuntime(
+          fileManager: fileManager,
+          gcPolicy: selectedGcPolicy,
+        ),
+        EngineMode.luaBytecode => LuaBytecodeRuntime(
+          fileManager: fileManager,
+          gcPolicy: selectedGcPolicy,
+        ),
+        EngineMode.ast => Interpreter(
+          fileManager: fileManager,
+          gcPolicy: selectedGcPolicy,
+        ),
       };
+  if (runtime.gc.policy != selectedGcPolicy) {
+    throw ArgumentError(
+      'runtime GC policy ${runtime.gc.policy.name} does not match requested '
+      'policy ${selectedGcPolicy.name}',
+    );
+  }
   if (onRuntimeSetup != null) {
     onRuntimeSetup(runtime);
   }

@@ -1,6 +1,14 @@
 import 'package:lualike/lualike.dart';
 import 'package:lualike/src/gc/memory_credits.dart';
 
+/// Selects who owns reclamation of Lua heap objects.
+///
+/// [luaCompatible] keeps Lualike's tracing collector, including weak-table and
+/// `__gc` behavior. [hostManaged] leaves object lifetime entirely to Dart's
+/// garbage collector and turns Lualike's collector work into no-ops. The latter
+/// is intended for latency-sensitive hosts that do not use Lua GC semantics.
+enum LuaGcPolicy { luaCompatible, hostManaged }
+
 /// Every object that lives in lualike's "heap" and that should be garbage‐collected
 /// must mixin this GCObject.
 ///

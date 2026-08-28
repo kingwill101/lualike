@@ -98,7 +98,21 @@ class GenerationalGCManager {
   static bool enableRegistrationHistogram = false;
   static final Map<Type, int> allocationHistogram = <Type, int>{};
 
-  GenerationalGCManager(this._runtime);
+  GenerationalGCManager(
+    this._runtime, {
+    this.policy = LuaGcPolicy.luaCompatible,
+  }) {
+    if (isHostManaged) {
+      _isStopped = true;
+      autoTriggerEnabled = false;
+    }
+  }
+
+  /// The immutable memory-management policy selected for this runtime.
+  final LuaGcPolicy policy;
+
+  /// Whether Dart owns reclamation and Lua collector operations are no-ops.
+  bool get isHostManaged => policy == LuaGcPolicy.hostManaged;
 
   void bindRuntime(LuaRuntime runtime) {
     _runtime = runtime;
@@ -212,6 +226,9 @@ class GenerationalGCManager {
   /// Sparse loop rescue paths use this to avoid running major collections for
   /// hot numeric loops that have no finalizers to unblock.
   bool get hasTrackedFinalizerCandidates {
+    if (isHostManaged) {
+      return false;
+    }
     bool isFinalizerCandidate(Object? object) {
       if (object is! Value || !object.finalizerEligible) {
         return false;
@@ -365,6 +382,9 @@ class GenerationalGCManager {
   /// a young-generation object. The [oldObj] is added to the remembered
   /// set so it will be scanned during the next minor collection.
   void recordWriteBarrier(GCObject oldObj) {
+    if (isHostManaged) {
+      return;
+    }
     _rememberedSet.add(oldObj);
   }
 
@@ -407,6 +427,9 @@ class GenerationalGCManager {
   ///
   /// This is equivalent to the Lua collectgarbage("restart") function.
   void start() {
+    if (isHostManaged) {
+      return;
+    }
     _isStopped = false;
     Logger.debugLazy(() => 'GC started', category: 'GC');
   }
@@ -419,6 +442,7 @@ class GenerationalGCManager {
   /// This is used to trigger collection based on allocation pressure,
   /// similar to how Lua triggers collection when memory usage increases.
   void simulateAllocation(int bytes) {
+    if (isHostManaged) return;
     if (_isStopped || bytes <= 0 || !autoTriggerEnabled) return;
 
     _simulatedAllocationDebt += bytes;
@@ -450,6 +474,9 @@ class GenerationalGCManager {
   /// Perform an incremental garbage collection step.
   /// Returns true if the collection cycle is complete, false otherwise.
   bool performIncrementalStep(int stepSize) {
+    if (isHostManaged) {
+      return false;
+    }
     // Note: Even when GC is stopped, manual steps should still work
     // Being "stopped" only means automatic collection is disabled
 
@@ -640,6 +667,9 @@ class GenerationalGCManager {
   /// that child here, the current collection cycle can sweep the new object
   /// even though it is already live through the mutated parent.
   void noteReferenceWrite(GCObject owner, Object? child) {
+    if (isHostManaged) {
+      return;
+    }
     if (_currentPhase == GCPhase.idle || !owner.marked) {
       return;
     }
@@ -675,6 +705,9 @@ class GenerationalGCManager {
   /// interpreter's current environment/current function/current coroutine,
   /// which are not stored through a GCObject field setter.
   void noteRootWrite(Object? root) {
+    if (isHostManaged) {
+      return;
+    }
     if (_currentPhase == GCPhase.idle || root is! GCObject || root.marked) {
       return;
     }
@@ -1063,6 +1096,9 @@ class GenerationalGCManager {
   /// tracking them for reachability must not make `collectgarbage("count")`
   /// report memory that allocation-time registration would have excluded.
   void ensureTracked(GCObject obj) {
+    if (isHostManaged) {
+      return;
+    }
     if (obj.gcSpace != null) {
       return;
     }
@@ -1101,6 +1137,9 @@ class GenerationalGCManager {
   ///
   /// New objects are always placed in the young generation (nursery).
   void register(GCObject obj, {bool countAllocation = true}) {
+    if (isHostManaged) {
+      return;
+    }
     // Prevent duplicate registrations - if object is already tracked, skip
     if (obj.gcSpace != null) {
       Logger.debugLazy(
@@ -2376,6 +2415,9 @@ class GenerationalGCManager {
   ///
   /// Objects that survive a minor collection are promoted to the old generation.
   void minorCollection(List<Object?> roots) {
+    if (isHostManaged) {
+      return;
+    }
     Logger.debugLazy(() => 'Minor collection start', category: 'GC');
     _cycleComplete = false;
     _currentPhase = GCPhase.idle;
@@ -2484,6 +2526,9 @@ class GenerationalGCManager {
   ///
   /// During a major collection, finalizers are run for objects with __gc metamethods.
   Future<void> majorCollection(List<Object?> roots) async {
+    if (isHostManaged) {
+      return;
+    }
     Logger.debugLazy(() => 'Major collection start', category: 'GC');
     _cycleComplete = false;
     _currentPhase = GCPhase.idle;
@@ -2807,6 +2852,9 @@ class GenerationalGCManager {
   /// Credits are maintained incrementally via onAllocate/onFree/onPromote calls.
   /// For debugging or validation, use [validateMemoryTracking()] instead.
   int estimateMemoryUse() {
+    if (isHostManaged) {
+      return 0;
+    }
     return MemoryCredits.instance.totalCredits;
   }
 
@@ -2815,6 +2863,9 @@ class GenerationalGCManager {
   /// This is for debugging only - normal operation should not need this.
   /// Returns true if tracked credits match actual generation contents.
   bool validateMemoryTracking() {
+    if (isHostManaged) {
+      return true;
+    }
     final beforeTotal = MemoryCredits.instance.totalCredits;
     MemoryCredits.instance.reconcileGenerations(
       young: youngGen.objects,
@@ -2830,6 +2881,9 @@ class GenerationalGCManager {
   /// based on the current memory usage compared to the usage after the
   /// previous collections, using the minor and major multipliers.
   Future<void> collect(List<Object?> roots) async {
+    if (isHostManaged) {
+      return;
+    }
     final currentBytes = estimateMemoryUse();
 
     // Check if we need a major collection
@@ -2848,6 +2902,9 @@ class GenerationalGCManager {
   /// generational steps are typically minor collections, escalating to a major
   /// collection only when the major threshold is exceeded.
   Future<bool> performGenerationalStep(List<Object?> roots) async {
+    if (isHostManaged) {
+      return false;
+    }
     final currentBytes = estimateMemoryUse();
     if (currentBytes > _lastMajorBytes * (1 + majorMultiplier / 100)) {
       await majorCollection(roots);
@@ -2861,6 +2918,9 @@ class GenerationalGCManager {
   /// Convenience method for major collection using the built root set.
   /// This is the main entry point for triggering major collections.
   Future<void> collectMajor() async {
+    if (isHostManaged) {
+      return;
+    }
     final roots = buildRootSet(_runtime);
     await majorCollection(roots);
   }

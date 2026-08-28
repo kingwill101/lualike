@@ -216,6 +216,33 @@ void main() {
 }
 ```
 
+## Choose a garbage-collection policy
+
+Lualike preserves Lua-compatible collection by default. Runtimes whose Lua
+objects are owned entirely by Dart can instead opt out of Lualike's additional
+tracing and generation bookkeeping:
+
+```dart
+import 'package:lualike/lualike.dart';
+
+final lua = LuaLike(
+  engineMode: EngineMode.luaBytecode,
+  gcPolicy: LuaGcPolicy.hostManaged,
+);
+```
+
+`LuaGcPolicy.hostManaged` delegates memory reclamation to Dart's garbage
+collector; it does not and cannot disable Dart GC. In this mode
+`collectgarbage` remains callable but collection controls are no-ops, weak
+tables retain their entries like ordinary strong maps, and `__gc` finalizers
+do not run. Lexical `<close>` variables and their `__close` metamethods still
+work. Close files, native handles, and similar resources explicitly when using
+this policy.
+
+The policy is immutable for a runtime so that live objects cannot silently
+switch ownership models. Omit `gcPolicy`, or select
+`LuaGcPolicy.luaCompatible`, for weak-table and `__gc` compatibility.
+
 ## Parse without executing
 
 If you only need the syntax tree, use the exported parsing helpers instead of the runtime bridge:

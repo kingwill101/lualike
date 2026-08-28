@@ -1714,7 +1714,9 @@ class NextFunction extends BuiltinFunction {
       // to be observed by __gc finalizers before keys are removed. Therefore,
       // we do NOT skip dead keys if GC is currently finalizing.
       final weakMode = table.tableWeakMode;
-      if (weakMode != null && (weakMode.contains('k'))) {
+      if (!interpreter!.gc.isHostManaged &&
+          weakMode != null &&
+          weakMode.contains('k')) {
         final vm = interpreter!;
         // During finalization, keep observation of weak-keys intact.
         if (!vm.gc.isFinalizing) {
@@ -1892,7 +1894,9 @@ class NextFunction extends BuiltinFunction {
 
   bool _shouldSkipWeakKey(Value table, Value nextKey) {
     final weakMode = table.tableWeakMode;
-    if (weakMode == null || !weakMode.contains('k')) {
+    if (interpreter!.gc.isHostManaged ||
+        weakMode == null ||
+        !weakMode.contains('k')) {
       return false;
     }
 
@@ -2313,10 +2317,23 @@ class CollectGarbageFunction extends BuiltinFunction {
     );
 
     return () async {
+      final gcManager = interpreter!.gc;
+      if (gcManager.isHostManaged) {
+        switch (option) {
+          case "count":
+            return LuaResults([0.0, 0.0]);
+          case "isrunning":
+          case "step":
+            return primitiveValue(false);
+          case "collect":
+          case "stop":
+          case "restart":
+            return primitiveValue(true);
+        }
+      }
       switch (option) {
         case "collect":
           // "collect": Performs a full garbage-collection cycle
-          final gcManager = interpreter!.gc;
           final runtime = interpreter!;
           final insideSortComparator = isInsideSortComparator(runtime);
           final shouldAbandonIncrementalCycle =

@@ -9,6 +9,7 @@ import 'package:lualike/src/coroutine.dart';
 import 'package:lualike/src/environment.dart';
 import 'package:lualike/src/file_manager.dart';
 import 'package:lualike/src/gc/generational_gc.dart' show GenerationalGCManager;
+import 'package:lualike/src/gc/gc.dart' show LuaGcPolicy;
 import 'package:lualike/src/gc/gc_access.dart';
 import 'package:lualike/src/io/lua_file.dart';
 import 'package:lualike/src/logging/logger.dart';
@@ -1153,6 +1154,7 @@ class Interpreter extends AstVisitor<Object?>
     FileManager? fileManager,
     Environment? environment,
     bool initializeStandardLibraries = true,
+    LuaGcPolicy gcPolicy = LuaGcPolicy.luaCompatible,
   }) : fileManager = fileManager ?? FileManager(),
        _currentEnv = environment ?? Environment() {
     Logger.infoLazy(
@@ -1164,7 +1166,7 @@ class Interpreter extends AstVisitor<Object?>
     // Set the interpreter reference in the file manager
     this.fileManager.setInterpreter(this);
 
-    gc = GenerationalGCManager(this);
+    gc = GenerationalGCManager(this, policy: gcPolicy);
     // Enable automatic GC triggers by default so long-running Lua loops
     // eventually collect unreachable objects without requiring explicit
     // collectgarbage() calls (matching stock Lua behaviour).
