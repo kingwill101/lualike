@@ -40,4 +40,4 @@ jobs:
       - name: Run Lua tests
         run: ./test_runner --verbose
       - name: Run Lua bytecode tests
-        run: ./run_bytecode_tests.sh --verbose --lua-bytecode
+        run: ./test_runner --verbose --lua-bytecode
