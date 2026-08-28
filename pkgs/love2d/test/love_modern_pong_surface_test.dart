@@ -220,8 +220,8 @@ end
           'joystick',
           'getJoysticks',
         ]);
-        expect(joysticks, isA<Map>());
-        final first = (joysticks! as Map)[1];
+        expect(joysticks, isA<List>());
+        final first = (joysticks! as List).single;
         expect(first, isA<Map>());
 
         final result = await _callMethod(
