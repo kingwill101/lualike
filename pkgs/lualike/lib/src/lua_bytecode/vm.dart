@@ -76,8 +76,6 @@ final class LuaBytecodeVm {
   final Interpreter? _debugInterpreter;
   LuaBytecodeProfile? _activeProfile;
 
-  /// Per-table-storage GETFIELD cache: (pc, fieldConst) → (version, Value).
-  /// Key is Object.hash(instructionPc, word.c) for collision-free combining.
   /// Cache for call-site name computations, keyed by
   /// `Object.hash(prototype, pc)`.  Avoids the backward instruction walk
   /// on repeated calls to the same call site.
@@ -86,8 +84,6 @@ final class LuaBytecodeVm {
   /// Cached main-thread coroutine — never changes after first access.
   /// Avoids the `Interpreter.getMainThread` dispatch on every frame entry.
   Coroutine? _cachedMainThread;
-
-  final _getFieldIc = Expando<Map<int, ({int version, Value value})>>();
 
   /// Resolves the underlying debug interpreter once at construction time.
   /// The debug interpreter never changes for a given VM instance.
@@ -1165,37 +1161,6 @@ final class LuaBytecodeVm {
           case Opcode.getField:
             {
               final receiver = frame.register(word.b);
-              final rawKey = stringConstantRaw(prototype, word.c);
-
-              // Inline cache: per-storage Expando, keyed by (pc, fieldConst)
-              if (rawLuaSlot(receiver) case final TableStorage storage) {
-                final fieldCache = _getFieldIc[storage];
-                if (fieldCache != null) {
-                  final key = Object.hash(instructionPc, word.c);
-                  final entry = fieldCache[key];
-                  if (entry != null && entry.version == storage.icVersion) {
-                    frame.setRegister(word.a, entry.value);
-                    break;
-                  }
-                }
-              }
-
-              final fastValue = _tryFastTableGetStringKey(receiver, rawKey);
-              if (fastValue != null) {
-                if (rawLuaSlot(receiver) case final TableStorage storage) {
-                  final fieldCache =
-                      _getFieldIc[storage] ??
-                      <int, ({int version, Value value})>{};
-                  final key = Object.hash(instructionPc, word.c);
-                  fieldCache[key] = (
-                    version: storage.icVersion,
-                    value: fastValue,
-                  );
-                  _getFieldIc[storage] = fieldCache;
-                }
-                frame.setRegister(word.a, fastValue);
-                break;
-              }
               final key = stringConstant(runtime, prototype, word.c);
               try {
                 final value = await _tableGet(receiver, key);

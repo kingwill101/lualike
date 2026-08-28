@@ -439,14 +439,14 @@ void main() {
         ); // 2 prefix values + 3 varargs + 2 suffix values
 
         // Get values map and verify contents
-        var valuesMap = values.unwrap() as Map;
-        expect(valuesMap[1], equals(10));
-        expect(valuesMap[2], equals(20));
-        expect(valuesMap[3], equals("a"));
-        expect(valuesMap[4], equals("b"));
-        expect(valuesMap[5], equals("c"));
-        expect(valuesMap[6], equals(30));
-        expect(valuesMap[7], equals(40));
+        final valuesList = values.unwrap() as List;
+        expect(valuesList[0], equals(10));
+        expect(valuesList[1], equals(20));
+        expect(valuesList[2], equals("a"));
+        expect(valuesList[3], equals("b"));
+        expect(valuesList[4], equals("c"));
+        expect(valuesList[5], equals(30));
+        expect(valuesList[6], equals(40));
       });
 
       test('function returns in table constructor', () async {

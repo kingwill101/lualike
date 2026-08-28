@@ -1,6 +1,24 @@
-## Unreleased
+## 0.5.2
 
-- No unreleased changes yet.
+- Require the Lualike-specific `*_lualike_schema.dart` input suffix, avoiding
+  collisions with Drift and other generated part files such as `tables.g.dart`.
+
+## 0.5.1
+
+- Include `lib/src/build/table_schema_builder.dart` in the published package
+  so dependent `build_runner` builders can start correctly.
+
+## 0.5.0
+
+- Centralize runtime bootstrap and library registry setup across AST, IR, and
+  bytecode runtimes.
+- Preserve native Dart payloads for byte-oriented and string-library results,
+  while keeping JSON conversion and Lua table conversion explicit.
+- Harden IR inlining and bytecode register-budget handling.
+- Simplify Lua bytecode test fixtures and array unwrapping coverage.
+- Remove FFI integration from the core package; use the external
+  `lualike_ffi` package for native bindings.
+- Broaden the `artisanal` constraint to `>=0.3.0 <0.5.0`.
 
 ## 0.4.0
 

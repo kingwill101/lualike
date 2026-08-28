@@ -4,6 +4,7 @@ import 'package:lualike/src/builtin_function.dart';
 import 'package:lualike/src/lua_error.dart';
 import 'package:lualike/src/runtime/lua_slot.dart';
 import 'package:lualike/src/stdlib/doc.dart';
+import 'package:lualike/src/value.dart';
 
 import 'lib_dart_bytes.dart';
 import 'library.dart';
@@ -123,7 +124,7 @@ class DartStringSplit extends BuiltinFunction {
     final str = rawLuaSlotString(args[0]);
     final pattern = _dartStringPattern(args[1]);
     final parts = str.split(pattern);
-    return valueFromOptionalLuaSlot(interpreter, parts);
+    return Value(parts)..interpreter = interpreter;
   }
 }
 

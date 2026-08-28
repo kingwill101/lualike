@@ -416,26 +416,25 @@ class TableStorage extends MapBase<dynamic, dynamic> {
 
   dynamic arrayValueAt(int oneBasedIndex) {
     if (oneBasedIndex <= 0) return _hash[oneBasedIndex];
-    final idx = oneBasedIndex - 1;
-    if (idx < _array.length && idx < _occupied.length) {
-      if (_occupied[idx] != 0) {
-        final value = _array[idx];
-        return isLuaListHole(value) ? null : value;
-      }
-    }
+    final dense = _denseValueAt(oneBasedIndex);
+    if (dense.found) return dense.value;
     return _hash[oneBasedIndex];
   }
 
   dynamic denseValueAt(int oneBasedIndex) {
     if (oneBasedIndex <= 0) return null;
+    return _denseValueAt(oneBasedIndex).value;
+  }
+
+  ({bool found, dynamic value}) _denseValueAt(int oneBasedIndex) {
     final idx = oneBasedIndex - 1;
     if (idx < _array.length && idx < _occupied.length) {
       if (_occupied[idx] != 0) {
         final value = _array[idx];
-        return isLuaListHole(value) ? null : value;
+        return (found: true, value: isLuaListHole(value) ? null : value);
       }
     }
-    return null;
+    return (found: false, value: null);
   }
 
   bool hasPositiveIntegerValueAt(int oneBasedIndex) {

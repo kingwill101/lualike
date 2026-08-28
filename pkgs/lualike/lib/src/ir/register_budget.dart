@@ -20,16 +20,18 @@ abstract final class IrBytecodeRegisterBudget {
   /// Highest legal register index in an ABC A/B/C field (`0..255`).
   static const int maxRegisterIndex = LuaBytecodeInstructionLayout.maxArgA;
 
-  /// Scratch slots reserved by mechanical lowering at `registerCount` (+1).
+  /// Scratch slots reserved by mechanical lowering at `registerCount` (+N).
   ///
   /// Lowering sets `maxStackSize = max(2, registerCount + tempSlots)`.
-  static const int tempSlotsReservedForLowering = 2;
+  /// Worst case today: SETTABUP with both key and value Kst indices above the
+  /// 8-bit field (env + key + value = 3 temps).
+  static const int tempSlotsReservedForLowering = 3;
 
   /// Maximum [LualikeIrPrototype.registerCount] for bytecode emission.
   ///
   /// Requires `registerCount + tempSlots <= 255` so both maxstack (u8) and
   /// the highest temp index fit in an 8-bit operand field.
-  static const int maxRegisterCount = 255 - tempSlotsReservedForLowering; // 253
+  static const int maxRegisterCount = 255 - tempSlotsReservedForLowering; // 252
 }
 
 /// Thrown when IR cannot be encoded as official Lua bytecode registers.
@@ -149,8 +151,10 @@ Set<int> _registersReferenced(LualikeIrInstruction inst) {
         case LualikeIrOpcode.bnot:
         case LualikeIrOpcode.notOp:
         case LualikeIrOpcode.len:
-        case LualikeIrOpcode.getUpval:
           add(i.b);
+        case LualikeIrOpcode.getUpval:
+          // GETUPVAL A B reads/writes R(A); B is an upvalue index.
+          break;
         case LualikeIrOpcode.test:
           // TEST A k reads R(A).
           add(i.a);
@@ -166,14 +170,21 @@ Set<int> _registersReferenced(LualikeIrInstruction inst) {
         case LualikeIrOpcode.setTable:
         case LualikeIrOpcode.setI:
         case LualikeIrOpcode.setField:
-          // A=table, B=key (RK for setField), C=value register for setTable.
+          // A=table. B is key register (setTable), int key (setI), or Kst
+          // (setField). C is the value: register when k=false, Kst when k=true
+          // (compiler inlines literal table fields as SETFIELD k=1).
           if (op == LualikeIrOpcode.setTable) {
             add(i.b);
+          }
+          if (!i.k) {
             add(i.c);
-          } else if (op == LualikeIrOpcode.setI) {
-            add(i.c);
-          } else {
-            // setField: B is Kst index, C is value register.
+          }
+        case LualikeIrOpcode.setUpval:
+          // SETUPVAL A B C stores R(C) into upvalue B; A is unused.
+          add(i.c);
+        case LualikeIrOpcode.setTabUp:
+          // SETTABUP A B C: B is Kst key; C is R(C) or Kst when k=true.
+          if (!i.k) {
             add(i.c);
           }
         case LualikeIrOpcode.add:

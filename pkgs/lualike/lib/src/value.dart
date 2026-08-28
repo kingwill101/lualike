@@ -1220,6 +1220,36 @@ class Value with GCObject implements Map<String, dynamic> {
     return wrapped;
   }
 
+  /// Yields normalized entries from a table's `__pairs` metamethod.
+  ///
+  /// Lua iterators return the next key and value as a result list, with a nil
+  /// key marking the end of iteration. Keeping that protocol in one place
+  /// avoids subtly different handling across the Map API methods.
+  Iterable<MapEntry<String, Value>> _metamethodEntries({
+    List<Object?>? iterValues,
+    Value? initialKey,
+  }) sync* {
+    final values = iterValues ?? _multiResultValues(
+      callMetamethod('__pairs', [this]),
+    );
+    if (values == null || values.length < 2) return;
+
+    final iterFn = rawLuaSlot(values[0]);
+    if (iterFn is! Function) return;
+    final state = _wrapRuntimeValue(values[1]);
+    var key = initialKey ?? _nilValue();
+
+    while (true) {
+      final result = iterFn([state, key]);
+      if (result is! List || result.isEmpty) return;
+      final nextKey = result[0];
+      if (nextKey == null || rawLuaSlot(nextKey) == null) return;
+      final value = result.length > 1 ? result[1] : _nilValue();
+      yield MapEntry(rawLuaSlot(nextKey).toString(), _wrapRuntimeValue(value));
+      key = _wrapRuntimeValue(nextKey);
+    }
+  }
+
   bool _isLuaClosureValue() {
     return functionBody != null ||
         closureEnvironment != null ||
@@ -1597,7 +1627,8 @@ class Value with GCObject implements Map<String, dynamic> {
 
   static Map<int, dynamic> listToLuaTable(List<dynamic> list) {
     return {
-      for (var i = 0; i < list.length; i++) i + 1: _listEntryToLuaValue(list[i]),
+      for (var i = 0; i < list.length; i++)
+        i + 1: _listEntryToLuaValue(list[i]),
     };
   }
 
@@ -1641,6 +1672,10 @@ class Value with GCObject implements Map<String, dynamic> {
     if (value is Value) {
       return value.unwrap();
     }
+    return _unwrapRawPayload(value);
+  }
+
+  static dynamic _unwrapRawPayload(Object? value) {
     if (value is Map) {
       final map = value;
       if (_isLuaArrayTable(map)) {
@@ -1667,30 +1702,10 @@ class Value with GCObject implements Map<String, dynamic> {
   /// Sequential integer-keyed Maps (1-based, no gaps) are converted back
   /// to Dart [List]s for round-trip fidelity with `wrap()`.
   dynamic unwrap() {
-    if (raw is Map) {
-      final map = raw as Map<dynamic, dynamic>;
-      if (_isLuaArrayTable(map)) {
-        return map.values.map(_unwrapRawValue).toList();
-      }
-      final unwrapped = <dynamic, dynamic>{};
-      map.forEach((key, value) {
-        final realKey = key is LuaString ? key.toString() : key;
-        unwrapped[realKey] = _unwrapRawValue(value);
-      });
-      return unwrapped;
+    if (raw is Value) {
+      return raw.completeUnwrap();
     }
-    if (raw is List) {
-      return (raw as List).map(_unwrapRawValue).toList();
-    }
-    if (raw is LuaString) {
-      // Decode using UTF-8 so multi-byte characters (e.g. Chinese) are
-      // preserved when users call `.unwrap()`.
-      return (raw as LuaString).toString();
-    }
-    if (isLuaListHole(raw)) {
-      return null;
-    }
-    return raw is Value ? raw.completeUnwrap() : raw;
+    return _unwrapRawPayload(raw);
   }
 
   dynamic completeUnwrap() {
@@ -2561,54 +2576,7 @@ class Value with GCObject implements Map<String, dynamic> {
         category: 'Value',
       );
 
-      final entries = <MapEntry<String, dynamic>>[];
-      final iter = callMetamethod('__pairs', [this]);
-      final iterValues = _multiResultValues(iter);
-
-      if (iterValues != null) {
-        final iterFn = iterValues[0] as Value;
-        final state = iterValues[1] as Value;
-        var key = _nilValue(); // Initial key is nil for first iteration
-
-        while (true) {
-          // Call iterator function with state and previous key
-          final List<dynamic> result;
-          final rawIterFn = rawLuaSlot(iterFn);
-          if (rawIterFn is Function) {
-            result = rawIterFn([state, key]);
-          } else {
-            break;
-          }
-
-          // Check if we've reached the end of iteration
-          if (result.isEmpty) {
-            break;
-          }
-
-          final nextKey = result[0];
-          if (nextKey == null ||
-              (nextKey is Value && rawLuaSlot(nextKey) == null)) {
-            break;
-          }
-
-          final nextVal = result.length > 1 ? result[1] : _nilValue();
-
-          // Convert key to string for MapEntry
-          final keyStr = nextKey is Value
-              ? rawLuaSlot(nextKey).toString()
-              : nextKey.toString();
-
-          // Make sure value is a Value
-          final valueVal = _wrapRuntimeValue(nextVal);
-
-          entries.add(MapEntry(keyStr, valueVal));
-
-          // Update key for next iteration
-          key = _wrapRuntimeValue(nextKey);
-        }
-      }
-
-      return entries;
+      return _metamethodEntries();
     }
 
     // Default implementation for normal maps
@@ -2625,27 +2593,15 @@ class Value with GCObject implements Map<String, dynamic> {
 
     final pairsMeta = getMetamethod('__pairs');
     if (pairsMeta != null) {
-      final entries = <MapEntry<K, V>>[];
-      final iter = callMetamethod('__pairs', [this]);
-      final iterValues = _multiResultValues(iter);
-      if (iterValues != null) {
-        final iterFn = iterValues[0] as Value;
-        final state = iterValues[1] as Value;
-        var key = iterValues[2] as Value;
-
-        while (true) {
-          final result = (rawLuaSlot(iterFn) as Function)([state, key]);
-          if (result is List && result.isNotEmpty) {
-            key = result[0] as Value;
-            if (rawLuaSlot(key) == null) break;
-            final val = result[1] as Value;
-            entries.add(convert(rawLuaSlot(key).toString(), val));
-          } else {
-            break;
-          }
-        }
-      }
-      return Map.fromEntries(entries);
+      final iterValues = _multiResultValues(callMetamethod('__pairs', [this]));
+      final initialKey = iterValues != null && iterValues.length > 2
+          ? _wrapRuntimeValue(iterValues[2])
+          : null;
+      return Map.fromEntries(
+        _metamethodEntries(iterValues: iterValues, initialKey: initialKey).map(
+          (entry) => convert(entry.key, entry.value),
+        ),
+      );
     }
 
     return Map.fromEntries(
@@ -3092,26 +3048,16 @@ class Value with GCObject implements Map<String, dynamic> {
 
     final pairsMeta = getMetamethod('__pairs');
     if (pairsMeta != null) {
-      final iter = callMetamethod('__pairs', [this]);
-      final iterValues = _multiResultValues(iter);
-      if (iterValues == null) return;
-
-      final iterFn = iterValues[0] as Value;
-      final state = iterValues[1] as Value;
-      var key = iterValues[2] as Value;
-
-      while (true) {
-        final result = (rawLuaSlot(iterFn) as Function)([state, key]);
-        if (result is List && result.isNotEmpty) {
-          key = result[0] as Value;
-          if (rawLuaSlot(key) == null) break;
-
-          final val = result[1] as Value;
-          if (test(rawLuaSlot(key).toString(), val)) {
-            callMetamethod('__newindex', [this, key, _nilValue()]);
-          }
-        } else {
-          break;
+      final iterValues = _multiResultValues(callMetamethod('__pairs', [this]));
+      final initialKey = iterValues != null && iterValues.length > 2
+          ? _wrapRuntimeValue(iterValues[2])
+          : null;
+      for (final entry in _metamethodEntries(
+        iterValues: iterValues,
+        initialKey: initialKey,
+      )) {
+        if (test(entry.key, entry.value)) {
+          callMetamethod('__newindex', [this, _wrapRuntimeValue(entry.key), _nilValue()]);
         }
       }
       return;
@@ -3132,26 +3078,16 @@ class Value with GCObject implements Map<String, dynamic> {
 
     final pairsMeta = getMetamethod('__pairs');
     if (pairsMeta != null) {
-      final iter = callMetamethod('__pairs', [this]);
-      final iterValues = _multiResultValues(iter);
-      if (iterValues == null) return;
-
-      final iterFn = iterValues[0] as Value;
-      final state = iterValues[1] as Value;
-      var key = iterValues[2] as Value;
-
-      while (true) {
-        final result = (rawLuaSlot(iterFn) as Function)([state, key]);
-        if (result is List && result.isNotEmpty) {
-          key = result[0] as Value;
-          if (rawLuaSlot(key) == null) break;
-
-          final val = result[1] as Value;
-          final updatedValue = update(rawLuaSlot(key).toString(), val);
-          callMetamethod('__newindex', [this, key, updatedValue]);
-        } else {
-          break;
-        }
+      final iterValues = _multiResultValues(callMetamethod('__pairs', [this]));
+      final initialKey = iterValues != null && iterValues.length > 2
+          ? _wrapRuntimeValue(iterValues[2])
+          : null;
+      for (final entry in _metamethodEntries(
+        iterValues: iterValues,
+        initialKey: initialKey,
+      )) {
+        final updatedValue = update(entry.key, entry.value);
+        callMetamethod('__newindex', [this, _wrapRuntimeValue(entry.key), updatedValue]);
       }
       return;
     }

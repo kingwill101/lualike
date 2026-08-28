@@ -38,17 +38,9 @@ class LuaLikeConfig {
   /// the pure IR backend path. Use `--fold` for IR-mode experiments.
   bool foldEnabled = false;
 
-  /// Whether scripts may load and call native shared libraries.
-  ///
-  /// Native FFI is disabled by default because an invalid declaration can
-  /// corrupt memory or terminate the process. Embedders should enable it only
-  /// for trusted scripts.
-  bool allowFfi = false;
-
   /// When true, emit LLVM IR from the IR chunk and exit without executing.
   bool emitLlvm = false;
 
   /// When true, emit Dart source from the IR chunk and exit without executing.
   bool emitDart = false;
-
 }

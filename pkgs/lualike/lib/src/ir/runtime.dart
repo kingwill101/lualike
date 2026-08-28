@@ -23,10 +23,10 @@ import 'package:lualike/src/runtime/compiled_artifact_support.dart';
 import 'package:lualike/src/runtime/chunk_loading_support.dart';
 import 'package:lualike/src/runtime/lua_results.dart';
 import 'package:lualike/src/runtime/lua_runtime.dart';
+import 'package:lualike/src/runtime/runtime_bootstrap.dart';
 import 'package:lualike/src/runtime/lua_slot.dart';
 import 'package:lualike/src/semantic_checker.dart';
 import 'package:lualike/src/stack.dart';
-import 'package:lualike/src/stdlib/init.dart';
 import 'package:lualike/src/ir/ssa.dart';
 import 'package:lualike/src/ir/ssa_type_analysis.dart';
 import 'package:lualike/src/ir/llvm_lowering.dart';
@@ -39,15 +39,19 @@ import 'package:lualike/src/value.dart';
 /// the [LuaRuntime] contract expected by higher-level tooling.
 class LualikeIrRuntime implements LuaRuntime {
   LualikeIrRuntime({FileManager? fileManager})
-    : _interpreter = Interpreter(fileManager: fileManager) {
+    : _interpreter = Interpreter(
+        fileManager: fileManager,
+        initializeStandardLibraries: false,
+      ) {
     _libraryRegistry = LibraryRegistry(this);
     final runtimeEnv = Environment(interpreter: this);
     _globalEnvironment = runtimeEnv;
-    _interpreter.setCurrentEnv(runtimeEnv);
-    gc.register(runtimeEnv);
-    initializeStandardLibrary(vm: this);
+    initializeRuntimeBootstrap(
+      runtime: this,
+      interpreter: _interpreter,
+      environment: runtimeEnv,
+    );
     _ensureEnvironmentBinding(runtimeEnv);
-    _interpreter.fileManager.setInterpreter(this);
     _bytecodeVm = LuaBytecodeVm(this);
   }
 
@@ -510,8 +514,9 @@ class LualikeIrRuntime implements LuaRuntime {
 
   void _emitLlvm(LualikeIrChunk chunk) {
     final prototype = chunk.mainPrototype;
-    final ssaFunction =
-        LualikeIrSsaFunction.fromPrototype(prototype).simplifyTrivialPhis();
+    final ssaFunction = LualikeIrSsaFunction.fromPrototype(
+      prototype,
+    ).simplifyTrivialPhis();
     final typeAnalysis = analyzeLualikeIrSsaTypes(prototype, ssaFunction);
 
     final emitter = LualikeIrToLlvm(

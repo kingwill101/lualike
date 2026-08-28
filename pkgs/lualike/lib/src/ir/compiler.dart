@@ -3314,9 +3314,12 @@ class _PrototypeContext {
       }
     }
     // `x - n` as SUBI with n when it fits (lowered to ADDI + __sub event).
+    // Lowering emits ADDI with C = -n, so both n and -n must fit signed C
+    // (range -127..128). n=128 fits, but -128 does not — fall through to SUBK.
     if (literalInfo.isLiteral && literalValue is int && node.op == '-') {
       final imm = literalValue;
-      if (LuaBytecodeInstructionLayout.fitsSignedArgC(imm)) {
+      if (LuaBytecodeInstructionLayout.fitsSignedArgC(imm) &&
+          LuaBytecodeInstructionLayout.fitsSignedArgC(-imm)) {
         emitter.emitABC(
           opcode: LualikeIrOpcode.subI,
           a: leftReg,

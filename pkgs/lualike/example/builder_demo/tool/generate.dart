@@ -7,7 +7,7 @@ library;
 import 'dart:io';
 
 Future<void> main(List<String> args) async {
-  // 1. Generate .table_schema.g.dart from annotated classes
+  // 1. Generate .table_schema.g.dart from *_lualike_schema.dart inputs
   final build = await Process.run('dart', [
     'run',
     'build_runner',

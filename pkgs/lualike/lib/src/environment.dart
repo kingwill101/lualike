@@ -343,10 +343,48 @@ class Environment with GCObject {
     return chain;
   }
 
+  List<String>? _splitPath(String name) {
+    if (!name.contains('.')) {
+      return null;
+    }
+    final parts = name.split('.');
+    if (parts.any((part) => part.isEmpty)) {
+      return null;
+    }
+    return parts;
+  }
+
+  ({bool found, dynamic value}) _lookupDottedPath(List<String> parts) {
+    if (parts.isEmpty) {
+      return (found: false, value: null);
+    }
+
+    if (!contains(parts.first)) {
+      return (found: false, value: null);
+    }
+
+    dynamic current = get(parts.first);
+    for (final part in parts.skip(1)) {
+      final raw = rawLuaSlot(current);
+      if (raw is! Map || !raw.containsKey(part)) {
+        return (found: false, value: null);
+      }
+      current = raw[part];
+    }
+    return (found: true, value: current);
+  }
+
   /// Checks if a variable exists in this environment or any of its ancestors.
+  ///
+  /// Supports dotted paths like `love.graphics` for nested table lookups.
   ///
   /// Returns true if the variable is found anywhere in the environment chain.
   bool contains(String name) {
+    final path = _splitPath(name);
+    if (path != null) {
+      return _lookupDottedPath(path).found;
+    }
+
     Logger.debugLazy(
       () => "Checking if '$name' exists in env ($hashCode)",
       category: 'Env',
@@ -392,12 +430,18 @@ class Environment with GCObject {
   /// Searches through the environment chain starting from this environment
   /// and moving up to parent environments until the variable is found.
   /// This method is used for variable access (reading variables).
+  /// Supports dotted paths like `love.graphics` for nested table lookups.
   ///
   /// Returns the value if found, null if the variable doesn't exist anywhere
   /// in the environment chain.
   ///
   /// **Usage**: Variable lookups in expressions like `print(x)` or `y = x + 1`.
   dynamic get(String name) {
+    final path = _splitPath(name);
+    if (path != null) {
+      return _lookupDottedPath(path).value;
+    }
+
     if (Logger.enabled) {
       Logger.debugLazy(
         () => "Looking for '$name' in env ($hashCode)}",

@@ -5,7 +5,7 @@ library;
 import 'package:lualike/library_builder.dart';
 
 import 'src/plugin_api.dart';
-import 'src/plugin_info_schema.table_schema.g.dart';
+import 'src/plugin_info_lualike_schema.table_schema.g.dart';
 
 class PluginApiLibrary extends Library {
   @override

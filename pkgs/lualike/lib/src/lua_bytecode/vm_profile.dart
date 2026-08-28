@@ -47,7 +47,9 @@ final class LuaBytecodeProfile {
     if (callTargets.isNotEmpty) {
       final targets = callTargets.entries.toList()
         ..sort((a, b) => b.value.compareTo(a.value));
-      final preview = targets.take(8).map((entry) => '${entry.key}=${entry.value}');
+      final preview = targets
+          .take(8)
+          .map((entry) => '${entry.key}=${entry.value}');
       print('  callTargets: ${preview.join(', ')}');
     }
   }

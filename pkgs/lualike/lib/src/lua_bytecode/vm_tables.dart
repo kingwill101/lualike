@@ -52,17 +52,14 @@ extension LuaBytecodeVmTables on LuaBytecodeVm {
     // Weak tables rely on Value's normal key normalization and memory-credit
     // bookkeeping. `__mode` is not a metamethod, so keep them off the raw
     // storage fast path even when `__index`/`__newindex` are absent.
-    final hasWeakMode = table.tableWeakMode != null;
-    if (rawTable is TableStorage &&
-        !hasWeakMode &&
-        !table.hasMetamethod('__index')) {
+    if (rawTable is TableStorage && _canReadPlainTable(table)) {
       final result = switch (_plainPositiveIntegerKey(key)) {
         final int index => rawTable.arrayValueAt(index),
         _ => rawTable[_plainTableStorageKey(key)],
       };
       return runtimeValue(runtime, result);
     }
-    if (rawTable is Map && !hasWeakMode && !table.hasMetamethod('__index')) {
+    if (rawTable is Map && _canReadPlainTable(table)) {
       final result = rawTable[_plainTableStorageKey(key)];
       return runtimeValue(runtime, result);
     }
@@ -79,14 +76,11 @@ extension LuaBytecodeVmTables on LuaBytecodeVm {
         return runtimeValue(runtime, result);
       }
     }
-    final hasWeakMode = table.tableWeakMode != null;
-    if (rawTable is TableStorage &&
-        !hasWeakMode &&
-        !table.hasMetamethod('__index')) {
+    if (rawTable is TableStorage && _canReadPlainTable(table)) {
       final result = rawTable[rawKey];
       return runtimeValue(runtime, result);
     }
-    if (rawTable is Map && !hasWeakMode && !table.hasMetamethod('__index')) {
+    if (rawTable is Map && _canReadPlainTable(table)) {
       final result = rawTable[rawKey];
       return runtimeValue(runtime, result);
     }
@@ -119,11 +113,8 @@ extension LuaBytecodeVmTables on LuaBytecodeVm {
   bool _tryFastTableSetStringKey(Value table, String rawKey, Value value) {
     final rawTable = rawLuaSlot(table);
     final rawValue = rawLuaSlot(value);
-    final hasWeakMode = table.tableWeakMode != null;
     if (rawTable is TableStorage &&
-        !hasWeakMode &&
-        !table.hasMetamethod('__newindex') &&
-        !table.hasMetamethod('__index') &&
+        _canWritePlainTable(table) &&
         _isPlainPrimitiveValue(rawValue)) {
       if (rawValue == null) {
         rawTable.remove(rawKey);
@@ -134,9 +125,7 @@ extension LuaBytecodeVmTables on LuaBytecodeVm {
       return true;
     }
     if (rawTable is Map &&
-        !hasWeakMode &&
-        !table.hasMetamethod('__newindex') &&
-        !table.hasMetamethod('__index') &&
+        _canWritePlainTable(table) &&
         _isPlainPrimitiveValue(rawValue)) {
       if (rawValue == null) {
         rawTable.remove(rawKey);
@@ -159,11 +148,7 @@ extension LuaBytecodeVmTables on LuaBytecodeVm {
     _writeBarrier(table, value);
     final rawTable = rawLuaSlot(table);
     final rawValue = rawLuaSlot(value);
-    final hasWeakMode = table.tableWeakMode != null;
-    if (rawTable is TableStorage &&
-        !hasWeakMode &&
-        !table.hasMetamethod('__newindex') &&
-        !table.hasMetamethod('__index')) {
+    if (rawTable is TableStorage && _canWritePlainTable(table)) {
       if (_plainPositiveIntegerKey(key) case final int index) {
         table.setNumericIndex(index, value);
         return true;
@@ -181,9 +166,7 @@ extension LuaBytecodeVmTables on LuaBytecodeVm {
       return false;
     }
     if (rawTable is Map &&
-        !hasWeakMode &&
-        !table.hasMetamethod('__newindex') &&
-        !table.hasMetamethod('__index') &&
+        _canWritePlainTable(table) &&
         _canFastSetPlainPrimitiveEntry(key, value)) {
       final storageKey = _plainTableStorageKey(key);
       if (rawValue == null) {
@@ -202,11 +185,7 @@ extension LuaBytecodeVmTables on LuaBytecodeVm {
       return;
     }
     final rawTable = rawLuaSlot(table);
-    final hasWeakMode = table.tableWeakMode != null;
-    if (rawTable is Map &&
-        !hasWeakMode &&
-        !table.hasMetamethod('__newindex') &&
-        !table.hasMetamethod('__index')) {
+    if (rawTable is Map && _canWritePlainTable(table)) {
       table[key] = value;
       return;
     }
@@ -248,6 +227,12 @@ extension LuaBytecodeVmTables on LuaBytecodeVm {
       raw != null && isLuaPrimitiveSlot(raw);
 
   bool _isPlainPrimitiveValue(Object? raw) => isLuaPrimitiveSlot(raw);
+
+  bool _canReadPlainTable(Value table) =>
+      table.tableWeakMode == null && !table.hasMetamethod('__index');
+
+  bool _canWritePlainTable(Value table) =>
+      _canReadPlainTable(table) && !table.hasMetamethod('__newindex');
 
   LuaBytecodeInstructionWord _consumeExtraArg(LuaBytecodeFrame frame) {
     if (frame.pc >= frame.closure.prototype.code.length) {
