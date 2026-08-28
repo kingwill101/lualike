@@ -160,10 +160,8 @@ return first(10, 20, 30)
       expect(results, equals(<Object?>[10, 20, 30]));
     }, skip: skipReason);
 
-    test(
-      'executes coroutine yield and resume for bytecode closures',
-      () async {
-        final results = await _executeFixture(luacBinary!, '''
+    test('executes coroutine yield and resume for bytecode closures', () async {
+      final results = await _executeFixture(luacBinary!, '''
 local co = coroutine.create(function(a)
   local resumed = coroutine.yield(a + 1)
   return a + resumed
@@ -177,13 +175,11 @@ local finalStatus = coroutine.status(co)
 return ok1, yielded, midStatus, ok2, finalValue, finalStatus
 ''');
 
-        expect(
-          results,
-          equals(<Object?>[true, 5, 'suspended', true, 10, 'dead']),
-        );
-      },
-      skip: skipReason,
-    );
+      expect(
+        results,
+        equals(<Object?>[true, 5, 'suspended', true, 10, 'dead']),
+      );
+    }, skip: skipReason);
 
     test('executes arithmetic and bitwise opcode families', () async {
       final results = await _executeFixture(luacBinary!, '''
@@ -419,10 +415,8 @@ return #plain, #withMeta, #dict, #holey
       expect(results, equals(<Object?>[4, 77, 0, 1]));
     }, skip: skipReason);
 
-    test(
-      'executes to-be-closed locals on return and tailcall paths',
-      () async {
-        final results = await _executeFixture(luacBinary!, '''
+    test('executes to-be-closed locals on return and tailcall paths', () async {
+      final results = await _executeFixture(luacBinary!, '''
 local mt = {
   __close = function(self, err)
     _G.trace = (_G.trace or '') .. 'c'
@@ -446,10 +440,8 @@ end
 return normal(), tail(), trace
 ''');
 
-        expect(results, equals(<Object?>[42, 99, 'cc']));
-      },
-      skip: skipReason,
-    );
+      expect(results, equals(<Object?>[42, 99, 'cc']));
+    }, skip: skipReason);
 
     test(
       'executes generic-for close slots and validates close attributes',

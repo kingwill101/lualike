@@ -96,19 +96,19 @@ class LoveRenderStatsAccumulator {
   int meshAlphaMaskLayers = 0;
 
   LoveRenderStats snapshot() => LoveRenderStats(
-        renderedCommands: renderedCommands,
-        softwareSurfaceFallbacks: softwareSurfaceFallbacks,
-        atlasBatchCommands: atlasBatchCommands,
-        atlasBatchItems: atlasBatchItems,
-        textPainterCacheHits: textPainterCacheHits,
-        textPainterCacheMisses: textPainterCacheMisses,
-        textLayoutDuration: textLayoutDuration,
-        surfaceClearLayers: surfaceClearLayers,
-        commandBlendLayers: commandBlendLayers,
-        commandShaderLayers: commandShaderLayers,
-        commandRadialMaskLayers: commandRadialMaskLayers,
-        imageRadialOverlayLayers: imageRadialOverlayLayers,
-        meshCompositeLayers: meshCompositeLayers,
-        meshAlphaMaskLayers: meshAlphaMaskLayers,
-      );
+    renderedCommands: renderedCommands,
+    softwareSurfaceFallbacks: softwareSurfaceFallbacks,
+    atlasBatchCommands: atlasBatchCommands,
+    atlasBatchItems: atlasBatchItems,
+    textPainterCacheHits: textPainterCacheHits,
+    textPainterCacheMisses: textPainterCacheMisses,
+    textLayoutDuration: textLayoutDuration,
+    surfaceClearLayers: surfaceClearLayers,
+    commandBlendLayers: commandBlendLayers,
+    commandShaderLayers: commandShaderLayers,
+    commandRadialMaskLayers: commandRadialMaskLayers,
+    imageRadialOverlayLayers: imageRadialOverlayLayers,
+    meshCompositeLayers: meshCompositeLayers,
+    meshAlphaMaskLayers: meshAlphaMaskLayers,
+  );
 }

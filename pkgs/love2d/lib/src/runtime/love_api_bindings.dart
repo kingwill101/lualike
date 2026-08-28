@@ -5,6 +5,7 @@
 /// [ensureLoveApiRuntimeBindingsLoaded] once during startup before installing
 /// generated API references into a [LuaRuntime].
 library;
+
 // ignore_for_file: implementation_imports
 
 import 'dart:async' show Completer;

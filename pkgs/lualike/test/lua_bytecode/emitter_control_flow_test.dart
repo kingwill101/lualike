@@ -247,17 +247,15 @@ t = { a = { b = { base = 4 } } }
       );
     });
 
-    test(
-      'tracks relevant luac control-flow opcodes where meaningful',
-      () {
-        const loopSource = '''
+    test('tracks relevant luac control-flow opcodes where meaningful', () {
+      const loopSource = '''
 local sum = 0
 for i = 1, 3, 1 do
   sum = sum + i
 end
 return sum
 ''';
-        const closureSource = '''
+      const closureSource = '''
 local x = 1
 local function bump(y)
   x = x + y
@@ -265,7 +263,7 @@ local function bump(y)
 end
 return bump(2)
 ''';
-        const functionNameSource = '''
+      const functionNameSource = '''
 function t.a.b.add(x)
   return x + 1
 end
@@ -274,14 +272,14 @@ function t.a.b:scale(x)
 end
 return t.a.b.add(2), t.a.b:scale(3)
 ''';
-        const genericForSource = '''
+      const genericForSource = '''
 local sum = 0
 for _, value in iter, state, nil do
   sum = sum + value
 end
 return sum
 ''';
-        const gotoSource = '''
+      const gotoSource = '''
 local i = 0
 goto start
 ::loop::
@@ -293,141 +291,135 @@ goto loop
 return i
 ''';
 
-        final loopFixture = _compileFixture(luacBinary!, loopSource);
-        final emittedLoop = const LuaBytecodeEmitter().compileSource(
-          loopSource,
-          chunkName: loopFixture.sourcePath,
-        );
-        expect(
+      final loopFixture = _compileFixture(luacBinary!, loopSource);
+      final emittedLoop = const LuaBytecodeEmitter().compileSource(
+        loopSource,
+        chunkName: loopFixture.sourcePath,
+      );
+      expect(
+        _filterRelevantOpcodes(
+          opcodeNames(const LuaBytecodeParser().parse(emittedLoop.bytes)),
+          const <String>{'FORPREP', 'FORLOOP'},
+        ),
+        equals(
           _filterRelevantOpcodes(
-            opcodeNames(const LuaBytecodeParser().parse(emittedLoop.bytes)),
+            _parseOpcodeSections(loopFixture.listing).single,
             const <String>{'FORPREP', 'FORLOOP'},
           ),
-          equals(
-            _filterRelevantOpcodes(
-              _parseOpcodeSections(loopFixture.listing).single,
-              const <String>{'FORPREP', 'FORLOOP'},
-            ),
-          ),
-        );
+        ),
+      );
 
-        final genericForFixture = _compileFixture(luacBinary, genericForSource);
-        final emittedGenericFor = const LuaBytecodeEmitter().compileSource(
-          genericForSource,
-          chunkName: genericForFixture.sourcePath,
-        );
-        expect(
+      final genericForFixture = _compileFixture(luacBinary, genericForSource);
+      final emittedGenericFor = const LuaBytecodeEmitter().compileSource(
+        genericForSource,
+        chunkName: genericForFixture.sourcePath,
+      );
+      expect(
+        _filterRelevantOpcodes(
+          opcodeNames(const LuaBytecodeParser().parse(emittedGenericFor.bytes)),
+          const <String>{'TFORPREP', 'TFORCALL', 'TFORLOOP', 'CLOSE'},
+        ),
+        equals(
           _filterRelevantOpcodes(
-            opcodeNames(
-              const LuaBytecodeParser().parse(emittedGenericFor.bytes),
-            ),
+            _parseOpcodeSections(genericForFixture.listing).single,
             const <String>{'TFORPREP', 'TFORCALL', 'TFORLOOP', 'CLOSE'},
           ),
-          equals(
-            _filterRelevantOpcodes(
-              _parseOpcodeSections(genericForFixture.listing).single,
-              const <String>{'TFORPREP', 'TFORCALL', 'TFORLOOP', 'CLOSE'},
-            ),
-          ),
-        );
+        ),
+      );
 
-        final gotoFixture = _compileFixture(luacBinary, gotoSource);
-        final emittedGoto = const LuaBytecodeEmitter().compileSource(
-          gotoSource,
-          chunkName: gotoFixture.sourcePath,
-        );
-        expect(
+      final gotoFixture = _compileFixture(luacBinary, gotoSource);
+      final emittedGoto = const LuaBytecodeEmitter().compileSource(
+        gotoSource,
+        chunkName: gotoFixture.sourcePath,
+      );
+      expect(
+        _filterRelevantOpcodes(
+          opcodeNames(const LuaBytecodeParser().parse(emittedGoto.bytes)),
+          const <String>{'JMP'},
+        ),
+        equals(
           _filterRelevantOpcodes(
-            opcodeNames(const LuaBytecodeParser().parse(emittedGoto.bytes)),
+            _parseOpcodeSections(gotoFixture.listing).single,
             const <String>{'JMP'},
           ),
-          equals(
-            _filterRelevantOpcodes(
-              _parseOpcodeSections(gotoFixture.listing).single,
-              const <String>{'JMP'},
-            ),
-          ),
-        );
+        ),
+      );
 
-        final closureFixture = _compileFixture(luacBinary, closureSource);
-        final emittedClosure = const LuaBytecodeEmitter().compileSource(
-          closureSource,
-          chunkName: closureFixture.sourcePath,
-        );
-        final emittedSections = <List<String>>[
-          opcodeNames(const LuaBytecodeParser().parse(emittedClosure.bytes)),
-          ...childOpcodeNames(
-            const LuaBytecodeParser().parse(emittedClosure.bytes),
-          ),
-        ];
-        final oracleSections = _parseOpcodeSections(closureFixture.listing);
+      final closureFixture = _compileFixture(luacBinary, closureSource);
+      final emittedClosure = const LuaBytecodeEmitter().compileSource(
+        closureSource,
+        chunkName: closureFixture.sourcePath,
+      );
+      final emittedSections = <List<String>>[
+        opcodeNames(const LuaBytecodeParser().parse(emittedClosure.bytes)),
+        ...childOpcodeNames(
+          const LuaBytecodeParser().parse(emittedClosure.bytes),
+        ),
+      ];
+      final oracleSections = _parseOpcodeSections(closureFixture.listing);
 
-        // Lua's oracle uses a tailcall for `return bump(2)`, while the current
-        // emitter keeps an explicit CALL before returning. The opcode-shape
-        // check here only cares that closure creation and return boundaries
-        // line up; execution equivalence is already covered above.
-        expect(
-          _filterRelevantOpcodes(emittedSections.first, const <String>{
+      // Lua's oracle uses a tailcall for `return bump(2)`, while the current
+      // emitter keeps an explicit CALL before returning. The opcode-shape
+      // check here only cares that closure creation and return boundaries
+      // line up; execution equivalence is already covered above.
+      expect(
+        _filterRelevantOpcodes(emittedSections.first, const <String>{
+          'CLOSURE',
+          'RETURN',
+        }),
+        equals(
+          _filterRelevantOpcodes(oracleSections.first, const <String>{
             'CLOSURE',
             'RETURN',
           }),
-          equals(
-            _filterRelevantOpcodes(oracleSections.first, const <String>{
-              'CLOSURE',
-              'RETURN',
-            }),
-          ),
-        );
-        expect(
-          _filterRelevantOpcodes(emittedSections[1], const <String>{
+        ),
+      );
+      expect(
+        _filterRelevantOpcodes(emittedSections[1], const <String>{
+          'GETUPVAL',
+          'SETUPVAL',
+          'RETURN1',
+          'RETURN',
+        }),
+        containsAll(
+          _filterRelevantOpcodes(oracleSections[1], const <String>{
             'GETUPVAL',
             'SETUPVAL',
-            'RETURN1',
-            'RETURN',
           }),
-          containsAll(
-            _filterRelevantOpcodes(oracleSections[1], const <String>{
-              'GETUPVAL',
-              'SETUPVAL',
-            }),
-          ),
-        );
+        ),
+      );
 
-        final functionNameFixture = _compileFixture(
-          luacBinary,
-          functionNameSource,
-        );
-        final emittedFunctionName = const LuaBytecodeEmitter().compileSource(
-          functionNameSource,
-          chunkName: functionNameFixture.sourcePath,
-        );
-        final emittedFunctionNameSections = <List<String>>[
-          opcodeNames(
-            const LuaBytecodeParser().parse(emittedFunctionName.bytes),
-          ),
-          ...childOpcodeNames(
-            const LuaBytecodeParser().parse(emittedFunctionName.bytes),
-          ),
-        ];
-        final oracleFunctionNameSections = _parseOpcodeSections(
-          functionNameFixture.listing,
-        );
+      final functionNameFixture = _compileFixture(
+        luacBinary,
+        functionNameSource,
+      );
+      final emittedFunctionName = const LuaBytecodeEmitter().compileSource(
+        functionNameSource,
+        chunkName: functionNameFixture.sourcePath,
+      );
+      final emittedFunctionNameSections = <List<String>>[
+        opcodeNames(const LuaBytecodeParser().parse(emittedFunctionName.bytes)),
+        ...childOpcodeNames(
+          const LuaBytecodeParser().parse(emittedFunctionName.bytes),
+        ),
+      ];
+      final oracleFunctionNameSections = _parseOpcodeSections(
+        functionNameFixture.listing,
+      );
 
-        expect(
+      expect(
+        _filterRelevantOpcodes(
+          emittedFunctionNameSections.first,
+          const <String>{'GETTABUP', 'GETFIELD', 'CLOSURE', 'SETFIELD'},
+        ),
+        unorderedEquals(
           _filterRelevantOpcodes(
-            emittedFunctionNameSections.first,
+            oracleFunctionNameSections.first,
             const <String>{'GETTABUP', 'GETFIELD', 'CLOSURE', 'SETFIELD'},
           ),
-          unorderedEquals(
-            _filterRelevantOpcodes(
-              oracleFunctionNameSections.first,
-              const <String>{'GETTABUP', 'GETFIELD', 'CLOSURE', 'SETFIELD'},
-            ),
-          ),
-        );
-      },
-      skip: skipReason,
-    );
+        ),
+      );
+    }, skip: skipReason);
   });
 }
 

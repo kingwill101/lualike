@@ -338,24 +338,20 @@ end
       },
     );
 
-    test(
-      'vendored Modern-Pong main menu loads under bytecode',
-      () async {
-        final backendFactory = _RecordingAudioBackendFactory();
-        final runtime = await _createModernPongRuntime(
-          backendFactory: backendFactory,
-          engineMode: EngineMode.luaBytecode,
-        );
-        await _loadModernPong(runtime).timeout(const Duration(seconds: 10));
+    test('vendored Modern-Pong main menu loads under bytecode', () async {
+      final backendFactory = _RecordingAudioBackendFactory();
+      final runtime = await _createModernPongRuntime(
+        backendFactory: backendFactory,
+        engineMode: EngineMode.luaBytecode,
+      );
+      await _loadModernPong(runtime).timeout(const Duration(seconds: 10));
 
-        runtime.context.beginDrawFrame();
-        await runtime.callDrawIfDefined();
+      runtime.context.beginDrawFrame();
+      await runtime.callDrawIfDefined();
 
-        expect(backendFactory.loadedSources, contains('sounds/theme.mp3'));
-        expect(runtime.context.graphics.commands, isNotEmpty);
-      },
-      timeout: const Timeout(Duration(seconds: 15)),
-    );
+      expect(backendFactory.loadedSources, contains('sounds/theme.mp3'));
+      expect(runtime.context.graphics.commands, isNotEmpty);
+    }, timeout: const Timeout(Duration(seconds: 15)));
 
     test(
       'vendored Modern-Pong main menu click transitions into inGame',
