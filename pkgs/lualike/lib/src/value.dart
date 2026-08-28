@@ -377,6 +377,12 @@ class Value with GCObject implements Map<String, dynamic> {
     }
   }
 
+  /// Whether storing only this wrapper's raw slot preserves all observable
+  /// Lua semantics. Values with side metadata or closure state must retain
+  /// their wrapper identity (for example, primitive metatables and `__name`).
+  bool get canStoreAsRawLuaSlot =>
+      _metadataPayload == null && _closurePayload == null;
+
   Map<String, dynamic>? get metatable => _metadataPayload?.metatable;
   set metatable(Map<String, dynamic>? value) {
     if (value == null && _metadataPayload == null) return;
@@ -759,6 +765,18 @@ class Value with GCObject implements Map<String, dynamic> {
     }
   }
 
+  /// Whether this raw table is currently used as a metatable. Writes to such
+  /// tables must preserve Value wrappers because metamethod dispatch observes
+  /// their type and metadata directly.
+  static bool rawTableIsMetatable(Object? table) {
+    if (table is! Map) return false;
+    try {
+      return _metatableObjects[table] ?? false;
+    } catch (_) {
+      return false;
+    }
+  }
+
   bool get metatableOwnerHasWeakValues {
     if (isTable) {
       final rawOwner = rawMetatableOwnerForTable(raw);
@@ -975,6 +993,9 @@ class Value with GCObject implements Map<String, dynamic> {
       Expando<Map<String, dynamic>>('tableMetatables');
   static final Expando<Object> _tableMetatableOwners = Expando<Object>(
     'tableMetatableOwners',
+  );
+  static final Expando<bool> _metatableObjects = Expando<bool>(
+    'metatableObjects',
   );
   // Tracks total credits for string-like keys stored in the underlying Map.
   static final Expando<int> _tableStringKeyBytes = Expando<int>(
@@ -1229,9 +1250,8 @@ class Value with GCObject implements Map<String, dynamic> {
     List<Object?>? iterValues,
     Value? initialKey,
   }) sync* {
-    final values = iterValues ?? _multiResultValues(
-      callMetamethod('__pairs', [this]),
-    );
+    final values =
+        iterValues ?? _multiResultValues(callMetamethod('__pairs', [this]));
     if (values == null || values.length < 2) return;
 
     final iterFn = rawLuaSlot(values[0]);
@@ -1444,6 +1464,10 @@ class Value with GCObject implements Map<String, dynamic> {
   ///
   /// [mt] - The new metatable to associate with this value.
   void setMetatable(Map<String, dynamic> mt, {Object? ownerRaw}) {
+    _metatableObjects[mt] = true;
+    if (ownerRaw is Map) {
+      _metatableObjects[ownerRaw] = true;
+    }
     metatable = mt;
     finalizerEligible = mt.containsKey('__gc');
     // Cache weak mode string for later semantics checks even if this
@@ -1522,10 +1546,17 @@ class Value with GCObject implements Map<String, dynamic> {
           if (!method.marked) return null;
         }
       }
-      return method;
+      return method is! Value && isLuaPrimitiveSlot(method)
+          ? _wrapRuntimeValue(method)
+          : method;
     }
     final reg = _getRegisteredTableMetatable();
-    if (reg != null && reg.containsKey(event)) return reg[event];
+    if (reg != null && reg.containsKey(event)) {
+      final method = reg[event];
+      return method is! Value && isLuaPrimitiveSlot(method)
+          ? _wrapRuntimeValue(method)
+          : method;
+    }
     return null;
   }
 
@@ -2598,9 +2629,10 @@ class Value with GCObject implements Map<String, dynamic> {
           ? _wrapRuntimeValue(iterValues[2])
           : null;
       return Map.fromEntries(
-        _metamethodEntries(iterValues: iterValues, initialKey: initialKey).map(
-          (entry) => convert(entry.key, entry.value),
-        ),
+        _metamethodEntries(
+          iterValues: iterValues,
+          initialKey: initialKey,
+        ).map((entry) => convert(entry.key, entry.value)),
       );
     }
 
@@ -3057,7 +3089,11 @@ class Value with GCObject implements Map<String, dynamic> {
         initialKey: initialKey,
       )) {
         if (test(entry.key, entry.value)) {
-          callMetamethod('__newindex', [this, _wrapRuntimeValue(entry.key), _nilValue()]);
+          callMetamethod('__newindex', [
+            this,
+            _wrapRuntimeValue(entry.key),
+            _nilValue(),
+          ]);
         }
       }
       return;
@@ -3087,7 +3123,11 @@ class Value with GCObject implements Map<String, dynamic> {
         initialKey: initialKey,
       )) {
         final updatedValue = update(entry.key, entry.value);
-        callMetamethod('__newindex', [this, _wrapRuntimeValue(entry.key), updatedValue]);
+        callMetamethod('__newindex', [
+          this,
+          _wrapRuntimeValue(entry.key),
+          updatedValue,
+        ]);
       }
       return;
     }

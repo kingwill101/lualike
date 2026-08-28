@@ -1405,7 +1405,7 @@ extension LuaBytecodeVmCallEntry on LuaBytecodeVm {
         final box = env.values[name]!;
         return box.isLocal ? 'local' : 'global';
       }
-      if (env.declaredGlobals.containsKey(name)) {
+      if (env.containsDeclaredGlobal(name)) {
         return 'global';
       }
       env = env.parent;

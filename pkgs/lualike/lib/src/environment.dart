@@ -193,10 +193,56 @@ class Environment with GCObject {
   ///
   /// These shadow outer locals for name resolution while still targeting the
   /// root global binding.
-  final Map<String, Box<dynamic>> declaredGlobals = {};
+  Map<String, Box<dynamic>>? _declaredGlobals;
+
+  /// Mutable explicit-global bindings for compatibility with existing callers.
+  ///
+  /// Most execution environments never declare a global. Delaying this map
+  /// avoids allocating one for every ordinary Lua function invocation.
+  Map<String, Box<dynamic>> get declaredGlobals =>
+      _declaredGlobals ??= <String, Box<dynamic>>{};
+
+  /// Returns the explicit-global binding owned by this scope without forcing
+  /// an empty map allocation.
+  Box<dynamic>? declaredGlobalBox(String name) => _declaredGlobals?[name];
+
+  /// Whether this scope owns an explicit-global binding named [name].
+  bool containsDeclaredGlobal(String name) =>
+      _declaredGlobals?.containsKey(name) ?? false;
+
+  /// Existing explicit-global bindings without materializing empty storage.
+  Iterable<Box<dynamic>> get declaredGlobalBoxes =>
+      _declaredGlobals?.values ?? const <Box<dynamic>>[];
+
+  /// Existing explicit-global entries without materializing empty storage.
+  Iterable<MapEntry<String, Box<dynamic>>> get declaredGlobalEntries =>
+      _declaredGlobals?.entries ?? const <MapEntry<String, Box<dynamic>>>[];
+
+  /// Clears explicit-global storage only when it has been materialized.
+  void clearDeclaredGlobals() => _declaredGlobals?.clear();
 
   /// Tracks the order in which to-be-closed variables were declared
-  final List<String> toBeClosedVars = [];
+  List<String>? _toBeClosedVars;
+
+  /// Mutable close-order storage for scopes that actually contain `<close>`.
+  List<String> get toBeClosedVars => _toBeClosedVars ??= <String>[];
+
+  /// Whether this scope currently owns any to-be-closed variables.
+  bool get hasToBeClosedVariables => _toBeClosedVars?.isNotEmpty ?? false;
+
+  /// Number of currently tracked to-be-closed variables.
+  int get toBeClosedVariableCount => _toBeClosedVars?.length ?? 0;
+
+  /// Existing close-order entries without materializing empty storage.
+  Iterable<String> get existingToBeClosedVariables =>
+      _toBeClosedVars ?? const <String>[];
+
+  /// Clears close-order storage only when it has been materialized.
+  void clearToBeClosedVariables() => _toBeClosedVars?.clear();
+
+  /// Removes [name] from close-order storage without creating an empty list.
+  bool removeToBeClosedVariable(String name) =>
+      _toBeClosedVars?.remove(name) ?? false;
 
   /// Tracks pending implicit to-be-closed resources that are active for this
   /// scope but are not represented as normal local bindings.
@@ -204,7 +250,22 @@ class Environment with GCObject {
 
   /// Stores implicit to-be-closed resources that must stay GC-reachable even
   /// when they are not ordinary local bindings.
-  final List<Value> implicitToBeClosedValues = <Value>[];
+  List<Value>? _implicitToBeClosedValues;
+
+  /// Mutable storage for scopes that actually own implicit close resources.
+  List<Value> get implicitToBeClosedValues =>
+      _implicitToBeClosedValues ??= <Value>[];
+
+  /// Existing implicit close resources without materializing empty storage.
+  Iterable<Value> get existingImplicitToBeClosedValues =>
+      _implicitToBeClosedValues ?? const <Value>[];
+
+  /// Number of currently tracked implicit close resources.
+  int get implicitToBeClosedValueCount =>
+      _implicitToBeClosedValues?.length ?? 0;
+
+  /// Clears implicit close resources only when storage has been materialized.
+  void clearImplicitToBeClosedValues() => _implicitToBeClosedValues?.clear();
 
   /// The parent environment in the scope chain, if any.
   final Environment? parent;
@@ -299,7 +360,7 @@ class Environment with GCObject {
       GcWeights.gcObjectHeader +
       GcWeights.environmentBase +
       (_countedBindingEntries(values.values) +
-              _countedBindingEntries(declaredGlobals.values)) *
+              _countedBindingEntries(declaredGlobalBoxes)) *
           GcWeights.environmentEntry;
 
   @override
@@ -322,10 +383,10 @@ class Environment with GCObject {
       // Do not auto-enroll raw values directly; discovery proceeds via Box.
       refs.add(box);
     }
-    for (final box in declaredGlobals.values) {
+    for (final box in declaredGlobalBoxes) {
       refs.add(box);
     }
-    refs.addAll(implicitToBeClosedValues);
+    refs.addAll(existingImplicitToBeClosedValues);
     return refs;
   }
 
@@ -399,7 +460,7 @@ class Environment with GCObject {
       return true;
     }
 
-    if (declaredGlobals.containsKey(name)) {
+    if (containsDeclaredGlobal(name)) {
       Logger.debugLazy(
         () => "Declared global '$name' found in current env ($hashCode)",
         category: 'Env',
@@ -465,8 +526,9 @@ class Environment with GCObject {
       return val;
     }
 
-    if (declaredGlobals.containsKey(name)) {
-      final val = declaredGlobals[name]!.value;
+    final declaredGlobal = declaredGlobalBox(name);
+    if (declaredGlobal != null) {
+      final val = declaredGlobal.value;
       if (Logger.enabled) {
         Logger.debugLazy(
           () => "Found declared global '$name' = $val in env ($hashCode)",
@@ -548,8 +610,9 @@ class Environment with GCObject {
       return;
     }
 
-    if (declaredGlobals.containsKey(name)) {
-      final box = declaredGlobals[name]!;
+    final declaredGlobal = declaredGlobalBox(name);
+    if (declaredGlobal != null) {
+      final box = declaredGlobal;
       if (box.preventsAssignment) {
         Logger.debugLazy(
           () => "Attempt to modify const declared global '$name'",
@@ -849,7 +912,7 @@ class Environment with GCObject {
   void clearGlobal(String name) {
     final rootEnv = root;
     rootEnv.values.remove(name);
-    rootEnv.toBeClosedVars.remove(name);
+    rootEnv.removeToBeClosedVariable(name);
     rootEnv._updateCredits();
     rootEnv._syncGlobalTableEntry(name, null);
   }
@@ -862,7 +925,7 @@ class Environment with GCObject {
     Box<dynamic>? box;
     Environment? current = this;
     while (current != null) {
-      final declared = current.declaredGlobals[name];
+      final declared = current.declaredGlobalBox(name);
       if (declared != null) {
         box = declared;
         break;
@@ -883,7 +946,7 @@ class Environment with GCObject {
   Box<dynamic>? findDeclaredGlobalBox(String name) {
     Environment? current = this;
     while (current != null) {
-      final box = current.declaredGlobals[name];
+      final box = current.declaredGlobalBox(name);
       if (box != null) {
         return box;
       }
@@ -933,7 +996,7 @@ class Environment with GCObject {
       if (box != null) {
         return box;
       }
-      final declaredGlobal = current.declaredGlobals[name];
+      final declaredGlobal = current.declaredGlobalBox(name);
       if (declaredGlobal != null) {
         return declaredGlobal;
       }
@@ -950,7 +1013,7 @@ class Environment with GCObject {
       if (current.values.containsKey(name)) {
         return false;
       }
-      if (current.declaredGlobals.containsKey(name)) {
+      if (current.containsDeclaredGlobal(name)) {
         return true;
       }
       current = current.parent;
@@ -964,7 +1027,7 @@ class Environment with GCObject {
   Future<void> closeVariables([dynamic error]) async {
     Logger.debugLazy(
       () =>
-          "Closing variables in env ($hashCode). To be closed: ${toBeClosedVars.join(', ')}",
+          "Closing variables in env ($hashCode). To be closed: ${_toBeClosedVars?.join(', ') ?? ''}",
       category: 'Env',
     );
 
@@ -1015,16 +1078,17 @@ class Environment with GCObject {
       }
     }
 
-    if (toBeClosedVars.length == 1) {
-      final name = toBeClosedVars.removeLast();
+    final closeVariables = _toBeClosedVars;
+    if (closeVariables?.length == 1) {
+      final name = closeVariables!.removeLast();
       await closeTrackedValue(name, values[name]?.value);
-    } else {
+    } else if (closeVariables != null) {
       // Close variables in reverse order of declaration. Remove the variable
       // before invoking its close handler so reentrant safe points do not try
       // to close it twice while still preserving the remaining variables if a
       // close handler yields.
-      while (toBeClosedVars.isNotEmpty) {
-        final name = toBeClosedVars.removeLast();
+      while (closeVariables.isNotEmpty) {
+        final name = closeVariables.removeLast();
         await closeTrackedValue(name, values[name]?.value);
       }
     }
@@ -1143,7 +1207,10 @@ class Environment with GCObject {
     }
 
     // Copy to-be-closed variables
-    cloned.toBeClosedVars.addAll(toBeClosedVars);
+    final closeVariables = _toBeClosedVars;
+    if (closeVariables != null && closeVariables.isNotEmpty) {
+      cloned.toBeClosedVars.addAll(closeVariables);
+    }
 
     cloned._updateCredits();
 

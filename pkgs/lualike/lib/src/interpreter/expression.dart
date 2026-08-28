@@ -148,7 +148,7 @@ mixin InterpreterExpressionMixin on AstVisitor<Object?> {
           );
         }
       }
-      if (env.declaredGlobals.containsKey(node.name)) {
+      if (env.containsDeclaredGlobal(node.name)) {
         return (null, true, closureBoundary);
       }
       if (identical(env, closureBoundary)) {

@@ -2953,7 +2953,7 @@ String _inferIdentifierNameWhat(Environment? env, String name) {
       // local name, even if that binding lives in a parent environment frame.
       return 'local';
     }
-    if (current.declaredGlobals.containsKey(name)) {
+    if (current.containsDeclaredGlobal(name)) {
       return 'global';
     }
     current = current.parent;

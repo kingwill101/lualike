@@ -993,7 +993,7 @@ class Coroutine with GCObject {
     }
     final sharedBoxes = <Box<dynamic>>{
       ...closureEnvironment.values.values,
-      ...closureEnvironment.declaredGlobals.values,
+      ...closureEnvironment.declaredGlobalBoxes,
     };
     try {
       for (final box in _executionEnvironment.values.values) {
@@ -1013,7 +1013,7 @@ class Coroutine with GCObject {
         }
         box.value = _coroutineNilValue(this);
       }
-      for (final box in _executionEnvironment.declaredGlobals.values) {
+      for (final box in _executionEnvironment.declaredGlobalBoxes) {
         if (sharedBoxes.contains(box)) {
           continue;
         }

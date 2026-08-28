@@ -1136,9 +1136,8 @@ class Interpreter extends AstVisitor<Object?>
     FileManager? fileManager,
     Environment? environment,
     bool initializeStandardLibraries = true,
-  })
-    : fileManager = fileManager ?? FileManager(),
-      _currentEnv = environment ?? Environment() {
+  }) : fileManager = fileManager ?? FileManager(),
+       _currentEnv = environment ?? Environment() {
     Logger.infoLazy(
       () => 'Interpreter created',
       category: 'Interpreter',
@@ -1734,7 +1733,7 @@ class Interpreter extends AstVisitor<Object?>
         continue;
       }
 
-      if (_currentEnv.toBeClosedVars.remove(name)) {
+      if (_currentEnv.removeToBeClosedVariable(name)) {
         final value = box.value;
         if (value is Value) {
           await value.close();

@@ -65,7 +65,7 @@ Object? _resolveCurrentVarargSource(Interpreter interpreter, Environment env) {
 String _bindingScopeLabel(Environment env, String name) {
   Environment? current = env;
   while (current != null) {
-    final box = current.values[name] ?? current.declaredGlobals[name];
+    final box = current.values[name] ?? current.declaredGlobalBox(name);
     if (box != null) {
       if (box.isLocal) {
         return identical(current, env) ? "local '$name'" : "upvalue '$name'";
@@ -227,7 +227,7 @@ int? _callSiteLineNumber(AstNode? callNode) {
 bool _hasPendingToBeClosed(Environment? env) {
   var current = env;
   while (current != null) {
-    if (current.toBeClosedVars.isNotEmpty ||
+    if (current.hasToBeClosedVariables ||
         current.pendingImplicitToBeClosed > 0) {
       return true;
     }
@@ -972,10 +972,31 @@ mixin InterpreterFunctionMixin on AstVisitor<Object?> {
         !hasJoinedUpvalues &&
         !bodyContainsClose(node.body);
 
+    bool containsCall(Object? value) {
+      if (value is Map) {
+        final type = value['type'];
+        if (type == 'FunctionCall' || type == 'MethodCall') {
+          return true;
+        }
+        return value.values.any(containsCall);
+      }
+      return value is Iterable && value.any(containsCall);
+    }
+
+    final bool canPoolEnvironmentAcrossCalls =
+        regularParamCount > 0 &&
+        !hasNonEnvUpvalues &&
+        !node.body.any(
+          (statement) =>
+              statement is Dumpable &&
+              containsCall((statement as Dumpable).dump()),
+        );
+
     // Create a variable to hold the function value for self-reference
     late Value funcValue;
 
     late Value self;
+    Environment? idleReusableEnvironment;
 
     Future<Object?> regularCall(List<Object?> args) async {
       final simpleCapturedCounterPlan =
@@ -1165,7 +1186,18 @@ mixin InterpreterFunctionMixin on AstVisitor<Object?> {
         parameterNames,
         self.functionName,
       );
-      Environment? reusableEnv;
+      final canUseIdleEnvironment =
+          canPoolEnvironmentAcrossCalls &&
+          interpreter.debugHookFunction == null;
+      Environment? reusableEnv = canUseIdleEnvironment
+          ? idleReusableEnvironment
+          : null;
+      if (canUseIdleEnvironment) {
+        idleReusableEnvironment = null;
+      }
+      if (reusableEnv case final environment?) {
+        interpreter.gc.ensureTracked(environment);
+      }
       final paramBoxes = List<Box<dynamic>?>.filled(
         regularParamCount,
         null,
@@ -1215,8 +1247,8 @@ mixin InterpreterFunctionMixin on AstVisitor<Object?> {
             );
           }
 
-          if (execEnv.toBeClosedVars.isNotEmpty) {
-            execEnv.toBeClosedVars.clear();
+          if (execEnv.hasToBeClosedVariables) {
+            execEnv.clearToBeClosedVariables();
           }
 
           for (var i = 0; i < regularParamCount; i++) {
@@ -1385,6 +1417,19 @@ mixin InterpreterFunctionMixin on AstVisitor<Object?> {
         }
       } finally {
         interpreter.setCurrentFastLocals(prevFastLocals);
+        // Return hooks can inspect the completed frame's locals. Never clear
+        // or pool its environment while any hook is installed.
+        if (canPoolEnvironmentAcrossCalls &&
+            interpreter.debugHookFunction == null) {
+          if (reusableEnv case final environment?) {
+            environment.values.clear();
+            environment.clearDeclaredGlobals();
+            environment.clearToBeClosedVariables();
+            environment.clearImplicitToBeClosedValues();
+            environment.pendingImplicitToBeClosed = 0;
+            idleReusableEnvironment ??= environment;
+          }
+        }
       }
     }
 
@@ -1551,14 +1596,17 @@ mixin InterpreterFunctionMixin on AstVisitor<Object?> {
       }
     }
 
-    for (final entry in sourceEnv.declaredGlobals.entries) {
+    for (final entry in sourceEnv.declaredGlobalEntries) {
       if (!excludeNames.contains(entry.key)) {
         filteredEnv.declaredGlobals[entry.key] = entry.value;
       }
     }
 
     // Copy toBeClosedVars
-    filteredEnv.toBeClosedVars.addAll(sourceEnv.toBeClosedVars);
+    final closeVariables = sourceEnv.existingToBeClosedVariables;
+    if (closeVariables.isNotEmpty) {
+      filteredEnv.toBeClosedVars.addAll(closeVariables);
+    }
 
     Logger.debugLazy(
       () =>
