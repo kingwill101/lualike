@@ -7437,7 +7437,7 @@ Future<Object?> _callRawPath(
     runtime,
     path,
   ).call(args.map((arg) => arg is Value ? arg : Value(arg)).toList());
-  return result is Future<Object?> ? await result : result;
+  return luaResolveRawCallResult(result);
 }
 
 Future<Object?> _callBuiltin(
@@ -7466,8 +7466,14 @@ List<dynamic> _packageSearchers(LuaRuntime runtime) {
   final searchersValue = packageTable['searchers'];
   expect(searchersValue, isA<Value>());
   final raw = (searchersValue! as Value).raw;
-  expect(raw, isA<List>());
-  return raw as List<dynamic>;
+  return switch (raw) {
+    final List<dynamic> searchers => searchers,
+    final Map<dynamic, dynamic> searchers => <dynamic>[
+      for (var index = 1; searchers.containsKey(index); index++)
+        searchers[index],
+    ],
+    _ => throw TestFailure('Expected package.searchers to be a Lua table'),
+  };
 }
 
 Future<Object?> _callHostFunction(
@@ -7477,7 +7483,7 @@ Future<Object?> _callHostFunction(
   final rawFunction = function.raw;
   expect(rawFunction, isA<Function>());
   final result = await (rawFunction! as Function)(args);
-  return result;
+  return luaResolveRawCallResult(result);
 }
 
 List<Object?> _rawResults(Object? result) {

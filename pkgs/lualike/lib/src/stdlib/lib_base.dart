@@ -738,13 +738,13 @@ final class _ProtectedCallSuspension implements CoroutineContinuation {
   final int errorHandlerDepth;
 
   @override
-  Future<Object?> resume(List<Object?> args) async {
+  Future<Object?> resume(List<Object?> args) {
     final previousYieldable = runtime.isYieldable;
     runtime.isYieldable = false;
     runtime.enterProtectedCall();
 
     try {
-      return await switch (phase) {
+      return switch (phase) {
         _ProtectedCallPhase.call => _resumeCall(args),
         _ProtectedCallPhase.errorHandler => _resumeErrorHandler(args),
       };
