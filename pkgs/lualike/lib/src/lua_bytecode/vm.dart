@@ -474,16 +474,13 @@ final class LuaBytecodeVm {
       try {
         switch (opcode) {
           case Opcode.move:
-            frame.storeRegisterRaw(word.a, frame.register(word.b));
+            frame.setRegisterSlot(word.a, frame.rawSlot(word.b));
             break;
           case Opcode.loadI:
-            frame.setRegister(word.a, framePrimitiveValue(runtime, word.sBx));
+            frame.setRegisterSlot(word.a, word.sBx);
             break;
           case Opcode.loadF:
-            frame.setRegister(
-              word.a,
-              framePrimitiveValue(runtime, word.sBx.toDouble()),
-            );
+            frame.setRegisterSlot(word.a, word.sBx.toDouble());
             break;
           case Opcode.loadK:
             frame.setRegister(
@@ -499,15 +496,15 @@ final class LuaBytecodeVm {
             break;
           case Opcode.loadFalse:
           case Opcode.lFalseSkip:
-            frame.setRegister(word.a, framePrimitiveValue(runtime, false));
+            frame.setRegisterSlot(word.a, false);
             if (opcode == Opcode.lFalseSkip) frame.pc += 1;
             break;
           case Opcode.loadTrue:
-            frame.setRegister(word.a, framePrimitiveValue(runtime, true));
+            frame.setRegisterSlot(word.a, true);
             break;
           case Opcode.loadNil:
             for (var reg = word.a; reg <= word.a + word.b; reg++) {
-              frame.setRegister(reg, framePrimitiveValue(runtime, null));
+              frame.setRegisterSlot(reg, null);
             }
             break;
           case Opcode.addI:
@@ -515,8 +512,8 @@ final class LuaBytecodeVm {
             _executeBinaryInstruction(
               frame,
               targetRegister: word.a,
-              left: frame.register(word.b),
-              right: transientPrimitiveValue(runtime, signedC(word)),
+              left: frame.rawSlot(word.b),
+              right: signedC(word),
               operation: LuaBinaryOperation.add,
             );
             break;
@@ -545,10 +542,10 @@ final class LuaBytecodeVm {
             _executeBinaryInstruction(
               frame,
               targetRegister: word.a,
-              left: frame.register(word.b),
+              left: frame.rawSlot(word.b),
               right: word.kFlag
                   ? constantValue(runtime, prototype, word.c)
-                  : frame.register(word.c),
+                  : frame.rawSlot(word.c),
               operation: switch (opcode) {
                 Opcode.add || Opcode.addK => LuaBinaryOperation.add,
                 Opcode.sub || Opcode.subK => LuaBinaryOperation.sub,
@@ -579,13 +576,7 @@ final class LuaBytecodeVm {
             );
             break;
           case Opcode.notOp:
-            frame.setRegister(
-              word.a,
-              framePrimitiveValue(
-                runtime,
-                !isLuaTruthy(frame.register(word.b)),
-              ),
-            );
+            frame.setRegisterSlot(word.a, !isLuaTruthy(frame.rawSlot(word.b)));
             break;
           case Opcode.len:
             {
@@ -594,10 +585,7 @@ final class LuaBytecodeVm {
                 _rewindSyncPc(frame);
                 return null;
               }
-              frame.storeRegisterRaw(
-                word.a,
-                framePrimitiveValue(runtime, lengthOf(operand)),
-              );
+              frame.setRegisterSlot(word.a, lengthOf(operand));
               break;
             }
           case Opcode.jmp:
@@ -658,6 +646,7 @@ final class LuaBytecodeVm {
                 count: word.b == 0
                     ? frame.effectiveTop - (word.a + 1)
                     : word.b - 1,
+                materializeValues: false,
               );
               final r = _trySyncNestedCall(raw, args, functionValue: callee);
               if (r is List<Value>) {
@@ -1027,20 +1016,17 @@ final class LuaBytecodeVm {
         switch (opcode) {
           case Opcode.move:
             {
-              frame.storeRegisterRaw(word.a, frame.register(word.b));
+              frame.setRegisterSlot(word.a, frame.rawSlot(word.b));
               break;
             }
           case Opcode.loadI:
             {
-              frame.setRegister(word.a, framePrimitiveValue(runtime, word.sBx));
+              frame.setRegisterSlot(word.a, word.sBx);
               break;
             }
           case Opcode.loadF:
             {
-              frame.setRegister(
-                word.a,
-                framePrimitiveValue(runtime, word.sBx.toDouble()),
-              );
+              frame.setRegisterSlot(word.a, word.sBx.toDouble());
               break;
             }
           case Opcode.loadK:
@@ -1061,27 +1047,24 @@ final class LuaBytecodeVm {
             }
           case Opcode.loadFalse:
             {
-              frame.setRegister(word.a, framePrimitiveValue(runtime, false));
+              frame.setRegisterSlot(word.a, false);
               break;
             }
           case Opcode.lFalseSkip:
             {
-              frame.setRegister(word.a, framePrimitiveValue(runtime, false));
+              frame.setRegisterSlot(word.a, false);
               frame.pc += 1;
               break;
             }
           case Opcode.loadTrue:
             {
-              frame.setRegister(word.a, framePrimitiveValue(runtime, true));
+              frame.setRegisterSlot(word.a, true);
               break;
             }
           case Opcode.loadNil:
             {
               for (var index = 0; index <= word.b; index++) {
-                frame.setRegister(
-                  word.a + index,
-                  framePrimitiveValue(runtime, null),
-                );
+                frame.setRegisterSlot(word.a + index, null);
               }
               break;
             }
@@ -1303,8 +1286,8 @@ final class LuaBytecodeVm {
               _executeBinaryInstruction(
                 frame,
                 targetRegister: word.a,
-                left: frame.register(word.b),
-                right: transientPrimitiveValue(runtime, signedC(word)),
+                left: frame.rawSlot(word.b),
+                right: signedC(word),
                 operation: LuaBinaryOperation.add,
               );
               break;
@@ -1314,7 +1297,7 @@ final class LuaBytecodeVm {
               _executeBinaryInstruction(
                 frame,
                 targetRegister: word.a,
-                left: frame.register(word.b),
+                left: frame.rawSlot(word.b),
                 right: constantValue(runtime, prototype, word.c),
                 operation: LuaBinaryOperation.add,
               );
@@ -1325,7 +1308,7 @@ final class LuaBytecodeVm {
               _executeBinaryInstruction(
                 frame,
                 targetRegister: word.a,
-                left: frame.register(word.b),
+                left: frame.rawSlot(word.b),
                 right: constantValue(runtime, prototype, word.c),
                 operation: LuaBinaryOperation.sub,
               );
@@ -1336,7 +1319,7 @@ final class LuaBytecodeVm {
               _executeBinaryInstruction(
                 frame,
                 targetRegister: word.a,
-                left: frame.register(word.b),
+                left: frame.rawSlot(word.b),
                 right: constantValue(runtime, prototype, word.c),
                 operation: LuaBinaryOperation.mul,
               );
@@ -1347,7 +1330,7 @@ final class LuaBytecodeVm {
               _executeBinaryInstruction(
                 frame,
                 targetRegister: word.a,
-                left: frame.register(word.b),
+                left: frame.rawSlot(word.b),
                 right: constantValue(runtime, prototype, word.c),
                 operation: LuaBinaryOperation.mod,
               );
@@ -1358,7 +1341,7 @@ final class LuaBytecodeVm {
               _executeBinaryInstruction(
                 frame,
                 targetRegister: word.a,
-                left: frame.register(word.b),
+                left: frame.rawSlot(word.b),
                 right: constantValue(runtime, prototype, word.c),
                 operation: LuaBinaryOperation.pow,
               );
@@ -1369,7 +1352,7 @@ final class LuaBytecodeVm {
               _executeBinaryInstruction(
                 frame,
                 targetRegister: word.a,
-                left: frame.register(word.b),
+                left: frame.rawSlot(word.b),
                 right: constantValue(runtime, prototype, word.c),
                 operation: LuaBinaryOperation.div,
               );
@@ -1380,7 +1363,7 @@ final class LuaBytecodeVm {
               _executeBinaryInstruction(
                 frame,
                 targetRegister: word.a,
-                left: frame.register(word.b),
+                left: frame.rawSlot(word.b),
                 right: constantValue(runtime, prototype, word.c),
                 operation: LuaBinaryOperation.idiv,
               );
@@ -1391,7 +1374,7 @@ final class LuaBytecodeVm {
               _executeBinaryInstruction(
                 frame,
                 targetRegister: word.a,
-                left: frame.register(word.b),
+                left: frame.rawSlot(word.b),
                 right: constantValue(runtime, prototype, word.c),
                 operation: LuaBinaryOperation.band,
               );
@@ -1402,7 +1385,7 @@ final class LuaBytecodeVm {
               _executeBinaryInstruction(
                 frame,
                 targetRegister: word.a,
-                left: frame.register(word.b),
+                left: frame.rawSlot(word.b),
                 right: constantValue(runtime, prototype, word.c),
                 operation: LuaBinaryOperation.bor,
               );
@@ -1413,7 +1396,7 @@ final class LuaBytecodeVm {
               _executeBinaryInstruction(
                 frame,
                 targetRegister: word.a,
-                left: frame.register(word.b),
+                left: frame.rawSlot(word.b),
                 right: constantValue(runtime, prototype, word.c),
                 operation: LuaBinaryOperation.bxor,
               );
@@ -1424,8 +1407,8 @@ final class LuaBytecodeVm {
               _executeBinaryInstruction(
                 frame,
                 targetRegister: word.a,
-                left: transientPrimitiveValue(runtime, signedC(word)),
-                right: frame.register(word.b),
+                left: signedC(word),
+                right: frame.rawSlot(word.b),
                 operation: LuaBinaryOperation.shl,
               );
               break;
@@ -1435,8 +1418,8 @@ final class LuaBytecodeVm {
               _executeBinaryInstruction(
                 frame,
                 targetRegister: word.a,
-                left: frame.register(word.b),
-                right: transientPrimitiveValue(runtime, signedC(word)),
+                left: frame.rawSlot(word.b),
+                right: signedC(word),
                 operation: LuaBinaryOperation.shr,
               );
               break;
@@ -1446,8 +1429,8 @@ final class LuaBytecodeVm {
               _executeBinaryInstruction(
                 frame,
                 targetRegister: word.a,
-                left: frame.register(word.b),
-                right: frame.register(word.c),
+                left: frame.rawSlot(word.b),
+                right: frame.rawSlot(word.c),
                 leftRegister: word.b,
                 rightRegister: word.c,
                 operation: LuaBinaryOperation.add,
@@ -1459,8 +1442,8 @@ final class LuaBytecodeVm {
               _executeBinaryInstruction(
                 frame,
                 targetRegister: word.a,
-                left: frame.register(word.b),
-                right: frame.register(word.c),
+                left: frame.rawSlot(word.b),
+                right: frame.rawSlot(word.c),
                 leftRegister: word.b,
                 rightRegister: word.c,
                 operation: LuaBinaryOperation.sub,
@@ -1472,8 +1455,8 @@ final class LuaBytecodeVm {
               _executeBinaryInstruction(
                 frame,
                 targetRegister: word.a,
-                left: frame.register(word.b),
-                right: frame.register(word.c),
+                left: frame.rawSlot(word.b),
+                right: frame.rawSlot(word.c),
                 leftRegister: word.b,
                 rightRegister: word.c,
                 operation: LuaBinaryOperation.mul,
@@ -1485,8 +1468,8 @@ final class LuaBytecodeVm {
               _executeBinaryInstruction(
                 frame,
                 targetRegister: word.a,
-                left: frame.register(word.b),
-                right: frame.register(word.c),
+                left: frame.rawSlot(word.b),
+                right: frame.rawSlot(word.c),
                 leftRegister: word.b,
                 rightRegister: word.c,
                 operation: LuaBinaryOperation.mod,
@@ -1498,8 +1481,8 @@ final class LuaBytecodeVm {
               _executeBinaryInstruction(
                 frame,
                 targetRegister: word.a,
-                left: frame.register(word.b),
-                right: frame.register(word.c),
+                left: frame.rawSlot(word.b),
+                right: frame.rawSlot(word.c),
                 leftRegister: word.b,
                 rightRegister: word.c,
                 operation: LuaBinaryOperation.pow,
@@ -1511,8 +1494,8 @@ final class LuaBytecodeVm {
               _executeBinaryInstruction(
                 frame,
                 targetRegister: word.a,
-                left: frame.register(word.b),
-                right: frame.register(word.c),
+                left: frame.rawSlot(word.b),
+                right: frame.rawSlot(word.c),
                 leftRegister: word.b,
                 rightRegister: word.c,
                 operation: LuaBinaryOperation.div,
@@ -1524,8 +1507,8 @@ final class LuaBytecodeVm {
               _executeBinaryInstruction(
                 frame,
                 targetRegister: word.a,
-                left: frame.register(word.b),
-                right: frame.register(word.c),
+                left: frame.rawSlot(word.b),
+                right: frame.rawSlot(word.c),
                 leftRegister: word.b,
                 rightRegister: word.c,
                 operation: LuaBinaryOperation.idiv,
@@ -1537,8 +1520,8 @@ final class LuaBytecodeVm {
               _executeBinaryInstruction(
                 frame,
                 targetRegister: word.a,
-                left: frame.register(word.b),
-                right: frame.register(word.c),
+                left: frame.rawSlot(word.b),
+                right: frame.rawSlot(word.c),
                 leftRegister: word.b,
                 rightRegister: word.c,
                 operation: LuaBinaryOperation.band,
@@ -1550,8 +1533,8 @@ final class LuaBytecodeVm {
               _executeBinaryInstruction(
                 frame,
                 targetRegister: word.a,
-                left: frame.register(word.b),
-                right: frame.register(word.c),
+                left: frame.rawSlot(word.b),
+                right: frame.rawSlot(word.c),
                 leftRegister: word.b,
                 rightRegister: word.c,
                 operation: LuaBinaryOperation.bor,
@@ -1563,8 +1546,8 @@ final class LuaBytecodeVm {
               _executeBinaryInstruction(
                 frame,
                 targetRegister: word.a,
-                left: frame.register(word.b),
-                right: frame.register(word.c),
+                left: frame.rawSlot(word.b),
+                right: frame.rawSlot(word.c),
                 leftRegister: word.b,
                 rightRegister: word.c,
                 operation: LuaBinaryOperation.bxor,
@@ -1576,8 +1559,8 @@ final class LuaBytecodeVm {
               _executeBinaryInstruction(
                 frame,
                 targetRegister: word.a,
-                left: frame.register(word.b),
-                right: frame.register(word.c),
+                left: frame.rawSlot(word.b),
+                right: frame.rawSlot(word.c),
                 leftRegister: word.b,
                 rightRegister: word.c,
                 operation: LuaBinaryOperation.shl,
@@ -1589,8 +1572,8 @@ final class LuaBytecodeVm {
               _executeBinaryInstruction(
                 frame,
                 targetRegister: word.a,
-                left: frame.register(word.b),
-                right: frame.register(word.c),
+                left: frame.rawSlot(word.b),
+                right: frame.rawSlot(word.c),
                 leftRegister: word.b,
                 rightRegister: word.c,
                 operation: LuaBinaryOperation.shr,
@@ -1602,10 +1585,7 @@ final class LuaBytecodeVm {
               final operand = frame.register(word.b);
               final rawOperand = rawLuaSlot(operand);
               if (canFastPathNumeric(operand)) {
-                frame.setRegister(
-                  word.a,
-                  runtimeValue(runtime, NumberUtils.negate(rawOperand)),
-                );
+                frame.setRegisterSlot(word.a, NumberUtils.negate(rawOperand));
                 break;
               }
               try {
@@ -1634,9 +1614,9 @@ final class LuaBytecodeVm {
               final operand = frame.register(word.b);
               final rawOperand = rawLuaSlot(operand);
               if (canFastPathInteger(operand)) {
-                frame.setRegister(
+                frame.setRegisterSlot(
                   word.a,
-                  runtimeValue(runtime, NumberUtils.bitwiseNot(rawOperand)),
+                  NumberUtils.bitwiseNot(rawOperand),
                 );
                 break;
               }
@@ -1663,9 +1643,9 @@ final class LuaBytecodeVm {
             }
           case Opcode.notOp:
             {
-              frame.setRegister(
+              frame.setRegisterSlot(
                 word.a,
-                runtimeValue(runtime, !isLuaTruthy(frame.register(word.b))),
+                !isLuaTruthy(frame.rawSlot(word.b)),
               );
               break;
             }
@@ -1673,10 +1653,7 @@ final class LuaBytecodeVm {
             {
               final operand = frame.register(word.b);
               if (canFastPathLength(operand)) {
-                frame.setRegister(
-                  word.a,
-                  runtimeValue(runtime, lengthOf(operand)),
-                );
+                frame.setRegisterSlot(word.a, lengthOf(operand));
                 break;
               }
               try {
@@ -2181,6 +2158,7 @@ final class LuaBytecodeVm {
                       count: word.b == 0
                           ? frame.effectiveTop - (word.a + 1)
                           : word.b - 1,
+                      materializeValues: false,
                     );
                     results = await invoke(
                       closure,
