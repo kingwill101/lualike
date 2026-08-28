@@ -2360,7 +2360,9 @@ mixin InterpreterFunctionMixin on AstVisitor<Object?> {
     }
 
     Object? returnWithTransfer(Object? result) {
-      setTransferInfo(callStack.top, resultTransferValues(result));
+      if (interpreter.debugHookFunction != null) {
+        setTransferInfo(callStack.top, resultTransferValues(result));
+      }
       return result;
     }
 
@@ -2368,6 +2370,7 @@ mixin InterpreterFunctionMixin on AstVisitor<Object?> {
       final topFrame = callStack.top;
 
       if (!interpreter._runningDebugHook &&
+          interpreter.debugHookFunction != null &&
           topFrame != null &&
           !topFrame.isDebugHook) {
         setTransferInfo(topFrame, callTransferValues());
@@ -2426,6 +2429,7 @@ mixin InterpreterFunctionMixin on AstVisitor<Object?> {
         }
         final reboundFrame = callStack.top;
         if (!interpreter._runningDebugHook &&
+            interpreter.debugHookFunction != null &&
             reboundFrame != null &&
             !reboundFrame.isDebugHook) {
           setTransferInfo(reboundFrame, callTransferValues());
@@ -2996,6 +3000,7 @@ mixin InterpreterFunctionMixin on AstVisitor<Object?> {
       }
       final topFrame = callStack.top;
       if (!interpreter._runningDebugHook &&
+          interpreter.debugHookFunction != null &&
           topFrame != null &&
           !topFrame.isDebugHook) {
         if (topFrame.ntransfer == 0) {
