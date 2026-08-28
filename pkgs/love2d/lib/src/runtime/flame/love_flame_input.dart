@@ -140,6 +140,9 @@ class LoveFlameInputAdapter {
   /// Whether the LOVE viewport currently has mouse hover focus.
   bool _mouseFocused = false;
 
+  /// Whether host mouse events are suppressed for deterministic automation.
+  bool _physicalMouseInputLocked = false;
+
   /// Whether the synthesized virtual gamepad is currently registered.
   bool _virtualGamepadTracked = false;
 
@@ -160,6 +163,9 @@ class LoveFlameInputAdapter {
 
   /// The LOVE touch state owned by the host.
   LoveTouchState get touch => _host.touch;
+
+  /// Whether host mouse events are suppressed after an automation pin.
+  bool get physicalMouseInputLocked => _physicalMouseInputLocked;
 
   /// The active platform text editing value tracked for LOVE text input.
   TextEditingValue get currentTextEditingValue => _textInputState.editingValue;
@@ -265,13 +271,18 @@ class LoveFlameInputAdapter {
   /// Automation can use this to begin repeated runs from the same input state.
   /// The coordinates are already in LOVE window space, so viewport and
   /// side-by-side presentation transforms are intentionally not applied.
-  void setVirtualPointerPosition(double x, double y) {
+  void setVirtualPointerPosition(
+    double x,
+    double y, {
+    bool lockPhysicalMouseInput = false,
+  }) {
     if (!x.isFinite || !y.isFinite) {
       throw ArgumentError('Virtual pointer coordinates must be finite.');
     }
 
     final previousX = mouse.x;
     final previousY = mouse.y;
+    _physicalMouseInputLocked = lockPhysicalMouseInput;
     mouse.setPosition(x, y);
     final nextX = mouse.x;
     final nextY = mouse.y;
@@ -304,6 +315,7 @@ class LoveFlameInputAdapter {
   /// failed or interrupted pointer gesture from changing a later benchmark's
   /// LOVE input stimulus.
   void resetInputState() {
+    _physicalMouseInputLocked = false;
     handleVisibilityChanged(false);
   }
 
@@ -314,12 +326,18 @@ class LoveFlameInputAdapter {
 
   /// Handles a pointer entering the LOVE viewport.
   void handlePointerEnter(PointerEnterEvent event) {
+    if (_physicalMouseInputLocked && !_isTouch(event)) {
+      return;
+    }
     _updateMousePosition(event.localPosition);
     _setMouseFocusState(true);
   }
 
   /// Handles a pointer leaving the LOVE viewport.
   void handlePointerExit(PointerExitEvent event) {
+    if (_physicalMouseInputLocked && !_isTouch(event)) {
+      return;
+    }
     _updateMousePosition(event.localPosition);
     _setMouseFocusState(false);
   }
@@ -347,6 +365,9 @@ class LoveFlameInputAdapter {
 
   /// Handles pointer hover updates and forwards mouse-motion callbacks.
   void handlePointerHover(PointerHoverEvent event) {
+    if (_physicalMouseInputLocked && !_isTouch(event)) {
+      return;
+    }
     final geometry = _presentationGeometry();
     final logicalPosition = _logicalPoint(event.localPosition, geometry);
     final logicalDelta = _logicalDelta(
@@ -369,6 +390,9 @@ class LoveFlameInputAdapter {
 
   /// Handles pointer movement and forwards touch and mouse-motion callbacks.
   void handlePointerMove(PointerMoveEvent event) {
+    if (_physicalMouseInputLocked && !_isTouch(event)) {
+      return;
+    }
     final geometry = _presentationGeometry();
     final logicalPosition = _logicalPoint(event.localPosition, geometry);
     final logicalDelta = _logicalDelta(
@@ -434,6 +458,9 @@ class LoveFlameInputAdapter {
 
   /// Handles pointer press events and forwards touch or mouse press callbacks.
   void handlePointerDown(PointerDownEvent event) {
+    if (_physicalMouseInputLocked && !_isTouch(event)) {
+      return;
+    }
     final geometry = _presentationGeometry();
     final logicalPosition = _logicalPoint(event.localPosition, geometry);
     _updateMousePosition(event.localPosition, logicalPosition: logicalPosition);
@@ -493,6 +520,9 @@ class LoveFlameInputAdapter {
 
   /// Handles pointer release events and forwards touch or mouse release callbacks.
   void handlePointerUp(PointerUpEvent event) {
+    if (_physicalMouseInputLocked && !_isTouch(event)) {
+      return;
+    }
     final geometry = _presentationGeometry();
     final logicalPosition = _logicalPoint(event.localPosition, geometry);
     final logicalDelta = _logicalDelta(
@@ -559,6 +589,9 @@ class LoveFlameInputAdapter {
 
   /// Handles pointer cancellation by clearing tracked touch and mouse state.
   void handlePointerCancel(PointerCancelEvent event) {
+    if (_physicalMouseInputLocked && !_isTouch(event)) {
+      return;
+    }
     if (_isTouch(event)) {
       if (_loveTraceTouchLeak) {
         _loveTraceTouchInput(
@@ -589,6 +622,9 @@ class LoveFlameInputAdapter {
 
   /// Handles pointer signal events such as mouse-wheel scrolling.
   void handlePointerSignal(PointerSignalEvent event) {
+    if (_physicalMouseInputLocked && !_isTouch(event)) {
+      return;
+    }
     if (event is! PointerScrollEvent) {
       return;
     }

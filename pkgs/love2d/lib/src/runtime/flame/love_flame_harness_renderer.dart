@@ -30,11 +30,24 @@ final Map<ui.Image, SpriteBatch> _flameAtlasSpriteBatchCache =
     <ui.Image, SpriteBatch>{};
 const int _loveCanvasSnapshotPictureCacheCapacity = 128;
 const int _loveTextPainterCacheCapacity = 256;
+const int _loveGlyphAtlasLayoutCacheCapacity = 256;
+const bool _loveUseFreeTypeTextSpacing = bool.fromEnvironment(
+  'LOVE_FREETYPE_TEXT_SPACING',
+  defaultValue: true,
+);
+const bool _loveCanvasRoughLinePixelSnap = bool.fromEnvironment(
+  'LOVE_CANVAS_ROUGH_LINE_PIXEL_SNAP',
+  defaultValue: true,
+);
 const int _loveFrameTimingHistoryCapacity = 240;
 const int _love120HzCpuBudgetMicros = 8333;
 const int _love60HzCpuBudgetMicros = 16667;
 final LinkedHashMap<_LoveTextPainterCacheKey, TextPainter>
 _loveTextPainterCache = LinkedHashMap<_LoveTextPainterCacheKey, TextPainter>();
+final LinkedHashMap<_LoveGlyphAtlasLayoutCacheKey, _LoveGlyphAtlasLayout>
+_loveGlyphAtlasLayoutCache =
+    LinkedHashMap<_LoveGlyphAtlasLayoutCacheKey, _LoveGlyphAtlasLayout>();
+final Expando<double> _loveTextHorizontalScales = Expando<double>();
 final LinkedHashMap<LoveCanvasSnapshot, ui.Picture>
 _loveCanvasSnapshotPictures = LinkedHashMap<LoveCanvasSnapshot, ui.Picture>();
 
@@ -57,6 +70,7 @@ final Paint _loveDstInLayerPaint = Paint()..blendMode = BlendMode.dstIn;
 class LoveFlameRenderStats {
   const LoveFlameRenderStats({
     this.renderedCommands = 0,
+    this.hybridFallbackCommands = 0,
     this.softwareSurfaceFallbacks = 0,
     this.atlasBatchCommands = 0,
     this.atlasBatchItems = 0,
@@ -73,6 +87,7 @@ class LoveFlameRenderStats {
   });
 
   final int renderedCommands;
+  final int hybridFallbackCommands;
   final int softwareSurfaceFallbacks;
   final int atlasBatchCommands;
   final int atlasBatchItems;
@@ -99,6 +114,7 @@ class LoveFlameRenderStats {
 
 class _LoveFlameRenderStatsAccumulator {
   int renderedCommands = 0;
+  int hybridFallbackCommands = 0;
   int softwareSurfaceFallbacks = 0;
   int atlasBatchCommands = 0;
   int atlasBatchItems = 0;
@@ -116,6 +132,7 @@ class _LoveFlameRenderStatsAccumulator {
   LoveFlameRenderStats snapshot() {
     return LoveFlameRenderStats(
       renderedCommands: renderedCommands,
+      hybridFallbackCommands: hybridFallbackCommands,
       softwareSurfaceFallbacks: softwareSurfaceFallbacks,
       atlasBatchCommands: atlasBatchCommands,
       atlasBatchItems: atlasBatchItems,
@@ -584,6 +601,9 @@ class LoveFlameHarnessGame extends FlameGame with KeyboardEvents {
   /// Synchronizes Flame's fixed-resolution camera to the active LOVE surface.
   void syncPresentationCamera({LoveWindowMetrics? windowMetrics}) {
     final metrics = windowMetrics ?? host.windowMetrics;
+    if (_renderBackend case final LoveWindowMetricsAwareRenderBackend backend) {
+      backend.updateLoveWindowMetrics(metrics);
+    }
     final viewportSize = hasLayout
         ? Size(canvasSize.x, canvasSize.y)
         : Size.zero;
@@ -717,6 +737,7 @@ class LoveFlameHarnessGame extends FlameGame with KeyboardEvents {
   static LoveFlameRenderStats _convertRenderStats(LoveRenderStats stats) {
     return LoveFlameRenderStats(
       renderedCommands: stats.renderedCommands,
+      hybridFallbackCommands: stats.hybridFallbackCommands,
       softwareSurfaceFallbacks: stats.softwareSurfaceFallbacks,
       atlasBatchCommands: stats.atlasBatchCommands,
       atlasBatchItems: stats.atlasBatchItems,
@@ -824,6 +845,20 @@ void _renderRecordedCommand(
     canvas.saveLayer(null, _loveEmptyLayerPaint);
   }
   canvas.save();
+  if (command case final LoveLineCommand line) {
+    if (_loveCanvasRoughLinePixelSnap) {
+      final snapAxes = loveRoughLinePixelSnapAxes(
+        line.lineStyle,
+        line.lineWidth,
+        line.points,
+        line.transform,
+      );
+      canvas.translate(
+        snapAxes & loveRoughLinePixelSnapX == 0 ? 0 : -0.5,
+        snapAxes & loveRoughLinePixelSnapY == 0 ? 0 : -0.5,
+      );
+    }
+  }
   canvas.transform(command.transform.storage);
 
   switch (command) {
@@ -979,16 +1014,26 @@ void _renderRecordedCommand(
       final wrapWidth = text.limit != null && text.limit! > 0
           ? text.limit!
           : null;
-      final painter = _textPainterForSpans(
+      canvas.transform(text.textTransform.storage);
+      if (!_paintLoveGlyphAtlas(
+        canvas,
         spans: text.spans,
         baseColor: text.color,
         font: text.font,
         align: text.align,
         wrapWidth: wrapWidth,
         stats: stats,
-      );
-      canvas.transform(text.textTransform.storage);
-      painter.paint(canvas, Offset.zero);
+      )) {
+        final painter = _textPainterForSpans(
+          spans: text.spans,
+          baseColor: text.color,
+          font: text.font,
+          align: text.align,
+          wrapWidth: wrapWidth,
+          stats: stats,
+        );
+        _paintLoveTextPainter(canvas, painter);
+      }
     case final LoveTextObjectCommand text:
       _renderTextObjectCommand(canvas, text, stats: stats);
     case final LoveImageCommand image:
@@ -1028,21 +1073,188 @@ void _renderTextObjectCommand(
     final wrapWidth = entry.wrapLimit != null && entry.wrapLimit! > 0
         ? entry.wrapLimit!
         : null;
-    final painter = _textPainterForSpans(
+    canvas.save();
+    canvas.transform(text.drawTransform.storage);
+    canvas.transform(entry.transform.storage);
+    if (!_paintLoveGlyphAtlas(
+      canvas,
       spans: entry.spans,
       baseColor: text.color,
       font: text.textObject.font,
       align: entry.align,
       wrapWidth: wrapWidth,
       stats: stats,
-    );
-
-    canvas.save();
-    canvas.transform(text.drawTransform.storage);
-    canvas.transform(entry.transform.storage);
-    painter.paint(canvas, Offset.zero);
+    )) {
+      final painter = _textPainterForSpans(
+        spans: entry.spans,
+        baseColor: text.color,
+        font: text.textObject.font,
+        align: entry.align,
+        wrapWidth: wrapWidth,
+        stats: stats,
+      );
+      _paintLoveTextPainter(canvas, painter);
+    }
     canvas.restore();
   }
+}
+
+bool _paintLoveGlyphAtlas(
+  Canvas canvas, {
+  required List<LoveTextSpan> spans,
+  required LoveColor baseColor,
+  required LoveFont font,
+  required String align,
+  required double? wrapWidth,
+  _LoveFlameRenderStatsAccumulator? stats,
+}) {
+  final atlas = font.glyphAtlas;
+  final rawImage = atlas?.image.nativeImage;
+  if (!loveFreeTypeGlyphAtlasEnabled ||
+      atlas == null ||
+      rawImage is! ui.Image ||
+      wrapWidth != null ||
+      align != 'left' ||
+      font.fallbacks.isNotEmpty) {
+    return false;
+  }
+
+  final segments = spans
+      .map(
+        (segment) => _LoveTextPainterSegmentKey(
+          text: segment.text,
+          colorArgb: _toFlutterColor(
+            baseColor.modulate(segment.color ?? LoveColor.white),
+          ).toARGB32(),
+        ),
+      )
+      .toList(growable: false);
+  final cacheKey = _LoveGlyphAtlasLayoutCacheKey(
+    atlasIdentity: identityHashCode(atlas),
+    baseline: font.baseline,
+    height: font.height,
+    lineHeight: font.lineHeight,
+    dpiScale: font.dpiScale,
+    glyphKerningsIdentity: identityHashCode(font.glyphKernings),
+    segments: segments,
+  );
+  var layout = _loveGlyphAtlasLayoutCache.remove(cacheKey);
+  if (layout == null) {
+    layout = _buildLoveGlyphAtlasLayout(
+      atlas: atlas,
+      font: font,
+      segments: segments,
+    );
+    if (layout == null) {
+      return false;
+    }
+  }
+  _loveGlyphAtlasLayoutCache[cacheKey] = layout;
+  if (_loveGlyphAtlasLayoutCache.length > _loveGlyphAtlasLayoutCacheCapacity) {
+    _loveGlyphAtlasLayoutCache.remove(_loveGlyphAtlasLayoutCache.keys.first);
+  }
+
+  if (layout.rects.isNotEmpty) {
+    stats?.atlasBatchCommands++;
+    stats?.atlasBatchItems += layout.rects.length;
+    canvas.drawAtlas(
+      rawImage,
+      layout.transforms,
+      layout.rects,
+      layout.colors,
+      BlendMode.modulate,
+      null,
+      _loveImagePaint
+        ..shader = null
+        ..colorFilter = null
+        ..filterQuality = _filterQualityForLove(atlas.image.filter),
+    );
+  }
+  return true;
+}
+
+_LoveGlyphAtlasLayout? _buildLoveGlyphAtlasLayout({
+  required LoveFontGlyphAtlas atlas,
+  required LoveFont font,
+  required List<_LoveTextPainterSegmentKey> segments,
+}) {
+  final transforms = <ui.RSTransform>[];
+  final rects = <Rect>[];
+  final colors = <Color>[];
+  final dpiScale = font.dpiScale <= 0 ? 1.0 : font.dpiScale;
+  final glyphScale = 1.0 / dpiScale;
+  final baseline = font.baseline.roundToDouble();
+  final lineAdvance = font.height * font.lineHeight;
+  var penX = 0.0;
+  var lineY = 0.0;
+  int? previous;
+
+  for (final segment in segments) {
+    final color = Color(segment.colorArgb);
+    for (final codepoint in segment.text.runes) {
+      if (codepoint == 0x0d) {
+        continue;
+      }
+      if (codepoint == 0x0a) {
+        penX = 0;
+        lineY += lineAdvance;
+        previous = null;
+        continue;
+      }
+      final glyph = atlas.glyphs[codepoint];
+      if (glyph == null) {
+        return null;
+      }
+      if (previous != null) {
+        penX += font.getKerning(previous, codepoint);
+      }
+      if (glyph.width > 0 && glyph.height > 0) {
+        final quad = loveFontAtlasGlyphQuad(
+          atlas: atlas,
+          glyph: glyph,
+          penX: penX,
+          lineY: lineY,
+          baseline: baseline,
+          dpiScale: dpiScale,
+        );
+        transforms.add(
+          ui.RSTransform.fromComponents(
+            rotation: 0,
+            scale: glyphScale,
+            anchorX: 0,
+            anchorY: 0,
+            translateX: quad.left,
+            translateY: quad.top,
+          ),
+        );
+        rects.add(
+          Rect.fromLTWH(
+            quad.sourceX,
+            quad.sourceY,
+            quad.sourceWidth,
+            quad.sourceHeight,
+          ),
+        );
+        colors.add(color);
+      }
+      penX += glyph.advance * glyphScale;
+      previous = codepoint;
+    }
+  }
+
+  return _LoveGlyphAtlasLayout(
+    transforms: List<ui.RSTransform>.unmodifiable(transforms),
+    rects: List<Rect>.unmodifiable(rects),
+    colors: List<Color>.unmodifiable(colors),
+  );
+}
+
+void _paintLoveTextPainter(Canvas canvas, TextPainter painter) {
+  final horizontalScale = _loveTextHorizontalScales[painter] ?? 1.0;
+  if ((horizontalScale - 1.0).abs() > 1e-9) {
+    canvas.scale(horizontalScale, 1.0);
+  }
+  painter.paint(canvas, Offset.zero);
 }
 
 TextPainter _textPainterForSpans({
@@ -1072,6 +1284,10 @@ TextPainter _textPainterForSpans({
     family: family,
     size: font.size,
     lineHeight: font.lineHeight,
+    hinting: font.hinting,
+    dpiScale: font.dpiScale,
+    glyphAdvancesIdentity: identityHashCode(font.glyphAdvances),
+    glyphKerningsIdentity: identityHashCode(font.glyphKernings),
     align: textAlign,
     wrapWidth: resolvedWrapWidth,
     segments: segments,
@@ -1109,6 +1325,17 @@ TextPainter _textPainterForSpans({
         minWidth: resolvedWrapWidth ?? 0.0,
         maxWidth: resolvedWrapWidth ?? double.infinity,
       );
+  if (_loveUseFreeTypeTextSpacing &&
+      resolvedWrapWidth == null &&
+      font.dataType == LoveFont.trueTypeFontType &&
+      font.family != null &&
+      painter.width > 0) {
+    final plainText = segments.map((segment) => segment.text).join();
+    final targetWidth = font.measureWidth(plainText);
+    if (targetWidth > 0) {
+      _loveTextHorizontalScales[painter] = targetWidth / painter.width;
+    }
+  }
   layoutStopwatch.stop();
   stats?.textLayoutMicros += layoutStopwatch.elapsedMicroseconds;
   _loveTextPainterCache[cacheKey] = painter;
@@ -1139,11 +1366,70 @@ class _LoveTextPainterSegmentKey {
   int get hashCode => Object.hash(text, colorArgb);
 }
 
+class _LoveGlyphAtlasLayout {
+  const _LoveGlyphAtlasLayout({
+    required this.transforms,
+    required this.rects,
+    required this.colors,
+  });
+
+  final List<ui.RSTransform> transforms;
+  final List<Rect> rects;
+  final List<Color> colors;
+}
+
+class _LoveGlyphAtlasLayoutCacheKey {
+  const _LoveGlyphAtlasLayoutCacheKey({
+    required this.atlasIdentity,
+    required this.baseline,
+    required this.height,
+    required this.lineHeight,
+    required this.dpiScale,
+    required this.glyphKerningsIdentity,
+    required this.segments,
+  });
+
+  final int atlasIdentity;
+  final double baseline;
+  final double height;
+  final double lineHeight;
+  final double dpiScale;
+  final int glyphKerningsIdentity;
+  final List<_LoveTextPainterSegmentKey> segments;
+
+  @override
+  bool operator ==(Object other) {
+    return other is _LoveGlyphAtlasLayoutCacheKey &&
+        other.atlasIdentity == atlasIdentity &&
+        other.baseline == baseline &&
+        other.height == height &&
+        other.lineHeight == lineHeight &&
+        other.dpiScale == dpiScale &&
+        other.glyphKerningsIdentity == glyphKerningsIdentity &&
+        _listEquals(other.segments, segments);
+  }
+
+  @override
+  int get hashCode => Object.hash(
+    atlasIdentity,
+    baseline,
+    height,
+    lineHeight,
+    dpiScale,
+    glyphKerningsIdentity,
+    Object.hashAll(segments),
+  );
+}
+
 class _LoveTextPainterCacheKey {
   const _LoveTextPainterCacheKey({
     required this.family,
     required this.size,
     required this.lineHeight,
+    required this.hinting,
+    required this.dpiScale,
+    required this.glyphAdvancesIdentity,
+    required this.glyphKerningsIdentity,
     required this.align,
     required this.wrapWidth,
     required this.segments,
@@ -1152,6 +1438,10 @@ class _LoveTextPainterCacheKey {
   final String family;
   final double size;
   final double lineHeight;
+  final String hinting;
+  final double dpiScale;
+  final int glyphAdvancesIdentity;
+  final int glyphKerningsIdentity;
   final TextAlign align;
   final double? wrapWidth;
   final List<_LoveTextPainterSegmentKey> segments;
@@ -1162,6 +1452,10 @@ class _LoveTextPainterCacheKey {
         other.family == family &&
         other.size == size &&
         other.lineHeight == lineHeight &&
+        other.hinting == hinting &&
+        other.dpiScale == dpiScale &&
+        other.glyphAdvancesIdentity == glyphAdvancesIdentity &&
+        other.glyphKerningsIdentity == glyphKerningsIdentity &&
         other.align == align &&
         other.wrapWidth == wrapWidth &&
         _listEquals(other.segments, segments);
@@ -1172,6 +1466,10 @@ class _LoveTextPainterCacheKey {
     family,
     size,
     lineHeight,
+    hinting,
+    dpiScale,
+    glyphAdvancesIdentity,
+    glyphKerningsIdentity,
     align,
     wrapWidth,
     Object.hashAll(segments),
@@ -3184,6 +3482,90 @@ FilterQuality loveFilterQualityForGraphicsDefaultFilter(
   return _filterQualityForLove(filter);
 }
 
+/// Replays selected commands over an existing frame without clearing it.
+///
+/// Hybrid renderers use this after presenting their primary surface. Common
+/// Canvas-supported commands are drawn directly so a text-only fallback does
+/// not allocate another command snapshot or full-viewport save layer. Rare
+/// command states that rely on the software surface path still use a temporary
+/// transparent snapshot to preserve LOVE semantics.
+void renderSurfaceCommandSubsetOverlay(
+  ui.Canvas canvas,
+  LoveGraphicsSurfaceSnapshot surface,
+  ui.Size viewportSize,
+  List<int> commandIndices, {
+  LoveRenderStatsAccumulator? stats,
+}) {
+  if (commandIndices.isEmpty) {
+    return;
+  }
+
+  final internalStats = stats != null
+      ? _LoveFlameRenderStatsAccumulator()
+      : null;
+  var requiresSurfaceReplay = false;
+  for (final index in commandIndices) {
+    final command = surface.commands[index];
+    if (command is LoveStencilClearCommand ||
+        command.writesStencil ||
+        command.stencilCompare != LoveGraphicsCompareMode.always ||
+        _commandRequiresSoftwareFallback(command)) {
+      requiresSurfaceReplay = true;
+      break;
+    }
+  }
+
+  if (requiresSurfaceReplay) {
+    final commands = commandIndices
+        .map((index) => surface.commands[index])
+        .toList(growable: false);
+    canvas.saveLayer(ui.Offset.zero & viewportSize, ui.Paint());
+    try {
+      _renderSurfaceSnapshot(
+        canvas,
+        LoveGraphicsSurfaceSnapshot(
+          clearColor: const LoveColor(0, 0, 0, 0),
+          clearColorMask: LoveGraphicsColorMask.all,
+          clearStencil: 0,
+          clearScissor: null,
+          commands: commands,
+        ),
+        viewportSize,
+        stats: internalStats,
+      );
+    } finally {
+      canvas.restore();
+    }
+  } else {
+    for (final index in commandIndices) {
+      _renderRecordedCommand(
+        canvas,
+        surface.commands[index],
+        stats: internalStats,
+      );
+    }
+  }
+
+  if (stats != null && internalStats != null) {
+    stats.renderedCommands += internalStats.renderedCommands;
+    stats.softwareSurfaceFallbacks += internalStats.softwareSurfaceFallbacks;
+    stats.atlasBatchCommands += internalStats.atlasBatchCommands;
+    stats.atlasBatchItems += internalStats.atlasBatchItems;
+    stats.textPainterCacheHits += internalStats.textPainterCacheHits;
+    stats.textPainterCacheMisses += internalStats.textPainterCacheMisses;
+    stats.textLayoutDuration += Duration(
+      microseconds: internalStats.textLayoutMicros,
+    );
+    stats.surfaceClearLayers += internalStats.surfaceClearLayers;
+    stats.commandBlendLayers += internalStats.commandBlendLayers;
+    stats.commandShaderLayers += internalStats.commandShaderLayers;
+    stats.commandRadialMaskLayers += internalStats.commandRadialMaskLayers;
+    stats.imageRadialOverlayLayers += internalStats.imageRadialOverlayLayers;
+    stats.meshCompositeLayers += internalStats.meshCompositeLayers;
+    stats.meshAlphaMaskLayers += internalStats.meshAlphaMaskLayers;
+  }
+}
+
 TextAlign _textAlignForLove(String align) {
   return switch (align) {
     'center' => TextAlign.center,
@@ -3234,6 +3616,7 @@ void renderSurfaceSnapshot(
   _renderSurfaceSnapshot(canvas, surface, viewportSize, stats: internalStats);
   if (stats != null && internalStats != null) {
     stats.renderedCommands = internalStats.renderedCommands;
+    stats.hybridFallbackCommands = internalStats.hybridFallbackCommands;
     stats.softwareSurfaceFallbacks = internalStats.softwareSurfaceFallbacks;
     stats.atlasBatchCommands = internalStats.atlasBatchCommands;
     stats.atlasBatchItems = internalStats.atlasBatchItems;

@@ -70,6 +70,7 @@ void main() {
     expect(stats.maxDeltaSeconds, closeTo(1 / 15, 1e-9));
     expect(stats.averageRenderedCommands, closeTo(2 / 3, 1e-9));
     expect(stats.maxRenderedCommands, 1);
+    expect(stats.lastFrame.renderStats.hybridFallbackCommands, 0);
     expect(stats.averageAtlasBatchCommands, closeTo(1 / 3, 1e-9));
     expect(stats.maxAtlasBatchCommands, 1);
     expect(stats.averageAtlasBatchItems, closeTo(2 / 3, 1e-9));

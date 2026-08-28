@@ -8,6 +8,14 @@ import '../test_support/lua_api_test_helpers.dart';
 
 void main() {
   group('source-backed true type glyph coverage', () {
+    test('coverage gamma only reshapes antialiased edge values', () {
+      expect(loveApplyGlyphCoverageGamma(0, gamma: 2.0), 0);
+      expect(loveApplyGlyphCoverageGamma(255, gamma: 2.0), 255);
+      expect(loveApplyGlyphCoverageGamma(64, gamma: 1.0), 64);
+      expect(loveApplyGlyphCoverageGamma(64, gamma: 2.0), 16);
+      expect(loveApplyGlyphCoverageGamma(64, gamma: double.nan), 64);
+    });
+
     test('rasterizers use cmap coverage for hasGlyphs', () async {
       final lualike = LuaLike();
       LuaRuntime runtime = lualike.vm;

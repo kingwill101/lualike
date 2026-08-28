@@ -6,7 +6,8 @@ import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
 import 'package:flutter/scheduler.dart';
 import 'package:flutter/services.dart';
-import 'package:lualike/lualike.dart' show EngineMode, LuaError, Value;
+import 'package:lualike/lualike.dart'
+    show EngineMode, LuaError, LuaGcPolicy, Value;
 
 import '../filesystem/love_asset_bundle_filesystem.dart';
 import '../filesystem/love_flutter_filesystem.dart';
@@ -90,6 +91,7 @@ class LoveFlameHarness extends StatefulWidget {
     this.onInputAdaptersReady,
     this.onQuitRequested,
     this.engineMode = EngineMode.ast,
+    this.gcPolicy = LuaGcPolicy.luaCompatible,
     this.automaticGc = false,
     this.imageWarmupAssetKeys,
     this.debugImageWarmupOverride,
@@ -98,6 +100,7 @@ class LoveFlameHarness extends StatefulWidget {
     this.inputPointTransform,
     this.inputDeltaTransform,
     this.showProgrammaticCursorOverlay = true,
+    this.showStatusOverlay = true,
   });
 
   /// The mounted LOVE entry asset, typically `main.lua`.
@@ -130,6 +133,9 @@ class LoveFlameHarness extends StatefulWidget {
 
   /// The LuaLike engine used by the Flame-hosted LOVE runtime.
   final EngineMode engineMode;
+
+  /// Selects Lua-compatible tracing or Dart-owned object reclamation.
+  final LuaGcPolicy gcPolicy;
 
   /// Whether Lualike's automatic GC safe points are enabled.
   ///
@@ -170,6 +176,12 @@ class LoveFlameHarness extends StatefulWidget {
   /// once and would contaminate one comparison pane.
   final bool showProgrammaticCursorOverlay;
 
+  /// Whether the host-only lifecycle status badge is painted over the game.
+  ///
+  /// Disable this for clean reference captures. Runtime errors and loading
+  /// diagnostics remain visible so a failed capture cannot look successful.
+  final bool showStatusOverlay;
+
   @override
   State<LoveFlameHarness> createState() => _LoveFlameHarnessState();
 }
@@ -192,6 +204,7 @@ class _LoveFlameHarnessState extends State<LoveFlameHarness>
         filesystemAdapter: widget.filesystemAdapter,
         onQuitRequested: widget.onQuitRequested ?? _defaultQuitRequested,
         engineMode: widget.engineMode,
+        gcPolicy: widget.gcPolicy,
         automaticGc: widget.automaticGc,
         imageWarmupAssetKeys: widget.imageWarmupAssetKeys,
         debugImageWarmupOverride: widget.debugImageWarmupOverride,
@@ -288,16 +301,17 @@ class _LoveFlameHarnessState extends State<LoveFlameHarness>
                       ),
                     ),
                   ),
-                Positioned(
-                  right: 16,
-                  top: 16,
-                  child: _HarnessBadge(
-                    child: Text(
-                      _controller.statusLabel,
-                      key: const Key('status-label'),
+                if (widget.showStatusOverlay)
+                  Positioned(
+                    right: 16,
+                    top: 16,
+                    child: _HarnessBadge(
+                      child: Text(
+                        _controller.statusLabel,
+                        key: const Key('status-label'),
+                      ),
                     ),
                   ),
-                ),
                 if (_controller.errorMessage case final error?)
                   if (!_controller.hasRuntimeErrorLoop)
                     Center(
@@ -371,6 +385,7 @@ class _LoveFlameHarnessController extends ChangeNotifier {
     this.filesystemAdapter,
     required this.onQuitRequested,
     required this.engineMode,
+    required this.gcPolicy,
     required this.automaticGc,
     this.imageWarmupAssetKeys,
     this.debugImageWarmupOverride,
@@ -384,6 +399,7 @@ class _LoveFlameHarnessController extends ChangeNotifier {
   final LoveFilesystemAdapter? filesystemAdapter;
   final Future<void> Function() onQuitRequested;
   final EngineMode engineMode;
+  final LuaGcPolicy gcPolicy;
   final bool automaticGc;
   final Iterable<String>? imageWarmupAssetKeys;
   final Future<void> Function(
@@ -600,6 +616,7 @@ class _LoveFlameHarnessController extends ChangeNotifier {
         host: game.host,
         filesystemAdapter: adapter,
         engineMode: engineMode,
+        gcPolicy: gcPolicy,
         automaticGc: automaticGc,
       );
       runtimeForError = runtime;

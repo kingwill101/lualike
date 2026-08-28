@@ -26,10 +26,27 @@ final class LoveCanvasRenderBackend implements LoveRenderBackend {
     ui.Size viewportSize, {
     LoveRenderStatsAccumulator? stats,
   }) {
-    renderSurfaceSnapshot(
+    renderSurfaceSnapshot(canvas, surface, viewportSize, stats: stats);
+  }
+
+  /// Overlays selected commands without clearing the existing canvas.
+  ///
+  /// This is used by hybrid renderers after their primary backend has already
+  /// presented the frame. Ordinary commands are replayed directly; command
+  /// states that require the software surface path retain that slower but
+  /// parity-preserving implementation.
+  void renderCommandSubsetOverlay(
+    ui.Canvas canvas,
+    LoveGraphicsSurfaceSnapshot surface,
+    ui.Size viewportSize,
+    List<int> commandIndices, {
+    LoveRenderStatsAccumulator? stats,
+  }) {
+    renderSurfaceCommandSubsetOverlay(
       canvas,
       surface,
       viewportSize,
+      commandIndices,
       stats: stats,
     );
   }

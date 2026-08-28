@@ -297,6 +297,41 @@ end
       );
     });
 
+    test('can pin virtual pointer against host mouse activity', () async {
+      adapter.setVirtualPointerPosition(
+        12.9,
+        18.1,
+        lockPhysicalMouseInput: true,
+      );
+      adapter.handlePointerHover(
+        const PointerHoverEvent(
+          kind: PointerDeviceKind.mouse,
+          position: Offset(100, 200),
+          delta: Offset(88, 182),
+        ),
+      );
+      await _flushQueuedInput(adapter, runtime);
+
+      expect(host.mouse.x, 12);
+      expect(host.mouse.y, 18);
+      expect(
+        runtime.unwrapGlobalTable('testbed')!['mousemoved'],
+        '12,18,12,18,false',
+      );
+
+      adapter.resetInputState();
+      adapter.handlePointerHover(
+        const PointerHoverEvent(
+          kind: PointerDeviceKind.mouse,
+          position: Offset(100, 200),
+        ),
+      );
+      await _flushQueuedInput(adapter, runtime);
+
+      expect(host.mouse.x, 100);
+      expect(host.mouse.y, 200);
+    });
+
     test(
       'applies optional point and delta transforms after viewport mapping',
       () async {
@@ -305,7 +340,7 @@ end
           runtimeProvider: () => runtime,
           viewportSizeProvider: () => const Size(800, 600),
           pointTransform: (point, _) => point + const Offset(100, 200),
-          deltaTransform: (delta, _, __) => delta * 2,
+          deltaTransform: (delta, _, _) => delta * 2,
         );
 
         adapter.handlePointerHover(

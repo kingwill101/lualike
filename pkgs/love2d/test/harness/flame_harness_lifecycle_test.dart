@@ -15,7 +15,16 @@ void main() {
     const harness = LoveFlameHarness(entryAsset: 'assets/game/main.lua');
 
     expect(harness.engineMode, EngineMode.ast);
+    expect(harness.gcPolicy, LuaGcPolicy.luaCompatible);
     expect(harness.automaticGc, isFalse);
+    expect(harness.showStatusOverlay, isTrue);
+    expect(
+      const LoveFlameHarness(
+        entryAsset: 'assets/game/main.lua',
+        showStatusOverlay: false,
+      ).showStatusOverlay,
+      isFalse,
+    );
   });
 
   testWidgets(

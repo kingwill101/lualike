@@ -6,6 +6,7 @@ import '../love_runtime.dart';
 class LoveRenderStats {
   const LoveRenderStats({
     this.renderedCommands = 0,
+    this.hybridFallbackCommands = 0,
     this.softwareSurfaceFallbacks = 0,
     this.atlasBatchCommands = 0,
     this.atlasBatchItems = 0,
@@ -22,6 +23,10 @@ class LoveRenderStats {
   });
 
   final int renderedCommands;
+
+  /// Commands replayed by a secondary backend in a hybrid frame.
+  final int hybridFallbackCommands;
+
   final int softwareSurfaceFallbacks;
   final int atlasBatchCommands;
   final int atlasBatchItems;
@@ -78,9 +83,21 @@ abstract class LoveRenderBackend {
   });
 }
 
+/// Optional backend contract for LOVE window-mode dependent render state.
+///
+/// The harness invokes this whenever `love.conf`, `love.window.setMode`, or
+/// `love.window.updateMode` changes the effective window metrics. Backends
+/// which do not depend on window state can continue to implement only
+/// [LoveRenderBackend].
+abstract interface class LoveWindowMetricsAwareRenderBackend {
+  /// Applies the effective LOVE window configuration to this backend.
+  void updateLoveWindowMetrics(LoveWindowMetrics metrics);
+}
+
 /// Accumulator for building [LoveRenderStats] while rendering a frame.
 class LoveRenderStatsAccumulator {
   int renderedCommands = 0;
+  int hybridFallbackCommands = 0;
   int softwareSurfaceFallbacks = 0;
   int atlasBatchCommands = 0;
   int atlasBatchItems = 0;
@@ -96,19 +113,20 @@ class LoveRenderStatsAccumulator {
   int meshAlphaMaskLayers = 0;
 
   LoveRenderStats snapshot() => LoveRenderStats(
-        renderedCommands: renderedCommands,
-        softwareSurfaceFallbacks: softwareSurfaceFallbacks,
-        atlasBatchCommands: atlasBatchCommands,
-        atlasBatchItems: atlasBatchItems,
-        textPainterCacheHits: textPainterCacheHits,
-        textPainterCacheMisses: textPainterCacheMisses,
-        textLayoutDuration: textLayoutDuration,
-        surfaceClearLayers: surfaceClearLayers,
-        commandBlendLayers: commandBlendLayers,
-        commandShaderLayers: commandShaderLayers,
-        commandRadialMaskLayers: commandRadialMaskLayers,
-        imageRadialOverlayLayers: imageRadialOverlayLayers,
-        meshCompositeLayers: meshCompositeLayers,
-        meshAlphaMaskLayers: meshAlphaMaskLayers,
-      );
+    renderedCommands: renderedCommands,
+    hybridFallbackCommands: hybridFallbackCommands,
+    softwareSurfaceFallbacks: softwareSurfaceFallbacks,
+    atlasBatchCommands: atlasBatchCommands,
+    atlasBatchItems: atlasBatchItems,
+    textPainterCacheHits: textPainterCacheHits,
+    textPainterCacheMisses: textPainterCacheMisses,
+    textLayoutDuration: textLayoutDuration,
+    surfaceClearLayers: surfaceClearLayers,
+    commandBlendLayers: commandBlendLayers,
+    commandShaderLayers: commandShaderLayers,
+    commandRadialMaskLayers: commandRadialMaskLayers,
+    imageRadialOverlayLayers: imageRadialOverlayLayers,
+    meshCompositeLayers: meshCompositeLayers,
+    meshAlphaMaskLayers: meshAlphaMaskLayers,
+  );
 }

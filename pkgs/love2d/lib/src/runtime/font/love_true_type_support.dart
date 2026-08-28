@@ -116,10 +116,30 @@ final class LoveTrueTypeFontMetadata {
     final resolvedDpiScale = dpiScale <= 0 ? 1.0 : dpiScale;
     return Map<int, double>.unmodifiable(<int, double>{
       for (final entry in kerning.entries)
-        entry.key:
-            (((entry.value * pixelScale).round() / resolvedDpiScale) + 0.5)
-                .floorToDouble(),
+        entry.key: _logicalFreeTypeKerning(
+          entry.value * pixelScale,
+          pixelHeight: pixelHeight,
+          dpiScale: resolvedDpiScale,
+        ),
     });
+  }
+
+  /// Applies FreeType's `FT_KERNING_DEFAULT` fitting before LOVE's DPI
+  /// normalization.
+  ///
+  /// FreeType heuristically scales kerning down below 25 ppem so rounding a
+  /// subpixel pair does not make it disproportionately large. LOVE then
+  /// converts the fitted physical-pixel value back to logical pixels.
+  double _logicalFreeTypeKerning(
+    double scaledPixels, {
+    required int pixelHeight,
+    required double dpiScale,
+  }) {
+    final fittedPixels = pixelHeight < 25
+        ? scaledPixels * (pixelHeight / 25.0)
+        : scaledPixels;
+    final roundedPhysicalPixels = (fittedPixels + 0.5).floorToDouble();
+    return ((roundedPhysicalPixels / dpiScale) + 0.5).floorToDouble();
   }
 
   /// Returns glyph metrics scaled to [pixelHeight].
@@ -1631,13 +1651,34 @@ Uint8List _rasterizeTrueTypeContoursLa8(
         continue;
       }
 
+      final coverage = ((coveredSamples * 255) / 16).round();
       bytes[((y * width) + x) * 2 + 1] = monochrome
           ? (coveredSamples >= 8 ? 255 : 0)
-          : ((coveredSamples * 255) / 16).round();
+          : loveApplyGlyphCoverageGamma(coverage);
     }
   }
 
   return bytes;
+}
+
+/// Applies the configured grayscale coverage curve to one glyph alpha value.
+///
+/// The operation happens once while rasterizing a cached glyph, never in the
+/// draw loop. [gamma] is injectable for deterministic tests and native LOVE
+/// calibration sweeps.
+int loveApplyGlyphCoverageGamma(int alpha, {double? gamma}) {
+  final normalizedAlpha = alpha.clamp(0, 255);
+  if (normalizedAlpha == 0 || normalizedAlpha == 255) {
+    return normalizedAlpha;
+  }
+  final resolvedGamma = gamma ?? loveFreeTypeGlyphCoverageGamma;
+  if (!resolvedGamma.isFinite || resolvedGamma <= 0 || resolvedGamma == 1.0) {
+    return normalizedAlpha;
+  }
+  return (math.pow(normalizedAlpha / 255, resolvedGamma) * 255).round().clamp(
+    0,
+    255,
+  );
 }
 
 /// Flattens a quadratic contour into line segments for scan conversion.

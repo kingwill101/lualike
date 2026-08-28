@@ -9,6 +9,12 @@ import 'package_path_test_support.dart';
 
 const String love2dDefaultTrueTypeFontAssetPath =
     'packages/love2d/third_party/love/extra/resources/Vera.ttf';
+const String love2dNativeDefaultFontAtlasAssetPath =
+    'packages/love2d/third_party/love/extra/resources/default_font/'
+    'Vera-12-normal-1x.png';
+const String love2dNativeDefaultFontMetadataAssetPath =
+    'packages/love2d/third_party/love/extra/resources/default_font/'
+    'Vera-12-normal-1x.json';
 
 Future<Directory> love2dResourceDirectory() async {
   final packageRoot = await love2dPackageRoot();
@@ -22,15 +28,36 @@ Future<File> love2dVeraFontFile() async {
   return File(p.join(resources.path, 'Vera.ttf'));
 }
 
+Future<File> love2dNativeDefaultFontAtlasFile() async {
+  final resources = await love2dResourceDirectory();
+  return File(p.join(resources.path, 'default_font', 'Vera-12-normal-1x.png'));
+}
+
+Future<File> love2dNativeDefaultFontMetadataFile() async {
+  final resources = await love2dResourceDirectory();
+  return File(p.join(resources.path, 'default_font', 'Vera-12-normal-1x.json'));
+}
+
 Future<void> ensureLove2dDefaultFontAssetAvailable() async {
   try {
-    await rootBundle.load(love2dDefaultTrueTypeFontAssetPath);
+    await Future.wait(<Future<ByteData>>[
+      rootBundle.load(love2dDefaultTrueTypeFontAssetPath),
+      rootBundle.load(love2dNativeDefaultFontAtlasAssetPath),
+      rootBundle.load(love2dNativeDefaultFontMetadataAssetPath),
+    ]);
     return;
   } catch (_) {
     // Workspace-root flutter test runs do not always expose package assets.
   }
 
-  final fontBytes = await (await love2dVeraFontFile()).readAsBytes();
+  final assets = <String, Uint8List>{
+    love2dDefaultTrueTypeFontAssetPath: await (await love2dVeraFontFile())
+        .readAsBytes(),
+    love2dNativeDefaultFontAtlasAssetPath:
+        await (await love2dNativeDefaultFontAtlasFile()).readAsBytes(),
+    love2dNativeDefaultFontMetadataAssetPath:
+        await (await love2dNativeDefaultFontMetadataFile()).readAsBytes(),
+  };
   final binding = TestWidgetsFlutterBinding.ensureInitialized();
   binding.defaultBinaryMessenger.setMockMessageHandler('flutter/assets', (
     ByteData? message,
@@ -42,11 +69,12 @@ Future<void> ensureLove2dDefaultFontAssetAvailable() async {
     final key = utf8.decode(
       message.buffer.asUint8List(message.offsetInBytes, message.lengthInBytes),
     );
-    if (key != love2dDefaultTrueTypeFontAssetPath) {
+    final bytes = assets[key];
+    if (bytes == null) {
       return null;
     }
 
-    return ByteData.sublistView(fontBytes);
+    return ByteData.sublistView(bytes);
   });
 }
 

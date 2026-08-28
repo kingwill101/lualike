@@ -10,6 +10,23 @@ import '../test_support/lua_api_test_helpers.dart';
 void main() {
   group('love.font kerning rounding', () {
     test(
+      'normal-sized Vera kerning follows FreeType small-ppem fitting',
+      () async {
+        final veraBytes = await (await love2dVeraFontFile()).readAsBytes();
+        final font = LoveRasterizer.trueType(
+          size: 12,
+          hinting: 'normal',
+          dpiScale: 1,
+          sourceBytes: veraBytes,
+        ).toLoveFont(defaultFilter: LoveGraphicsDefaultFilter.standard);
+
+        expect(font.getKerning('A', 'V'), 0);
+        expect(font.getKerning('V', 'A'), 0);
+        expect(font.measureWidth('AVATAR 0123456789 // WAVE READY'), 227);
+      },
+    );
+
+    test(
       'source-backed true type kerning follows LOVE dpi-normalized rounding',
       () async {
         final veraBytes = await (await love2dVeraFontFile()).readAsBytes();

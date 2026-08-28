@@ -35,6 +35,29 @@ void main() {
 
     expect(font, isNotNull);
     expect(font!.family, isNotEmpty);
+    if (loveFreeTypeGlyphAtlasEnabled) {
+      expect(font.glyphAtlas, isNotNull);
+      expect(font.glyphAtlas!.image.nativeImage, isNotNull);
+      expect(
+        font.glyphAtlas!.glyphs.keys,
+        containsAll(<int>[0x20, 0x41, 0x7e]),
+      );
+      final atlasA = font.glyphAtlas!.glyphs[0x41]!;
+      expect(atlasA.width, greaterThan(0));
+      expect(atlasA.height, greaterThan(0));
+      final atlasPixels = font.glyphAtlas!.image.imageData!;
+      expect(
+        <LoveColor>[
+          for (var y = atlasA.y; y < atlasA.y + atlasA.height; y++)
+            for (var x = atlasA.x; x < atlasA.x + atlasA.width; x++)
+              atlasPixels.getPixel(x, y),
+        ].any((pixel) => pixel.a > 0 && pixel.a < 1),
+        isTrue,
+        reason: 'normal hinting should preserve antialiased glyph coverage',
+      );
+    } else {
+      expect(font.glyphAtlas, isNull);
+    }
     expect(font.height, greaterThan(0.0));
     expect(font.ascent, greaterThan(0.0));
     expect(font.measureWidth('WWW'), greaterThan(font.measureWidth('iii')));
@@ -175,6 +198,46 @@ void main() {
     expect(font.measureWidth('WWW'), greaterThan(font.measureWidth('iii')));
     expect(font.hasGlyphValues(const <Object?>['LuaLike']), isTrue);
     expect(font.hasGlyphValues(const <Object?>['中']), isFalse);
+  });
+
+  testWidgets('implicit 12 px font uses the native LOVE atlas and metrics', (
+    tester,
+  ) async {
+    final font = await tester.runAsync(() async {
+      final host = LoveFlameHost<World>(game: FlameGame<World>(world: World()));
+      return host.loadDefaultTrueTypeFont(
+        size: 12.0,
+        hinting: 'normal',
+        dpiScale: 1.0,
+        defaultFilter: LoveGraphicsDefaultFilter.standard,
+      );
+    });
+
+    expect(font, isNotNull);
+    if (loveNativeDefaultFontAtlasEnabled) {
+      expect(font!.height, 14);
+      expect(font.ascent, 12);
+      expect(font.descent, -3);
+      expect(font.baseline, 12);
+      expect(font.glyphAtlas!.image.width, 256);
+      expect(font.glyphAtlas!.image.height, 38);
+      expect(
+        font.glyphAtlas!.image.source,
+        endsWith('default_font/Vera-12-normal-1x.png'),
+      );
+      final glyphA = font.glyphAtlas!.glyphs[0x41]!;
+      expect(
+        (
+          width: glyphA.width,
+          height: glyphA.height,
+          advance: glyphA.advance,
+          bearingX: glyphA.bearingX,
+          bearingY: glyphA.bearingY,
+        ),
+        (width: 9, height: 9, advance: 8, bearingX: 0, bearingY: 9),
+      );
+      expect(font.getKerning(0x54, 0x61), -1);
+    }
   });
 
   testWidgets(

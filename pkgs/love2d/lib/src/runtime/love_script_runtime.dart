@@ -89,13 +89,18 @@ class LoveScriptRuntime {
   LoveScriptRuntime({
     LuaRuntime? runtime,
     EngineMode? engineMode,
+    LuaGcPolicy gcPolicy = LuaGcPolicy.luaCompatible,
     LoveHost? host,
     LoveFilesystemAdapter? filesystemAdapter,
     bool automaticGc = false,
   }) : this._(
          lua: runtime == null
-             ? LuaLike(engineMode: engineMode)
-             : LuaLike(runtime: runtime, engineMode: engineMode),
+             ? LuaLike(engineMode: engineMode, gcPolicy: gcPolicy)
+             : LuaLike(
+                 runtime: runtime,
+                 engineMode: engineMode,
+                 gcPolicy: gcPolicy,
+               ),
          host: host,
          filesystemAdapter: filesystemAdapter,
          automaticGc: automaticGc,
@@ -215,8 +220,7 @@ end
     }
 
     final callback = _value(slot);
-    final resolved =
-        callback != null && !_isGeneratedLoveCallbackStub(callback)
+    final resolved = callback != null && !_isGeneratedLoveCallbackStub(callback)
         ? callback
         : null;
     _hotUserCallbackCache[name] = (slot, resolved);
