@@ -50,6 +50,72 @@ void main() {
     expect(identical(result[2], result[3]), true);
   });
 
+  test('double cache keys preserve exact IEEE-754 bit identity', () {
+    final interpreter = Interpreter();
+
+    double fromWords(int high, int low) {
+      final bytes = ByteData(8)
+        ..setUint32(0, high, Endian.big)
+        ..setUint32(4, low, Endian.big);
+      return bytes.getFloat64(0, Endian.big);
+    }
+
+    final nanPayloadOne = fromWords(0x7ff80000, 0x00000001);
+    final nanPayloadTwo = fromWords(0x7ff80000, 0x00000002);
+
+    expect(
+      identical(
+        interpreter.constantPrimitiveValue(1.5),
+        interpreter.constantPrimitiveValue(1.5),
+      ),
+      isTrue,
+    );
+    expect(
+      identical(
+        interpreter.constantPrimitiveValue(0.0),
+        interpreter.constantPrimitiveValue(-0.0),
+      ),
+      isFalse,
+    );
+    expect(
+      identical(
+        interpreter.constantPrimitiveValue(nanPayloadOne),
+        interpreter.constantPrimitiveValue(nanPayloadOne),
+      ),
+      isTrue,
+    );
+    expect(
+      identical(
+        interpreter.constantPrimitiveValue(nanPayloadOne),
+        interpreter.constantPrimitiveValue(nanPayloadTwo),
+      ),
+      isFalse,
+    );
+  });
+
+  test('numeric primitive caches have bounded retention', () {
+    final interpreter = Interpreter();
+    final limit = Interpreter.numericPrimitiveCacheLimit < 1
+        ? 1
+        : Interpreter.numericPrimitiveCacheLimit;
+
+    for (var index = 0; index < limit + 257; index++) {
+      interpreter.constantPrimitiveValue(index);
+      interpreter.constantPrimitiveValue(index + 0.25);
+      interpreter.constantPrimitiveValue(BigInt.from(index) << 80);
+    }
+
+    final diagnostics = interpreter.numericPrimitiveCacheDiagnostics();
+    expect(diagnostics['bounded'], Interpreter.boundedNumericPrimitiveCache);
+    expect(diagnostics['ints'], lessThanOrEqualTo(limit));
+    expect(diagnostics['nativeDoubles'], lessThanOrEqualTo(limit));
+    expect(diagnostics['recordDoubles'], lessThanOrEqualTo(limit));
+    expect(diagnostics['bigInts'], lessThanOrEqualTo(limit));
+
+    final recent = interpreter.constantPrimitiveValue(limit + 0.25);
+    expect(interpreter.constantPrimitiveValue(limit + 0.25), same(recent));
+  });
+
   test('numeric upvalue reads reuse the runtime primitive cache', () async {
     final lua = LuaLike(engineMode: EngineMode.ast);
     final result =

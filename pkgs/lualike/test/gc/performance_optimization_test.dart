@@ -36,6 +36,61 @@ void main() {
         expect(generation.objects.contains(b), isFalse);
         expect(generation.objects.contains(c), isTrue);
       });
+
+      test('host execution objects do not enter strong generations', () {
+        final environment = Environment(interpreter: vm);
+        final box = Box<dynamic>(1, isTransient: true, interpreter: vm);
+        final scalar = Value.primitive(2, interpreter: vm);
+
+        expect(environment.gcSpace, isNull);
+        expect(box.gcSpace, isNotNull);
+        expect(scalar.gcSpace, isNull);
+      });
+
+      test('closure-free scopes recycle hidden transient local boxes', () {
+        final environment = Environment(interpreter: vm);
+        environment.enableTransientLocalBindingReuse();
+        environment.declare('scratch', 1);
+        final firstBox = environment.values['scratch'];
+
+        environment.recycleTransientLocalBindingsExcept(const <String>{});
+
+        expect(environment.values.containsKey('scratch'), isFalse);
+        expect(firstBox?.value, isNull);
+        environment.declare('scratch', 2);
+        final secondBox = environment.values['scratch'];
+        expect(secondBox, same(firstBox));
+        expect(secondBox?.value, equals(2));
+        expect(secondBox?.gcSpace, isNotNull);
+      });
+    });
+
+    group('Box binding attributes', () {
+      test('ordinary reads preserve an unannotated value', () {
+        final value = Value(1);
+        final box = Box<Value>(value);
+
+        expect(box.value, same(value));
+        expect(value.isConst, isFalse);
+        expect(value.isToBeClose, isFalse);
+      });
+
+      test('annotated reads and writes still mirror owner attributes', () {
+        final initial = Value(1);
+        final box = Box<Value>(initial, isConst: true, isToBeClose: true);
+
+        initial
+          ..isConst = false
+          ..isToBeClose = false;
+        expect(box.value, same(initial));
+        expect(initial.isConst, isTrue);
+        expect(initial.isToBeClose, isTrue);
+
+        final replacement = Value(2);
+        box.value = replacement;
+        expect(replacement.isConst, isTrue);
+        expect(replacement.isToBeClose, isTrue);
+      });
     });
 
     group('Map Traversal Filtering', () {

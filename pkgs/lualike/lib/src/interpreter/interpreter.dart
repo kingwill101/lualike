@@ -89,6 +89,40 @@ Map<String, int> _statementLabelMap(List<AstNode> statements) {
   return metadata.labelMap = labels ?? const <String, int>{};
 }
 
+class _NumericPrimitiveValueCache<K extends Object> {
+  final bool bounded;
+  final int capacity;
+  final Map<K, Value> _values = <K, Value>{};
+  late final List<K?> _evictionRing = bounded
+      ? List<K?>.filled(capacity, null, growable: false)
+      : const <Never>[];
+  int _nextEvictionIndex = 0;
+
+  _NumericPrimitiveValueCache({required this.bounded, required int capacity})
+    : capacity = capacity < 1 ? 1 : capacity;
+
+  int get length => _values.length;
+
+  Value? operator [](K key) => _values[key];
+
+  void put(K key, Value value) {
+    if (!bounded) {
+      _values[key] = value;
+      return;
+    }
+
+    if (_values.length >= capacity) {
+      final evictedKey = _evictionRing[_nextEvictionIndex];
+      if (evictedKey != null) {
+        _values.remove(evictedKey);
+      }
+    }
+    _values[key] = value;
+    _evictionRing[_nextEvictionIndex] = key;
+    _nextEvictionIndex = (_nextEvictionIndex + 1) % capacity;
+  }
+}
+
 /// Virtual Machine for the LuaLike interpreter.
 ///
 /// Implements the AstVisitor interface to execute the AST nodes by traversing
@@ -103,6 +137,26 @@ class Interpreter extends AstVisitor<Object?>
         InterpreterLiteralMixin,
         InterpreterTableMixin
     implements LuaRuntime {
+  static const bool identifierFrameLookupFastPathEnabled = bool.fromEnvironment(
+    'LUALIKE_IDENTIFIER_FRAME_LOOKUP_FAST_PATH',
+    defaultValue: true,
+  );
+
+  /// Maximum retained wrappers in each exact numeric primitive cache.
+  ///
+  /// Lua numbers have value semantics, so evicting an idle wrapper cannot be
+  /// observed by Lua code. Values still referenced by tables, locals, host
+  /// code, or closures remain alive normally; only the interpreter's cache
+  /// ownership is bounded.
+  static const int numericPrimitiveCacheLimit = int.fromEnvironment(
+    'LUALIKE_NUMERIC_PRIMITIVE_CACHE_LIMIT',
+    defaultValue: 4096,
+  );
+  static const bool boundedNumericPrimitiveCache = bool.fromEnvironment(
+    'LUALIKE_BOUNDED_NUMERIC_PRIMITIVE_CACHE',
+    defaultValue: true,
+  );
+
   /// Currently active coroutine
   Coroutine? _currentCoroutine;
 
@@ -244,61 +298,110 @@ class Interpreter extends AstVisitor<Object?>
   Value? _cachedNilValue;
   Value? _cachedTrueValue;
   Value? _cachedFalseValue;
-  final Map<int, Value> _cachedIntValues = <int, Value>{};
+  final _NumericPrimitiveValueCache<int> _cachedIntValues =
+      _NumericPrimitiveValueCache<int>(
+        bounded: boundedNumericPrimitiveCache,
+        capacity: numericPrimitiveCacheLimit,
+      );
 
-  /// Cache of shared [Value] wrappers for [double] constants, keyed by the
-  /// raw IEEE-754 bit pattern split into two 32-bit halves.
+  /// Cache of shared [Value] wrappers for [double] constants.
   ///
-  /// We **cannot** use [double] itself as the map key because IEEE 754
-  /// equality conflates values that have different bit patterns but
-  /// distinct Lua semantics:
+  /// Native Dart VMs can represent the exact signed 64-bit IEEE-754 bit
+  /// pattern as an [int]. JavaScript targets cannot represent every 64-bit
+  /// integer exactly, so they retain the two-32-bit-word key.
   ///
-  ///   | value      | -0.0 == 0.0 | NaN == NaN |
-  ///   |------------|-------------|-------------|
-  ///   | IEEE 754   | true        | false       |
-  ///   | Lua need   | distinct    | distinct    |
-  ///
-  /// Using a `(int, int)` record from the raw 64-bit bit pattern avoids the
-  /// [BigInt] allocation that a full [NumberUtils.doubleToRawBits] round-trip
-  /// would incur (the profiler showed `BigInt.from` on the hot path).
-  final Map<(int, int), Value> _cachedDoubleValues = <(int, int), Value>{};
-  final Map<BigInt, Value> _cachedBigIntValues = <BigInt, Value>{};
+  /// Both forms preserve distinct cache entries for -0.0 and 0.0 and avoid
+  /// [double] map equality's NaN behavior. The native key also avoids the
+  /// transient record allocation previously paid on every lookup.
+  final _NumericPrimitiveValueCache<int> _cachedNativeDoubleValues =
+      _NumericPrimitiveValueCache<int>(
+        bounded: boundedNumericPrimitiveCache,
+        capacity: numericPrimitiveCacheLimit,
+      );
+  final _NumericPrimitiveValueCache<(int, int)> _cachedRecordDoubleValues =
+      _NumericPrimitiveValueCache<(int, int)>(
+        bounded: boundedNumericPrimitiveCache,
+        capacity: numericPrimitiveCacheLimit,
+      );
+  final _NumericPrimitiveValueCache<BigInt> _cachedBigIntValues =
+      _NumericPrimitiveValueCache<BigInt>(
+        bounded: boundedNumericPrimitiveCache,
+        capacity: numericPrimitiveCacheLimit,
+      );
+
+  static const bool _usesJavaScriptNumbers = bool.fromEnvironment(
+    'dart.library.js_interop',
+  );
+  static const bool _useNativeDoubleCacheKey = bool.fromEnvironment(
+    'LUALIKE_NATIVE_DOUBLE_CACHE_KEY',
+    defaultValue: true,
+  );
 
   /// Scratch buffer shared across all [_doubleToKey] calls.
   static final ByteData _doubleKeyScratch = ByteData(8);
 
-  /// Converts a [double] to a `(int, int)` record for the double-value cache.
-  ///
-  /// Uses the raw IEEE-754 bit pattern split into two 32-bit halves via the
-  /// shared scratch buffer.  This avoids both the [BigInt] allocation that
-  /// [NumberUtils.doubleToRawBits] would incur and the IEEE-754 equality
-  /// pitfalls of using [double] directly as a map key.
-  static (int, int) _doubleToKey(double value) {
-    final data = _doubleKeyScratch..setFloat64(0, value, Endian.big);
-    return (data.getUint32(0, Endian.big), data.getUint32(4, Endian.big));
+  Value _createSharedPrimitive(Object? value) =>
+      Value.primitive(value, isSharedPrimitive: true, isRawPrimitive: true);
+
+  Value _cachedIntValue(int value) {
+    final cached = _cachedIntValues[value];
+    if (cached != null) return cached;
+    final created = _createSharedPrimitive(value);
+    _cachedIntValues.put(value, created);
+    return created;
   }
+
+  Value _cachedDoubleValue(double value) {
+    final data = _doubleKeyScratch..setFloat64(0, value, Endian.big);
+    if (_usesJavaScriptNumbers || !_useNativeDoubleCacheKey) {
+      final key = (
+        data.getUint32(0, Endian.big),
+        data.getUint32(4, Endian.big),
+      );
+      final cached = _cachedRecordDoubleValues[key];
+      if (cached != null) return cached;
+      final created = _createSharedPrimitive(value);
+      _cachedRecordDoubleValues.put(key, created);
+      return created;
+    }
+
+    final key = data.getInt64(0, Endian.big);
+    final cached = _cachedNativeDoubleValues[key];
+    if (cached != null) return cached;
+    final created = _createSharedPrimitive(value);
+    _cachedNativeDoubleValues.put(key, created);
+    return created;
+  }
+
+  Value _cachedBigIntValue(BigInt value) {
+    final cached = _cachedBigIntValues[value];
+    if (cached != null) return cached;
+    final created = _createSharedPrimitive(value);
+    _cachedBigIntValues.put(value, created);
+    return created;
+  }
+
+  /// Snapshot of numeric-wrapper cache retention for profiling and tests.
+  Map<String, Object> numericPrimitiveCacheDiagnostics() => <String, Object>{
+    'bounded': boundedNumericPrimitiveCache,
+    'limitPerType': numericPrimitiveCacheLimit < 1
+        ? 1
+        : numericPrimitiveCacheLimit,
+    'ints': _cachedIntValues.length,
+    'nativeDoubles': _cachedNativeDoubleValues.length,
+    'recordDoubles': _cachedRecordDoubleValues.length,
+    'bigInts': _cachedBigIntValues.length,
+  };
 
   @override
   Value constantPrimitiveValue(Object? raw) {
-    Value create(Object? value) =>
-        Value.primitive(value, isSharedPrimitive: true, isRawPrimitive: true);
-
     final cached = switch (raw) {
-      null => _cachedNilValue ??= create(null),
-      true => _cachedTrueValue ??= create(true),
-      false => _cachedFalseValue ??= create(false),
-      final int value => _cachedIntValues.putIfAbsent(
-        value,
-        () => create(value),
-      ),
-      final double value => _cachedDoubleValues.putIfAbsent(
-        _doubleToKey(value),
-        () => create(value),
-      ),
-      final BigInt value => _cachedBigIntValues.putIfAbsent(
-        value,
-        () => create(value),
-      ),
+      null => _cachedNilValue ??= _createSharedPrimitive(null),
+      true => _cachedTrueValue ??= _createSharedPrimitive(true),
+      false => _cachedFalseValue ??= _createSharedPrimitive(false),
+      final int value => _cachedIntValue(value),
+      final double value => _cachedDoubleValue(value),
+      final BigInt value => _cachedBigIntValue(value),
       _ => throw ArgumentError.value(raw, 'raw', 'Not a cached primitive'),
     };
     final metatableGeneration = MetaTable().defaultMetatableGeneration;
@@ -725,6 +828,9 @@ class Interpreter extends AstVisitor<Object?>
   CallFrame? findFrameForCallable(Value? callable) {
     if (callable == null) {
       return null;
+    }
+    if (identifierFrameLookupFastPathEnabled) {
+      return callStack.findLatestFrameForCallable(callable);
     }
     for (final frame in callStack.frames.toList().reversed) {
       if (identical(frame.callable, callable)) {
