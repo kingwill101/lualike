@@ -557,8 +557,11 @@ extension LuaBytecodeVmCallEntry on LuaBytecodeVm {
     List<Value> args, {
     required BuiltinFunction builtin,
   }) {
+    final result = builtin.call(args);
     if (!runtime.gc.isCycleActive) {
-      return _normalizeResults(builtin.call(args));
+      return result is Future
+          ? result.then<List<Value>>(_normalizeResults)
+          : _normalizeResults(result);
     }
 
     Iterable<Value> tempRootProvider() sync* {
@@ -570,7 +573,6 @@ extension LuaBytecodeVmCallEntry on LuaBytecodeVm {
 
     runtime.pushExternalGcRoots(tempRootProvider);
     try {
-      final result = builtin.call(args);
       if (result is Future) {
         return result
             .then<List<Value>>((value) => _normalizeResults(value))
@@ -602,8 +604,11 @@ extension LuaBytecodeVmCallEntry on LuaBytecodeVm {
       // avoiding a transient Value allocation for every LOVE/math argument.
       materializeValues: false,
     );
+    final result = builtin.call(args);
     if (!runtime.gc.isCycleActive) {
-      return _normalizeResults(builtin.call(args));
+      return result is Future
+          ? result.then<List<Value>>(_normalizeResults)
+          : _normalizeResults(result);
     }
 
     Iterable<Value> tempRootProvider() sync* {
@@ -613,7 +618,6 @@ extension LuaBytecodeVmCallEntry on LuaBytecodeVm {
 
     runtime.pushExternalGcRoots(tempRootProvider);
     try {
-      final result = builtin.call(args);
       if (result is Future) {
         return result
             .then<List<Value>>((value) => _normalizeResults(value))
