@@ -11,18 +11,10 @@
 - Preserve debugger, closure, coroutine, protected-call, `<const>`, `<close>`,
   and Lua-compatible GC behavior on the default execution paths.
 
-## 0.5.2
-
 - Require the Lualike-specific `*_lualike_schema.dart` input suffix, avoiding
   collisions with Drift and other generated part files such as `tables.g.dart`.
-
-## 0.5.1
-
 - Include `lib/src/build/table_schema_builder.dart` in the published package
   so dependent `build_runner` builders can start correctly.
-
-## 0.5.0
-
 - Centralize runtime bootstrap and library registry setup across AST, IR, and
   bytecode runtimes.
 - Preserve native Dart payloads for byte-oriented and string-library results,
