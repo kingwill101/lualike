@@ -1,4 +1,5 @@
 import 'package:lualike/src/builtin_function.dart';
+import 'package:lualike/src/environment.dart';
 import 'package:lualike/src/runtime/lua_runtime.dart';
 import 'package:lualike/src/logging/logger.dart';
 import 'package:lualike/src/lua_error.dart';
@@ -113,8 +114,11 @@ class IOLib {
     }
   }
 
-  /// Returns GC roots for [runtime]'s IO state: standard handles plus every
-  /// open file registered with that interpreter instance.
+  /// Returns GC roots for IO state held outside normal Lua reachability.
+  ///
+  /// Only standard and current default handles belong here. Adding every
+  /// registered open file makes otherwise unreachable handles immortal and
+  /// prevents their `__gc` finalizers from releasing OS file descriptors.
   static List<Object?> gcRootsFor(LuaRuntime runtime) {
     final roots = <Object?>[];
     final seen = Expando<bool>('ioGcRootsSeen');
@@ -130,14 +134,31 @@ class IOLib {
     add(_stdoutValue);
     add(_defaultInput);
     add(_defaultOutput);
-    // All open files registered to this interpreter are GC roots. Without
-    // this the lualike collector can mark a file Value as dead (no path from
-    // env roots) and run its __gc finalizer even though the file is still
-    // open and referenced by a global in a loaded chunk.
-    for (final v in runtime.openFiles) {
-      add(v);
+    for (final fileValue in runtime.openFiles) {
+      final file = extractLuaFile(fileValue);
+      if (file != null && _isFileBoundInEnvironment(runtime, file)) {
+        add(fileValue);
+      }
     }
     return roots;
+  }
+
+  static bool _isFileBoundInEnvironment(LuaRuntime runtime, LuaFile file) {
+    final visited = <Environment>{};
+
+    bool search(Environment? environment) {
+      while (environment != null && visited.add(environment)) {
+        for (final box in environment.values.values) {
+          if (identical(extractLuaFile(box.value), file)) {
+            return true;
+          }
+        }
+        environment = environment.parent;
+      }
+      return false;
+    }
+
+    return search(runtime.getCurrentEnv()) || search(runtime.globals);
   }
 
   static void registerOpenFile(Value fileValue, {LuaRuntime? interpreter}) {

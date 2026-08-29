@@ -66,6 +66,65 @@ return s
     );
 
     test(
+      'plain table opcodes preserve async semantics on the sync lane',
+      () async {
+        Future<List<Object?>> run() async {
+          final result = await executeCode('''
+local state = { count = 2, values = { 3, 5, 7 } }
+
+function state.bump(self, delta)
+  self.count = self.count + delta
+  return self.count
+end
+
+local key = 2
+state.values[key] = state.values[key] * 4
+state.values[3] = nil
+local missing = state.values[99]
+return state:bump(6), state.values[1], state.values[key],
+       state.values[3], missing
+''', mode: EngineMode.luaBytecode);
+          return _flatten(result);
+        }
+
+        const expected = <Object?>[8, 3, 20, null, null];
+        if (!LuaBytecodeVm.supportsRuntimeSyncPlainTableTuning) {
+          expect(await run(), expected);
+          return;
+        }
+
+        final original = LuaBytecodeVm.usesSyncPlainTableOpcodes;
+        try {
+          LuaBytecodeVm.setSyncPlainTableOpcodesForDiagnostics(false);
+          final asyncResult = await run();
+          LuaBytecodeVm.setSyncPlainTableOpcodesForDiagnostics(true);
+          final syncResult = await run();
+          expect(asyncResult, expected);
+          expect(syncResult, asyncResult);
+        } finally {
+          LuaBytecodeVm.setSyncPlainTableOpcodesForDiagnostics(original);
+        }
+      },
+    );
+
+    test('inline builtins await async results before nested calls', () async {
+      final result = await executeCode(
+        '''
+local function identity(value)
+  return value
+end
+return identity(asyncLeaf())
+''',
+        mode: EngineMode.luaBytecode,
+        onRuntimeSetup: (runtime) {
+          runtime.globals.define('asyncLeaf', _AsyncInlineBuiltin(runtime));
+        },
+      );
+
+      expect(_unwrap(result), equals(42));
+    });
+
+    test(
       'executeCode runs supported labels and goto via emitted chunks',
       () async {
         final result = await executeCode('''
@@ -1446,15 +1505,13 @@ return a[2], b, c == print, a[1].alo == assert
           ]);
           expect(compile.exitCode, equals(0), reason: '${compile.stderr}');
 
-          final result = await Process.run(
-            Platform.resolvedExecutable,
-            <String>[
-              'run',
-              packagePath('bin/main.dart'),
-              '--lua-bytecode',
-              chunkFile.path,
-            ],
-          );
+          final result =
+              await Process.run(Platform.resolvedExecutable, <String>[
+                'run',
+                packagePath('bin/main.dart'),
+                '--lua-bytecode',
+                chunkFile.path,
+              ]);
 
           expect(result.exitCode, equals(0), reason: '${result.stderr}');
           expect(result.stdout as String, contains('bytecode cli ok'));
@@ -1515,6 +1572,16 @@ return a[2], b, c == print, a[1].alo == assert
       },
     );
   });
+}
+
+final class _AsyncInlineBuiltin extends BuiltinFunction {
+  _AsyncInlineBuiltin(super.interpreter);
+
+  @override
+  bool get canBytecodeInlineWithoutManagedFrame => true;
+
+  @override
+  Future<Object?> call(List<Object?> args) async => 42;
 }
 
 String? _resolveLuacBinary() {

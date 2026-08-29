@@ -27,9 +27,9 @@ import 'package:lualike/src/runtime/compiled_artifact_support.dart';
 import 'package:lualike/src/runtime/lua_results.dart';
 import 'package:lualike/src/runtime/lua_slot.dart';
 import 'package:lualike/src/runtime/lua_runtime.dart';
+import 'package:lualike/src/runtime/runtime_bootstrap.dart';
 import 'package:lualike/src/semantic_checker.dart';
 import 'package:lualike/src/stack.dart';
-import 'package:lualike/src/stdlib/init.dart';
 import 'package:lualike/src/stdlib/library.dart';
 import 'package:lualike/src/stdlib/metatables.dart';
 import 'package:lualike/src/value.dart';
@@ -267,17 +267,24 @@ LuaChunkLoadResult loadLuaBytecodeSourceChunk(
 /// Runtime wrapper that executes source by emitting real `lua_bytecode`
 /// chunks and running them through the bytecode VM.
 class LuaBytecodeRuntime implements LuaRuntime {
-  LuaBytecodeRuntime({FileManager? fileManager})
-    : _interpreter = Interpreter(fileManager: fileManager) {
+  LuaBytecodeRuntime({
+    FileManager? fileManager,
+    LuaGcPolicy gcPolicy = LuaGcPolicy.luaCompatible,
+  }) : _interpreter = Interpreter(
+         fileManager: fileManager,
+         initializeStandardLibraries: false,
+         gcPolicy: gcPolicy,
+       ) {
     _interpreter.gc.bindRuntime(this);
     _libraryRegistry = LibraryRegistry(this);
     final runtimeEnv = Environment(interpreter: this);
     _globalEnvironment = runtimeEnv;
-    _interpreter.setCurrentEnv(runtimeEnv);
-    gc.register(runtimeEnv);
-    initializeStandardLibrary(vm: this);
+    initializeRuntimeBootstrap(
+      runtime: this,
+      interpreter: _interpreter,
+      environment: runtimeEnv,
+    );
     _ensureEnvironmentBinding(runtimeEnv);
-    _interpreter.fileManager.setInterpreter(this);
     _bytecodeVm = LuaBytecodeVm(this);
   }
 

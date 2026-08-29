@@ -10,7 +10,6 @@ import 'package:lualike/src/lua_bytecode/vm_support.dart';
 import 'package:lualike/src/lua_bytecode/vm_value_helpers.dart';
 
 import 'package:lualike/src/lua_error.dart';
-import 'package:lualike/src/lua_string.dart';
 import 'package:lualike/src/runtime/lua_runtime.dart';
 import 'package:lualike/src/runtime/lua_results.dart';
 import 'package:lualike/src/runtime/lua_slot.dart';
@@ -38,11 +37,11 @@ final class LuaBytecodeFrame implements LuaBytecodeGCRootProvider {
     this.isTailCall = false,
     this.extraArgs = 0,
   }) : _nilConst = runtime.constantPrimitiveValue(null),
-       registers = List<Value>.filled(
+       registers = List<LuaSlot>.filled(
          closure.prototype.maxStackSize < 1
              ? 1
              : closure.prototype.maxStackSize,
-         runtime.constantPrimitiveValue(null),
+         null,
          growable: true,
        ),
        _lastRegisterWritePc = List<int>.filled(
@@ -67,7 +66,10 @@ final class LuaBytecodeFrame implements LuaBytecodeGCRootProvider {
   final Value _nilConst;
   late List<Value> callArgs;
   late final Iterable<Object?> Function() externalGcRootProvider = gcReferences;
-  final List<Value> registers;
+
+  /// Lightweight VM storage. Immediate primitives stay raw; identity-bearing
+  /// values and wrappers carrying Lua-visible metadata remain as [Value]s.
+  final List<LuaSlot> registers;
   final List<int> _lastRegisterWritePc;
   List<Value>? _materializedVarargs;
   LuaResults? debugVarargValue;
@@ -192,19 +194,24 @@ final class LuaBytecodeFrame implements LuaBytecodeGCRootProvider {
     final fillTo = regLen;
     for (var index = 0; index < fillTo; index++) {
       if (index < parameterCount) {
-        final Value value;
+        final LuaSlot slot;
         if (argsList != null) {
-          value = index < argsList.length ? argsList[index] : nilConst;
+          slot = index < argsList.length
+              ? _registerSlotFor(argsList[index])
+              : null;
         } else if (index < argCount) {
           final arg = arguments[index];
-          value = arg is Value ? arg : runtimeValue(runtime, arg);
+          slot = isLuaPrimitiveSlot(arg)
+              ? arg
+              : _registerSlotFor(
+                  arg is Value ? arg : runtimeValue(runtime, arg),
+                );
         } else {
-          value = nilConst;
+          slot = null;
         }
-        value.interpreter ??= runtime;
-        regs[index] = value;
+        regs[index] = slot;
       } else {
-        regs[index] = nilConst;
+        regs[index] = null;
       }
       _lastRegisterWritePc[index] = -1;
     }
@@ -336,20 +343,67 @@ final class LuaBytecodeFrame implements LuaBytecodeGCRootProvider {
   @pragma('vm:prefer-inline')
   Value slotValue(int index) {
     if (index < registers.length) {
-      return registers[index];
+      final slot = registers[index];
+      return slot is Value ? slot : runtimeValue(runtime, slot);
     }
     return _nilConst;
   }
 
+  /// Returns the internal slot without materializing a public [Value] facade.
+  @pragma('vm:prefer-inline')
+  LuaSlot rawSlot(int index) =>
+      index < registers.length ? registers[index] : null;
+
+  /// Materializes a mutable wrapper in the register for debug APIs that retain
+  /// and overwrite a local by reference. Normal execution should use
+  /// [slotValue], which can return a cached immutable primitive facade.
+  Value materializeRegister(int index) {
+    if (index >= registers.length) {
+      return _nilConst;
+    }
+    final slot = registers[index];
+    if (slot is Value) {
+      return slot;
+    }
+    final materialized = cloneBytecodeValue(runtimeValue(runtime, slot));
+    registers[index] = materialized;
+    final gc = runtime.gc;
+    if (gc.isCycleActive) {
+      gc.noteRootWrite(materialized);
+    }
+    return materialized;
+  }
+
   void setRegister(int index, Value value) {
+    _setRegisterSlot(index, _registerSlotFor(value), rootValue: value);
+  }
+
+  /// Stores an already-lightweight runtime slot without first allocating a
+  /// [Value] wrapper. Non-primitive callers may still pass a [Value] so its
+  /// identity and metadata are preserved.
+  void setRegisterSlot(int index, LuaSlot value) {
+    if (value is Value) {
+      setRegister(index, value);
+      return;
+    }
+    if (isLuaPrimitiveSlot(value)) {
+      _setRegisterSlot(index, value, rootValue: value);
+      return;
+    }
+    setRegister(index, runtimeValue(runtime, value));
+  }
+
+  void _setRegisterSlot(
+    int index,
+    LuaSlot value, {
+    required Object? rootValue,
+  }) {
     final registers = this.registers;
     final lastRegisterWritePc = _lastRegisterWritePc;
     final trackedRegisterWriteFlags = _trackedRegisterWriteFlags;
     if (index >= registers.length) {
       final fillCount = index - registers.length + 1;
-      registers.addAll(
-        List<Value>.generate(fillCount, (_) => _nilConst, growable: false),
-      );
+      registers.addAll(List<LuaSlot>.filled(fillCount, null, growable: false));
       lastRegisterWritePc.addAll(
         List<int>.filled(index - lastRegisterWritePc.length + 1, -1),
       );
@@ -361,35 +415,11 @@ final class LuaBytecodeFrame implements LuaBytecodeGCRootProvider {
         ),
       );
     }
-    // Clone shared cached wrappers before storing them in a register so later
-    // debug writes can mutate the slot in place. Numeric primitive caches are
-    // flagged directly, which avoids a runtime identity lookup on the hot path.
-    final raw = rawLuaSlot(value);
-    final Value storedValue;
-    if (value.skipAllocationDebt) {
-      storedValue = value;
-    } else if (value.isSharedPrimitive) {
-      // Fast path for shared null / bool / number / BigInt primitives:
-      // create a fresh primitive directly instead of cloning the source
-      // (which reads 15+ properties we know are all defaults).
-      storedValue = Value.primitive(
-        raw,
-        skipAllocationDebt: isLuaPrimitiveSlot(raw),
-        skipGcRegistration: isLuaScalarPrimitiveSlot(raw),
-        interpreter: runtime,
-      );
-    } else if ((raw is String || raw is LuaString) &&
-        isSharedRuntimeConstant(runtime, value)) {
-      storedValue = cloneBytecodeValue(value);
-    } else {
-      storedValue = value;
-    }
-    storedValue.interpreter ??= runtime;
-    registers[index] = storedValue;
+    registers[index] = value;
     debugStateVersion++;
     final gc = runtime.gc;
     if (gc.isCycleActive) {
-      gc.noteRootWrite(storedValue);
+      gc.noteRootWrite(rootValue);
     }
     if (index < trackedRegisterWriteFlags.length &&
         trackedRegisterWriteFlags[index]) {
@@ -403,35 +433,7 @@ final class LuaBytecodeFrame implements LuaBytecodeGCRootProvider {
   /// Direct register store when [value] is already frame-safe (no clone).
   @pragma('vm:prefer-inline')
   void storeRegisterRaw(int index, Value value) {
-    final registers = this.registers;
-    final lastRegisterWritePc = _lastRegisterWritePc;
-    final trackedRegisterWriteFlags = _trackedRegisterWriteFlags;
-    if (index >= registers.length) {
-      final fillCount = index - registers.length + 1;
-      registers.addAll(
-        List<Value>.generate(fillCount, (_) => _nilConst, growable: false),
-      );
-      lastRegisterWritePc.addAll(
-        List<int>.filled(index - lastRegisterWritePc.length + 1, -1),
-      );
-      trackedRegisterWriteFlags.addAll(
-        List<bool>.filled(
-          index - trackedRegisterWriteFlags.length + 1,
-          false,
-          growable: false,
-        ),
-      );
-    }
-    value.interpreter ??= runtime;
-    registers[index] = value;
-    debugStateVersion++;
-    if (index < trackedRegisterWriteFlags.length &&
-        trackedRegisterWriteFlags[index]) {
-      lastRegisterWritePc[index] = pc;
-    }
-    if (index + 1 > top) {
-      top = index + 1;
-    }
+    _setRegisterSlot(index, _registerSlotFor(value), rootValue: value);
   }
 
   List<Value> resultsFrom(int start, int count) {
@@ -445,7 +447,7 @@ final class LuaBytecodeFrame implements LuaBytecodeGCRootProvider {
     final available = registers.length - start;
     final copyCount = available < count ? available : count;
     for (var index = 0; index < copyCount; index++) {
-      values[index] = registers[start + index];
+      values[index] = slotValue(start + index);
     }
     return values;
   }
@@ -614,10 +616,11 @@ final class LuaBytecodeFrame implements LuaBytecodeGCRootProvider {
         continue;
       }
       final value = registers[registerIndex];
-      if (rawLuaSlot(value) == null && !value.isToBeClose) {
+      if (rawLuaSlot(value) == null &&
+          (value is! Value || !value.isToBeClose)) {
         continue;
       }
-      registers[registerIndex] = runtimeValue(runtime, null);
+      registers[registerIndex] = null;
     }
   }
 
@@ -816,7 +819,10 @@ final class LuaBytecodeFrame implements LuaBytecodeGCRootProvider {
     };
     for (final registerIndex in liveRegisters.toList()..sort()) {
       if (registerIndex < registers.length) {
-        yield slotValue(registerIndex);
+        final slot = registers[registerIndex];
+        if (slot is GCObject) {
+          yield slot;
+        }
       }
     }
     for (final value in expandedVarargs) {
@@ -972,6 +978,23 @@ Value _detachSharedRuntimeConstantInFrameRegister(
     gc.noteRootWrite(detached);
   }
   return detached;
+}
+
+LuaSlot _registerSlotFor(Value value) {
+  final raw = rawLuaSlot(value);
+  if (!isLuaPrimitiveSlot(raw)) {
+    return value;
+  }
+  if (value.isConst || value.isToBeClose || value.isTempKey || value.isMulti) {
+    return value;
+  }
+  // Transient and shared primitive wrappers carry no per-register identity.
+  // Keep wrappers with Lua-visible flags or metadata intact; those do not use
+  // either of these allocation-neutral/shared forms.
+  if (value.skipAllocationDebt || value.isSharedPrimitive) {
+    return raw;
+  }
+  return value;
 }
 
 List<bool> _localExpiryFlagsFor(LuaBytecodePrototype prototype) {

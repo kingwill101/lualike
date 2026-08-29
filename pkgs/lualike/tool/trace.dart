@@ -21,7 +21,6 @@ import 'package:lualike/src/compile/analyzer_pass.dart';
 import 'package:lualike/src/compile/type_narrowing_pass.dart';
 import 'package:lualike/src/compile/inlining_heuristics_pass.dart';
 import 'package:lualike/src/compile/dead_code_pass.dart';
-import 'package:lualike/src/ir/compiler.dart';
 import 'package:lualike/src/ir/peephole_pass.dart' as ir_peep;
 import 'package:lualike/src/ir/ssa_dead_code_pass.dart';
 import 'package:lualike/src/ir/ssa_gvn_pass.dart';
@@ -29,9 +28,7 @@ import 'package:lualike/src/ir/ssa_sccp_pass.dart';
 import 'package:lualike/src/ir/ssa_licm_pass.dart';
 import 'package:lualike/src/ir/ssa_coalesce_pass.dart';
 import 'package:lualike/src/ir/ssa_escape_pass.dart';
-import 'package:lualike/src/ir/bytecode_lowering.dart';
 import 'package:lualike/src/lua_bytecode/disassembler.dart';
-import 'package:lualike/src/ir/textual_formatter.dart';
 import 'package:lualike/src/parse.dart';
 
 const _defaultLuac55 =
@@ -136,8 +133,9 @@ void main(List<String> args) async {
   }
 
   // Phase 1: IR compile (with folding context from AST passes)
-  var irChunk = LualikeIrCompiler(foldingResult: context.foldingResult)
-      .compile(foldedProgram);
+  var irChunk = LualikeIrCompiler(
+    foldingResult: context.foldingResult,
+  ).compile(foldedProgram);
   var chunk = irChunk;
 
   bool showAll = stopAt == null;
@@ -173,7 +171,9 @@ void main(List<String> args) async {
   }
 
   // 3. DCE
-  if (chunk != irChunk) { irChunk = chunk; }
+  if (chunk != irChunk) {
+    irChunk = chunk;
+  }
   chunk = LualikeIrChunk(
     flags: irChunk.flags,
     mainPrototype: eliminateDeadCode(chunk.mainPrototype),

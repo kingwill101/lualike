@@ -9,6 +9,49 @@ class _IdentifierGlobalCache {
 final Expando<_IdentifierGlobalCache> _identifierGlobalCache =
     Expando<_IdentifierGlobalCache>('identifierGlobalCache');
 
+const bool _returnRawNumericExpressionResults = bool.fromEnvironment(
+  'LUALIKE_RAW_NUMERIC_EXPRESSION_RESULTS',
+  defaultValue: true,
+);
+
+const bool _returnSynchronousIdentifierResults = bool.fromEnvironment(
+  'LUALIKE_SYNC_IDENTIFIER_RESULTS',
+  defaultValue: true,
+);
+
+const bool _reuseBinaryMetamethodMap = bool.fromEnvironment(
+  'LUALIKE_SHARED_BINARY_METAMETHOD_MAP',
+  defaultValue: true,
+);
+
+/// Immutable operator-to-metamethod names shared by every binary expression.
+///
+/// Keeping this outside [visitBinaryExpression] avoids constructing the same
+/// map whenever numeric fast paths do not apply. The compile-time flag above
+/// retains the former per-visit map for exact performance comparisons.
+const Map<String, String> _binaryMetamethodNames = <String, String>{
+  '+': '__add',
+  '-': '__sub',
+  '*': '__mul',
+  '/': '__div',
+  '%': '__mod',
+  '^': '__pow',
+  '//': '__idiv',
+  '&': '__band',
+  '|': '__bor',
+  '~': '__bxor',
+  '<<': '__shl',
+  '>>': '__shr',
+  '..': '__concat',
+  '<': '__lt',
+  '>': '__gt',
+  '<=': '__le',
+  '>=': '__ge',
+  '==': '__eq',
+  '~=': '__eq',
+  '!=': '__eq',
+};
+
 /// Returns the active function's upvalue named [name] as a [Value].
 ///
 /// Some upvalues can temporarily hold raw Dart objects instead of already
@@ -99,6 +142,17 @@ Value _detachTemporaryValue(Value value) {
 Value _wrapExpressionValue(Interpreter? interpreter, Object? value) =>
     cachedPrimitiveOrValue(interpreter, value);
 
+Future<Value> _resolveIdentifierViaEnvironment(
+  Interpreter interpreter,
+  Value envValue,
+  String name,
+) async {
+  final result = await envValue.getValueAsync(
+    interpreter.constantRawStringValue(name),
+  );
+  return valueFromLuaSlot(interpreter, result);
+}
+
 Object? _firstLuaResultOrNil(
   Object? value, {
   Interpreter? interpreter,
@@ -111,17 +165,21 @@ Object? _firstLuaResultOrNil(
 mixin InterpreterExpressionMixin on AstVisitor<Object?> {
   (Value?, bool, Environment?) _resolveCurrentFunctionLocalOrDeclaredGlobal(
     Identifier node,
+    Value? currentFunction,
+    Environment? frameEnv,
   ) {
     if (this is! Interpreter) {
       return (null, false, null);
     }
 
     final interpreter = this as Interpreter;
-    final currentFunction = interpreter.getCurrentFunction();
+    if (!Interpreter.identifierFrameLookupFastPathEnabled) {
+      currentFunction = interpreter.getCurrentFunction();
+      frameEnv = currentFunction == null
+          ? null
+          : interpreter.findFrameForCallable(currentFunction)?.env;
+    }
     final closureBoundary = currentFunction?.closureEnvironment;
-    final frameEnv = currentFunction == null
-        ? null
-        : interpreter.findFrameForCallable(currentFunction)?.env;
 
     Environment? env = globals;
     if (frameEnv != null) {
@@ -148,7 +206,7 @@ mixin InterpreterExpressionMixin on AstVisitor<Object?> {
           );
         }
       }
-      if (env.declaredGlobals.containsKey(node.name)) {
+      if (env.containsDeclaredGlobal(node.name)) {
         return (null, true, closureBoundary);
       }
       if (identical(env, closureBoundary)) {
@@ -284,9 +342,11 @@ mixin InterpreterExpressionMixin on AstVisitor<Object?> {
         : null;
     if (currentFrame != null &&
         (node.right is FunctionCall || node.right is MethodCall)) {
-      final tempValue = leftResult is Value
-          ? _detachTemporaryValue(leftResult)
-          : _wrapExpressionValue(interpreter, leftResult);
+      final tempValue = _detachTemporaryValue(
+        leftResult is Value
+            ? leftResult
+            : _wrapExpressionValue(interpreter, leftResult),
+      );
       temporaryEntry = MapEntry('(temporary)', tempValue);
       currentFrame.debugLocals.add(temporaryEntry);
       leftResult = tempValue;
@@ -383,7 +443,9 @@ mixin InterpreterExpressionMixin on AstVisitor<Object?> {
 
       try {
         final result = NumberUtils.performArithmetic(op, leftRaw, rightRaw);
-        return _wrapExpressionValue(interpreter, result);
+        return _returnRawNumericExpressionResults
+            ? result
+            : _wrapExpressionValue(interpreter, result);
       } on UnsupportedError catch (error) {
         throw LuaError.typeError(
           error.message ?? error.toString(),
@@ -416,11 +478,19 @@ mixin InterpreterExpressionMixin on AstVisitor<Object?> {
       if (rawLuaSlot(value) != null) {
         return null;
       }
-      return _sourceLabelForAst((this as Interpreter).getCurrentEnv(), expr);
+      return _sourceLabelForAst(
+        (this as Interpreter).getCurrentEnv(),
+        expr,
+        interpreter: interpreter,
+      );
     }
 
     bool shouldLabelArithmeticOperand(Value value, AstNode expr) {
-      if (_sourceLabelForAst((this as Interpreter).getCurrentEnv(), expr) ==
+      if (_sourceLabelForAst(
+            (this as Interpreter).getCurrentEnv(),
+            expr,
+            interpreter: interpreter,
+          ) ==
           null) {
         return false;
       }
@@ -433,6 +503,7 @@ mixin InterpreterExpressionMixin on AstVisitor<Object?> {
         final label = _sourceLabelForAst(
           (this as Interpreter).getCurrentEnv(),
           node.left,
+          interpreter: interpreter,
         );
         if (label != null) {
           return (label: label, value: leftVal);
@@ -442,6 +513,7 @@ mixin InterpreterExpressionMixin on AstVisitor<Object?> {
         final label = _sourceLabelForAst(
           (this as Interpreter).getCurrentEnv(),
           node.right,
+          interpreter: interpreter,
         );
         if (label != null) {
           return (label: label, value: rightVal);
@@ -458,6 +530,7 @@ mixin InterpreterExpressionMixin on AstVisitor<Object?> {
         final sourceLabel = _sourceLabelForAst(
           (this as Interpreter).getCurrentEnv(),
           expr,
+          interpreter: interpreter,
         );
         final raw = rawLuaSlot(value);
         if (sourceLabel != null &&
@@ -677,28 +750,30 @@ mixin InterpreterExpressionMixin on AstVisitor<Object?> {
     }
 
     // Check for metamethods first
-    final opMap = {
-      '+': '__add',
-      '-': '__sub',
-      '*': '__mul',
-      '/': '__div',
-      '%': '__mod',
-      '^': '__pow',
-      '//': '__idiv',
-      '&': '__band',
-      '|': '__bor',
-      '~': '__bxor',
-      '<<': '__shl',
-      '>>': '__shr',
-      '..': '__concat',
-      '<': '__lt',
-      '>': '__gt',
-      '<=': '__le',
-      '>=': '__ge',
-      '==': '__eq',
-      '~=': '__eq', // Negated result
-      '!=': '__eq', // Negated result
-    };
+    final opMap = _reuseBinaryMetamethodMap
+        ? _binaryMetamethodNames
+        : <String, String>{
+            '+': '__add',
+            '-': '__sub',
+            '*': '__mul',
+            '/': '__div',
+            '%': '__mod',
+            '^': '__pow',
+            '//': '__idiv',
+            '&': '__band',
+            '|': '__bor',
+            '~': '__bxor',
+            '<<': '__shl',
+            '>>': '__shr',
+            '..': '__concat',
+            '<': '__lt',
+            '>': '__gt',
+            '<=': '__le',
+            '>=': '__ge',
+            '==': '__eq',
+            '~=': '__eq', // Negated result
+            '!=': '__eq', // Negated result
+          };
 
     String? metamethodName = opMap[node.op];
     if (metamethodName != null) {
@@ -980,6 +1055,7 @@ mixin InterpreterExpressionMixin on AstVisitor<Object?> {
       final sourceLabel = _sourceLabelForAst(
         (this as Interpreter).getCurrentEnv(),
         node.expr,
+        interpreter: interpreter,
       );
       final message = e.message;
       if (sourceLabel != null &&
@@ -1033,7 +1109,17 @@ mixin InterpreterExpressionMixin on AstVisitor<Object?> {
   /// [node] - The identifier node representing the variable
   /// Returns the value of the variable, or null if not found.
   @override
-  Future<Object?> visitIdentifier(Identifier node) async {
+  FutureOr<Object?> visitIdentifier(Identifier node) {
+    if (!_returnSynchronousIdentifierResults) {
+      return _visitIdentifierAsFuture(node);
+    }
+    return _visitIdentifierResult(node);
+  }
+
+  Future<Object?> _visitIdentifierAsFuture(Identifier node) async =>
+      await _visitIdentifierResult(node);
+
+  FutureOr<Object?> _visitIdentifierResult(Identifier node) {
     if (Logger.enabled) {
       Logger.debugLazy(
         () => 'Visiting Identifier: ${node.name}',
@@ -1069,19 +1155,28 @@ mixin InterpreterExpressionMixin on AstVisitor<Object?> {
       return value;
     }
 
-    final frameEnv = interpreter
-        .findFrameForCallable(interpreter.getCurrentFunction())
-        ?.env;
-    final frameBox = frameEnv?.values[node.name];
-    if (frameBox != null && frameBox.isLocal) {
-      final value = frameBox.value;
+    final currentFunction = interpreter.getCurrentFunction();
+    final frameEnv = currentFunction == null
+        ? null
+        : interpreter.findFrameForCallable(currentFunction)?.env;
+    final fastLocals = interpreter.getCurrentFastLocals();
+    final activeEnvironment = interpreter.getCurrentEnv();
+    final cachedFastSlot =
+        fastLocals?.cachedSlot(node, activeEnvironment) ?? -1;
+    if (cachedFastSlot >= 0) {
+      final value = fastLocals!.readSlot(cachedFastSlot);
       return _wrapMutableLocalReadValue(interpreter, value);
     }
-
-    final fastLocals = interpreter.getCurrentFastLocals();
-    final fastBox = fastLocals?[node.name];
-    if (fastBox != null) {
-      final value = fastBox.value;
+    final fastSlot =
+        fastLocals?.lookupAndCacheSlot(node, activeEnvironment) ?? -1;
+    if (fastSlot >= 0) {
+      final value = fastLocals!.readSlot(fastSlot);
+      return _wrapMutableLocalReadValue(interpreter, value);
+    }
+    final frameBox = frameEnv?.values[node.name];
+    if (frameBox != null && frameBox.isLocal) {
+      fastLocals?.cacheResolvedBox(node, frameBox);
+      final value = frameBox.value;
       return _wrapMutableLocalReadValue(interpreter, value);
     }
 
@@ -1090,15 +1185,21 @@ mixin InterpreterExpressionMixin on AstVisitor<Object?> {
     // live in the root environment (which has no parent). Locals should take
     // precedence over entries in `_ENV`.
     // Search up the environment chain for a local variable with this name
-    final (localValue, declaredGlobalInScope, closureBoundary) =
-        _resolveCurrentFunctionLocalOrDeclaredGlobal(node);
+    final (
+      localValue,
+      declaredGlobalInScope,
+      closureBoundary,
+    ) = _resolveCurrentFunctionLocalOrDeclaredGlobal(
+      node,
+      currentFunction,
+      frameEnv,
+    );
     if (localValue != null) {
       return localValue;
     }
 
     // Check current function's upvalues if we're executing within a function
     if (!declaredGlobalInScope) {
-      final currentFunction = interpreter.getCurrentFunction();
       if (currentFunction != null && currentFunction.upvalues != null) {
         for (final upvalue in currentFunction.upvalues!) {
           if (upvalue.name == node.name) {
@@ -1194,10 +1295,11 @@ mixin InterpreterExpressionMixin on AstVisitor<Object?> {
             category: 'Expression',
           );
         }
-        final result = await envValue.getValueAsync(
-          interpreter.constantRawStringValue(node.name),
+        return _resolveIdentifierViaEnvironment(
+          interpreter,
+          envValue,
+          node.name,
         );
-        return valueFromLuaSlot(interpreter, result);
       } else if (envRaw == null) {
         final envLabel = _bindingScopeLabel(
           interpreter.getCurrentEnv(),

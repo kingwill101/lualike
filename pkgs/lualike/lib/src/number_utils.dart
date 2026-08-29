@@ -17,6 +17,7 @@ class NumberUtils {
 
   static const int _frexpMantissaExponent = NumberLimits.doubleExponentBias - 1;
   static const int _subnormalFrexpScale = 54;
+
   /// Reusable scratch buffer for [doubleToRawBits].
   ///
   /// Allocating a fresh [ByteData] on every call was visible in the

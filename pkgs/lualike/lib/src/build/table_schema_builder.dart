@@ -37,9 +37,7 @@ class TableSchemaBuilder implements Builder {
   }
 
   bool _isSchemaFile(String path) {
-    return path.endsWith('_schema.dart') ||
-        path.endsWith('_plugin_info.dart') ||
-        path.contains('table') && path.endsWith('.dart');
+    return path.endsWith('_lualike_schema.dart');
   }
 
   bool _hasAnnotation(ClassElement cls, String annotationName) {

@@ -147,7 +147,11 @@ mixin InterpreterTableMixin on AstVisitor<Object?> {
     }
 
     if (tableRaw is! Map) {
-      final sourceLabel = _sourceLabelForAst(globals, node.table);
+      final sourceLabel = _sourceLabelForAst(
+        globals,
+        node.table,
+        interpreter: interpreter,
+      );
       final type = getLuaType(tableVal);
       if (tableRaw == null) {
         throw LuaError.typeError(
@@ -206,7 +210,11 @@ mixin InterpreterTableMixin on AstVisitor<Object?> {
     final tableRaw = rawLuaSlot(tableVal);
 
     if (tableRaw is! Map) {
-      final sourceLabel = _sourceLabelForAst(globals, node.table);
+      final sourceLabel = _sourceLabelForAst(
+        globals,
+        node.table,
+        interpreter: interpreter,
+      );
       final type = getLuaType(tableVal);
       if (hasIndexMetamethod) {
         final indexVal = freshValueFromLuaSlot(
@@ -445,7 +453,11 @@ mixin InterpreterTableMixin on AstVisitor<Object?> {
     }
 
     if (tableRaw is! Map) {
-      final sourceLabel = _sourceLabelForAst(globals, node.table);
+      final sourceLabel = _sourceLabelForAst(
+        globals,
+        node.table,
+        interpreter: interpreter,
+      );
       final type = getLuaType(tableVal);
       if (tableVal.hasMetamethod('__index')) {
         final result = await tableVal.callMetamethodAsync('__index', [

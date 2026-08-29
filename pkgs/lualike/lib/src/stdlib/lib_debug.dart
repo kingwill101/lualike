@@ -2,6 +2,7 @@ import 'package:lualike/lualike.dart';
 
 import 'package:lualike/src/coroutine.dart';
 import 'package:lualike/src/gc/memory_credits.dart';
+import 'package:lualike/src/interpreter/ast_local_frame.dart';
 import 'package:lualike/src/lua_bytecode/vm.dart';
 import 'package:lualike/src/lua_bytecode/vm_value_helpers.dart';
 import 'package:lualike/src/runtime/lua_results.dart';
@@ -154,6 +155,7 @@ CallFrame? _resolveDebugCoroutineFrame(Coroutine coroutine, int level) {
       extraArgs: frame.extraArgs,
       isDebugHook: frame.isDebugHook,
       isTailCall: frame.isTailCall,
+      engineFrameState: frame.engineFrameState,
     );
   }
   return frame;
@@ -172,6 +174,22 @@ Value _debugTableValue(LuaRuntime? runtime, Map<dynamic, dynamic> raw) {
 
 LuaRuntime? _debugFrameRuntime(CallFrame frame) =>
     frame.env?.interpreter ?? frame.callable?.interpreter;
+
+AstLocalFrame? _astLocalFrame(CallFrame frame) =>
+    frame.engineFrameState is AstLocalFrame
+    ? frame.engineFrameState as AstLocalFrame
+    : null;
+
+Value _liveDebugLocalValue(CallFrame frame, MapEntry<String, Value> entry) {
+  final astFrame = _astLocalFrame(frame);
+  if (astFrame != null && astFrame.containsName(entry.key, frame.env)) {
+    return cachedPrimitiveOrValue(
+      _debugFrameRuntime(frame),
+      astFrame.readName(entry.key, frame.env),
+    );
+  }
+  return entry.value;
+}
 
 class DebugLib {
   static Map<String, BuiltinFunction> functions = {};
@@ -426,9 +444,24 @@ class _GetLocal extends BuiltinFunction {
       }
       for (final entry in frame.debugLocals) {
         locals.add(
-          MapEntry('(temporary)', visibleLocalValue(entry.key) ?? entry.value),
+          MapEntry(
+            '(temporary)',
+            visibleLocalValue(entry.key) ?? _liveDebugLocalValue(frame, entry),
+          ),
         );
         preferred.add(entry.key);
+      }
+      final astFrame = _astLocalFrame(frame);
+      if (astFrame != null && frame.env != null) {
+        for (final binding in astFrame.visibleDeclarationBindings(frame.env!)) {
+          locals.add(
+            MapEntry(
+              '(temporary)',
+              cachedPrimitiveOrValue(runtime, binding.value),
+            ),
+          );
+          preferred.add(binding.name);
+        }
       }
       for (final env in envs) {
         for (final entry in env.values.entries) {
@@ -485,8 +518,20 @@ class _GetLocal extends BuiltinFunction {
       );
     }
     for (final entry in frame.debugLocals) {
-      locals.add(entry);
+      locals.add(MapEntry(entry.key, _liveDebugLocalValue(frame, entry)));
       preferred.add(entry.key);
+    }
+    final astFrame = _astLocalFrame(frame);
+    if (astFrame != null && frame.env != null) {
+      for (final binding in astFrame.visibleDeclarationBindings(frame.env!)) {
+        locals.add(
+          MapEntry(
+            binding.name,
+            cachedPrimitiveOrValue(runtime, binding.value),
+          ),
+        );
+        preferred.add(binding.name);
+      }
     }
     for (final env in envs) {
       for (final entry in env.values.entries) {
@@ -1024,6 +1069,18 @@ class _SetLocal extends BuiltinFunction {
       locals.add(entry);
       preferred.add(entry.key);
     }
+    final astFrame = _astLocalFrame(frame);
+    if (astFrame != null && frame.env != null) {
+      for (final binding in astFrame.visibleDeclarationBindings(frame.env!)) {
+        locals.add(
+          MapEntry(
+            binding.name,
+            cachedPrimitiveOrValue(runtime, binding.value),
+          ),
+        );
+        preferred.add(binding.name);
+      }
+    }
     for (final env in envs) {
       for (final entry in env.values.entries) {
         if (!entry.value.isLocal) continue;
@@ -1046,7 +1103,7 @@ class _SetLocal extends BuiltinFunction {
           (preferred.contains(entry.key) || envHasVisibleLocal(entry.key))) {
         continue;
       }
-      locals.add(entry);
+      locals.add(MapEntry(entry.key, _liveDebugLocalValue(frame, entry)));
     }
     return locals;
   }
@@ -1132,6 +1189,15 @@ class _SetLocal extends BuiltinFunction {
       return primitiveValue(null);
     }
     final entry = locals[index - 1];
+    final astFrame = _astLocalFrame(frame);
+    if (astFrame != null && astFrame.writeName(entry.key, valueArg)) {
+      for (var i = 0; i < frame.debugLocals.length; i++) {
+        if (frame.debugLocals[i].key == entry.key) {
+          frame.debugLocals[i] = MapEntry(entry.key, valueArg);
+        }
+      }
+      return dartStringValue(entry.key);
+    }
     final envBox = frame.env?.values[entry.key];
     if (envBox != null) {
       envBox.value = valueArg;
@@ -2953,7 +3019,7 @@ String _inferIdentifierNameWhat(Environment? env, String name) {
       // local name, even if that binding lives in a parent environment frame.
       return 'local';
     }
-    if (current.declaredGlobals.containsKey(name)) {
+    if (current.containsDeclaredGlobal(name)) {
       return 'global';
     }
     current = current.parent;

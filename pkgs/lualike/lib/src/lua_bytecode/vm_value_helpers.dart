@@ -61,9 +61,7 @@ final class LuaBytecodeClosure extends BuiltinFunction
     );
     if (upvalues.isNotEmpty) {
       final envValue = environment.get('_ENV') ?? environment.root.get('_G');
-      upvalues[0] = LuaBytecodeUpvalue.closed(
-        runtimeValue(runtime, envValue),
-      );
+      upvalues[0] = LuaBytecodeUpvalue.closed(runtimeValue(runtime, envValue));
     }
     return LuaBytecodeClosure.internal(
       runtime: runtime,
@@ -204,7 +202,6 @@ final class LuaBytecodeClosure extends BuiltinFunction
     }
   }
 }
-
 
 final class LuaBytecodeUpvalue {
   LuaBytecodeUpvalue.open(this._frame, this.registerIndex);
@@ -397,16 +394,13 @@ Value runtimeValue(LuaRuntime runtime, Object? value) {
       results.values,
       runtime: runtime,
     ),
-    null ||
-    bool() ||
-    num() ||
-    BigInt() =>
-        // Use a transient primitive to avoid the HashMap overhead in
-        // constantPrimitiveValue.  Arithmetic results and string-concat
-        // results are almost always unique.  Bytecode constants (LOADK)
-        // are already Values from constantValue() and hit the Value
-        // branch above.  See doc/decisions.md.
-        Value.transientPrimitive(value, interpreter: runtime),
+    null || bool() || num() || BigInt() =>
+      // Use a transient primitive to avoid the HashMap overhead in
+      // constantPrimitiveValue.  Arithmetic results and string-concat
+      // results are almost always unique.  Bytecode constants (LOADK)
+      // are already Values from constantValue() and hit the Value
+      // branch above.  See doc/decisions.md.
+      Value.transientPrimitive(value, interpreter: runtime),
     final LuaString string => runtime.constantStringValue(string.bytes),
     final String string => runtime.constantRawStringValue(string),
     final Map map => valueFromLuaSlot(runtime, map),
@@ -558,21 +552,21 @@ Value firstResultValue(LuaRuntime runtime, Object? result) {
   return runtimeValue(runtime, result);
 }
 
-bool canFastPathNumeric(Value value) =>
+bool canFastPathNumeric(Object? value) =>
     coerceLuaNumber(rawLuaSlot(value)) != null;
 
-bool canFastPathInteger(Value value) =>
+bool canFastPathInteger(Object? value) =>
     coerceLuaInteger(rawLuaSlot(value)) != null;
 
-bool canFastPathConcat(Value value) {
+bool canFastPathConcat(Object? value) {
   return switch (rawLuaSlot(value)) {
     num() || String() || LuaString() => true,
     _ => false,
   };
 }
 
-bool canFastPathLength(Value value) =>
-    !value.hasMetamethod('__len') &&
+bool canFastPathLength(Object? value) =>
+    (value is! Value || !value.hasMetamethod('__len')) &&
     switch (rawLuaSlot(value)) {
       LuaString() ||
       String() ||

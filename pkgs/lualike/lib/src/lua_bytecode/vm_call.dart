@@ -557,8 +557,11 @@ extension LuaBytecodeVmCallEntry on LuaBytecodeVm {
     List<Value> args, {
     required BuiltinFunction builtin,
   }) {
+    final result = builtin.call(args);
     if (!runtime.gc.isCycleActive) {
-      return _normalizeResults(builtin.call(args));
+      return result is Future
+          ? result.then<List<Value>>(_normalizeResults)
+          : _normalizeResults(result);
     }
 
     Iterable<Value> tempRootProvider() sync* {
@@ -570,7 +573,6 @@ extension LuaBytecodeVmCallEntry on LuaBytecodeVm {
 
     runtime.pushExternalGcRoots(tempRootProvider);
     try {
-      final result = builtin.call(args);
       if (result is Future) {
         return result
             .then<List<Value>>((value) => _normalizeResults(value))
@@ -597,9 +599,16 @@ extension LuaBytecodeVmCallEntry on LuaBytecodeVm {
       frame,
       start: word.a + 1,
       count: word.b == 0 ? frame.effectiveTop - (word.a + 1) : word.b - 1,
+      // Only builtins that explicitly opt into unmanaged bytecode calls reach
+      // this path. Their Object?-based API can consume raw primitive slots,
+      // avoiding a transient Value allocation for every LOVE/math argument.
+      materializeValues: false,
     );
+    final result = builtin.call(args);
     if (!runtime.gc.isCycleActive) {
-      return _normalizeResults(builtin.call(args));
+      return result is Future
+          ? result.then<List<Value>>(_normalizeResults)
+          : _normalizeResults(result);
     }
 
     Iterable<Value> tempRootProvider() sync* {
@@ -609,7 +618,6 @@ extension LuaBytecodeVmCallEntry on LuaBytecodeVm {
 
     runtime.pushExternalGcRoots(tempRootProvider);
     try {
-      final result = builtin.call(args);
       if (result is Future) {
         return result
             .then<List<Value>>((value) => _normalizeResults(value))
@@ -747,10 +755,10 @@ extension LuaBytecodeVmCallEntry on LuaBytecodeVm {
     final count = word.b == 0 ? frame.effectiveTop - (word.a + 1) : word.b - 1;
     return switch (count) {
       0 => builtin.fastCall0(),
-      1 => builtin.fastCall1(frame.slotValue(word.a + 1)),
+      1 => builtin.fastCall1(frame.rawSlot(word.a + 1)),
       2 => builtin.fastCall2(
-        frame.slotValue(word.a + 1),
-        frame.slotValue(word.a + 2),
+        frame.rawSlot(word.a + 1),
+        frame.rawSlot(word.a + 2),
       ),
       _ => BuiltinFunction.fastCallUnsupported,
     };
@@ -1401,7 +1409,7 @@ extension LuaBytecodeVmCallEntry on LuaBytecodeVm {
         final box = env.values[name]!;
         return box.isLocal ? 'local' : 'global';
       }
-      if (env.declaredGlobals.containsKey(name)) {
+      if (env.containsDeclaredGlobal(name)) {
         return 'global';
       }
       env = env.parent;
