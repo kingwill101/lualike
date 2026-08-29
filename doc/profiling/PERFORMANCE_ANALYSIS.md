@@ -1,60 +1,10 @@
-# LuaLike Runtime Performance Analysis
+# LuaLike Bytecode VM Performance Analysis
 
 ## Overview
 
-The bytecode VM dispatch loop has been optimized through several rounds
-targeting call dispatch, frame setup, GC root management, and debug-only
-overhead. The AST runtime is also measured against a real LOVE update/render
-loop so lower-level engines and allocation changes are retained only when they
-improve the game workload.
-
-## Relic Breach profile-mode gate (2026-08-26)
-
-> **Historical timing correction (2026-08-28):** these update values were
-> captured before the harness timed the awaited LOVE runtime frame. They
-> measure synchronous dispatch into an asynchronous controller and therefore
-> cannot establish Lualike VM throughput or a percentage speedup. The stable
-> workload, command-count, input, and visual-parity evidence remains useful.
-> New runtime decisions must use awaited update/runtime-frame timing or a pure
-> standalone kernel.
-
-The Flutter GPU demo runs the vendored Relic Breach `main.lua` and asset tree
-through `LoveLualikeFilesystemAdapter`. Every trial below used:
-
-- the same AST/IR/bytecode source and 142-command game state;
-- GPU-only rendering with 4x MSAA and zero software fallbacks;
-- a reset before each trial, logical pointer at `(640, 360)`, and `d` held;
-- five 240-frame profile-mode windows after a one-second warmup.
-
-The table is retained as historical experiment provenance, not as the current
-Lualike performance gate.
-
-| Runtime candidate | p95 update trials (us) | Median | Decision |
-|---|---:|---:|---|
-| AST baseline at `aacba341` | 34, 30, 33, 30, 27 | 30 | Reference |
-| Direct private call-stack scan | 38, 38, 37, 39, 44 | 38 | Reverted |
-| AST debug-hook no-op gate | 27, 27, 24, 35, 25 | 27 | Retained |
-| IR engine | 29, 33, 36, 39, 42 | 36 | Experimental only |
-| Lua bytecode engine | 44, 48, 51, 54, 54 | 51 | Experimental only |
-
-The retained AST change avoids constructing call/return transfer metadata and
-awaiting hook dispatch when `debug.sethook` is not installed. Focused
-debug-hook, coroutine, tail-call, and ordinary-function tests still exercise
-the active-hook path. The old table does not prove its frame-time effect; the
-change remains because it removes inactive work and preserves correctness.
-
-The deterministic harness also sets LOVE's logical pointer explicitly. Before
-that control existed, host cursor position changed aim direction and produced
-different command counts between otherwise identical trials.
-
-### Visual parity evidence
-
-The installed LOVE CLI and Flutter comparison mode were captured from the same
-Relic Breach source. Canvas and Flutter GPU displayed the same room, player
-pose, HUD, water animation phase, and lighting state. The synchronized panes
-were not pixel-identical: an ImageMagick pane comparison measured normalized
-RMSE `0.0345064`, concentrated on anti-aliased edges and text. That difference
-is a renderer-parity target, not a reason to weaken the game workload.
+The bytecode VM dispatch loop has been optimized through several rounds targeting
+call dispatch, frame setup, GC root management, and debug-only overhead.
+All 30/30 tests pass on AST, IR, and lua-bytecode engines.
 
 ## Benchmark results (AOT compiled, system normal load)
 

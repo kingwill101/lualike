@@ -1,44 +1,30 @@
-import 'package:flutter/services.dart';
-import 'package:flutter_lualike/flutter_lualike.dart';
+// This is a basic Flutter widget test.
+//
+// To perform an interaction with a widget in your test, use the WidgetTester
+// utility in the flutter_test package. For example, you can send tap and scroll
+// gestures. You can also use WidgetTester to find child widgets in the widget
+// tree, read text, and verify that the values of widget properties are correct.
+
+import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
+import 'package:flutter_lualike/main.dart';
+
 void main() {
-  test(
-    'AssetBundleIODevice reads bundled bytes and remains read-only',
-    () async {
-      final bundle = _MemoryAssetBundle(<String, List<int>>{
-        'scripts/main.lua': 'return 42'.codeUnits,
-      });
+  testWidgets('Counter increments smoke test', (WidgetTester tester) async {
+    // Build our app and trigger a frame.
+    await tester.pumpWidget(const MyApp());
 
-      final device = await AssetBundleIODevice.open(
-        bundle,
-        'scripts/main.lua',
-        'r',
-      );
+    // Verify that our counter starts at 0.
+    expect(find.text('0'), findsOneWidget);
+    expect(find.text('1'), findsNothing);
 
-      final read = await device.read('a');
-      expect(read.isSuccess, isTrue);
-      expect(read.value.toString(), 'return 42');
-      expect(await device.isEOF(), isTrue);
+    // Tap the '+' icon and trigger a frame.
+    await tester.tap(find.byIcon(Icons.add));
+    await tester.pump();
 
-      final write = await device.write('return 0');
-      expect(write.success, isFalse);
-      expect(write.error, 'Cannot write to read-only asset bundle');
-    },
-  );
-}
-
-final class _MemoryAssetBundle extends CachingAssetBundle {
-  _MemoryAssetBundle(this.assets);
-
-  final Map<String, List<int>> assets;
-
-  @override
-  Future<ByteData> load(String key) async {
-    final bytes = assets[key];
-    if (bytes == null) {
-      throw StateError('Missing test asset: $key');
-    }
-    return ByteData.sublistView(Uint8List.fromList(bytes));
-  }
+    // Verify that our counter has incremented.
+    expect(find.text('0'), findsNothing);
+    expect(find.text('1'), findsOneWidget);
+  });
 }

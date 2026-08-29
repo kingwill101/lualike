@@ -18,40 +18,42 @@ Future<LoveAudioSourceBackend> _noopAudioBackendFactory(
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
 
-  testWidgets('Modern Pong asset-bundle startup works under bytecode', (
-    tester,
-  ) async {
-    final host = LoveHeadlessHost(
-      audioBackendFactory: _noopAudioBackendFactory,
-    );
-    final runtime = LoveScriptRuntime(
-      engineMode: EngineMode.luaBytecode,
-      host: host,
-      filesystemAdapter: await LoveAssetBundleFilesystemAdapter.load(
-        bundle: rootBundle,
-        fallback: LoveLualikeFilesystemAdapter(),
-      ),
-    );
-    final filesystem = LoveFilesystemState.of(runtime.runtime);
+  testWidgets(
+    'Modern Pong asset-bundle startup works under bytecode',
+    (tester) async {
+      final host = LoveHeadlessHost(
+        audioBackendFactory: _noopAudioBackendFactory,
+      );
+      final runtime = LoveScriptRuntime(
+        engineMode: EngineMode.luaBytecode,
+        host: host,
+        filesystemAdapter: await LoveAssetBundleFilesystemAdapter.load(
+          bundle: rootBundle,
+          fallback: LoveLualikeFilesystemAdapter(),
+        ),
+      );
+      final filesystem = LoveFilesystemState.of(runtime.runtime);
 
-    expect(filesystem.setSource(modernPongEntryAsset), isTrue);
-    await runtime.loadConfIfPresent();
-    final entryData = await filesystem.readFileData(
-      'main.lua',
-      filename: modernPongEntryAsset,
-    );
+      expect(filesystem.setSource(modernPongEntryAsset), isTrue);
+      await runtime.loadConfIfPresent();
+      final entryData = await filesystem.readFileData(
+        'main.lua',
+        filename: modernPongEntryAsset,
+      );
 
-    expect(entryData, isNotNull);
-    final data = entryData!;
-    await runtime
-        .execute(convert.utf8.decode(data.bytes), scriptPath: data.filename)
-        .timeout(const Duration(seconds: 10));
-    await runtime.callLoadIfDefined().timeout(const Duration(seconds: 10));
+      expect(entryData, isNotNull);
+      final data = entryData!;
+      await runtime
+          .execute(convert.utf8.decode(data.bytes), scriptPath: data.filename)
+          .timeout(const Duration(seconds: 10));
+      await runtime.callLoadIfDefined().timeout(const Duration(seconds: 10));
 
-    runtime.context.beginDrawFrame();
-    runtime.context.graphics.origin();
-    await runtime.callDrawIfDefined().timeout(const Duration(seconds: 10));
+      runtime.context.beginDrawFrame();
+      runtime.context.graphics.origin();
+      await runtime.callDrawIfDefined().timeout(const Duration(seconds: 10));
 
-    expect(runtime.context.graphics.commands, isNotEmpty);
-  }, timeout: const Timeout(Duration(seconds: 35)));
+      expect(runtime.context.graphics.commands, isNotEmpty);
+    },
+    timeout: const Timeout(Duration(seconds: 35)),
+  );
 }

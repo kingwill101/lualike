@@ -31,8 +31,6 @@ build/
 /build/
 /pkgs/lualike/.build_cache/
 /pkgs/lualike/.codex-bin/
-/pkgs/lualike/.tmp/
-/pkgs/love2d/.tmp/
 /pkgs/lualike/web/*.map
 /pkgs/lualike/libs/
 /pkgs/lualike/.build_cache/compile_time.txt

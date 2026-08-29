@@ -380,7 +380,7 @@ class LoveFilesystemFile {
     try {
       final openedPath = _openedPath;
       if (openedPath != null) {
-        return await state.adapter.fileSize(openedPath);
+        return state.adapter.fileSize(openedPath);
       }
 
       return (await state.getInfo(
@@ -488,7 +488,7 @@ class LoveFilesystemDroppedFile extends LoveFilesystemFile {
     }
 
     try {
-      return await state.adapter.fileSize(physicalPath);
+      return state.adapter.fileSize(physicalPath);
     } finally {
       if (!wasOpen) {
         await close();

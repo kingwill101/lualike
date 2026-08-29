@@ -26,24 +26,28 @@ String? _probeArm64SevenZipSupport() {
 }
 
 void main() {
-  test('pure 7z decoder reads BCJ2 plus LZMA2 filter-chain archives', () {
-    final originalBytes = _buildBcjFixtureBytes();
-    final archiveBytes = encode7zArchive(
-      sevenZipExecutable: _sevenZipExecutable,
-      methodArgs: const <String>['-m0=BCJ2', '-m1=LZMA2'],
-      files: <SevenZipArchiveInputFile>[
-        SevenZipArchiveInputFile('prog.bin', originalBytes),
-      ],
-    );
+  test(
+    'pure 7z decoder reads BCJ2 plus LZMA2 filter-chain archives',
+    () {
+      final originalBytes = _buildBcjFixtureBytes();
+      final archiveBytes = encode7zArchive(
+        sevenZipExecutable: _sevenZipExecutable,
+        methodArgs: const <String>['-m0=BCJ2', '-m1=LZMA2'],
+        files: <SevenZipArchiveInputFile>[
+          SevenZipArchiveInputFile('prog.bin', originalBytes),
+        ],
+      );
 
-    final archive = decode7zArchive(archiveBytes);
+      final archive = decode7zArchive(archiveBytes);
 
-    expect(archive, isNotNull);
-    final file = archive!.find('prog.bin');
-    expect(file, isNotNull);
-    expect(file!.isFile, isTrue);
-    expect(file.readBytes(), orderedEquals(originalBytes));
-  }, skip: _sevenZipArm64SkipReason);
+      expect(archive, isNotNull);
+      final file = archive!.find('prog.bin');
+      expect(file, isNotNull);
+      expect(file!.isFile, isTrue);
+      expect(file.readBytes(), orderedEquals(originalBytes));
+    },
+    skip: _sevenZipArm64SkipReason,
+  );
 
   test(
     'pure 7z decoder reads encoded-header BCJ2 plus LZMA2 filter chains',
@@ -67,96 +71,116 @@ void main() {
     skip: _sevenZipArm64SkipReason,
   );
 
-  test('pure 7z decoder reads BCJ plus LZMA2 filter-chain archives', () {
-    final originalBytes = _buildBcjFixtureBytes();
-    final archiveBytes = encode7zArchive(
-      sevenZipExecutable: _sevenZipExecutable,
-      methodArgs: const <String>['-m0=BCJ', '-m1=LZMA2'],
-      files: <SevenZipArchiveInputFile>[
-        SevenZipArchiveInputFile('prog.bin', originalBytes),
-      ],
-    );
+  test(
+    'pure 7z decoder reads BCJ plus LZMA2 filter-chain archives',
+    () {
+      final originalBytes = _buildBcjFixtureBytes();
+      final archiveBytes = encode7zArchive(
+        sevenZipExecutable: _sevenZipExecutable,
+        methodArgs: const <String>['-m0=BCJ', '-m1=LZMA2'],
+        files: <SevenZipArchiveInputFile>[
+          SevenZipArchiveInputFile('prog.bin', originalBytes),
+        ],
+      );
 
-    final archive = decode7zArchive(archiveBytes);
+      final archive = decode7zArchive(archiveBytes);
 
-    expect(archive, isNotNull);
-    final file = archive!.find('prog.bin');
-    expect(file, isNotNull);
-    expect(file!.isFile, isTrue);
-    expect(file.readBytes(), orderedEquals(originalBytes));
-  }, skip: _sevenZipSkipReason);
+      expect(archive, isNotNull);
+      final file = archive!.find('prog.bin');
+      expect(file, isNotNull);
+      expect(file!.isFile, isTrue);
+      expect(file.readBytes(), orderedEquals(originalBytes));
+    },
+    skip: _sevenZipSkipReason,
+  );
 
-  test('pure 7z decoder reads encoded-header BCJ plus LZMA2 filter chains', () {
-    final originalBytes = _buildBcjFixtureBytes();
-    final archiveBytes = encode7zArchive(
-      sevenZipExecutable: _sevenZipExecutable,
-      methodArgs: const <String>['-mhc=on', '-m0=BCJ', '-m1=LZMA2'],
-      files: <SevenZipArchiveInputFile>[
-        SevenZipArchiveInputFile('prog.bin', originalBytes),
-      ],
-    );
+  test(
+    'pure 7z decoder reads encoded-header BCJ plus LZMA2 filter chains',
+    () {
+      final originalBytes = _buildBcjFixtureBytes();
+      final archiveBytes = encode7zArchive(
+        sevenZipExecutable: _sevenZipExecutable,
+        methodArgs: const <String>['-mhc=on', '-m0=BCJ', '-m1=LZMA2'],
+        files: <SevenZipArchiveInputFile>[
+          SevenZipArchiveInputFile('prog.bin', originalBytes),
+        ],
+      );
 
-    final archive = decode7zArchive(archiveBytes);
+      final archive = decode7zArchive(archiveBytes);
 
-    expect(archive, isNotNull);
-    final file = archive!.find('prog.bin');
-    expect(file, isNotNull);
-    expect(file!.readBytes(), orderedEquals(originalBytes));
-  }, skip: _sevenZipSkipReason);
+      expect(archive, isNotNull);
+      final file = archive!.find('prog.bin');
+      expect(file, isNotNull);
+      expect(file!.readBytes(), orderedEquals(originalBytes));
+    },
+    skip: _sevenZipSkipReason,
+  );
 
-  test('pure 7z decoder reads ARM plus LZMA2 filter-chain archives', () {
-    final originalBytes = _buildArmFixtureBytes();
-    final archiveBytes = encode7zArchive(
-      sevenZipExecutable: _sevenZipExecutable,
-      methodArgs: const <String>['-m0=ARM', '-m1=LZMA2'],
-      files: <SevenZipArchiveInputFile>[
-        SevenZipArchiveInputFile('arm.bin', originalBytes),
-      ],
-    );
+  test(
+    'pure 7z decoder reads ARM plus LZMA2 filter-chain archives',
+    () {
+      final originalBytes = _buildArmFixtureBytes();
+      final archiveBytes = encode7zArchive(
+        sevenZipExecutable: _sevenZipExecutable,
+        methodArgs: const <String>['-m0=ARM', '-m1=LZMA2'],
+        files: <SevenZipArchiveInputFile>[
+          SevenZipArchiveInputFile('arm.bin', originalBytes),
+        ],
+      );
 
-    final archive = decode7zArchive(archiveBytes);
+      final archive = decode7zArchive(archiveBytes);
 
-    expect(archive, isNotNull);
-    final file = archive!.find('arm.bin');
-    expect(file, isNotNull);
-    expect(file!.readBytes(), orderedEquals(originalBytes));
-  }, skip: _sevenZipSkipReason);
+      expect(archive, isNotNull);
+      final file = archive!.find('arm.bin');
+      expect(file, isNotNull);
+      expect(file!.readBytes(), orderedEquals(originalBytes));
+    },
+    skip: _sevenZipSkipReason,
+  );
 
-  test('pure 7z decoder reads encoded-header ARM plus LZMA2 filter chains', () {
-    final originalBytes = _buildArmFixtureBytes();
-    final archiveBytes = encode7zArchive(
-      sevenZipExecutable: _sevenZipExecutable,
-      methodArgs: const <String>['-mhc=on', '-m0=ARM', '-m1=LZMA2'],
-      files: <SevenZipArchiveInputFile>[
-        SevenZipArchiveInputFile('arm.bin', originalBytes),
-      ],
-    );
+  test(
+    'pure 7z decoder reads encoded-header ARM plus LZMA2 filter chains',
+    () {
+      final originalBytes = _buildArmFixtureBytes();
+      final archiveBytes = encode7zArchive(
+        sevenZipExecutable: _sevenZipExecutable,
+        methodArgs: const <String>['-mhc=on', '-m0=ARM', '-m1=LZMA2'],
+        files: <SevenZipArchiveInputFile>[
+          SevenZipArchiveInputFile('arm.bin', originalBytes),
+        ],
+      );
 
-    final archive = decode7zArchive(archiveBytes);
+      final archive = decode7zArchive(archiveBytes);
 
-    expect(archive, isNotNull);
-    final file = archive!.find('arm.bin');
-    expect(file, isNotNull);
-    expect(file!.readBytes(), orderedEquals(originalBytes));
-  }, skip: _sevenZipSkipReason);
+      expect(archive, isNotNull);
+      final file = archive!.find('arm.bin');
+      expect(file, isNotNull);
+      expect(file!.readBytes(), orderedEquals(originalBytes));
+    },
+    skip: _sevenZipSkipReason,
+  );
 
-  test('pure 7z decoder reads ARMT plus LZMA2 filter-chain archives', () {
-    final originalBytes = _buildArmtFixtureBytes();
-    final archiveBytes = encode7zArchive(
-      sevenZipExecutable: _sevenZipExecutable,
-      methodArgs: const <String>['-m0=ARMT', '-m1=LZMA2'],
-      files: <SevenZipArchiveInputFile>[
-        SevenZipArchiveInputFile('armt.bin', originalBytes),
-      ],
-    );
+  test(
+    'pure 7z decoder reads ARMT plus LZMA2 filter-chain archives',
+    () {
+      final originalBytes = _buildArmtFixtureBytes();
+      final archiveBytes = encode7zArchive(
+        sevenZipExecutable: _sevenZipExecutable,
+        methodArgs: const <String>['-m0=ARMT', '-m1=LZMA2'],
+        files: <SevenZipArchiveInputFile>[
+          SevenZipArchiveInputFile('armt.bin', originalBytes),
+        ],
+      );
 
-    final archive = decode7zArchive(archiveBytes);
+      final archive = decode7zArchive(archiveBytes);
 
-    expect(archive, isNotNull);
-    final file = archive!.find('armt.bin');
-    expect(file, isNotNull);
-    expect(file!.readBytes(), orderedEquals(originalBytes));
-  }, skip: _sevenZipSkipReason);
+      expect(archive, isNotNull);
+      final file = archive!.find('armt.bin');
+      expect(file, isNotNull);
+      expect(file!.readBytes(), orderedEquals(originalBytes));
+    },
+    skip: _sevenZipSkipReason,
+  );
 
   test(
     'pure 7z decoder reads encoded-header ARMT plus LZMA2 filter chains',
@@ -180,23 +204,27 @@ void main() {
     skip: _sevenZipSkipReason,
   );
 
-  test('pure 7z decoder reads IA64 plus LZMA2 filter-chain archives', () {
-    final originalBytes = _buildIa64FixtureBytes();
-    final archiveBytes = encode7zArchive(
-      sevenZipExecutable: _sevenZipExecutable,
-      methodArgs: const <String>['-m0=IA64', '-m1=LZMA2'],
-      files: <SevenZipArchiveInputFile>[
-        SevenZipArchiveInputFile('ia64.bin', originalBytes),
-      ],
-    );
+  test(
+    'pure 7z decoder reads IA64 plus LZMA2 filter-chain archives',
+    () {
+      final originalBytes = _buildIa64FixtureBytes();
+      final archiveBytes = encode7zArchive(
+        sevenZipExecutable: _sevenZipExecutable,
+        methodArgs: const <String>['-m0=IA64', '-m1=LZMA2'],
+        files: <SevenZipArchiveInputFile>[
+          SevenZipArchiveInputFile('ia64.bin', originalBytes),
+        ],
+      );
 
-    final archive = decode7zArchive(archiveBytes);
+      final archive = decode7zArchive(archiveBytes);
 
-    expect(archive, isNotNull);
-    final file = archive!.find('ia64.bin');
-    expect(file, isNotNull);
-    expect(file!.readBytes(), orderedEquals(originalBytes));
-  }, skip: _sevenZipSkipReason);
+      expect(archive, isNotNull);
+      final file = archive!.find('ia64.bin');
+      expect(file, isNotNull);
+      expect(file!.readBytes(), orderedEquals(originalBytes));
+    },
+    skip: _sevenZipSkipReason,
+  );
 
   test(
     'pure 7z decoder reads encoded-header IA64 plus LZMA2 filter chains',
@@ -220,59 +248,71 @@ void main() {
     skip: _sevenZipSkipReason,
   );
 
-  test('pure 7z decoder reads PPC plus LZMA2 filter-chain archives', () {
-    final originalBytes = _buildPpcFixtureBytes();
-    final archiveBytes = encode7zArchive(
-      sevenZipExecutable: _sevenZipExecutable,
-      methodArgs: const <String>['-m0=PPC', '-m1=LZMA2'],
-      files: <SevenZipArchiveInputFile>[
-        SevenZipArchiveInputFile('ppc.bin', originalBytes),
-      ],
-    );
+  test(
+    'pure 7z decoder reads PPC plus LZMA2 filter-chain archives',
+    () {
+      final originalBytes = _buildPpcFixtureBytes();
+      final archiveBytes = encode7zArchive(
+        sevenZipExecutable: _sevenZipExecutable,
+        methodArgs: const <String>['-m0=PPC', '-m1=LZMA2'],
+        files: <SevenZipArchiveInputFile>[
+          SevenZipArchiveInputFile('ppc.bin', originalBytes),
+        ],
+      );
 
-    final archive = decode7zArchive(archiveBytes);
+      final archive = decode7zArchive(archiveBytes);
 
-    expect(archive, isNotNull);
-    final file = archive!.find('ppc.bin');
-    expect(file, isNotNull);
-    expect(file!.readBytes(), orderedEquals(originalBytes));
-  }, skip: _sevenZipSkipReason);
+      expect(archive, isNotNull);
+      final file = archive!.find('ppc.bin');
+      expect(file, isNotNull);
+      expect(file!.readBytes(), orderedEquals(originalBytes));
+    },
+    skip: _sevenZipSkipReason,
+  );
 
-  test('pure 7z decoder reads encoded-header PPC plus LZMA2 filter chains', () {
-    final originalBytes = _buildPpcFixtureBytes();
-    final archiveBytes = encode7zArchive(
-      sevenZipExecutable: _sevenZipExecutable,
-      methodArgs: const <String>['-mhc=on', '-m0=PPC', '-m1=LZMA2'],
-      files: <SevenZipArchiveInputFile>[
-        SevenZipArchiveInputFile('ppc.bin', originalBytes),
-      ],
-    );
+  test(
+    'pure 7z decoder reads encoded-header PPC plus LZMA2 filter chains',
+    () {
+      final originalBytes = _buildPpcFixtureBytes();
+      final archiveBytes = encode7zArchive(
+        sevenZipExecutable: _sevenZipExecutable,
+        methodArgs: const <String>['-mhc=on', '-m0=PPC', '-m1=LZMA2'],
+        files: <SevenZipArchiveInputFile>[
+          SevenZipArchiveInputFile('ppc.bin', originalBytes),
+        ],
+      );
 
-    final archive = decode7zArchive(archiveBytes);
+      final archive = decode7zArchive(archiveBytes);
 
-    expect(archive, isNotNull);
-    final file = archive!.find('ppc.bin');
-    expect(file, isNotNull);
-    expect(file!.readBytes(), orderedEquals(originalBytes));
-  }, skip: _sevenZipSkipReason);
+      expect(archive, isNotNull);
+      final file = archive!.find('ppc.bin');
+      expect(file, isNotNull);
+      expect(file!.readBytes(), orderedEquals(originalBytes));
+    },
+    skip: _sevenZipSkipReason,
+  );
 
-  test('pure 7z decoder reads SPARC plus LZMA2 filter-chain archives', () {
-    final originalBytes = _buildSparcFixtureBytes();
-    final archiveBytes = encode7zArchive(
-      sevenZipExecutable: _sevenZipExecutable,
-      methodArgs: const <String>['-m0=SPARC', '-m1=LZMA2'],
-      files: <SevenZipArchiveInputFile>[
-        SevenZipArchiveInputFile('sparc.bin', originalBytes),
-      ],
-    );
+  test(
+    'pure 7z decoder reads SPARC plus LZMA2 filter-chain archives',
+    () {
+      final originalBytes = _buildSparcFixtureBytes();
+      final archiveBytes = encode7zArchive(
+        sevenZipExecutable: _sevenZipExecutable,
+        methodArgs: const <String>['-m0=SPARC', '-m1=LZMA2'],
+        files: <SevenZipArchiveInputFile>[
+          SevenZipArchiveInputFile('sparc.bin', originalBytes),
+        ],
+      );
 
-    final archive = decode7zArchive(archiveBytes);
+      final archive = decode7zArchive(archiveBytes);
 
-    expect(archive, isNotNull);
-    final file = archive!.find('sparc.bin');
-    expect(file, isNotNull);
-    expect(file!.readBytes(), orderedEquals(originalBytes));
-  }, skip: _sevenZipSkipReason);
+      expect(archive, isNotNull);
+      final file = archive!.find('sparc.bin');
+      expect(file, isNotNull);
+      expect(file!.readBytes(), orderedEquals(originalBytes));
+    },
+    skip: _sevenZipSkipReason,
+  );
 
   test(
     'pure 7z decoder reads encoded-header SPARC plus LZMA2 filter chains',
@@ -296,26 +336,30 @@ void main() {
     skip: _sevenZipSkipReason,
   );
 
-  test('pure 7z decoder reads ARM64 plus LZMA2 filter-chain archives', () {
-    if (_sevenZipArm64SkipReason != null) {
-      return;
-    }
-    final originalBytes = _buildArm64FixtureBytes();
-    final archiveBytes = encode7zArchive(
-      sevenZipExecutable: _sevenZipExecutable,
-      methodArgs: const <String>['-m0=ARM64', '-m1=LZMA2'],
-      files: <SevenZipArchiveInputFile>[
-        SevenZipArchiveInputFile('arm64.bin', originalBytes),
-      ],
-    );
+  test(
+    'pure 7z decoder reads ARM64 plus LZMA2 filter-chain archives',
+    () {
+      if (_sevenZipArm64SkipReason != null) {
+        return;
+      }
+      final originalBytes = _buildArm64FixtureBytes();
+      final archiveBytes = encode7zArchive(
+        sevenZipExecutable: _sevenZipExecutable,
+        methodArgs: const <String>['-m0=ARM64', '-m1=LZMA2'],
+        files: <SevenZipArchiveInputFile>[
+          SevenZipArchiveInputFile('arm64.bin', originalBytes),
+        ],
+      );
 
-    final archive = decode7zArchive(archiveBytes);
+      final archive = decode7zArchive(archiveBytes);
 
-    expect(archive, isNotNull);
-    final file = archive!.find('arm64.bin');
-    expect(file, isNotNull);
-    expect(file!.readBytes(), orderedEquals(originalBytes));
-  }, skip: _sevenZipSkipReason);
+      expect(archive, isNotNull);
+      final file = archive!.find('arm64.bin');
+      expect(file, isNotNull);
+      expect(file!.readBytes(), orderedEquals(originalBytes));
+    },
+    skip: _sevenZipSkipReason,
+  );
 
   test(
     'pure 7z decoder reads encoded-header ARM64 plus LZMA2 filter chains',
@@ -342,24 +386,28 @@ void main() {
     skip: _sevenZipSkipReason,
   );
 
-  test('pure 7z decoder reads Delta plus LZMA2 filter-chain archives', () {
-    final originalBytes = _buildDeltaFixtureBytes();
-    final archiveBytes = encode7zArchive(
-      sevenZipExecutable: _sevenZipExecutable,
-      methodArgs: const <String>['-m0=Delta:4', '-m1=LZMA2'],
-      files: <SevenZipArchiveInputFile>[
-        SevenZipArchiveInputFile('audio.raw', originalBytes),
-      ],
-    );
+  test(
+    'pure 7z decoder reads Delta plus LZMA2 filter-chain archives',
+    () {
+      final originalBytes = _buildDeltaFixtureBytes();
+      final archiveBytes = encode7zArchive(
+        sevenZipExecutable: _sevenZipExecutable,
+        methodArgs: const <String>['-m0=Delta:4', '-m1=LZMA2'],
+        files: <SevenZipArchiveInputFile>[
+          SevenZipArchiveInputFile('audio.raw', originalBytes),
+        ],
+      );
 
-    final archive = decode7zArchive(archiveBytes);
+      final archive = decode7zArchive(archiveBytes);
 
-    expect(archive, isNotNull);
-    final file = archive!.find('audio.raw');
-    expect(file, isNotNull);
-    expect(file!.isFile, isTrue);
-    expect(file.readBytes(), orderedEquals(originalBytes));
-  }, skip: _sevenZipSkipReason);
+      expect(archive, isNotNull);
+      final file = archive!.find('audio.raw');
+      expect(file, isNotNull);
+      expect(file!.isFile, isTrue);
+      expect(file.readBytes(), orderedEquals(originalBytes));
+    },
+    skip: _sevenZipSkipReason,
+  );
 
   test(
     'pure 7z decoder reads encoded-header Delta plus LZMA2 filter chains',

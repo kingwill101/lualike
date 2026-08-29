@@ -35,20 +35,12 @@ void syncLoveFilesystemPackageInterop(LuaRuntime runtime) {
       _createLoveFilesystemExtSearcher(runtime);
 
   final searchersEntry = packageTable['searchers'];
-  if (searchersEntry case final Value wrapped) {
-    final searchers = wrapped.raw;
-    if (searchers is List<dynamic>) {
-      _syncSearcher(searchers, luaSearcher, targetIndex: 1);
-      _syncSearcher(searchers, extSearcher, targetIndex: 2);
-      packageTable['loaders'] = wrapped;
-      return;
-    }
-    if (searchers is Map<dynamic, dynamic>) {
-      _syncSearcherTable(searchers, luaSearcher, targetIndex: 1);
-      _syncSearcherTable(searchers, extSearcher, targetIndex: 2);
-      packageTable['loaders'] = wrapped;
-      return;
-    }
+  if (searchersEntry case final Value wrapped when wrapped.raw is List) {
+    final searchers = wrapped.raw as List<dynamic>;
+    _syncSearcher(searchers, luaSearcher, targetIndex: 1);
+    _syncSearcher(searchers, extSearcher, targetIndex: 2);
+    packageTable['loaders'] = wrapped;
+    return;
   }
 
   final searchersValue = Value(<Value>[luaSearcher, extSearcher]);
@@ -83,7 +75,7 @@ Value _createLoveFilesystemSearcher(LuaRuntime runtime) {
               throw LuaError('unknown error');
             }
 
-            return await runtime.callFunction(
+            return runtime.callFunction(
               chunk,
               loaderArgs,
               debugName: logicalPath,
@@ -202,25 +194,6 @@ void _syncSearcher(
   final existing = searchers.removeAt(existingIndex);
   final adjustedIndex = targetIndex.clamp(0, searchers.length);
   searchers.insert(adjustedIndex, existing);
-}
-
-/// Inserts or repositions [searcher] in a 1-based Lua array table.
-void _syncSearcherTable(
-  Map<dynamic, dynamic> table,
-  Value searcher, {
-  required int targetIndex,
-}) {
-  final searchers = <dynamic>[];
-  for (var index = 1; table.containsKey(index); index++) {
-    searchers.add(table[index]);
-  }
-
-  _syncSearcher(searchers, searcher, targetIndex: targetIndex);
-
-  table.removeWhere((key, value) => key is int && key > 0);
-  for (var index = 0; index < searchers.length; index++) {
-    table[index + 1] = searchers[index];
-  }
 }
 
 /// Converts Lua values commonly used for path arguments to strings.

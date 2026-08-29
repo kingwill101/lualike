@@ -26,6 +26,11 @@ final class LoveCanvasRenderBackend implements LoveRenderBackend {
     ui.Size viewportSize, {
     LoveRenderStatsAccumulator? stats,
   }) {
-    renderSurfaceSnapshot(canvas, surface, viewportSize, stats: stats);
+    renderSurfaceSnapshot(
+      canvas,
+      surface,
+      viewportSize,
+      stats: stats,
+    );
   }
 }

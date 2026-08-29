@@ -81,7 +81,13 @@ Value _colorResult(LoveColor color) {
 
 /// Parses a color from scalar arguments or from a Lua color table.
 LoveColor _requireColor(List<Object?> args, int index, String symbol) {
-  final table = _tableIfPresent(_valueAt(args, index));
+  final value = _valueAt(args, index);
+  final table = switch (value) {
+    final Value wrapped when wrapped.raw is Map =>
+      wrapped.raw as Map<dynamic, dynamic>,
+    final Map<dynamic, dynamic> map => map,
+    _ => null,
+  };
 
   if (table != null && _looksLikeColorTable(table)) {
     return LoveColor(
@@ -1273,7 +1279,7 @@ String? _tableString(Map<dynamic, dynamic> table, String key) {
 }
 
 /// Returns whether a Lua table looks like a color tuple.
-bool _looksLikeColorTable(Object? table) {
+bool _looksLikeColorTable(Map<dynamic, dynamic> table) {
   return _tableIndexedEntry(table, 1) != null &&
       _tableIndexedEntry(table, 2) != null &&
       _tableIndexedEntry(table, 3) != null;
@@ -1281,7 +1287,7 @@ bool _looksLikeColorTable(Object? table) {
 
 /// Returns a numeric indexed field from a Lua table.
 double _tableIndexedNumber(
-  Object? table,
+  Map<dynamic, dynamic> table,
   int index,
   String symbol, {
   double? defaultValue,
@@ -1303,17 +1309,14 @@ double _tableIndexedNumber(
 }
 
 /// Returns a named field from a Lua table using Lua-style string coercion.
-Object? _tableEntry(Object? table, String key) {
-  final raw = _rawValue(table);
-  if (raw is Map<dynamic, dynamic>) {
-    if (raw.containsKey(key)) {
-      return raw[key];
-    }
+Object? _tableEntry(Map<dynamic, dynamic> table, String key) {
+  if (table.containsKey(key)) {
+    return table[key];
+  }
 
-    for (final entry in raw.entries) {
-      if (_stringLike(entry.key) == key) {
-        return entry.value;
-      }
+  for (final entry in table.entries) {
+    if (_stringLike(entry.key) == key) {
+      return entry.value;
     }
   }
 
@@ -1321,32 +1324,21 @@ Object? _tableEntry(Object? table, String key) {
 }
 
 /// Returns an indexed field from a Lua table using Lua numeric coercion rules.
-Object? _tableIndexedEntry(Object? table, int index) {
-  final raw = _rawValue(table);
-  if (raw is Map<dynamic, dynamic>) {
-    if (raw.containsKey(index)) {
-      return raw[index];
-    }
-
-    final asDouble = index.toDouble();
-    if (raw.containsKey(asDouble)) {
-      return raw[asDouble];
-    }
-
-    for (final entry in raw.entries) {
-      final rawKey = _rawValue(entry.key);
-      if (rawKey == index || rawKey == asDouble) {
-        return entry.value;
-      }
-    }
-    return null;
+Object? _tableIndexedEntry(Map<dynamic, dynamic> table, int index) {
+  if (table.containsKey(index)) {
+    return table[index];
   }
 
-  if (raw is List<dynamic>) {
-    if (index <= 0 || index > raw.length) {
-      return null;
+  final asDouble = index.toDouble();
+  if (table.containsKey(asDouble)) {
+    return table[asDouble];
+  }
+
+  for (final entry in table.entries) {
+    final rawKey = _rawValue(entry.key);
+    if (rawKey == index || rawKey == asDouble) {
+      return entry.value;
     }
-    return raw[index - 1];
   }
 
   return null;
@@ -1541,9 +1533,6 @@ Map<dynamic, dynamic>? _tableIfPresent(Object? value) {
   final raw = _rawValue(value);
   return switch (raw) {
     final Map<dynamic, dynamic> map => map,
-    final List<dynamic> list => <dynamic, dynamic>{
-      for (var i = 0; i < list.length; i++) i + 1: list[i],
-    },
     _ => null,
   };
 }
