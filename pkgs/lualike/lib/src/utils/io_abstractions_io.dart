@@ -22,7 +22,10 @@ String getSystemTempDirectory() => io.Directory.systemTemp.path;
 String createTempFilePath(String prefix) {
   final random = Random();
   final tempDir = io.Directory.systemTemp.path;
-  return path.join(tempDir, '${prefix}_${random.nextInt(1000000)}.tmp');
+  return path.join(
+    tempDir,
+    '${prefix}_${io.pid}_${random.nextInt(1000000)}.tmp',
+  );
 }
 
 /// Platform-safe way to exit the process

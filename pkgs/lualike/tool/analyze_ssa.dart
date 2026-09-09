@@ -7,7 +7,6 @@ library;
 import 'dart:io';
 
 import 'package:lualike/lualike.dart';
-import 'package:lualike/src/compile/pipeline.dart';
 import 'package:lualike/src/ir/ssa_dead_code_pass.dart';
 import 'package:lualike/src/ir/ssa_gvn_pass.dart';
 
@@ -36,11 +35,9 @@ final class _SsaMetrics {
   final int singleUse;
   final int multiUse;
 
-  double get unusedPct =>
-      defCount > 0 ? (unusedCount / defCount * 100) : 0.0;
+  double get unusedPct => defCount > 0 ? (unusedCount / defCount * 100) : 0.0;
 
-  double get phiDensity =>
-      blockCount > 0 ? phiCount / blockCount : 0.0;
+  double get phiDensity => blockCount > 0 ? phiCount / blockCount : 0.0;
 }
 
 void main(List<String> args) async {
@@ -48,7 +45,9 @@ void main(List<String> args) async {
   final paths = args.where((a) => !a.startsWith('-')).toList();
 
   if (paths.isEmpty) {
-    stderr.writeln('Usage: dart run tool/analyze_ssa.dart <script.lua> [--verbose]');
+    stderr.writeln(
+      'Usage: dart run tool/analyze_ssa.dart <script.lua> [--verbose]',
+    );
     stderr.writeln('       dart run tool/analyze_ssa.dart <dir> [--verbose]');
     exit(1);
   }
@@ -146,7 +145,10 @@ void _analyzePrototype(
 
   final blockCount = ssa.blocks.length;
   final totalPhis = ssa.blocks.fold<int>(0, (s, b) => s + b.phis.length);
-  final totalDefs = ssa.blocks.fold<int>(0, (s, b) => s + b.definedValues.length);
+  final totalDefs = ssa.blocks.fold<int>(
+    0,
+    (s, b) => s + b.definedValues.length,
+  );
   final unusedCount = ssa.unusedDefinitions.length;
   final phiBlocks = ssa.blocks.where((b) => b.hasPhis).length;
 
@@ -172,9 +174,15 @@ void _analyzePrototype(
 
   print('');
   print('  ┌─ $name ─${''.padRight(48, '─')}┐');
-  print('  │ Instr: ${instrCount.toString().padRight(5)}  Blocks: ${blockCount.toString().padRight(4)}  Phis: ${totalPhis.toString().padRight(4)}');
-  print('  │ Defs:  ${totalDefs.toString().padRight(5)}  Unused: ${unusedCount.toString().padRight(3)} ($unusedPct%)  Φ/blk: $phiDensity');
-  print('  │ Phi blocks: $phiBlocks/$blockCount  Uses: 0=$zeroUse  1=$oneUse  2+=$multiUse');
+  print(
+    '  │ Instr: ${instrCount.toString().padRight(5)}  Blocks: ${blockCount.toString().padRight(4)}  Phis: ${totalPhis.toString().padRight(4)}',
+  );
+  print(
+    '  │ Defs:  ${totalDefs.toString().padRight(5)}  Unused: ${unusedCount.toString().padRight(3)} ($unusedPct%)  Φ/blk: $phiDensity',
+  );
+  print(
+    '  │ Phi blocks: $phiBlocks/$blockCount  Uses: 0=$zeroUse  1=$oneUse  2+=$multiUse',
+  );
   print('  └${''.padRight(60, '─')}┘');
 
   if (unusedCount > 0) {
@@ -182,12 +190,16 @@ void _analyzePrototype(
     var shown = 0;
     for (final value in ssa.unusedDefinitions) {
       if (shown >= 10 && !verbose) {
-        print('     ... and ${unusedCount - shown} more (use --verbose for full list)');
+        print(
+          '     ... and ${unusedCount - shown} more (use --verbose for full list)',
+        );
         break;
       }
       shown++;
       final details = value.uses.map((u) => u.toString()).join(', ');
-      print('     ${value.label}  pc=${value.definingPc}  ${details.isNotEmpty ? "→ $details" : "(no uses)"}');
+      print(
+        '     ${value.label}  pc=${value.definingPc}  ${details.isNotEmpty ? "→ $details" : "(no uses)"}',
+      );
     }
   }
 
@@ -231,17 +243,21 @@ void _printSummary() {
   print('  SSA Summary — sorted by unused %');
   print('═══════════════════════════════════════════════════════════════════');
   print('');
-  print('  ${'Script'.padRight(24)} ${'Instr'.padRight(6)} ${'Blk'.padRight(5)} ${'Phis'.padRight(5)} ${'Defs'.padRight(6)} ${'Unused'.padRight(7)} ${'1-use'.padRight(6)} ${'2+use'}');
+  print(
+    '  ${'Script'.padRight(24)} ${'Instr'.padRight(6)} ${'Blk'.padRight(5)} ${'Phis'.padRight(5)} ${'Defs'.padRight(6)} ${'Unused'.padRight(7)} ${'1-use'.padRight(6)} ${'2+use'}',
+  );
   print('  ${''.padRight(80, '─')}');
 
   for (final m in sorted) {
-    print('  ${m.name.padRight(24)} '
-        '${m.instrCount.toString().padRight(6)} '
-        '${m.blockCount.toString().padRight(5)} '
-        '${m.phiCount.toString().padRight(5)} '
-        '${m.defCount.toString().padRight(6)} '
-        '${'${m.unusedCount} (${m.unusedPct.toStringAsFixed(1)}%)'.padRight(7)} '
-        '${m.singleUse.toString().padRight(6)} '
-        '${m.multiUse}');
+    print(
+      '  ${m.name.padRight(24)} '
+      '${m.instrCount.toString().padRight(6)} '
+      '${m.blockCount.toString().padRight(5)} '
+      '${m.phiCount.toString().padRight(5)} '
+      '${m.defCount.toString().padRight(6)} '
+      '${'${m.unusedCount} (${m.unusedPct.toStringAsFixed(1)}%)'.padRight(7)} '
+      '${m.singleUse.toString().padRight(6)} '
+      '${m.multiUse}',
+    );
   }
 }

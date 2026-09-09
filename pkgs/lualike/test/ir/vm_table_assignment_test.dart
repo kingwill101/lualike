@@ -114,10 +114,8 @@ void main() {
       final mapTable = table as Map;
       final first = mapTable['one'];
       final second = mapTable['two'];
-      expect(first, isA<Value>());
-      expect(second, isA<Value>());
-      expect((first as Value).raw, equals(10));
-      expect((second as Value).raw, equals(20));
+      expect(_unwrapValue(first), equals(10));
+      expect(_unwrapValue(second), equals(20));
     });
   });
 }

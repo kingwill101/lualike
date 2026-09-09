@@ -73,6 +73,7 @@ export 'src/exceptions.dart';
 export 'src/executor.dart' show executeCode;
 export 'src/extensions/extensions.dart';
 export 'src/file_manager.dart';
+export 'src/gc/gc.dart' show LuaGcPolicy;
 export 'src/interop.dart';
 export 'src/interpreter/interpreter.dart';
 export 'src/io/io_device_shared.dart';

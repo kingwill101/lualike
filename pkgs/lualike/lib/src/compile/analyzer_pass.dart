@@ -19,15 +19,7 @@ import 'package:lualike/src/compile/compiler_pass.dart';
 import 'package:lualike/src/compile/fold_result.dart';
 
 /// The inferred Lua type for a variable.
-enum InferredType {
-  nil_,
-  boolean,
-  number,
-  string,
-  table,
-  function_,
-  unknown,
-}
+enum InferredType { nil_, boolean, number, string, table, function_, unknown }
 
 /// Stores type information for local variables per scope.
 class _TypeFrame {

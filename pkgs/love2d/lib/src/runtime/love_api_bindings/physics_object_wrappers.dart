@@ -615,19 +615,15 @@ Value _wrapPhysicsWorld(LibraryContext context, LovePhysicsWorld world) {
             _requireNumber(args, 3, 'World:rayCast'),
             _requireNumber(args, 4, 'World:rayCast'),
             (fixture, x, y, normalX, normalY, fraction) async {
-              final result = await _physicsInvokeLuaCallback(
-                context,
-                callback,
-                <Object?>[
-                  _wrapPhysicsFixture(context, fixture),
-                  x,
-                  y,
-                  normalX,
-                  normalY,
-                  fraction,
-                ],
-                'World:rayCast',
-              );
+              final result =
+                  await _physicsInvokeLuaCallback(context, callback, <Object?>[
+                    _wrapPhysicsFixture(context, fixture),
+                    x,
+                    y,
+                    normalX,
+                    normalY,
+                    fraction,
+                  ], 'World:rayCast');
               final number = _numberIfPresent(result);
               if (number == null) {
                 throw LuaError("Raycast callback didn't return a number!");

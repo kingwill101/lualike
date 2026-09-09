@@ -4,9 +4,7 @@ targets:
       lualike|table_schema:
         enabled: true
         generate_for:
-          - "lib/**_schema.dart"
-          - "lib/**_plugin_info.dart"
-          - "lib/**/*_table.dart"
+          - "lib/**/*_lualike_schema.dart"
 
 builders:
   table_schema:

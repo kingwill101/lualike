@@ -189,8 +189,9 @@ final class LuaBuilder implements Builder {
     // Ensure the build output directory exists.
     await Directory.fromUri(buildDir).create(recursive: true);
 
-    await for (final entity
-        in Directory.fromUri(sourceDir).list(recursive: true)) {
+    await for (final entity in Directory.fromUri(
+      sourceDir,
+    ).list(recursive: true)) {
       if (entity is! File || !entity.path.endsWith('.lua')) {
         continue;
       }
@@ -198,9 +199,10 @@ final class LuaBuilder implements Builder {
       // Preserve directory structure relative to the source directory.
       final relativePath = entity.path.substring(sourceDir.path.length);
       // Remove leading /
-      final assetName = relativePath.startsWith('/')
-          ? relativePath.substring(1)
-          : relativePath;
+      final assetName =
+          relativePath.startsWith('/')
+              ? relativePath.substring(1)
+              : relativePath;
 
       logger?.fine('Compiling: ${entity.path}');
 
@@ -356,12 +358,13 @@ final class LuaBuilder implements Builder {
   }
 
   String _toLowerCamelIdentifier(String input) {
-    final parts = input
-        .replaceAll(RegExp(r'[^A-Za-z0-9]+'), ' ')
-        .trim()
-        .split(RegExp(r'\s+'))
-        .where((part) => part.isNotEmpty)
-        .toList();
+    final parts =
+        input
+            .replaceAll(RegExp(r'[^A-Za-z0-9]+'), ' ')
+            .trim()
+            .split(RegExp(r'\s+'))
+            .where((part) => part.isNotEmpty)
+            .toList();
     if (parts.isEmpty) {
       return 'lua';
     }

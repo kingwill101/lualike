@@ -3,7 +3,6 @@ import 'dart:typed_data';
 
 import 'package:flutter_test/flutter_test.dart';
 import 'package:lualike/lualike.dart';
-import 'package:lualike/src/io/io_device.dart';
 import 'package:love2d/love2d.dart';
 import 'package:love2d/src/runtime/filesystem/love_filesystem_runtime.dart';
 import 'package:path/path.dart' as path;
@@ -221,8 +220,8 @@ end
           'joystick',
           'getJoysticks',
         ]);
-        expect(joysticks, isA<Map>());
-        final first = (joysticks! as Map)[1];
+        expect(joysticks, isA<List>());
+        final first = (joysticks! as List).single;
         expect(first, isA<Map>());
 
         final result = await _callMethod(
@@ -338,24 +337,20 @@ end
       },
     );
 
-    test(
-      'vendored Modern-Pong main menu loads under bytecode',
-      () async {
-        final backendFactory = _RecordingAudioBackendFactory();
-        final runtime = await _createModernPongRuntime(
-          backendFactory: backendFactory,
-          engineMode: EngineMode.luaBytecode,
-        );
-        await _loadModernPong(runtime).timeout(const Duration(seconds: 10));
+    test('vendored Modern-Pong main menu loads under bytecode', () async {
+      final backendFactory = _RecordingAudioBackendFactory();
+      final runtime = await _createModernPongRuntime(
+        backendFactory: backendFactory,
+        engineMode: EngineMode.luaBytecode,
+      );
+      await _loadModernPong(runtime).timeout(const Duration(seconds: 10));
 
-        runtime.context.beginDrawFrame();
-        await runtime.callDrawIfDefined();
+      runtime.context.beginDrawFrame();
+      await runtime.callDrawIfDefined();
 
-        expect(backendFactory.loadedSources, contains('sounds/theme.mp3'));
-        expect(runtime.context.graphics.commands, isNotEmpty);
-      },
-      timeout: const Timeout(Duration(seconds: 15)),
-    );
+      expect(backendFactory.loadedSources, contains('sounds/theme.mp3'));
+      expect(runtime.context.graphics.commands, isNotEmpty);
+    }, timeout: const Timeout(Duration(seconds: 15)));
 
     test(
       'vendored Modern-Pong main menu click transitions into inGame',

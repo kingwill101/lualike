@@ -1,5 +1,15 @@
 part of 'interpreter.dart';
 
+const bool _normalizeEmptyLocalAttributes = bool.fromEnvironment(
+  'LUALIKE_NORMALIZE_EMPTY_LOCAL_ATTRIBUTES',
+  defaultValue: true,
+);
+
+String? _normalizedLocalAttribute(String? attribute) =>
+    _normalizeEmptyLocalAttributes && (attribute?.isEmpty ?? false)
+    ? null
+    : attribute;
+
 bool _isInlineableMutableLocalPrimitive(Object? value) {
   if (value is Value) {
     final raw = rawLuaSlot(value);
@@ -60,7 +70,11 @@ mixin InterpreterAssignmentMixin on AstVisitor<Object?> {
     Value tableValue,
     AstNode node,
   ) {
-    final sourceLabel = _sourceLabelForAst(globals, tableExpr);
+    final sourceLabel = _sourceLabelForAst(
+      globals,
+      tableExpr,
+      interpreter: this as Interpreter,
+    );
     final type = getLuaType(tableValue);
     throw LuaError(
       sourceLabel != null
@@ -145,6 +159,7 @@ mixin InterpreterAssignmentMixin on AstVisitor<Object?> {
     bool isConst = false,
     bool isToBeClose = false,
   }) {
+    Box.noteLocalBindingClone(value);
     if (_isPlainDetachedPrimitive(value)) {
       final raw = rawLuaSlot(value);
       return Value.primitive(
@@ -232,10 +247,26 @@ mixin InterpreterAssignmentMixin on AstVisitor<Object?> {
   }
 
   bool _updateActiveFunctionLocal(
-    String name,
+    Identifier target,
     dynamic value,
     Interpreter interpreter,
   ) {
+    final name = target.name;
+    final fastLocals = interpreter.getCurrentFastLocals();
+    final activeEnvironment = interpreter.getCurrentEnv();
+    final cachedSlot = fastLocals?.cachedSlot(target, activeEnvironment) ?? -1;
+    if (cachedSlot >= 0) {
+      fastLocals!.writeSlot(cachedSlot, _mutableLocalStorageValue(value));
+      return true;
+    }
+
+    final activeSlot =
+        fastLocals?.lookupAndCacheSlot(target, activeEnvironment) ?? -1;
+    if (activeSlot >= 0) {
+      fastLocals!.writeSlot(activeSlot, _mutableLocalStorageValue(value));
+      return true;
+    }
+
     final currentFunction = interpreter.getCurrentFunction();
     if (currentFunction == null) {
       return globals.updateLocal(name, _mutableLocalStorageValue(value));
@@ -246,6 +277,7 @@ mixin InterpreterAssignmentMixin on AstVisitor<Object?> {
     while (current != null && !identical(current, closureBoundary)) {
       final box = current.values[name];
       if (box != null && box.isLocal) {
+        fastLocals?.cacheResolvedBox(target, box);
         if (box.preventsAssignment) {
           throw LuaError("attempt to assign to const variable '$name'");
         }
@@ -257,6 +289,7 @@ mixin InterpreterAssignmentMixin on AstVisitor<Object?> {
 
     final closureBox = closureBoundary?.values[name];
     if (closureBox != null && closureBox.isLocal) {
+      fastLocals?.cacheResolvedBox(target, closureBox);
       if (closureBox.preventsAssignment) {
         throw LuaError("attempt to assign to const variable '$name'");
       }
@@ -291,236 +324,252 @@ mixin InterpreterAssignmentMixin on AstVisitor<Object?> {
 
     // Evaluate the expressions on the right-hand side into a list
     final expressions = <Object?>[];
-    for (int i = 0; i < node.exprs.length; i++) {
-      final expr = node.exprs[i];
-      Logger.debugLazy(
-        () => 'visitAssignment: Evaluating expr of type: ${expr.runtimeType}',
-        category: 'Assignment',
-        contextBuilder: () => {
-          'exprIndex': i,
-          'exprType': expr.runtimeType.toString(),
-        },
-      );
-      var value = await expr.accept(this);
-      Logger.debugLazy(
-        () =>
-            'visitAssignment: Evaluated value: $value '
-            '(type: ${value.runtimeType})',
-        category: 'Assignment',
-        contextBuilder: () => {
-          'exprIndex': i,
-          'valueType': value.runtimeType.toString(),
-        },
-      );
-
-      // Handle Future values - both direct Futures and Values containing Futures
-      if (value is Future) {
-        value = await value;
-        Logger.debugLazy(
-          () => 'visitAssignment: Awaited direct future value: $value',
-          category: 'Assignment',
-          contextBuilder: () => {'exprIndex': i},
-        );
-      } else {
-        final resolvedValue = _resolveAssignmentFutureValue(interpreter, value);
-        if (!identical(resolvedValue, value)) {
-          value = await resolvedValue;
-          Logger.debugLazy(
-            () =>
-                'visitAssignment: Awaited future value from Value.raw: $value',
-            category: 'Assignment',
-            contextBuilder: () => {'exprIndex': i},
-          );
-        }
-      }
-
-      // Special handling for grouped expressions with function calls
-      if (expr is GroupedExpression) {
-        Logger.debugLazy(
-          () => 'Assignment: handling GroupedExpression result: $value',
-          category: 'Interpreter',
-          contextBuilder: () => {
-            'exprIndex': i,
-            'isMulti': luaResultValues(value) != null,
-          },
-        );
-
-        // In Lua, when a function call is wrapped in parentheses (e.g., (f())),
-        // only the first return value is used, and the rest are discarded
-        if (luaResultValues(value) != null || value is List) {
-          // Take only the first value
-          expressions.add(
-            _snapshotAssignmentResult(
-              _firstLuaResultOrNil(value, interpreter: this as Interpreter),
-            ),
-          );
-        } else {
-          // Regular value, add directly
-          expressions.add(_snapshotAssignmentResult(value));
-        }
-      } else if (value is List) {
-        if (expr is TableConstructor && value.isEmpty) {
-          final tableValue = await expr.accept(this);
-          Logger.debugLazy(
-            () =>
-                'visitAssignment: TableConstructor with empty list, '
-                'using tableValue: $tableValue',
-            category: 'Assignment',
-            contextBuilder: () => {'exprIndex': i},
-          );
-          expressions.add(tableValue);
-        } else {
-          expressions.addAll(value.map(_snapshotAssignmentResult));
-        }
-      } else if (luaResultValues(value) case final resultValues?) {
-        // For multi-value expressions (like varargs or function calls):
-        // - If it's the last expression, expand all values
-        // - If it's not the last expression, only use the first value
-        if (i == node.exprs.length - 1) {
-          // Last expression: expand all values
-          Logger.debugLazy(
-            () =>
-                'Assignment: Last expression is multi-value, '
-                'expanding all: $resultValues',
-            category: 'Assignment',
-            contextBuilder: () => {
-              'exprIndex': i,
-              'valueCount': resultValues.length,
-            },
-          );
-          expressions.addAll(resultValues);
-        } else {
-          // Not last expression: only use first value
-          final firstValue = resultValues.isNotEmpty
-              ? resultValues.first
-              : interpreter.constantPrimitiveValue(null);
-          Logger.debugLazy(
-            () =>
-                'Assignment: Non-last expression is multi-value, '
-                'taking first: $firstValue',
-            category: 'Assignment',
-            contextBuilder: () => {
-              'exprIndex': i,
-              'totalValues': resultValues.length,
-            },
-          );
-          expressions.add(_snapshotAssignmentResult(firstValue));
-        }
-      } else if (expr is TableAccessExpr &&
-          value is Value &&
-          rawLuaSlot(value) is Coroutine) {
-        // Patch: If the right-hand side is a TableAccessExpr and the value is a Coroutine, assign an empty table
-        Logger.debugLazy(
-          () =>
-              'visitAssignment: TableAccessExpr evaluated to Coroutine, '
-              'assigning empty table instead',
-          category: 'Assignment',
-          contextBuilder: () => {'exprIndex': i},
-        );
-        expressions.add(ValueClass.table());
-      } else {
-        expressions.add(_snapshotAssignmentResult(value));
-      }
-      if (expressions.isNotEmpty) {
-        Logger.debugLazy(
-          () =>
-              'visitAssignment: Final value added to expressions: '
-              '${expressions.last}',
-          category: 'Assignment',
-          contextBuilder: () => {
-            'exprIndex': i,
-            'expressionsCount': expressions.length,
-          },
-        );
-      } else {
-        Logger.debugLazy(
-          () => 'visitAssignment: Expression produced no values',
-          category: 'Assignment',
-          contextBuilder: () => {'exprIndex': i},
-        );
-      }
-    }
-    Logger.debugLazy(
-      () => 'Assignment expressions evaluated: $expressions',
-      category: 'Interpreter',
-      contextBuilder: () => {'expressionsCount': expressions.length},
-    );
-
-    // For multiple targets, value should be a list or multi-value
-    List<Object?> values = expressions;
-
-    // Pre-evaluate table and index expressions for targets
     final preTables = <Value?>[];
     final preIndices = <Object?>[];
-    for (final t in node.targets) {
-      if (t is TableFieldAccess) {
-        var tableVal = await t.table.accept(this);
-        if (luaResultValues(tableVal) != null) {
-          tableVal = _firstLuaResultOrNil(tableVal, interpreter: interpreter);
-        }
-        preTables.add(valueFromLuaSlot(interpreter, tableVal));
-        preIndices.add(t.fieldName.name);
-      } else if (t is TableIndexAccess) {
-        var tableVal = await t.table.accept(this);
-        if (luaResultValues(tableVal) != null) {
-          tableVal = _firstLuaResultOrNil(tableVal, interpreter: interpreter);
-        }
-        var indexVal = await t.index.accept(this);
-        if (luaResultValues(indexVal) != null) {
-          indexVal = _firstLuaResultOrNil(indexVal, interpreter: interpreter);
-        }
-        preTables.add(valueFromLuaSlot(interpreter, tableVal));
-        preIndices.add(_snapshotAssignmentResult(indexVal));
-      } else {
-        preTables.add(null);
-        preIndices.add(null);
-      }
+    Iterable<Object?> assignmentRoots() sync* {
+      yield* expressions;
+      yield* preTables;
+      yield* preIndices;
     }
 
-    // Assign each value to corresponding target
-    for (var i = 0; i < node.targets.length; i++) {
-      final target = node.targets[i];
-      final targetValue = i < values.length
-          ? values[i]
-          : interpreter.constantPrimitiveValue(null);
+    // Dart locals are invisible to the Lua collector. Keep evaluated RHS and
+    // target values alive until they have been installed in Lua storage.
+    interpreter.pushExternalGcRoots(assignmentRoots);
+    try {
+      for (int i = 0; i < node.exprs.length; i++) {
+        final expr = node.exprs[i];
+        Logger.debugLazy(
+          () => 'visitAssignment: Evaluating expr of type: ${expr.runtimeType}',
+          category: 'Assignment',
+          contextBuilder: () => {
+            'exprIndex': i,
+            'exprType': expr.runtimeType.toString(),
+          },
+        );
+        var value = await expr.accept(this);
+        Logger.debugLazy(
+          () =>
+              'visitAssignment: Evaluated value: $value '
+              '(type: ${value.runtimeType})',
+          category: 'Assignment',
+          contextBuilder: () => {
+            'exprIndex': i,
+            'valueType': value.runtimeType.toString(),
+          },
+        );
 
+        // Handle Future values - both direct Futures and Values containing Futures
+        if (value is Future) {
+          value = await value;
+          Logger.debugLazy(
+            () => 'visitAssignment: Awaited direct future value: $value',
+            category: 'Assignment',
+            contextBuilder: () => {'exprIndex': i},
+          );
+        } else {
+          final resolvedValue = _resolveAssignmentFutureValue(
+            interpreter,
+            value,
+          );
+          if (!identical(resolvedValue, value)) {
+            value = await resolvedValue;
+            Logger.debugLazy(
+              () =>
+                  'visitAssignment: Awaited future value from Value.raw: $value',
+              category: 'Assignment',
+              contextBuilder: () => {'exprIndex': i},
+            );
+          }
+        }
+
+        // Special handling for grouped expressions with function calls
+        if (expr is GroupedExpression) {
+          Logger.debugLazy(
+            () => 'Assignment: handling GroupedExpression result: $value',
+            category: 'Interpreter',
+            contextBuilder: () => {
+              'exprIndex': i,
+              'isMulti': luaResultValues(value) != null,
+            },
+          );
+
+          // In Lua, when a function call is wrapped in parentheses (e.g., (f())),
+          // only the first return value is used, and the rest are discarded
+          if (luaResultValues(value) != null || value is List) {
+            // Take only the first value
+            expressions.add(
+              _snapshotAssignmentResult(
+                _firstLuaResultOrNil(value, interpreter: this as Interpreter),
+              ),
+            );
+          } else {
+            // Regular value, add directly
+            expressions.add(_snapshotAssignmentResult(value));
+          }
+        } else if (value is List) {
+          if (expr is TableConstructor && value.isEmpty) {
+            final tableValue = await expr.accept(this);
+            Logger.debugLazy(
+              () =>
+                  'visitAssignment: TableConstructor with empty list, '
+                  'using tableValue: $tableValue',
+              category: 'Assignment',
+              contextBuilder: () => {'exprIndex': i},
+            );
+            expressions.add(tableValue);
+          } else {
+            expressions.addAll(value.map(_snapshotAssignmentResult));
+          }
+        } else if (luaResultValues(value) case final resultValues?) {
+          // For multi-value expressions (like varargs or function calls):
+          // - If it's the last expression, expand all values
+          // - If it's not the last expression, only use the first value
+          if (i == node.exprs.length - 1) {
+            // Last expression: expand all values
+            Logger.debugLazy(
+              () =>
+                  'Assignment: Last expression is multi-value, '
+                  'expanding all: $resultValues',
+              category: 'Assignment',
+              contextBuilder: () => {
+                'exprIndex': i,
+                'valueCount': resultValues.length,
+              },
+            );
+            expressions.addAll(resultValues);
+          } else {
+            // Not last expression: only use first value
+            final firstValue = resultValues.isNotEmpty
+                ? resultValues.first
+                : interpreter.constantPrimitiveValue(null);
+            Logger.debugLazy(
+              () =>
+                  'Assignment: Non-last expression is multi-value, '
+                  'taking first: $firstValue',
+              category: 'Assignment',
+              contextBuilder: () => {
+                'exprIndex': i,
+                'totalValues': resultValues.length,
+              },
+            );
+            expressions.add(_snapshotAssignmentResult(firstValue));
+          }
+        } else if (expr is TableAccessExpr &&
+            value is Value &&
+            rawLuaSlot(value) is Coroutine) {
+          // Patch: If the right-hand side is a TableAccessExpr and the value is a Coroutine, assign an empty table
+          Logger.debugLazy(
+            () =>
+                'visitAssignment: TableAccessExpr evaluated to Coroutine, '
+                'assigning empty table instead',
+            category: 'Assignment',
+            contextBuilder: () => {'exprIndex': i},
+          );
+          expressions.add(ValueClass.table());
+        } else {
+          expressions.add(_snapshotAssignmentResult(value));
+        }
+        if (expressions.isNotEmpty) {
+          Logger.debugLazy(
+            () =>
+                'visitAssignment: Final value added to expressions: '
+                '${expressions.last}',
+            category: 'Assignment',
+            contextBuilder: () => {
+              'exprIndex': i,
+              'expressionsCount': expressions.length,
+            },
+          );
+        } else {
+          Logger.debugLazy(
+            () => 'visitAssignment: Expression produced no values',
+            category: 'Assignment',
+            contextBuilder: () => {'exprIndex': i},
+          );
+        }
+      }
       Logger.debugLazy(
-        () => '[visitAssignment] Assigning $targetValue to $target',
+        () => 'Assignment expressions evaluated: $expressions',
         category: 'Interpreter',
-        contextBuilder: () => {
-          'targetIndex': i,
-          'targetType': target.runtimeType.toString(),
-        },
+        contextBuilder: () => {'expressionsCount': expressions.length},
       );
-      final Value wrappedValue = valueFromLuaSlot(interpreter, targetValue);
 
-      if (target is TableAccessExpr) {
-        await _handleTableAccessAssignment(target, wrappedValue);
-      } else if (target is Identifier) {
-        await _handleIdentifierAssignment(target, wrappedValue);
-      } else if (target is FunctionLiteral || target is Function) {
-        await _handleFunctionAssignment(target, wrappedValue);
-      } else if (target is TableFieldAccess) {
-        await _handleTableFieldAssignment(
-          target,
-          wrappedValue,
-          preTable: preTables[i],
-        );
-      } else if (target is TableIndexAccess) {
-        await _handleTableIndexAssignment(
-          target,
-          wrappedValue,
-          preTable: preTables[i],
-          preIndex: preIndices[i],
-        );
-      } else {
-        throw Exception("Invalid assignment target");
+      // For multiple targets, value should be a list or multi-value
+      List<Object?> values = expressions;
+
+      // Pre-evaluate table and index expressions for targets
+      for (final t in node.targets) {
+        if (t is TableFieldAccess) {
+          var tableVal = await t.table.accept(this);
+          if (luaResultValues(tableVal) != null) {
+            tableVal = _firstLuaResultOrNil(tableVal, interpreter: interpreter);
+          }
+          preTables.add(valueFromLuaSlot(interpreter, tableVal));
+          preIndices.add(t.fieldName.name);
+        } else if (t is TableIndexAccess) {
+          var tableVal = await t.table.accept(this);
+          if (luaResultValues(tableVal) != null) {
+            tableVal = _firstLuaResultOrNil(tableVal, interpreter: interpreter);
+          }
+          var indexVal = await t.index.accept(this);
+          if (luaResultValues(indexVal) != null) {
+            indexVal = _firstLuaResultOrNil(indexVal, interpreter: interpreter);
+          }
+          preTables.add(valueFromLuaSlot(interpreter, tableVal));
+          preIndices.add(_snapshotAssignmentResult(indexVal));
+        } else {
+          preTables.add(null);
+          preIndices.add(null);
+        }
       }
-    }
 
-    return values.isNotEmpty
-        ? values[0]
-        : interpreter.constantPrimitiveValue(null);
+      // Assign each value to corresponding target
+      for (var i = 0; i < node.targets.length; i++) {
+        final target = node.targets[i];
+        final targetValue = i < values.length
+            ? values[i]
+            : interpreter.constantPrimitiveValue(null);
+
+        Logger.debugLazy(
+          () => '[visitAssignment] Assigning $targetValue to $target',
+          category: 'Interpreter',
+          contextBuilder: () => {
+            'targetIndex': i,
+            'targetType': target.runtimeType.toString(),
+          },
+        );
+        final Value wrappedValue = valueFromLuaSlot(interpreter, targetValue);
+
+        if (target is TableAccessExpr) {
+          await _handleTableAccessAssignment(target, wrappedValue);
+        } else if (target is Identifier) {
+          await _handleIdentifierAssignment(target, wrappedValue);
+        } else if (target is FunctionLiteral || target is Function) {
+          await _handleFunctionAssignment(target, wrappedValue);
+        } else if (target is TableFieldAccess) {
+          await _handleTableFieldAssignment(
+            target,
+            wrappedValue,
+            preTable: preTables[i],
+          );
+        } else if (target is TableIndexAccess) {
+          await _handleTableIndexAssignment(
+            target,
+            wrappedValue,
+            preTable: preTables[i],
+            preIndex: preIndices[i],
+          );
+        } else {
+          throw Exception("Invalid assignment target");
+        }
+      }
+
+      return values.isNotEmpty
+          ? values[0]
+          : interpreter.constantPrimitiveValue(null);
+    } finally {
+      interpreter.popExternalGcRoots(assignmentRoots);
+    }
   }
 
   /// Handles assignment to a table field.
@@ -558,9 +607,18 @@ mixin InterpreterAssignmentMixin on AstVisitor<Object?> {
       final storedValue = wrappedValue;
       if (tableValue.isTable) {
         if (target.index is! Identifier) {
-          final table = await target.table.accept(this).toValue();
+          final tableResult = target.table.accept(this);
+          final Value table;
+          if (tableResult is Future) {
+            table = await tableResult.toValue();
+          } else {
+            table = tableResult.toValue();
+          }
           if (!table.isNil) {
-            dynamic index = await target.index.accept(this);
+            dynamic index = target.index.accept(this);
+            if (index is Future) {
+              index = await index;
+            }
             if (luaResultValues(index) != null) {
               index = _firstLuaResultOrNil(index, interpreter: interpreter);
             }
@@ -756,15 +814,41 @@ mixin InterpreterAssignmentMixin on AstVisitor<Object?> {
       // final isIsolatedEnvironment = globals.isLoadIsolated;
 
       // First, check if this is a local variable in the current environment chain
+      final fastLocals = interpreter.getCurrentFastLocals();
+      final activeEnvironment = interpreter.getCurrentEnv();
+      final cachedSlot =
+          fastLocals?.cachedSlot(target, activeEnvironment) ?? -1;
+      if (cachedSlot >= 0) {
+        fastLocals!.writeSlot(
+          cachedSlot,
+          _mutableLocalStorageValue(storedValue),
+        );
+        return storedValue;
+      }
+      final activeSlot =
+          fastLocals?.lookupAndCacheSlot(target, activeEnvironment) ?? -1;
+      if (activeSlot >= 0) {
+        fastLocals!.writeSlot(
+          activeSlot,
+          _mutableLocalStorageValue(storedValue),
+        );
+        return storedValue;
+      }
+
       Environment? env = globals;
       while (env != null) {
         if (env.values.containsKey(name) && env.values[name]!.isLocal) {
+          final box = env.values[name]!;
+          fastLocals?.cacheResolvedBox(target, box);
           Logger.debugLazy(
             () => 'Updating local variable: $name',
             category: 'Assignment',
             contextBuilder: () => {'name': name, 'envHash': env.hashCode},
           );
-          env.define(name, storedValue);
+          if (box.preventsAssignment) {
+            throw LuaError("attempt to assign to const variable '$name'");
+          }
+          box.value = _mutableLocalStorageValue(storedValue);
           return storedValue;
         }
         env = env.parent;
@@ -825,7 +909,7 @@ mixin InterpreterAssignmentMixin on AstVisitor<Object?> {
     // Step 1: Check if this is a local variable assignment
     // updateLocal() searches only for variables with isLocal=true and updates
     // the first one found. Returns true if a local was updated.
-    if (_updateActiveFunctionLocal(name, storedValue, interpreter)) {
+    if (_updateActiveFunctionLocal(target, storedValue, interpreter)) {
       Logger.debugLazy(
         () => 'Updated local variable: $name',
         category: 'Assignment',
@@ -1198,13 +1282,58 @@ mixin InterpreterAssignmentMixin on AstVisitor<Object?> {
       contextBuilder: () => {'namesCount': node.names.length},
     );
 
-    void updateFastLocalBinding(String name) {
+    AstLocalFrame? activeFastLocals() => interpreter.getCurrentFastLocals();
+
+    bool bindDirectLocal(
+      int nameIndex,
+      String name,
+      String? attribute,
+      Object? value,
+    ) {
+      final fastLocals = activeFastLocals();
+      if (fastLocals == null ||
+          !fastLocals.canBindDeclarationSlot(node) ||
+          interpreter.debugHookFunction != null ||
+          name == '_ENV' ||
+          name == '_G' ||
+          attribute != null) {
+        return false;
+      }
+
+      final Object? stored;
+      final bool identityBearing;
+      if (_isInlineableMutableLocalPrimitive(value)) {
+        stored = _mutableLocalStorageValue(value);
+        identityBearing = false;
+      } else if (AstLocalFrame.slotOnlyIdentityLocalsEnabled) {
+        // Preserve canonical identity for tables/functions/userdata and clone
+        // binding-decorated primitive facades exactly as the boxed path does.
+        // Only the Box is omitted; Lua-visible value semantics are unchanged.
+        stored = _cloneValueForLocalBinding(
+          valueFromLuaSlot(interpreter, value),
+        );
+        identityBearing = true;
+      } else {
+        return false;
+      }
+      fastLocals.bindDeclarationSlot(
+        node,
+        nameIndex,
+        name,
+        stored,
+        globals,
+        identityBearing: identityBearing,
+      );
+      return true;
+    }
+
+    void updateFastLocalBinding(int nameIndex, String name) {
       if (this is Interpreter) {
-        final fastLocals = (this as Interpreter).getCurrentFastLocals();
+        final fastLocals = activeFastLocals();
         if (fastLocals != null) {
           final box = globals.values[name];
           if (box != null) {
-            fastLocals[name] = box;
+            fastLocals.bindDeclaration(node, nameIndex, name, box, globals);
           }
         }
       }
@@ -1290,7 +1419,7 @@ mixin InterpreterAssignmentMixin on AstVisitor<Object?> {
 
     if (node.names.length == 1) {
       final name = node.names.first.name;
-      final attribute = node.attributes.firstOrNull;
+      final attribute = _normalizedLocalAttribute(node.attributes.firstOrNull);
       final Value rawValue = values.isNotEmpty
           ? valueFromLuaSlot(interpreter, values.first)
           : valueFromLuaSlot(
@@ -1298,7 +1427,16 @@ mixin InterpreterAssignmentMixin on AstVisitor<Object?> {
               null,
             ); // Default to nil if no values provided
 
-      // Apply attributes
+      if (bindDirectLocal(0, name, attribute, rawValue)) {
+        return null;
+      }
+
+      if (attribute == null && _isInlineableMutableLocalPrimitive(rawValue)) {
+        globals.declare(name, rawLuaSlot(rawValue));
+        updateFastLocalBinding(0, name);
+        return null;
+      }
+      // Apply attributes or preserve identity-bearing values.
       Value valueWithAttributes;
       if (attribute == 'const') {
         valueWithAttributes = _cloneValueForLocalBinding(
@@ -1326,17 +1464,22 @@ mixin InterpreterAssignmentMixin on AstVisitor<Object?> {
         _mutableLocalStorageValue(valueWithAttributes),
         trackToBeClosed: attribute == 'close',
       );
-      updateFastLocalBinding(name);
+      updateFastLocalBinding(0, name);
     } else {
       // Assign values to the respective names, defaulting to nil if fewer expressions than names.
       for (var i = 0; i < node.names.length; i++) {
         final name = node.names[i].name;
-        final attribute = node.attributes.length > i
+        final parsedAttribute = node.attributes.length > i
             ? node.attributes[i]
             : null;
+        final attribute = _normalizedLocalAttribute(parsedAttribute);
         final rawValue = i < values.length
             ? values[i]
             : valueFromLuaSlot(interpreter, null);
+
+        if (bindDirectLocal(i, name, attribute, rawValue)) {
+          continue;
+        }
 
         // Apply attributes
         Value valueWithAttributes;
@@ -1383,7 +1526,11 @@ mixin InterpreterAssignmentMixin on AstVisitor<Object?> {
             }
           }
         } else {
-          if (rawValue is Value) {
+          if (_isInlineableMutableLocalPrimitive(rawValue)) {
+            globals.declare(name, rawLuaSlot(rawValue));
+            updateFastLocalBinding(i, name);
+            continue;
+          } else if (rawValue is Value) {
             valueWithAttributes = _cloneValueForLocalBinding(rawValue);
           } else {
             valueWithAttributes = valueFromLuaSlot(interpreter, rawValue);
@@ -1407,7 +1554,7 @@ mixin InterpreterAssignmentMixin on AstVisitor<Object?> {
           _mutableLocalStorageValue(valueWithAttributes),
           trackToBeClosed: attribute == 'close',
         );
-        updateFastLocalBinding(name);
+        updateFastLocalBinding(i, name);
       }
     }
 

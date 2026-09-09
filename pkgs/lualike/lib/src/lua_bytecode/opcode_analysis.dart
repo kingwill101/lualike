@@ -5,8 +5,11 @@ extension OpcodeAnalysis on Opcode {
   String get mnemonic => luaName;
 
   bool get defersCountHook => switch (this) {
-    Opcode.eq || Opcode.lt || Opcode.le || Opcode.test || Opcode.testSet =>
-      true,
+    Opcode.eq ||
+    Opcode.lt ||
+    Opcode.le ||
+    Opcode.test ||
+    Opcode.testSet => true,
     _ => false,
   };
 

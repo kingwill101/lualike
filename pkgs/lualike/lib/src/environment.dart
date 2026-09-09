@@ -7,9 +7,84 @@ import 'package:lualike/src/runtime/lua_slot.dart';
 import 'package:lualike/src/gc/gc_access.dart';
 import 'package:lualike/src/gc/memory_credits.dart';
 
+const bool _singleMapEnvironmentLookup = bool.fromEnvironment(
+  'LUALIKE_SINGLE_MAP_ENVIRONMENT_LOOKUP',
+  defaultValue: true,
+);
+
 /// A generic box class that wraps a single value of type T.
 /// Used to create mutable references to values in the environment.
 class Box<T> with GCObject {
+  static const bool bindingDiagnosticsEnabled = bool.fromEnvironment(
+    'LUALIKE_BINDING_DIAGNOSTICS',
+    defaultValue: false,
+  );
+
+  static int _diagnosticCreated = 0;
+  static int _diagnosticReused = 0;
+  static int _diagnosticLocalBindingClones = 0;
+  static int _diagnosticSharedScalarClones = 0;
+  static int _diagnosticUnsharedScalarClones = 0;
+  static int _diagnosticStringPrimitiveClones = 0;
+  static int _diagnosticDecoratedPrimitiveClones = 0;
+  static int _diagnosticOtherLocalClones = 0;
+
+  /// Resets opt-in binding counters used by profile-mode harnesses.
+  static void resetBindingDiagnostics() {
+    if (!bindingDiagnosticsEnabled) return;
+    _diagnosticCreated = 0;
+    _diagnosticReused = 0;
+    _diagnosticLocalBindingClones = 0;
+    _diagnosticSharedScalarClones = 0;
+    _diagnosticUnsharedScalarClones = 0;
+    _diagnosticStringPrimitiveClones = 0;
+    _diagnosticDecoratedPrimitiveClones = 0;
+    _diagnosticOtherLocalClones = 0;
+  }
+
+  /// Attributes local-binding wrapper clones in diagnostic builds only.
+  static void noteLocalBindingClone(Value value) {
+    if (!bindingDiagnosticsEnabled) return;
+    _diagnosticLocalBindingClones++;
+    final raw = rawLuaSlot(value);
+    final decorated =
+        value.metatable != null ||
+        value.metatableRef != null ||
+        value.upvalues != null ||
+        value.functionBody != null ||
+        value.closureEnvironment != null ||
+        value.globalProxyEnvironment != null ||
+        value.functionName != null ||
+        value.debugLineDefined != null ||
+        value.strippedDebugInfo;
+    if (decorated && isLuaPrimitiveSlot(raw)) {
+      _diagnosticDecoratedPrimitiveClones++;
+    } else if (isLuaScalarPrimitiveSlot(raw)) {
+      if (value.isSharedPrimitive) {
+        _diagnosticSharedScalarClones++;
+      } else {
+        _diagnosticUnsharedScalarClones++;
+      }
+    } else if (raw is String || raw is LuaString) {
+      _diagnosticStringPrimitiveClones++;
+    } else {
+      _diagnosticOtherLocalClones++;
+    }
+  }
+
+  /// Returns opt-in binding counters without instrumenting normal builds.
+  static Map<String, Object> bindingDiagnostics() => <String, Object>{
+    'enabled': bindingDiagnosticsEnabled,
+    'created': _diagnosticCreated,
+    'reused': _diagnosticReused,
+    'localBindingClones': _diagnosticLocalBindingClones,
+    'sharedScalarClones': _diagnosticSharedScalarClones,
+    'unsharedScalarClones': _diagnosticUnsharedScalarClones,
+    'stringPrimitiveClones': _diagnosticStringPrimitiveClones,
+    'decoratedPrimitiveClones': _diagnosticDecoratedPrimitiveClones,
+    'otherLocalClones': _diagnosticOtherLocalClones,
+  };
+
   /// The wrapped value.
   T _value;
 
@@ -69,8 +144,11 @@ class Box<T> with GCObject {
   }) : isConst = isConst ?? _valueIsConst(value),
        isToBeClose = isToBeClose ?? _valueIsToBeClose(value),
        _value = value {
+    if (bindingDiagnosticsEnabled) {
+      _diagnosticCreated++;
+    }
     _applyBindingAttributes(_value);
-    // Register with GC, but don't count allocation for transient boxes
+    // Register with GC, but don't count allocation for transient boxes.
     final gc = interpreter?.gc ?? GCAccess.fromEnv(null);
     gc?.register(this, countAllocation: !isTransient);
   }
@@ -123,6 +201,42 @@ class Box<T> with GCObject {
 
   /// Whether this box still has live upvalues referencing it.
   bool get hasUpvalueReferences => _upvalueRefCount > 0;
+
+  /// Reinitializes a transient local binding whose lexical lifetime ended.
+  ///
+  /// Callers must prove that no closure or active debug scope can still observe
+  /// the old binding. The box is re-enrolled because an idle recycled binding
+  /// may have been swept from the custom generations while it held `nil`.
+  void rebindTransientLocal(T newValue) {
+    assert(isLocal);
+    assert(isTransient);
+    assert(!hasUpvalueReferences);
+    if (bindingDiagnosticsEnabled) {
+      _diagnosticReused++;
+    }
+    isConst = _valueIsConst(newValue);
+    isToBeClose = _valueIsToBeClose(newValue);
+    final gc = interpreter?.gc ?? GCAccess.defaultManager;
+    gc?.ensureTracked(this);
+    value = newValue;
+  }
+
+  /// Clears this binding while it is parked in a closure-free reuse pool.
+  ///
+  /// Unlike [rebindTransientLocal], parking does not re-enroll the box with
+  /// the custom collector. The next declaration does that exactly once when
+  /// the box becomes observable again. Dropping the old value here prevents
+  /// an idle pooled environment from retaining the previous call's objects.
+  void parkTransientLocalForReuse() {
+    assert(isLocal);
+    assert(isTransient);
+    assert(!hasUpvalueReferences);
+    isConst = false;
+    isToBeClose = false;
+    _value = null as T;
+    final gc = interpreter?.gc ?? GCAccess.defaultManager;
+    gc?.noteReferenceWrite(this, null);
+  }
 
   @override
   String toString() {
@@ -189,14 +303,128 @@ class Environment with GCObject {
   /// Storage for variable bindings in this scope.
   final Map<String, Box<dynamic>> values = {};
 
+  /// Boxes from completed, closure-free lexical iterations, keyed by name.
+  ///
+  /// These bindings are deliberately separate from [values], so a read before
+  /// the next declaration still resolves to the outer scope as required by Lua.
+  Map<String, Box<dynamic>>? _reusableTransientLocals;
+
+  /// Idle closure-free child scopes keyed by their stable AST body identity.
+  ///
+  /// The parent owns this cache, so a loop's branch scopes disappear with that
+  /// loop environment and can never be reused under a different lexical parent.
+  Map<Object, Environment>? _reusableChildScopes;
+
+  bool _reuseTransientLocalBindings = false;
+
+  /// Enables name-based recycling for transient local declarations.
+  ///
+  /// This is only valid for scopes whose body cannot create a closure. A box
+  /// with an upvalue reference is never admitted to the reuse pool.
+  void enableTransientLocalBindingReuse() {
+    _reuseTransientLocalBindings = true;
+  }
+
+  /// Borrows an idle closure-free child scope for [scopeKey].
+  Environment? takeReusableChildScope(Object scopeKey) {
+    return _reusableChildScopes?.remove(scopeKey);
+  }
+
+  /// Returns a completed closure-free [scope] to this lexical parent.
+  void returnReusableChildScope(Object scopeKey, Environment scope) {
+    assert(identical(scope.parent, this));
+    (_reusableChildScopes ??= Map<Object, Environment>.identity()).putIfAbsent(
+      scopeKey,
+      () => scope,
+    );
+  }
+
+  /// Ends the current lexical iteration and hides recyclable local bindings.
+  ///
+  /// Bindings named by [retainedNames] remain active. Other locals are removed
+  /// from lookup immediately and may be reused by a same-name declaration in a
+  /// later iteration. Closable and captured bindings retain the old lifecycle.
+  void recycleTransientLocalBindingsExcept(Set<String> retainedNames) {
+    if (!_reuseTransientLocalBindings ||
+        values.length <= retainedNames.length) {
+      return;
+    }
+
+    final names = <String>[];
+    values.forEach((name, _) {
+      if (!retainedNames.contains(name)) {
+        names.add(name);
+      }
+    });
+
+    for (final name in names) {
+      final box = values.remove(name);
+      if (box == null ||
+          !box.isLocal ||
+          !box.isTransient ||
+          box.isToBeClose ||
+          box.hasUpvalueReferences) {
+        continue;
+      }
+      box.parkTransientLocalForReuse();
+      (_reusableTransientLocals ??= <String, Box<dynamic>>{})[name] = box;
+    }
+  }
+
   /// Names explicitly declared as globals in this lexical scope.
   ///
   /// These shadow outer locals for name resolution while still targeting the
   /// root global binding.
-  final Map<String, Box<dynamic>> declaredGlobals = {};
+  Map<String, Box<dynamic>>? _declaredGlobals;
+
+  /// Mutable explicit-global bindings for compatibility with existing callers.
+  ///
+  /// Most execution environments never declare a global. Delaying this map
+  /// avoids allocating one for every ordinary Lua function invocation.
+  Map<String, Box<dynamic>> get declaredGlobals =>
+      _declaredGlobals ??= <String, Box<dynamic>>{};
+
+  /// Returns the explicit-global binding owned by this scope without forcing
+  /// an empty map allocation.
+  Box<dynamic>? declaredGlobalBox(String name) => _declaredGlobals?[name];
+
+  /// Whether this scope owns an explicit-global binding named [name].
+  bool containsDeclaredGlobal(String name) =>
+      _declaredGlobals?.containsKey(name) ?? false;
+
+  /// Existing explicit-global bindings without materializing empty storage.
+  Iterable<Box<dynamic>> get declaredGlobalBoxes =>
+      _declaredGlobals?.values ?? const <Box<dynamic>>[];
+
+  /// Existing explicit-global entries without materializing empty storage.
+  Iterable<MapEntry<String, Box<dynamic>>> get declaredGlobalEntries =>
+      _declaredGlobals?.entries ?? const <MapEntry<String, Box<dynamic>>>[];
+
+  /// Clears explicit-global storage only when it has been materialized.
+  void clearDeclaredGlobals() => _declaredGlobals?.clear();
 
   /// Tracks the order in which to-be-closed variables were declared
-  final List<String> toBeClosedVars = [];
+  List<String>? _toBeClosedVars;
+
+  /// Mutable close-order storage for scopes that actually contain `<close>`.
+  List<String> get toBeClosedVars => _toBeClosedVars ??= <String>[];
+
+  /// Whether this scope currently owns any to-be-closed variables.
+  bool get hasToBeClosedVariables => _toBeClosedVars?.isNotEmpty ?? false;
+
+  /// Number of currently tracked to-be-closed variables.
+  int get toBeClosedVariableCount => _toBeClosedVars?.length ?? 0;
+
+  /// Existing close-order entries without materializing empty storage.
+  Iterable<String> get existingToBeClosedVariables =>
+      _toBeClosedVars ?? const <String>[];
+
+  /// Clears close-order storage only when it has been materialized.
+  void clearToBeClosedVariables() => _toBeClosedVars?.clear();
+
+  /// Removes [name] from close-order storage without creating an empty list.
+  bool removeToBeClosedVariable(String name) =>
+      _toBeClosedVars?.remove(name) ?? false;
 
   /// Tracks pending implicit to-be-closed resources that are active for this
   /// scope but are not represented as normal local bindings.
@@ -204,7 +432,22 @@ class Environment with GCObject {
 
   /// Stores implicit to-be-closed resources that must stay GC-reachable even
   /// when they are not ordinary local bindings.
-  final List<Value> implicitToBeClosedValues = <Value>[];
+  List<Value>? _implicitToBeClosedValues;
+
+  /// Mutable storage for scopes that actually own implicit close resources.
+  List<Value> get implicitToBeClosedValues =>
+      _implicitToBeClosedValues ??= <Value>[];
+
+  /// Existing implicit close resources without materializing empty storage.
+  Iterable<Value> get existingImplicitToBeClosedValues =>
+      _implicitToBeClosedValues ?? const <Value>[];
+
+  /// Number of currently tracked implicit close resources.
+  int get implicitToBeClosedValueCount =>
+      _implicitToBeClosedValues?.length ?? 0;
+
+  /// Clears implicit close resources only when storage has been materialized.
+  void clearImplicitToBeClosedValues() => _implicitToBeClosedValues?.clear();
 
   /// The parent environment in the scope chain, if any.
   final Environment? parent;
@@ -235,8 +478,10 @@ class Environment with GCObject {
     this.isClosure = false,
     this.isLoadIsolated = false,
   }) {
-    final gc = GCAccess.fromEnv(this);
-    gc?.register(this, countAllocation: false);
+    // Environments are host scope frames. They remain visible to Lua GC root
+    // traversal through active frames and closure references, but deliberately
+    // stay out of the strongly held custom generations so completed calls can
+    // be reclaimed by Dart immediately.
     Logger.debugLazy(
       () => "Environment($hashCode) created. Parent: ${parent?.hashCode}",
       category: 'Env',
@@ -299,7 +544,7 @@ class Environment with GCObject {
       GcWeights.gcObjectHeader +
       GcWeights.environmentBase +
       (_countedBindingEntries(values.values) +
-              _countedBindingEntries(declaredGlobals.values)) *
+              _countedBindingEntries(declaredGlobalBoxes)) *
           GcWeights.environmentEntry;
 
   @override
@@ -322,10 +567,10 @@ class Environment with GCObject {
       // Do not auto-enroll raw values directly; discovery proceeds via Box.
       refs.add(box);
     }
-    for (final box in declaredGlobals.values) {
+    for (final box in declaredGlobalBoxes) {
       refs.add(box);
     }
-    refs.addAll(implicitToBeClosedValues);
+    refs.addAll(existingImplicitToBeClosedValues);
     return refs;
   }
 
@@ -343,10 +588,48 @@ class Environment with GCObject {
     return chain;
   }
 
+  List<String>? _splitPath(String name) {
+    if (!name.contains('.')) {
+      return null;
+    }
+    final parts = name.split('.');
+    if (parts.any((part) => part.isEmpty)) {
+      return null;
+    }
+    return parts;
+  }
+
+  ({bool found, dynamic value}) _lookupDottedPath(List<String> parts) {
+    if (parts.isEmpty) {
+      return (found: false, value: null);
+    }
+
+    if (!contains(parts.first)) {
+      return (found: false, value: null);
+    }
+
+    dynamic current = get(parts.first);
+    for (final part in parts.skip(1)) {
+      final raw = rawLuaSlot(current);
+      if (raw is! Map || !raw.containsKey(part)) {
+        return (found: false, value: null);
+      }
+      current = raw[part];
+    }
+    return (found: true, value: current);
+  }
+
   /// Checks if a variable exists in this environment or any of its ancestors.
+  ///
+  /// Supports dotted paths like `love.graphics` for nested table lookups.
   ///
   /// Returns true if the variable is found anywhere in the environment chain.
   bool contains(String name) {
+    final path = _splitPath(name);
+    if (path != null) {
+      return _lookupDottedPath(path).found;
+    }
+
     Logger.debugLazy(
       () => "Checking if '$name' exists in env ($hashCode)",
       category: 'Env',
@@ -361,7 +644,7 @@ class Environment with GCObject {
       return true;
     }
 
-    if (declaredGlobals.containsKey(name)) {
+    if (containsDeclaredGlobal(name)) {
       Logger.debugLazy(
         () => "Declared global '$name' found in current env ($hashCode)",
         category: 'Env',
@@ -392,12 +675,18 @@ class Environment with GCObject {
   /// Searches through the environment chain starting from this environment
   /// and moving up to parent environments until the variable is found.
   /// This method is used for variable access (reading variables).
+  /// Supports dotted paths like `love.graphics` for nested table lookups.
   ///
   /// Returns the value if found, null if the variable doesn't exist anywhere
   /// in the environment chain.
   ///
   /// **Usage**: Variable lookups in expressions like `print(x)` or `y = x + 1`.
   dynamic get(String name) {
+    final path = _splitPath(name);
+    if (path != null) {
+      return _lookupDottedPath(path).value;
+    }
+
     if (Logger.enabled) {
       Logger.debugLazy(
         () => "Looking for '$name' in env ($hashCode)}",
@@ -409,8 +698,11 @@ class Environment with GCObject {
       );
     }
 
-    if (values.containsKey(name)) {
-      final val = values[name]!.value;
+    final box = _singleMapEnvironmentLookup
+        ? values[name]
+        : (values.containsKey(name) ? values[name] : null);
+    if (box != null) {
+      final val = box.value;
       if (Logger.enabled) {
         Logger.debugLazy(
           () =>
@@ -421,8 +713,9 @@ class Environment with GCObject {
       return val;
     }
 
-    if (declaredGlobals.containsKey(name)) {
-      final val = declaredGlobals[name]!.value;
+    final declaredGlobal = declaredGlobalBox(name);
+    if (declaredGlobal != null) {
+      final val = declaredGlobal.value;
       if (Logger.enabled) {
         Logger.debugLazy(
           () => "Found declared global '$name' = $val in env ($hashCode)",
@@ -432,15 +725,16 @@ class Environment with GCObject {
       return val;
     }
 
-    if (parent != null) {
+    final parentEnv = parent;
+    if (parentEnv != null) {
       if (Logger.enabled) {
         Logger.debugLazy(
           () =>
-              "'$name' not found in current env, checking parent env (${parent!.hashCode})",
+              "'$name' not found in current env, checking parent env (${parentEnv.hashCode})",
           category: 'Env',
         );
       }
-      return parent!.get(name);
+      return parentEnv.get(name);
     }
 
     if (Logger.enabled) {
@@ -504,8 +798,9 @@ class Environment with GCObject {
       return;
     }
 
-    if (declaredGlobals.containsKey(name)) {
-      final box = declaredGlobals[name]!;
+    final declaredGlobal = declaredGlobalBox(name);
+    if (declaredGlobal != null) {
+      final box = declaredGlobal;
       if (box.preventsAssignment) {
         Logger.debugLazy(
           () => "Attempt to modify const declared global '$name'",
@@ -613,14 +908,18 @@ class Environment with GCObject {
       category: 'Env',
     );
 
-    // Create a fresh Box that shadows any previous binding
-    // Mark as transient since function-local variables aren't counted in Lua's memory
-    final box = Box(
-      value,
-      isLocal: true,
-      isTransient: true,
-      interpreter: interpreter,
-    );
+    // Closure-free loop scopes can recycle a binding after its previous
+    // lexical lifetime ended. It stays outside `values` while idle so reads
+    // before this declaration still see an outer binding.
+    final reusable = _reuseTransientLocalBindings
+        ? _reusableTransientLocals?.remove(name)
+        : null;
+    final box =
+        reusable ??
+        Box(value, isLocal: true, isTransient: true, interpreter: interpreter);
+    if (reusable != null) {
+      reusable.rebindTransientLocal(value);
+    }
     values[name] = box;
     _noteChildReference(box);
     _updateCredits();
@@ -805,7 +1104,7 @@ class Environment with GCObject {
   void clearGlobal(String name) {
     final rootEnv = root;
     rootEnv.values.remove(name);
-    rootEnv.toBeClosedVars.remove(name);
+    rootEnv.removeToBeClosedVariable(name);
     rootEnv._updateCredits();
     rootEnv._syncGlobalTableEntry(name, null);
   }
@@ -818,7 +1117,7 @@ class Environment with GCObject {
     Box<dynamic>? box;
     Environment? current = this;
     while (current != null) {
-      final declared = current.declaredGlobals[name];
+      final declared = current.declaredGlobalBox(name);
       if (declared != null) {
         box = declared;
         break;
@@ -839,7 +1138,7 @@ class Environment with GCObject {
   Box<dynamic>? findDeclaredGlobalBox(String name) {
     Environment? current = this;
     while (current != null) {
-      final box = current.declaredGlobals[name];
+      final box = current.declaredGlobalBox(name);
       if (box != null) {
         return box;
       }
@@ -889,7 +1188,7 @@ class Environment with GCObject {
       if (box != null) {
         return box;
       }
-      final declaredGlobal = current.declaredGlobals[name];
+      final declaredGlobal = current.declaredGlobalBox(name);
       if (declaredGlobal != null) {
         return declaredGlobal;
       }
@@ -906,7 +1205,7 @@ class Environment with GCObject {
       if (current.values.containsKey(name)) {
         return false;
       }
-      if (current.declaredGlobals.containsKey(name)) {
+      if (current.containsDeclaredGlobal(name)) {
         return true;
       }
       current = current.parent;
@@ -920,7 +1219,7 @@ class Environment with GCObject {
   Future<void> closeVariables([dynamic error]) async {
     Logger.debugLazy(
       () =>
-          "Closing variables in env ($hashCode). To be closed: ${toBeClosedVars.join(', ')}",
+          "Closing variables in env ($hashCode). To be closed: ${_toBeClosedVars?.join(', ') ?? ''}",
       category: 'Env',
     );
 
@@ -971,16 +1270,17 @@ class Environment with GCObject {
       }
     }
 
-    if (toBeClosedVars.length == 1) {
-      final name = toBeClosedVars.removeLast();
+    final closeVariables = _toBeClosedVars;
+    if (closeVariables?.length == 1) {
+      final name = closeVariables!.removeLast();
       await closeTrackedValue(name, values[name]?.value);
-    } else {
+    } else if (closeVariables != null) {
       // Close variables in reverse order of declaration. Remove the variable
       // before invoking its close handler so reentrant safe points do not try
       // to close it twice while still preserving the remaining variables if a
       // close handler yields.
-      while (toBeClosedVars.isNotEmpty) {
-        final name = toBeClosedVars.removeLast();
+      while (closeVariables.isNotEmpty) {
+        final name = closeVariables.removeLast();
         await closeTrackedValue(name, values[name]?.value);
       }
     }
@@ -1099,7 +1399,10 @@ class Environment with GCObject {
     }
 
     // Copy to-be-closed variables
-    cloned.toBeClosedVars.addAll(toBeClosedVars);
+    final closeVariables = _toBeClosedVars;
+    if (closeVariables != null && closeVariables.isNotEmpty) {
+      cloned.toBeClosedVars.addAll(closeVariables);
+    }
 
     cloned._updateCredits();
 

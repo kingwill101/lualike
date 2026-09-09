@@ -23,10 +23,7 @@ class InliningHeuristicsPass extends CompilerPass {
   /// Maximum call depth for nested inlining.
   final int maxInlineDepth;
 
-  InliningHeuristicsPass({
-    this.maxBodyNodes = 20,
-    this.maxInlineDepth = 4,
-  });
+  InliningHeuristicsPass({this.maxBodyNodes = 20, this.maxInlineDepth = 4});
 
   @override
   Program run(Program program, CompilerContext context) {

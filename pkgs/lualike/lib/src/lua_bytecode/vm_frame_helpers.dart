@@ -1,7 +1,6 @@
 import 'dart:collection';
 
 import 'package:lualike/src/lua_bytecode/opcode.dart';
-import 'package:lualike/src/lua_bytecode/vm_value_helpers.dart';
 import 'package:lualike/src/runtime/lua_slot.dart';
 import 'package:lualike/src/value.dart';
 
@@ -72,15 +71,23 @@ final class LuaBytecodeFrameArgsView extends ListBase<Object?> {
     this._frame, {
     required this.start,
     required this.count,
+    this.materializeValues = true,
   });
 
   final dynamic _frame;
   final int start;
   final int count;
+  final bool materializeValues;
 
   Iterable<Value> get gcRoots sync* {
     for (var index = 0; index < count; index++) {
-      yield _frame.slotValue(start + index);
+      final slot = _frame.rawSlot(start + index);
+      // Primitive slots do not own GC-visible references. Identity-bearing
+      // tables, closures, and metadata-bearing values remain wrapped in the
+      // frame and must stay rooted while an inline builtin is executing.
+      if (slot is Value) {
+        yield slot;
+      }
     }
   }
 
@@ -91,10 +98,12 @@ final class LuaBytecodeFrameArgsView extends ListBase<Object?> {
   set length(int newLength) => throw UnsupportedError('Cannot resize view');
 
   @override
-  Object? operator [](int index) => _frame.slotValue(start + index);
+  Object? operator [](int index) => materializeValues
+      ? _frame.slotValue(start + index)
+      : _frame.rawSlot(start + index);
 
   @override
   void operator []=(int index, Object? value) {
-    _frame.setRegister(start + index, runtimeValue(_frame.runtime, value));
+    _frame.setRegisterSlot(start + index, value);
   }
 }

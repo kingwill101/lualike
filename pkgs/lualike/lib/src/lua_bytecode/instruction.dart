@@ -58,6 +58,9 @@ abstract final class LuaBytecodeInstructionLayout {
   /// Whether [value] can be encoded as a signed C-field immediate.
   static bool fitsSignedArgC(int value) =>
       value >= minSignedArgC && value <= maxSignedArgC;
+
+  /// Whether [value] can be encoded in an unsigned C field.
+  static bool fitsUnsignedArgC(int value) => value >= 0 && value <= maxArgC;
 }
 
 extension type const LuaBytecodeInstructionWord(int value) {

@@ -336,6 +336,31 @@ void main() {
     );
 
     test(
+      'stripped chunks enumerate direct identity and boxed locals in order',
+      () async {
+        const script = r'''
+      local prog = [[
+        local marker = debug
+        local captured = 12
+        local function read() return captured end
+        local n1, v1 = debug.getlocal(1, 1)
+        local n2, v2 = debug.getlocal(1, 2)
+        return n1, v1 == marker, n2, v2, read()
+      ]]
+      local f = assert(load(string.dump(load(prog), true)))
+      return f()
+      ''';
+
+        final result = await luaLike.execute(script);
+        expect(result.raw, isA<List>());
+        expect(
+          (result.raw as List).map((value) => (value as Value).raw).toList(),
+          equals(<Object?>['(temporary)', true, '(temporary)', 12, 12]),
+        );
+      },
+    );
+
+    test(
       're-dumping a function from a stripped chunk should keep stripped debug info',
       () async {
         const script = r'''

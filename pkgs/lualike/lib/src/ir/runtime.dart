@@ -11,6 +11,7 @@ import 'package:lualike/src/coroutine.dart';
 import 'package:lualike/src/environment.dart';
 import 'package:lualike/src/file_manager.dart';
 import 'package:lualike/src/gc/generational_gc.dart';
+import 'package:lualike/src/gc/gc.dart' show LuaGcPolicy;
 import 'package:lualike/src/interpreter/interpreter.dart';
 import 'package:lualike/src/lua_error.dart';
 import 'package:lualike/src/lua_bytecode/runtime.dart';
@@ -23,10 +24,10 @@ import 'package:lualike/src/runtime/compiled_artifact_support.dart';
 import 'package:lualike/src/runtime/chunk_loading_support.dart';
 import 'package:lualike/src/runtime/lua_results.dart';
 import 'package:lualike/src/runtime/lua_runtime.dart';
+import 'package:lualike/src/runtime/runtime_bootstrap.dart';
 import 'package:lualike/src/runtime/lua_slot.dart';
 import 'package:lualike/src/semantic_checker.dart';
 import 'package:lualike/src/stack.dart';
-import 'package:lualike/src/stdlib/init.dart';
 import 'package:lualike/src/ir/ssa.dart';
 import 'package:lualike/src/ir/ssa_type_analysis.dart';
 import 'package:lualike/src/ir/llvm_lowering.dart';
@@ -38,16 +39,23 @@ import 'package:lualike/src/value.dart';
 /// Runtime wrapper that executes code via the lualike IR VM while satisfying
 /// the [LuaRuntime] contract expected by higher-level tooling.
 class LualikeIrRuntime implements LuaRuntime {
-  LualikeIrRuntime({FileManager? fileManager})
-    : _interpreter = Interpreter(fileManager: fileManager) {
+  LualikeIrRuntime({
+    FileManager? fileManager,
+    LuaGcPolicy gcPolicy = LuaGcPolicy.luaCompatible,
+  }) : _interpreter = Interpreter(
+         fileManager: fileManager,
+         initializeStandardLibraries: false,
+         gcPolicy: gcPolicy,
+       ) {
     _libraryRegistry = LibraryRegistry(this);
     final runtimeEnv = Environment(interpreter: this);
     _globalEnvironment = runtimeEnv;
-    _interpreter.setCurrentEnv(runtimeEnv);
-    gc.register(runtimeEnv);
-    initializeStandardLibrary(vm: this);
+    initializeRuntimeBootstrap(
+      runtime: this,
+      interpreter: _interpreter,
+      environment: runtimeEnv,
+    );
     _ensureEnvironmentBinding(runtimeEnv);
-    _interpreter.fileManager.setInterpreter(this);
     _bytecodeVm = LuaBytecodeVm(this);
   }
 
@@ -510,8 +518,9 @@ class LualikeIrRuntime implements LuaRuntime {
 
   void _emitLlvm(LualikeIrChunk chunk) {
     final prototype = chunk.mainPrototype;
-    final ssaFunction =
-        LualikeIrSsaFunction.fromPrototype(prototype).simplifyTrivialPhis();
+    final ssaFunction = LualikeIrSsaFunction.fromPrototype(
+      prototype,
+    ).simplifyTrivialPhis();
     final typeAnalysis = analyzeLualikeIrSsaTypes(prototype, ssaFunction);
 
     final emitter = LualikeIrToLlvm(

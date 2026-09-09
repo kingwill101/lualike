@@ -9,9 +9,14 @@ import 'package:lualike/src/builtin_function.dart';
 
 import 'package:lualike/src/lua_error.dart';
 import 'package:lualike/src/runtime/lua_slot.dart';
+import 'package:lualike/src/runtime/lua_runtime.dart';
+import 'package:lualike/src/value.dart';
 import 'package:lualike/src/lua_string.dart';
 import 'package:lualike/src/stdlib/doc.dart';
 import 'library.dart';
+
+Value _byteValue(LuaRuntime? runtime, Uint8List bytes) =>
+    Value(bytes)..interpreter = runtime;
 
 /// Crypto library implementation using the new Library system
 class CryptoLibrary extends Library {
@@ -161,7 +166,7 @@ class RandomBytesFunction extends BuiltinFunction {
     for (var i = 0; i < count; i++) {
       bytes[i] = _secureRandom.nextInt(256);
     }
-    return valueFromOptionalLuaSlot(interpreter, bytes);
+    return _byteValue(interpreter, bytes);
   }
 }
 
@@ -213,7 +218,7 @@ class _AesCbcFunction extends BuiltinFunction {
 
     try {
       final result = cipher.process(data);
-      return valueFromOptionalLuaSlot(interpreter, result);
+      return _byteValue(interpreter, result);
     } catch (e) {
       throw LuaError('Failed to ${_encrypt ? 'encrypt' : 'decrypt'} data: $e');
     }

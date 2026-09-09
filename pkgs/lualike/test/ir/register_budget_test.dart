@@ -87,5 +87,81 @@ void main() {
 
       expect(() => validateIrChunkRegisterBudget(chunk), returnsNormally);
     });
+
+    test('does not treat upvalue indices as register operands', () {
+      final chunk = LualikeIrChunk(
+        flags: const LualikeIrChunkFlags(),
+        mainPrototype: _proto(
+          registerCount: 3,
+          instructions: [
+            ABCInstruction(opcode: LualikeIrOpcode.getUpval, a: 2, b: 5, c: 0),
+            ABCInstruction(opcode: LualikeIrOpcode.setUpval, a: 0, b: 5, c: 2),
+            ABCInstruction(opcode: LualikeIrOpcode.setTabUp, a: 0, b: 5, c: 2),
+          ],
+        ),
+      );
+
+      expect(() => validateIrChunkRegisterBudget(chunk), returnsNormally);
+    });
+
+    test('does not treat SETFIELD/SETI k=true C as a register (Kst value)', () {
+      // Table-literal fields compile as SETFIELD with k=true and C=Kst index.
+      // High constant pools put C well above registerCount; that must not fail
+      // budget validation (relic_breach / example browser regressions).
+      final chunk = LualikeIrChunk(
+        flags: const LualikeIrChunkFlags(),
+        mainPrototype: _proto(
+          registerCount: 4,
+          instructions: [
+            ABCInstruction(
+              opcode: LualikeIrOpcode.setField,
+              a: 0,
+              b: 10,
+              c: 130,
+              k: true,
+            ),
+            ABCInstruction(
+              opcode: LualikeIrOpcode.setI,
+              a: 1,
+              b: 1,
+              c: 99,
+              k: true,
+            ),
+            ABCInstruction(
+              opcode: LualikeIrOpcode.setTabUp,
+              a: 0,
+              b: 5,
+              c: 80,
+              k: true,
+            ),
+          ],
+        ),
+      );
+
+      expect(() => validateIrChunkRegisterBudget(chunk), returnsNormally);
+    });
+
+    test('still treats SETFIELD k=false C as a register', () {
+      final chunk = LualikeIrChunk(
+        flags: const LualikeIrChunkFlags(),
+        mainPrototype: _proto(
+          registerCount: 2,
+          instructions: [
+            ABCInstruction(
+              opcode: LualikeIrOpcode.setField,
+              a: 0,
+              b: 1,
+              c: 10,
+              k: false,
+            ),
+          ],
+        ),
+      );
+
+      expect(
+        () => validateIrChunkRegisterBudget(chunk),
+        throwsA(isA<IrRegisterBudgetExceeded>()),
+      );
+    });
   });
 }

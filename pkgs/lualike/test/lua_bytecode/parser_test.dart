@@ -2,21 +2,21 @@
 @Tags(['lua_bytecode'])
 library;
 
-import 'dart:io';
-
 import 'package:lualike/src/lua_bytecode/disassembler.dart';
 import 'package:lualike/src/lua_bytecode/parser.dart';
 import 'package:test/test.dart';
 
+import '../helpers/lua_bytecode_fixture.dart';
+
 void main() {
-  final luacBinary = _resolveLuacBinary();
+  final luacBinary = resolveLuacBinary();
   final skipReason = luacBinary == null
       ? 'luac55 not available for oracle-backed lua_bytecode tests'
       : null;
 
   group('lua_bytecode parser', () {
     test('parses real luac chunks from the tracked upstream binary', () {
-      final fixture = _compileFixture(luacBinary!, '''
+      final fixture = compileLuaFixture(luacBinary!, '''
 local function inner(x)
   return x + 1
 end
@@ -39,10 +39,10 @@ return inner(41)
     }, skip: skipReason);
 
     test('disassembler opcode sections match luac -l -l output', () {
-      final fixture = _compileFixture(luacBinary!, '''
+      final fixture = compileLuaFixture(luacBinary!, '''
 local t = {1, 2, foo = 'bar'}
 return t.foo, 7 + 8
-''');
+''', includeListing: true);
 
       final chunk = const LuaBytecodeParser().parse(fixture.chunkBytes);
       final disassembly = const LuaBytecodeDisassembler().disassemble(chunk);
@@ -53,7 +53,7 @@ return t.foo, 7 + 8
               instruction.opcode.luaName,
           ],
       ];
-      final oracleSections = _parseOpcodeSections(fixture.listing);
+      final oracleSections = _parseOpcodeSections(fixture.listing!);
 
       expect(actualSections, equals(oracleSections));
       expect(
@@ -62,64 +62,6 @@ return t.foo, 7 + 8
       );
     }, skip: skipReason);
   });
-}
-
-String? _resolveLuacBinary() {
-  const candidates = <String>[
-    '/home/kingwill101/Downloads/lua-5.5.0_Linux68_64_bin/luac55',
-  ];
-  for (final candidate in candidates) {
-    if (File(candidate).existsSync()) {
-      return candidate;
-    }
-  }
-
-  for (final name in ['luac55', 'luac']) {
-    try {
-      final result = Process.runSync(name, ['-v']);
-      if (result.exitCode == 0) return name;
-    } catch (_) {
-      continue;
-    }
-  }
-  return null;
-}
-
-({List<int> chunkBytes, String listing}) _compileFixture(
-  String luacBinary,
-  String source,
-) {
-  final tempDir = Directory.systemTemp.createTempSync('lualike_lua_bytecode_');
-  final sourceFile = File('${tempDir.path}/fixture.lua');
-  final chunkFile = File('${tempDir.path}/fixture.luac');
-
-  try {
-    sourceFile.writeAsStringSync(source);
-    final compile = Process.runSync(luacBinary, <String>[
-      '-o',
-      chunkFile.path,
-      sourceFile.path,
-    ]);
-    if (compile.exitCode != 0) {
-      fail('luac compile failed: ${compile.stderr}');
-    }
-
-    final listingResult = Process.runSync(luacBinary, <String>[
-      '-l',
-      '-l',
-      chunkFile.path,
-    ]);
-    if (listingResult.exitCode != 0) {
-      fail('luac listing failed: ${listingResult.stderr}');
-    }
-
-    return (
-      chunkBytes: chunkFile.readAsBytesSync(),
-      listing: listingResult.stdout as String,
-    );
-  } finally {
-    tempDir.deleteSync(recursive: true);
-  }
 }
 
 List<List<String>> _parseOpcodeSections(String listing) {

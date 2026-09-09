@@ -26,26 +26,16 @@ void main() {
 
   for (final file in exampleFiles) {
     final exampleName = file.uri.pathSegments.last;
-    test(
-      'example browser smoke: $exampleName',
-      () async {
-        await _runExampleSmoke(
-          exampleName,
-        ).timeout(const Duration(seconds: 10));
-      },
-      timeout: const Timeout(Duration(seconds: 15)),
-    );
+    test('example browser smoke: $exampleName', () async {
+      await _runExampleSmoke(exampleName).timeout(const Duration(seconds: 10));
+    }, timeout: const Timeout(Duration(seconds: 15)));
   }
 
-  test(
-    'example browser right click smoke: $_viewSmokeExample',
-    () async {
-      await _runBrowserViewSmoke(
-        _viewSmokeExample,
-      ).timeout(const Duration(seconds: 10));
-    },
-    timeout: const Timeout(Duration(seconds: 15)),
-  );
+  test('example browser right click smoke: $_viewSmokeExample', () async {
+    await _runBrowserViewSmoke(
+      _viewSmokeExample,
+    ).timeout(const Duration(seconds: 10));
+  }, timeout: const Timeout(Duration(seconds: 15)));
 }
 
 Future<void> _runExampleSmoke(String exampleName) async {

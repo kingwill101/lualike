@@ -1,6 +1,29 @@
 ## Unreleased
 
-- No unreleased changes yet.
+- Add an opt-in `LuaGcPolicy.hostManaged` mode for hosts that delegate object
+  reclamation to Dart and do not require Lua weak-table or `__gc` semantics.
+- Reduce AST and bytecode wrapper churn with raw primitive register slots,
+  bounded primitive caches, recyclable closure-free bindings, synchronous
+  plain-table bytecode operations, and indexed direct-local AST frames.
+- Add exact allocation diagnostics and focused runtime microbenchmarks for
+  environment lookup, binding pools, builtin calls, table access, and
+  slot-backed parameters and locals.
+- Preserve debugger, closure, coroutine, protected-call, `<const>`, `<close>`,
+  and Lua-compatible GC behavior on the default execution paths.
+
+- Require the Lualike-specific `*_lualike_schema.dart` input suffix, avoiding
+  collisions with Drift and other generated part files such as `tables.g.dart`.
+- Include `lib/src/build/table_schema_builder.dart` in the published package
+  so dependent `build_runner` builders can start correctly.
+- Centralize runtime bootstrap and library registry setup across AST, IR, and
+  bytecode runtimes.
+- Preserve native Dart payloads for byte-oriented and string-library results,
+  while keeping JSON conversion and Lua table conversion explicit.
+- Harden IR inlining and bytecode register-budget handling.
+- Simplify Lua bytecode test fixtures and array unwrapping coverage.
+- Remove FFI integration from the core package; use the external
+  `lualike_ffi` package for native bindings.
+- Broaden the `artisanal` constraint to `>=0.3.0 <0.5.0`.
 
 ## 0.4.0
 

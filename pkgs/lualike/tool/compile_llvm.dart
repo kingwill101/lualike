@@ -9,7 +9,9 @@ import 'package:lualike/src/ir/llvm_compile.dart';
 
 Future<void> main(List<String> args) async {
   if (args.isEmpty) {
-    stderr.writeln('Usage: dart run tool/compile_llvm.dart <script.lua> [-o <output>]');
+    stderr.writeln(
+      'Usage: dart run tool/compile_llvm.dart <script.lua> [-o <output>]',
+    );
     stderr.writeln('  Or use: lualike --native script.lua -o binary');
     exit(1);
   }

@@ -98,6 +98,38 @@ return result
       expect(_normalize(ast), equals(_normalize(irResult)));
     });
 
+    test('nil index errors retain their source names', () async {
+      const source = r'''
+local _, globalMessage = pcall(function()
+  aaa.bbb:ddd(9)
+end)
+local a
+local _, upvalueMessage = pcall(function()
+  a.x = 1
+end)
+return globalMessage, upvalueMessage
+''';
+
+      for (final mode in [
+        EngineMode.ast,
+        EngineMode.ir,
+        EngineMode.luaBytecode,
+      ]) {
+        final result = await executeCode(source, mode: mode);
+        final messages = _normalize(result) as List<dynamic>;
+        expect(
+          messages[0],
+          contains("global 'aaa'"),
+          reason: 'global source label was lost in $mode',
+        );
+        expect(
+          messages[1],
+          contains("upvalue 'a'"),
+          reason: 'upvalue source label was lost in $mode',
+        );
+      }
+    });
+
     test('multi-value returns match between engines', () async {
       const source = '''
 local function helper()
@@ -143,6 +175,11 @@ dynamic _normalize(dynamic value) {
   }
   if (value is List) {
     return value.map(_normalize).toList();
+  }
+  if (value is Map) {
+    return value.map(
+      (key, entryValue) => MapEntry(_normalize(key), _normalize(entryValue)),
+    );
   }
   return value;
 }

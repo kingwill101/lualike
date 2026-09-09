@@ -21,6 +21,7 @@ import 'lib_table.dart';
 import 'lib_utf8.dart';
 import 'library.dart' show LibraryRegistry, LazyLibraryMap;
 import 'metatables.dart';
+
 // import 'lib_convert.dart';
 
 /// Initialize standard libraries using the Library system
@@ -47,7 +48,7 @@ void initializeStandardLibrary({required LuaRuntime vm}) {
   registry.register(CoroutineLibrary());
 
   // Initialize eager libraries (those that populate globals directly)
-  for (final library in registry.libraries.where((lib) => lib.name.isEmpty)) {
+  for (final library in registry.globalLibraries) {
     registry.initializeLibrary(library);
   }
 
@@ -57,9 +58,7 @@ void initializeStandardLibrary({required LuaRuntime vm}) {
   final env = vm.getCurrentEnv();
 
   // Install lazy stubs for namespaced libraries so they load on demand
-  for (final library in registry.libraries.where(
-    (lib) => lib.name.isNotEmpty,
-  )) {
+  for (final library in registry.namespacedLibraries) {
     _installLazyLibraryStub(
       env: env,
       registry: registry,
@@ -92,9 +91,7 @@ void _populatePackageLoaded(Environment env, LibraryRegistry registry) {
 
   final loadedMap = rawLuaSlot(packageMap["loaded"]);
   if (loadedMap is Map) {
-    for (final library in registry.libraries.where(
-      (lib) => lib.name.isNotEmpty,
-    )) {
+    for (final library in registry.namespacedLibraries) {
       final tableValue = env.get(library.name);
       if (tableValue != null) {
         loadedMap[library.name] = cachedPrimitiveOrValue(

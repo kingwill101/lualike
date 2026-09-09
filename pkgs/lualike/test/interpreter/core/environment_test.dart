@@ -21,6 +21,27 @@ void main() {
       expect(env.get('b'), equals(15));
     });
 
+    test('resolves dotted table paths', () {
+      env.define(
+        'love',
+        Value({
+          'graphics': Value({'setColor': 42}),
+        }),
+      );
+
+      final child = Environment(parent: env);
+      expect(child.get('love.graphics.setColor'), equals(42));
+      expect(child.contains('love.graphics.setColor'), isTrue);
+      expect(child.get('love.graphics.missing'), equals(null));
+      expect(child.contains('love.graphics.missing'), isFalse);
+    });
+
+    test('treats vararg ellipsis as a plain symbol lookup', () {
+      env.declare('...', 'varargs');
+      expect(env.get('...'), equals('varargs'));
+      expect(env.contains('...'), isTrue);
+    });
+
     test('returns Value(null) for undefined variable', () {
       expect(env.get('c'), equals(null));
     });

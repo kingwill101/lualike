@@ -138,13 +138,18 @@ gpu.CompareFunction _stencilCompareFunctionForLove(
   };
 }
 
-gpu.StencilOperation _stencilOperationForLove(LoveGraphicsStencilAction action) {
+gpu.StencilOperation _stencilOperationForLove(
+  LoveGraphicsStencilAction action,
+) {
   return switch (action) {
-    LoveGraphicsStencilAction.replace => gpu.StencilOperation.setToReferenceValue,
+    LoveGraphicsStencilAction.replace =>
+      gpu.StencilOperation.setToReferenceValue,
     LoveGraphicsStencilAction.increment => gpu.StencilOperation.incrementClamp,
     LoveGraphicsStencilAction.decrement => gpu.StencilOperation.decrementClamp,
-    LoveGraphicsStencilAction.incrementWrap => gpu.StencilOperation.incrementWrap,
-    LoveGraphicsStencilAction.decrementWrap => gpu.StencilOperation.decrementWrap,
+    LoveGraphicsStencilAction.incrementWrap =>
+      gpu.StencilOperation.incrementWrap,
+    LoveGraphicsStencilAction.decrementWrap =>
+      gpu.StencilOperation.decrementWrap,
     LoveGraphicsStencilAction.invert => gpu.StencilOperation.invert,
   };
 }
@@ -158,7 +163,5 @@ void _applyScissor(
   final y = scissor?.y.round() ?? 0;
   final width = scissor?.width.round() ?? viewportSize.width.ceil();
   final height = scissor?.height.round() ?? viewportSize.height.ceil();
-  pass.setScissor(
-    gpu.Scissor(x: x, y: y, width: width, height: height),
-  );
+  pass.setScissor(gpu.Scissor(x: x, y: y, width: width, height: height));
 }

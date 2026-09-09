@@ -5,7 +5,7 @@ import 'dart:math' as math;
 import 'package:archive/archive.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:lualike/lualike.dart';
-import 'package:lualike/src/io/io_device.dart';
+import 'package:lualike/src/runtime/lua_results.dart';
 import 'package:love2d/love2d.dart';
 import 'package:love2d/src/runtime/filesystem/love_filesystem_bindings.dart';
 import 'package:love2d/src/runtime/filesystem/love_filesystem_runtime.dart';
@@ -616,60 +616,56 @@ void main() {
     );
   });
 
-  test(
-    'filesystem setSource mounts existing .7z archives',
-    () async {
-      final adapter = _TestLoveFilesystemAdapter();
-      adapter.addFileBytes(
-        '/source/game.7z',
-        _encode7z(<String, String>{
-          'main.lua': 'return "archive-7z"',
-          'lib/tool.lua': 'return { answer = 77, label = "archive-7z" }',
-        }),
-      );
+  test('filesystem setSource mounts existing .7z archives', () async {
+    final adapter = _TestLoveFilesystemAdapter();
+    adapter.addFileBytes(
+      '/source/game.7z',
+      _encode7z(<String, String>{
+        'main.lua': 'return "archive-7z"',
+        'lib/tool.lua': 'return { answer = 77, label = "archive-7z" }',
+      }),
+    );
 
-      final runtime = LoveScriptRuntime(filesystemAdapter: adapter);
-      final interpreter = runtime.runtime;
+    final runtime = LoveScriptRuntime(filesystemAdapter: adapter);
+    final interpreter = runtime.runtime;
 
-      expect(
-        await luaCall(
-          interpreter,
-          const ['love', 'filesystem', 'setSource'],
-          const <Object?>['/source/game.7z'],
-        ),
-        isNull,
-      );
-      expect(
-        await luaCall(interpreter, const ['love', 'filesystem', 'getSource']),
-        '/source/game.7z',
-      );
-
-      final sourceRead = await luaCall(
-        interpreter,
-        const ['love', 'filesystem', 'read'],
-        const <Object?>['main.lua'],
-      );
-      expect(sourceRead, <Object?>['return "archive-7z"', 19]);
-
+    expect(
       await luaCall(
         interpreter,
-        const ['love', 'filesystem', 'setRequirePath'],
-        const <Object?>['?.lua;?/init.lua'],
-      );
-      final toolResult = _rawResults(
-        await _callRawPath(
-          interpreter,
-          const ['require'],
-          <Object?>[Value('lib.tool')],
-        ),
-      );
-      expect(luaUnwrapValue(toolResult[1]), 'lib/tool.lua');
-      final tool = (toolResult.first as Value).unwrap() as Map;
-      expect(tool['answer'], 77);
-      expect(tool['label'], 'archive-7z');
-    },
-    skip: _sevenZipSupportSkipReason,
-  );
+        const ['love', 'filesystem', 'setSource'],
+        const <Object?>['/source/game.7z'],
+      ),
+      isNull,
+    );
+    expect(
+      await luaCall(interpreter, const ['love', 'filesystem', 'getSource']),
+      '/source/game.7z',
+    );
+
+    final sourceRead = await luaCall(
+      interpreter,
+      const ['love', 'filesystem', 'read'],
+      const <Object?>['main.lua'],
+    );
+    expect(sourceRead, <Object?>['return "archive-7z"', 19]);
+
+    await luaCall(
+      interpreter,
+      const ['love', 'filesystem', 'setRequirePath'],
+      const <Object?>['?.lua;?/init.lua'],
+    );
+    final toolResult = _rawResults(
+      await _callRawPath(
+        interpreter,
+        const ['require'],
+        <Object?>[Value('lib.tool')],
+      ),
+    );
+    expect(luaUnwrapValue(toolResult[1]), 'lib/tool.lua');
+    final tool = (toolResult.first as Value).unwrap() as Map;
+    expect(tool['answer'], 77);
+    expect(tool['label'], 'archive-7z');
+  }, skip: _sevenZipSupportSkipReason);
 
   test(
     'filesystem setSource rejects missing archive-looking source paths',
@@ -7471,8 +7467,14 @@ List<dynamic> _packageSearchers(LuaRuntime runtime) {
   final searchersValue = packageTable['searchers'];
   expect(searchersValue, isA<Value>());
   final raw = (searchersValue! as Value).raw;
-  expect(raw, isA<List>());
-  return raw as List<dynamic>;
+  return switch (raw) {
+    final List<dynamic> searchers => searchers,
+    final Map<dynamic, dynamic> searchers => <dynamic>[
+      for (var index = 1; searchers.containsKey(index); index++)
+        searchers[index],
+    ],
+    _ => throw TestFailure('Expected package.searchers to be a Lua table'),
+  };
 }
 
 Future<Object?> _callHostFunction(
@@ -7488,6 +7490,9 @@ Future<Object?> _callHostFunction(
 List<Object?> _rawResults(Object? result) {
   if (result case final Value value when value.isMulti) {
     return List<Object?>.from(value.raw as List<Object?>, growable: false);
+  }
+  if (result is LuaResults) {
+    return List<Object?>.from(result.values, growable: false);
   }
   if (result is List) {
     return List<Object?>.from(result, growable: false);

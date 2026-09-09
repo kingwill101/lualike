@@ -16,19 +16,21 @@ void main() {
     expect(await loader.loadBytecode('hello.lua'), [1, 2, 3]);
   });
 
-  test('loads bundled data assets from the executable assets directory',
-      () async {
-    final tempDir = await Directory.systemTemp.createTemp('lualike_asset_');
-    addTearDown(() => tempDir.delete(recursive: true));
+  test(
+    'loads bundled data assets from the executable assets directory',
+    () async {
+      final tempDir = await Directory.systemTemp.createTemp('lualike_asset_');
+      addTearDown(() => tempDir.delete(recursive: true));
 
-    final buildDir = tempDir.uri.resolve('build/lua/');
-    final bundleDir = tempDir.uri.resolve('bundle/bin/');
-    final assetDir = bundleDir.resolve('assets/');
-    await Directory.fromUri(assetDir).create(recursive: true);
-    await File.fromUri(assetDir.resolve('hello.lua')).writeAsBytes([4, 5, 6]);
+      final buildDir = tempDir.uri.resolve('build/lua/');
+      final bundleDir = tempDir.uri.resolve('bundle/bin/');
+      final assetDir = bundleDir.resolve('assets/');
+      await Directory.fromUri(assetDir).create(recursive: true);
+      await File.fromUri(assetDir.resolve('hello.lua')).writeAsBytes([4, 5, 6]);
 
-    final loader = LuaAssetLoader(buildDir: buildDir, bundleDir: bundleDir);
+      final loader = LuaAssetLoader(buildDir: buildDir, bundleDir: bundleDir);
 
-    expect(await loader.loadBytecode('hello.lua'), [4, 5, 6]);
-  });
+      expect(await loader.loadBytecode('hello.lua'), [4, 5, 6]);
+    },
+  );
 }

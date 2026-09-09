@@ -793,10 +793,13 @@ class _OSTmpName extends BuiltinFunction {
 
   @override
   Object? call(List<Object?> args) {
-    final tmpdir = getSystemTempDirectory();
     final timestamp = DateTime.now().millisecondsSinceEpoch;
     _counter++;
-    return dartStringValue('$tmpdir/lua_${timestamp}_$_counter.tmp');
+    // The test runner launches a fresh process per test and may itself be run
+    // concurrently. A process-local counter plus millisecond timestamp can
+    // therefore collide across processes. Include the OS process id so each
+    // generated path is unique for the lifetime of the process.
+    return dartStringValue(createTempFilePath('lua_${timestamp}_$_counter'));
   }
 }
 

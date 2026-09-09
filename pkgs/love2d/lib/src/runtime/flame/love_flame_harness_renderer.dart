@@ -3117,12 +3117,7 @@ void renderSurfaceSnapshot(
   final internalStats = stats != null
       ? _LoveFlameRenderStatsAccumulator()
       : null;
-  _renderSurfaceSnapshot(
-    canvas,
-    surface,
-    viewportSize,
-    stats: internalStats,
-  );
+  _renderSurfaceSnapshot(canvas, surface, viewportSize, stats: internalStats);
   if (stats != null && internalStats != null) {
     stats.renderedCommands = internalStats.renderedCommands;
     stats.softwareSurfaceFallbacks = internalStats.softwareSurfaceFallbacks;
@@ -3130,8 +3125,9 @@ void renderSurfaceSnapshot(
     stats.atlasBatchItems = internalStats.atlasBatchItems;
     stats.textPainterCacheHits = internalStats.textPainterCacheHits;
     stats.textPainterCacheMisses = internalStats.textPainterCacheMisses;
-    stats.textLayoutDuration =
-        Duration(microseconds: internalStats.textLayoutMicros);
+    stats.textLayoutDuration = Duration(
+      microseconds: internalStats.textLayoutMicros,
+    );
     stats.surfaceClearLayers = internalStats.surfaceClearLayers;
     stats.commandBlendLayers = internalStats.commandBlendLayers;
     stats.commandShaderLayers = internalStats.commandShaderLayers;

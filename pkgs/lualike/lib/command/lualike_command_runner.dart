@@ -68,8 +68,7 @@ class LuaLikeCommandRunner extends CommandRunner {
       )
       ..addFlag(
         'emit-llvm',
-        help:
-            'Emit LLVM IR from the IR pipeline and exit without executing',
+        help: 'Emit LLVM IR from the IR pipeline and exit without executing',
         negatable: false,
         defaultsTo: false,
       )
@@ -98,12 +97,6 @@ class LuaLikeCommandRunner extends CommandRunner {
         'fold',
         help: 'Enable constant folding pass for bytecode engines',
         negatable: true,
-        defaultsTo: false,
-      )
-      ..addFlag(
-        'allow-ffi',
-        help: 'Allow trusted scripts to load and call native shared libraries',
-        negatable: false,
         defaultsTo: false,
       )
       ..addFlag(
@@ -243,8 +236,6 @@ class LuaLikeCommandRunner extends CommandRunner {
     config.emitLlvm = argResults['emit-llvm'] as bool;
     config.emitDart = argResults['emit-dart'] as bool;
     config.foldEnabled = argResults['fold'] as bool;
-    config.allowFfi = argResults['allow-ffi'] as bool;
-
     // Handle --disassemble (print bytecode listing, no execution)
     if (argResults['disassemble'] as bool) {
       if (restArgs.isEmpty) {
@@ -262,11 +253,13 @@ class LuaLikeCommandRunner extends CommandRunner {
           final source = _decodeSource(bytes);
           final program = parse(source, url: scriptPath);
           final rawBc = argResults['raw'] as bool;
-          final artifact = CompilePipeline(
-            config: CompilePipelineConfig.luaBytecodeOptimized(
-              enableBytecodePeephole: !rawBc,
-            ),
-          ).compile(program) as LuaBytecodeArtifact;
+          final artifact =
+              CompilePipeline(
+                    config: CompilePipelineConfig.luaBytecodeOptimized(
+                      enableBytecodePeephole: !rawBc,
+                    ),
+                  ).compile(program)
+                  as LuaBytecodeArtifact;
           print(const LuaBytecodeDisassembler().render(artifact.chunk));
         }
       } catch (e, st) {
@@ -306,7 +299,9 @@ class LuaLikeCommandRunner extends CommandRunner {
       stderr.writeln('Checking native compilation environment...');
       try {
         final r = await Process.run('dart', [
-          'run', 'tool/compile_llvm.dart', '--help',
+          'run',
+          'tool/compile_llvm.dart',
+          '--help',
         ]);
         if (r.exitCode == 0) {
           stderr.writeln('  compile_llvm.dart: OK (${r.exitCode})');

@@ -82,8 +82,7 @@ LualikeIrSsaTypeAnalysis analyzeLualikeIrSsaTypes(
       LualikeIrSsaType? merged;
       bool conflict = false;
       for (final incoming in phi.incomingByPredecessor.values) {
-        final incomingType =
-            typeByValue[incoming] ?? resolveType(incoming);
+        final incomingType = typeByValue[incoming] ?? resolveType(incoming);
         if (incomingType == LualikeIrSsaType.unknown) {
           continue; // Skip unresolved back-edges.
         }
@@ -107,7 +106,12 @@ LualikeIrSsaTypeAnalysis analyzeLualikeIrSsaTypes(
 
     final instruction = prototype.instructions[pc];
     return _inferTypeForInstruction(
-        instruction, value, prototype, typeByValue, ssaFunction);
+      instruction,
+      value,
+      prototype,
+      typeByValue,
+      ssaFunction,
+    );
   }
 
   // Fixed-point iteration over all values.
@@ -140,7 +144,8 @@ LualikeIrSsaType _inferTypeForInstruction(
   Map<LualikeIrSsaValue, LualikeIrSsaType> typeByValue,
   LualikeIrSsaFunction ssaFunction,
 ) {
-  if (instruction is! ABCInstruction && instruction is! ABxInstruction &&
+  if (instruction is! ABCInstruction &&
+      instruction is! ABxInstruction &&
       instruction is! AsBxInstruction) {
     return LualikeIrSsaType.unknown;
   }
@@ -178,22 +183,37 @@ LualikeIrSsaType _inferTypeForInstruction(
   // -- Move copies source type --
   if (opcode == LualikeIrOpcode.move && instruction is ABCInstruction) {
     return _typeOfOperand(
-        value, instruction.b, prototype, ssaFunction, typeByValue);
+      value,
+      instruction.b,
+      prototype,
+      ssaFunction,
+      typeByValue,
+    );
   }
 
   // -- Unary operators --
   if ((opcode == LualikeIrOpcode.unm || opcode == LualikeIrOpcode.bnot) &&
       instruction is ABCInstruction) {
     return _typeOfOperand(
-            value, instruction.b, prototype, ssaFunction, typeByValue) ==
-        LualikeIrSsaType.number
+              value,
+              instruction.b,
+              prototype,
+              ssaFunction,
+              typeByValue,
+            ) ==
+            LualikeIrSsaType.number
         ? LualikeIrSsaType.number
         : LualikeIrSsaType.unknown;
   }
 
   if (opcode == LualikeIrOpcode.notOp && instruction is ABCInstruction) {
     final operandType = _typeOfOperand(
-        value, instruction.b, prototype, ssaFunction, typeByValue);
+      value,
+      instruction.b,
+      prototype,
+      ssaFunction,
+      typeByValue,
+    );
     if (operandType == LualikeIrSsaType.boolean ||
         operandType == LualikeIrSsaType.nil_ ||
         operandType == LualikeIrSsaType.number) {
@@ -205,11 +225,20 @@ LualikeIrSsaType _inferTypeForInstruction(
   // -- Binary arithmetic (both operands are registers) --
   if (_isRegisterBinaryOp(opcode) && instruction is ABCInstruction) {
     final bType = _typeOfOperand(
-        value, instruction.b, prototype, ssaFunction, typeByValue);
+      value,
+      instruction.b,
+      prototype,
+      ssaFunction,
+      typeByValue,
+    );
     final cType = _typeOfOperand(
-        value, instruction.c, prototype, ssaFunction, typeByValue);
-    if (bType == LualikeIrSsaType.number &&
-        cType == LualikeIrSsaType.number) {
+      value,
+      instruction.c,
+      prototype,
+      ssaFunction,
+      typeByValue,
+    );
+    if (bType == LualikeIrSsaType.number && cType == LualikeIrSsaType.number) {
       return LualikeIrSsaType.number;
     }
     return LualikeIrSsaType.unknown;
@@ -218,7 +247,12 @@ LualikeIrSsaType _inferTypeForInstruction(
   // -- Binary arithmetic (one immediate operand) --
   if (_isImmediateBinaryOp(opcode) && instruction is ABCInstruction) {
     final bType = _typeOfOperand(
-        value, instruction.b, prototype, ssaFunction, typeByValue);
+      value,
+      instruction.b,
+      prototype,
+      ssaFunction,
+      typeByValue,
+    );
     if (bType == LualikeIrSsaType.number) {
       return LualikeIrSsaType.number;
     }
@@ -228,10 +262,14 @@ LualikeIrSsaType _inferTypeForInstruction(
   // -- Binary arithmetic (constant operand) --
   if (_isConstantBinaryOp(opcode) && instruction is ABCInstruction) {
     final bType = _typeOfOperand(
-        value, instruction.b, prototype, ssaFunction, typeByValue);
+      value,
+      instruction.b,
+      prototype,
+      ssaFunction,
+      typeByValue,
+    );
     final cType = _typeForConstant(prototype.constants, instruction.c);
-    if (bType == LualikeIrSsaType.number &&
-        cType == LualikeIrSsaType.number) {
+    if (bType == LualikeIrSsaType.number && cType == LualikeIrSsaType.number) {
       return LualikeIrSsaType.number;
     }
     return LualikeIrSsaType.unknown;
@@ -248,12 +286,16 @@ LualikeIrSsaType _inferTypeForInstruction(
   }
   if (opcode == LualikeIrOpcode.testSet && instruction is ABCInstruction) {
     return _typeOfOperand(
-        value, instruction.b, prototype, ssaFunction, typeByValue);
+      value,
+      instruction.b,
+      prototype,
+      ssaFunction,
+      typeByValue,
+    );
   }
 
   // -- For loops --
-  if (opcode == LualikeIrOpcode.forPrep ||
-      opcode == LualikeIrOpcode.forLoop) {
+  if (opcode == LualikeIrOpcode.forPrep || opcode == LualikeIrOpcode.forLoop) {
     return LualikeIrSsaType.number;
   }
 
@@ -263,12 +305,17 @@ LualikeIrSsaType _inferTypeForInstruction(
 /// Whether [opcode] is a register-to-register arithmetic or bitwise op.
 bool _isRegisterBinaryOp(LualikeIrOpcode opcode) {
   return switch (opcode) {
-    LualikeIrOpcode.add || LualikeIrOpcode.sub ||
-    LualikeIrOpcode.mul || LualikeIrOpcode.div ||
-    LualikeIrOpcode.mod || LualikeIrOpcode.pow ||
+    LualikeIrOpcode.add ||
+    LualikeIrOpcode.sub ||
+    LualikeIrOpcode.mul ||
+    LualikeIrOpcode.div ||
+    LualikeIrOpcode.mod ||
+    LualikeIrOpcode.pow ||
     LualikeIrOpcode.idiv ||
-    LualikeIrOpcode.band || LualikeIrOpcode.bor ||
-    LualikeIrOpcode.bxor || LualikeIrOpcode.shl ||
+    LualikeIrOpcode.band ||
+    LualikeIrOpcode.bor ||
+    LualikeIrOpcode.bxor ||
+    LualikeIrOpcode.shl ||
     LualikeIrOpcode.shr => true,
     _ => false,
   };
@@ -277,8 +324,10 @@ bool _isRegisterBinaryOp(LualikeIrOpcode opcode) {
 /// Whether [opcode] takes one register and one immediate value.
 bool _isImmediateBinaryOp(LualikeIrOpcode opcode) {
   return switch (opcode) {
-    LualikeIrOpcode.addI || LualikeIrOpcode.subI ||
-    LualikeIrOpcode.shlI || LualikeIrOpcode.shrI => true,
+    LualikeIrOpcode.addI ||
+    LualikeIrOpcode.subI ||
+    LualikeIrOpcode.shlI ||
+    LualikeIrOpcode.shrI => true,
     _ => false,
   };
 }
@@ -287,11 +336,15 @@ bool _isImmediateBinaryOp(LualikeIrOpcode opcode) {
 /// operand.
 bool _isConstantBinaryOp(LualikeIrOpcode opcode) {
   return switch (opcode) {
-    LualikeIrOpcode.addK || LualikeIrOpcode.subK ||
-    LualikeIrOpcode.mulK || LualikeIrOpcode.modK ||
-    LualikeIrOpcode.powK || LualikeIrOpcode.divK ||
+    LualikeIrOpcode.addK ||
+    LualikeIrOpcode.subK ||
+    LualikeIrOpcode.mulK ||
+    LualikeIrOpcode.modK ||
+    LualikeIrOpcode.powK ||
+    LualikeIrOpcode.divK ||
     LualikeIrOpcode.idivK ||
-    LualikeIrOpcode.bandK || LualikeIrOpcode.borK ||
+    LualikeIrOpcode.bandK ||
+    LualikeIrOpcode.borK ||
     LualikeIrOpcode.bxorK => true,
     _ => false,
   };
@@ -300,10 +353,13 @@ bool _isConstantBinaryOp(LualikeIrOpcode opcode) {
 /// Whether [opcode] is a comparison.
 bool _isComparisonOp(LualikeIrOpcode opcode) {
   return switch (opcode) {
-    LualikeIrOpcode.eq || LualikeIrOpcode.lt ||
+    LualikeIrOpcode.eq ||
+    LualikeIrOpcode.lt ||
     LualikeIrOpcode.le ||
-    LualikeIrOpcode.eqI || LualikeIrOpcode.ltI ||
-    LualikeIrOpcode.leI || LualikeIrOpcode.gtI ||
+    LualikeIrOpcode.eqI ||
+    LualikeIrOpcode.ltI ||
+    LualikeIrOpcode.leI ||
+    LualikeIrOpcode.gtI ||
     LualikeIrOpcode.geI ||
     LualikeIrOpcode.eqK => true,
     _ => false,
@@ -362,7 +418,6 @@ LualikeIrSsaType _typeForConstant(
     NilConstant() => LualikeIrSsaType.nil_,
     BooleanConstant() => LualikeIrSsaType.boolean,
     IntegerConstant() || NumberConstant() => LualikeIrSsaType.number,
-    ShortStringConstant() || LongStringConstant() =>
-      LualikeIrSsaType.unknown,
+    ShortStringConstant() || LongStringConstant() => LualikeIrSsaType.unknown,
   };
 }

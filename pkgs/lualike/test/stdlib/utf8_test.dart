@@ -33,17 +33,17 @@ void main() {
       expect((str1 as Value).unwrap(), equals('ABC'));
 
       // Check that str2 produces the correct UTF-8 bytes for 😀 (U+1F600)
-      var str2BytesMap = str2Bytes.unwrap() as Map;
-      expect(str2BytesMap[1], equals(240)); // 0xF0
-      expect(str2BytesMap[2], equals(159)); // 0x9F
-      expect(str2BytesMap[3], equals(152)); // 0x98
-      expect(str2BytesMap[4], equals(128)); // 0x80
+      final str2BytesList = str2Bytes.unwrap() as List;
+      expect(str2BytesList[0], equals(240)); // 0xF0
+      expect(str2BytesList[1], equals(159)); // 0x9F
+      expect(str2BytesList[2], equals(152)); // 0x98
+      expect(str2BytesList[3], equals(128)); // 0x80
 
       // Check that str3 produces the correct UTF-8 bytes for A©
-      var str3BytesMap = str3Bytes.unwrap() as Map;
-      expect(str3BytesMap[1], equals(65)); // A
-      expect(str3BytesMap[2], equals(194)); // First byte of © in UTF-8
-      expect(str3BytesMap[3], equals(169)); // Second byte of © in UTF-8
+      final str3BytesList = str3Bytes.unwrap() as List;
+      expect(str3BytesList[0], equals(65)); // A
+      expect(str3BytesList[1], equals(194)); // First byte of © in UTF-8
+      expect(str3BytesList[2], equals(169)); // Second byte of © in UTF-8
     });
 
     test('utf8.char error handling', () async {
@@ -194,20 +194,20 @@ void main() {
       var codepoints = bridge.getGlobal('codepoints') as Value;
 
       // Check positions (1-based in Lua)
-      var posMap = positions.unwrap() as Map;
-      expect(posMap[1], equals(1));
-      expect(posMap[2], equals(2));
-      expect(posMap[3], equals(3));
-      expect(posMap[4], equals(4));
-      expect(posMap[5], equals(8)); // After 4-byte emoji
+      final posList = positions.unwrap() as List;
+      expect(posList[0], equals(1));
+      expect(posList[1], equals(2));
+      expect(posList[2], equals(3));
+      expect(posList[3], equals(4));
+      expect(posList[4], equals(8)); // After 4-byte emoji
 
       // Check codepoints
-      var cpMap = codepoints.unwrap() as Map;
-      expect(cpMap[1], equals('A'.codeUnitAt(0)));
-      expect(cpMap[2], equals('B'.codeUnitAt(0)));
-      expect(cpMap[3], equals('C'.codeUnitAt(0)));
-      expect(cpMap[4], equals(0x1F44B)); // 👋
-      expect(cpMap[5], equals(0x1F30D)); // 🌍
+      final cpList = codepoints.unwrap() as List;
+      expect(cpList[0], equals('A'.codeUnitAt(0)));
+      expect(cpList[1], equals('B'.codeUnitAt(0)));
+      expect(cpList[2], equals('C'.codeUnitAt(0)));
+      expect(cpList[3], equals(0x1F44B)); // 👋
+      expect(cpList[4], equals(0x1F30D)); // 🌍
     });
 
     // Commented out due to test environment circular dependency issue

@@ -14,8 +14,9 @@ void main() {
   IntegrationTestWidgetsFlutterBinding.ensureInitialized();
 
   group('love2d_gpu demo', () {
-    testWidgets('full GPU rendering runs 10 seconds without crash',
-        (tester) async {
+    testWidgets('full GPU rendering runs 10 seconds without crash', (
+      tester,
+    ) async {
       // Initialize GPU backend.
       LoveGpuRenderBackend? gpuBackend;
       try {
@@ -56,11 +57,7 @@ void main() {
                         child: Row(
                           mainAxisSize: MainAxisSize.min,
                           children: [
-                            Icon(
-                              Icons.speed,
-                              size: 18,
-                              color: Colors.white70,
-                            ),
+                            Icon(Icons.speed, size: 18, color: Colors.white70),
                             const SizedBox(width: 8),
                             const Text(
                               'GPU',

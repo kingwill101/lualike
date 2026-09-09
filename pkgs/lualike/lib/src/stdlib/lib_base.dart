@@ -6,6 +6,7 @@ import 'package:lualike/lualike.dart';
 
 import 'package:lualike/src/coroutine.dart';
 import 'package:lualike/src/gc/gc.dart';
+import 'package:lualike/src/interpreter/ast_local_frame.dart';
 import 'package:lualike/src/runtime/lua_results.dart';
 import 'package:lualike/src/runtime/lua_slot.dart';
 import 'package:lualike/src/runtime/runtime_hints.dart';
@@ -217,7 +218,8 @@ class SetMetatableFunction extends BuiltinFunction {
         );
         // Preserve identity by keeping a reference to the original Value.
         table.metatableRef = metatable;
-        // Reuse the same map instance so identity comparisons work as expected.
+        // Reuse the same map instance so mutations through getmetatable are
+        // immediately visible to metamethod dispatch.
         final rawMeta = Map.castFrom<dynamic, dynamic, String, dynamic>(
           rawMetatable,
         );
@@ -662,6 +664,38 @@ Object? _packProtectedCallFailure(LuaRuntime interpreter, Object error) {
   return LuaResults(<Object?>[false, normalizedError]);
 }
 
+final class _AstProtectedCallerState {
+  const _AstProtectedCallerState({
+    required this.runtime,
+    required this.environment,
+    required this.function,
+    required this.frame,
+  });
+
+  final Interpreter runtime;
+  final Environment environment;
+  final Value? function;
+  final AstLocalFrame? frame;
+
+  static _AstProtectedCallerState? capture(LuaRuntime runtime) {
+    if (runtime is! Interpreter) {
+      return null;
+    }
+    return _AstProtectedCallerState(
+      runtime: runtime,
+      environment: runtime.getCurrentEnv(),
+      function: runtime.getCurrentFunction(),
+      frame: runtime.getCurrentFastLocals(),
+    );
+  }
+
+  void restore() {
+    runtime.setCurrentFunction(function);
+    runtime.setCurrentFastLocals(frame);
+    runtime.restoreCurrentEnv(environment);
+  }
+}
+
 Object? _packXProtectedCallFailure(Object? result) {
   final multiValues = luaResultValues(result);
   if (multiValues != null) {
@@ -704,7 +738,7 @@ final class _ProtectedCallSuspension implements CoroutineContinuation {
   final int errorHandlerDepth;
 
   @override
-  Future<Object?> resume(List<Object?> args) async {
+  Future<Object?> resume(List<Object?> args) {
     final previousYieldable = runtime.isYieldable;
     runtime.isYieldable = false;
     runtime.enterProtectedCall();
@@ -1713,7 +1747,9 @@ class NextFunction extends BuiltinFunction {
       // to be observed by __gc finalizers before keys are removed. Therefore,
       // we do NOT skip dead keys if GC is currently finalizing.
       final weakMode = table.tableWeakMode;
-      if (weakMode != null && (weakMode.contains('k'))) {
+      if (!interpreter!.gc.isHostManaged &&
+          weakMode != null &&
+          weakMode.contains('k')) {
         final vm = interpreter!;
         // During finalization, keep observation of weak-keys intact.
         if (!vm.gc.isFinalizing) {
@@ -1891,7 +1927,9 @@ class NextFunction extends BuiltinFunction {
 
   bool _shouldSkipWeakKey(Value table, Value nextKey) {
     final weakMode = table.tableWeakMode;
-    if (weakMode == null || !weakMode.contains('k')) {
+    if (interpreter!.gc.isHostManaged ||
+        weakMode == null ||
+        !weakMode.contains('k')) {
       return false;
     }
 
@@ -2002,6 +2040,7 @@ class PCAllFunction extends BuiltinFunction {
     if (args.isEmpty) throw LuaError("pcall requires a function");
     final func = args[0] as Value;
     final callArgs = args.sublist(1);
+    final callerState = _AstProtectedCallerState.capture(interpreter!);
 
     // Enter protected call context
     interpreter!.enterProtectedCall();
@@ -2041,6 +2080,7 @@ class PCAllFunction extends BuiltinFunction {
     } finally {
       // Exit protected call context
       interpreter!.exitProtectedCall();
+      callerState?.restore();
     }
   }
 }
@@ -2227,6 +2267,7 @@ class XPCallFunction extends BuiltinFunction {
     final func = args[0] as Value;
     final msgh = args[1] as Value;
     final callArgs = args.sublist(2);
+    final callerState = _AstProtectedCallerState.capture(interpreter!);
 
     if (!func.isCallable()) {
       throw LuaError.typeError(
@@ -2272,6 +2313,7 @@ class XPCallFunction extends BuiltinFunction {
     } finally {
       // Exit protected-call context and restore state
       interpreter!.exitProtectedCall();
+      callerState?.restore();
     }
   }
 }
@@ -2312,10 +2354,23 @@ class CollectGarbageFunction extends BuiltinFunction {
     );
 
     return () async {
+      final gcManager = interpreter!.gc;
+      if (gcManager.isHostManaged) {
+        switch (option) {
+          case "count":
+            return LuaResults([0.0, 0.0]);
+          case "isrunning":
+          case "step":
+            return primitiveValue(false);
+          case "collect":
+          case "stop":
+          case "restart":
+            return primitiveValue(true);
+        }
+      }
       switch (option) {
         case "collect":
           // "collect": Performs a full garbage-collection cycle
-          final gcManager = interpreter!.gc;
           final runtime = interpreter!;
           final insideSortComparator = isInsideSortComparator(runtime);
           final shouldAbandonIncrementalCycle =
@@ -2789,7 +2844,9 @@ class RequireFunction extends BuiltinFunction {
     // require must error out (attrib.lua test expects this).
     {
       final searchersEntry = rawPackageTable['searchers'];
-      final searchersRaw = searchersEntry is Value ? rawLuaSlot(searchersEntry) : null;
+      final searchersRaw = searchersEntry is Value
+          ? rawLuaSlot(searchersEntry)
+          : null;
       if (searchersRaw is! List && searchersRaw is! Map) {
         throw LuaError("package.searchers must be a table");
       }
@@ -2977,10 +3034,7 @@ class RequireFunction extends BuiltinFunction {
         final returnedLoaderData = rawLoaderData is String
             ? valueFromLuaSlot(interpreter!, path.normalize(rawLoaderData))
             : loaderData;
-        return (
-          found: true,
-          result: LuaResults([ret, returnedLoaderData]),
-        );
+        return (found: true, result: LuaResults([ret, returnedLoaderData]));
       } else if (result is String) {
         errors.add(result);
       } else if (result is Value && rawLuaSlot(result) is String) {

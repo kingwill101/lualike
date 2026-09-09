@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 
 import 'package:source_span/source_span.dart';
@@ -29,11 +30,25 @@ sealed class AstNode {
   /// Cached end line (0-based) from [span], set once in [setSpan].
   int cachedEndLine = -1;
 
+  /// Cached line selected for statement debug hooks.
+  ///
+  /// `-2` means unresolved and `-1` means that this node has no hook line.
+  /// Parsed AST nodes are immutable during execution, so resolving this once
+  /// avoids repeating span inspection on every visit through a hot loop.
+  int cachedDebugHookLine = -2;
+
+  /// Cached line selected for error-trace frames.
+  ///
+  /// `-2` means unresolved and `-1` means that this node has no trace line.
+  int cachedTraceLine = -2;
+
   // A helper to set/update the position information.
   void setSpan(SourceSpan span) {
     this.span = span;
     cachedStartLine = span.start.line;
     cachedEndLine = span.end.line;
+    cachedDebugHookLine = -2;
+    cachedTraceLine = -2;
   }
 
   // A getter so you can easily access the span.
@@ -170,12 +185,16 @@ sealed class AstNode {
     }
   }
 
-  Future<T> accept<T>(AstVisitor<T> visitor);
+  /// Dispatches this node to [visitor].
+  ///
+  /// Most node kinds complete asynchronously. Identifier reads may complete
+  /// synchronously when no yielding `_ENV` metamethod is involved.
+  FutureOr<T> accept<T>(AstVisitor<T> visitor);
 
   String toSource();
 }
 
-/// Visitor interface for ASFuture`<T>` nodes.
+/// Visitor interface for AST nodes.
 abstract class AstVisitor<T> {
   Future<T> visitAssignment(Assignment node);
 
@@ -221,7 +240,9 @@ abstract class AstVisitor<T> {
 
   Future<T> visitBooleanLiteral(BooleanLiteral node);
 
-  Future<T> visitIdentifier(Identifier node);
+  /// Visits an identifier, synchronously when resolution needs no async Lua
+  /// metamethod work.
+  FutureOr<T> visitIdentifier(Identifier node);
 
   Future<T> visitForInLoop(ForInLoop forInLoop);
 
@@ -1746,10 +1767,20 @@ class BooleanLiteral extends AstNode implements Dumpable {
 class Identifier extends AstNode implements Dumpable {
   final String name;
 
+  /// Runtime-owned cache key for the AST engine's indexed local-frame view.
+  ///
+  /// This is deliberately omitted from serialization. Parsed syntax can be
+  /// reused by another interpreter or function instance, which replaces the
+  /// owner before trusting [runtimeLocalSlotCache].
+  Object? runtimeLocalLayoutCache;
+
+  /// Cached local slot for [runtimeLocalLayoutCache], or -1 when unresolved.
+  int runtimeLocalSlotCache = -1;
+
   Identifier(this.name);
 
   @override
-  Future<T> accept<T>(AstVisitor<T> visitor) => visitor.visitIdentifier(this);
+  FutureOr<T> accept<T>(AstVisitor<T> visitor) => visitor.visitIdentifier(this);
 
   @override
   String toSource() => name;

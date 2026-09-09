@@ -74,6 +74,7 @@ class ConstPropagationPass extends CompilerPass {
         if (stmt is LocalFunctionDef) walk(stmt.funcBody.body);
       }
     }
+
     walk(stmts);
     // Remove multi-assignment variables.
     map.removeWhere((_, v) => v.count != 1);
@@ -100,18 +101,42 @@ class ConstPropagationPass extends CompilerPass {
       for (var i = 0; i < node.exprs.length; i++) {
         final expr = node.exprs[i];
         // Don't propagate the initializer itself back into the declaration.
-        final r = _rewriteExpr(expr, ctx, skipVar: i < node.names.length ? node.names[i].name : null);
-        if (r != null) { newExprs.add(r); changed = true; } else { newExprs.add(expr); }
+        final r = _rewriteExpr(
+          expr,
+          ctx,
+          skipVar: i < node.names.length ? node.names[i].name : null,
+        );
+        if (r != null) {
+          newExprs.add(r);
+          changed = true;
+        } else {
+          newExprs.add(expr);
+        }
       }
-      return changed ? LocalDeclaration(node.names, node.attributes, newExprs) : null;
+      return changed
+          ? LocalDeclaration(node.names, node.attributes, newExprs)
+          : null;
     }
     // Other nodes: recurse.
     return switch (node) {
       DoBlock(:final body) => _wrapDo(body, ctx),
-      FunctionDef(:final name, :final body) => _wrapFunc(name, body, ctx, (node).implicitSelf),
-      LocalFunctionDef(:final name, :final funcBody) => _wrapLocalFunc(name, funcBody, ctx),
+      FunctionDef(:final name, :final body) => _wrapFunc(
+        name,
+        body,
+        ctx,
+        (node).implicitSelf,
+      ),
+      LocalFunctionDef(:final name, :final funcBody) => _wrapLocalFunc(
+        name,
+        funcBody,
+        ctx,
+      ),
       ReturnStatement(:final expr) => _wrapReturn(expr, ctx),
-      Assignment(:final targets, :final exprs) => _wrapAssign(targets, exprs, ctx),
+      Assignment(:final targets, :final exprs) => _wrapAssign(
+        targets,
+        exprs,
+        ctx,
+      ),
       ExpressionStatement(:final expr) => _wrapExprStmt(expr, ctx),
       _ => null,
     };
@@ -153,8 +178,10 @@ class ConstPropagationPass extends CompilerPass {
   // ---- Helpers ----
 
   bool _isConstantExpr(AstNode node) {
-    return node is NumberLiteral || node is StringLiteral ||
-        node is BooleanLiteral || node is NilValue ||
+    return node is NumberLiteral ||
+        node is StringLiteral ||
+        node is BooleanLiteral ||
+        node is NilValue ||
         node is TableConstructor;
     // Note: TableConstructor might have non-const entries; we accept the
     // approximation since the folding pass would handle individual fields.
@@ -182,36 +209,65 @@ class ConstPropagationPass extends CompilerPass {
     return identical(r, body) ? null : DoBlock(r);
   }
 
-  AstNode? _wrapFunc(FunctionName name, FunctionBody body, _Context ctx, bool self) {
+  AstNode? _wrapFunc(
+    FunctionName name,
+    FunctionBody body,
+    _Context ctx,
+    bool self,
+  ) {
     final r = _rewrite(body.body, ctx);
     return identical(r, body.body)
         ? null
-        : FunctionDef(name, FunctionBody(body.parameters, r, body.isVararg,
-            varargName: body.varargName), implicitSelf: self);
+        : FunctionDef(
+            name,
+            FunctionBody(
+              body.parameters,
+              r,
+              body.isVararg,
+              varargName: body.varargName,
+            ),
+            implicitSelf: self,
+          );
   }
 
   AstNode? _wrapLocalFunc(Identifier name, FunctionBody body, _Context ctx) {
     final r = _rewrite(body.body, ctx);
     return identical(r, body.body)
         ? null
-        : LocalFunctionDef(name, FunctionBody(body.parameters, r, body.isVararg,
-            varargName: body.varargName));
+        : LocalFunctionDef(
+            name,
+            FunctionBody(
+              body.parameters,
+              r,
+              body.isVararg,
+              varargName: body.varargName,
+            ),
+          );
   }
 
   AstNode? _wrapReturn(List<AstNode> expr, _Context ctx) {
     List<AstNode>? newExpr;
     for (var i = 0; i < expr.length; i++) {
       final r = _rewriteExpr(expr[i], ctx);
-      if (r != null) { (newExpr ??= List.of(expr))[i] = r; }
+      if (r != null) {
+        (newExpr ??= List.of(expr))[i] = r;
+      }
     }
     return newExpr != null ? ReturnStatement(newExpr) : null;
   }
 
-  AstNode? _wrapAssign(List<AstNode> targets, List<AstNode> exprs, _Context ctx) {
+  AstNode? _wrapAssign(
+    List<AstNode> targets,
+    List<AstNode> exprs,
+    _Context ctx,
+  ) {
     var changed = false;
     final newExprs = exprs.map((e) {
       final r = _rewriteExpr(e, ctx);
-      if (r != null) { changed = true; return r; }
+      if (r != null) {
+        changed = true;
+        return r;
+      }
       return e;
     }).toList();
     return changed ? Assignment(targets, newExprs) : null;

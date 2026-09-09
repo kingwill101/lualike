@@ -1530,9 +1530,12 @@ List<({double x, double y, LoveColor? color})> _pointSequence(
 
 /// Returns the raw backing map when [value] is a Lua table.
 Map<dynamic, dynamic>? _tableIfPresent(Object? value) {
-  final raw = _rawValue(value);
+  final raw = value is Value ? value.raw : value;
   return switch (raw) {
     final Map<dynamic, dynamic> map => map,
+    final List<dynamic> list => <dynamic, dynamic>{
+      for (var index = 0; index < list.length; index++) index + 1: list[index],
+    },
     _ => null,
   };
 }

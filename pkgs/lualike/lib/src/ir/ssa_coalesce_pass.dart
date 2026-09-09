@@ -3,7 +3,9 @@
 /// Eliminates `MOVE dst, src` by renaming later uses of `dst` to `src` when
 /// safe, then deleting dead moves. Reduces instruction count and pressure.
 ///
-/// ## Critical safety rule (do not regress)
+/// ## Critical safety rules (do not regress)
+///
+/// ### Multi-register windows
 ///
 /// Lua `CALL` / `RETURN` / `CONCAT` / `SETLIST` use **register ranges**, not
 /// just the B/C fields. Example: `CALL A B C` with `B == 3` reads
@@ -16,6 +18,23 @@
 ///
 /// [_reads] therefore expands multi-register windows, and coalescing aborts
 /// when src and dst are both live as distinct operands of the same later op.
+///
+/// ### Short-circuit `and` / `or` (control-flow merges)
+///
+/// The IR compiler lowers `x or y` as:
+/// ```
+/// MOVE t, x
+/// TEST t
+/// JMP skip          -- truthy: keep t == x
+/// <write y into t>  -- falsy only
+/// skip:
+/// use t
+/// ```
+/// Linear scan that treats the falsy-path write as killing `t` will delete the
+/// seed MOVE while the join still reads `t` on the truthy path — `local pad =
+/// inset or 0` then yields nil when `inset` is truthy (snake demo drawCell).
+/// Branch instructions are barriers: a write to `dst` after a JMP does not
+/// prove the seed MOVE is dead.
 library;
 
 import 'instruction.dart';
@@ -44,6 +63,21 @@ void _addRange(Set<int> regs, int start, int end, int registerCount) {
       regs.add(reg);
     }
   }
+}
+
+/// Whether [inst] may transfer control so later writes do not dominate.
+///
+/// Used as a conservative barrier for dead-MOVE elimination: after a branch,
+/// a write to `dst` may execute on only one path.
+bool _isBranch(LualikeIrInstruction inst) {
+  return switch (inst.opcode) {
+    LualikeIrOpcode.jmp ||
+    LualikeIrOpcode.forPrep ||
+    LualikeIrOpcode.forLoop ||
+    LualikeIrOpcode.tForPrep ||
+    LualikeIrOpcode.tForLoop => true,
+    _ => false,
+  };
 }
 
 bool _writesReg(LualikeIrInstruction inst, int reg) {
@@ -150,21 +184,29 @@ Set<int> _reads(LualikeIrInstruction inst, int registerCount) {
             _addRange(regs, i.a + 1, i.a + i.b, registerCount);
           }
         case LualikeIrOpcode.setTable:
-          // A=table, B=key reg, C=value reg
+          // A=table, B=key reg, C=value reg (or Kst when k=true)
           add(i.a);
           add(i.b);
-          add(i.c);
+          if (!i.k) {
+            add(i.c);
+          }
         case LualikeIrOpcode.setI:
-          // A=table, B=int key, C=value
+          // A=table, B=int key, C=value reg (or Kst when k=true)
           add(i.a);
-          add(i.c);
+          if (!i.k) {
+            add(i.c);
+          }
         case LualikeIrOpcode.setField:
-          // A=table, B=Kst key, C=value
+          // A=table, B=Kst key, C=value reg (or Kst when k=true)
           add(i.a);
-          add(i.c);
+          if (!i.k) {
+            add(i.c);
+          }
         case LualikeIrOpcode.setTabUp:
-          // A=upval, B=Kst, C=value
-          add(i.c);
+          // A=upval, B=Kst, C=value reg (or Kst when k=true)
+          if (!i.k) {
+            add(i.c);
+          }
         case LualikeIrOpcode.setUpval:
           // IR: C=value (B=upval index)
           add(i.c);
@@ -455,11 +497,16 @@ LualikeIrPrototype? _runCoalesceOnce(LualikeIrPrototype prototype) {
       continue;
     }
 
-    // Find uses of dst before the next write to src or dst
+    // Find uses of dst before the next *dominating* write to src or dst.
+    // Stop at branches: renaming past a JMP would ignore phi-like merges
+    // (`or`/`and` seed value vs alternate path write).
     final renameIndices = <int>[];
     var interferes = false;
     for (var j = i + 1; j < instructions.length; j++) {
       final later = instructions[j];
+      if (_isBranch(later)) {
+        break;
+      }
       // If src is written before any use of dst, we can't coalesce further
       if (_writesReg(later, src)) {
         break;
@@ -486,8 +533,8 @@ LualikeIrPrototype? _runCoalesceOnce(LualikeIrPrototype prototype) {
     }
 
     if (renameIndices.isEmpty) {
-      // dst is never read — dead MOVE (not a debug local; those are skipped)
-      changed = true;
+      // No straight-line uses — may still be live after a branch; dead-MOVE
+      // phase decides with control-flow awareness.
       continue;
     }
 
@@ -497,8 +544,6 @@ LualikeIrPrototype? _runCoalesceOnce(LualikeIrPrototype prototype) {
     }
     changed = true;
   }
-
-  if (!changed) return null;
 
   // Build new instruction list, removing dead MOVEs
   final deadMoves = <int>{};
@@ -515,14 +560,26 @@ LualikeIrPrototype? _runCoalesceOnce(LualikeIrPrototype prototype) {
     if (debugLocals.contains(dst)) {
       continue;
     }
-    // Check if dst is used anywhere after this MOVE (before next write to dst)
+    // Live if dst is read on any path before an *unconditional* write to dst.
+    // A write after JMP may be skipped (short-circuit or/and false branch).
     var used = false;
+    var seenBranch = false;
     for (var j = i + 1; j < instructions.length; j++) {
-      if (_reads(instructions[j], registerCount).contains(dst)) {
+      final later = instructions[j];
+      if (_isBranch(later)) {
+        seenBranch = true;
+      }
+      if (_reads(later, registerCount).contains(dst)) {
         used = true;
         break;
       }
-      if (_writesReg(instructions[j], dst)) break;
+      if (_writesReg(later, dst)) {
+        if (seenBranch) {
+          // Conditional kill — keep scanning for join-point uses.
+          continue;
+        }
+        break;
+      }
     }
     if (!used) {
       deadMoves.add(i);
@@ -532,6 +589,8 @@ LualikeIrPrototype? _runCoalesceOnce(LualikeIrPrototype prototype) {
   if (!changed && deadMoves.isEmpty) {
     return null;
   }
+  // Renames and/or deletions happened.
+  changed = changed || deadMoves.isNotEmpty;
 
   final List<LualikeIrInstruction> newInstructions;
   final LualikeIrDebugInfo? newDebug;

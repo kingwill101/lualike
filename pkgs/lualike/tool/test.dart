@@ -540,8 +540,10 @@ Future<List<TestResult>> runTests({
       }
     }
 
-    // Only print the collected output at the end if we weren't already streaming it
-    if (verbose && !streamOutput) {
+    // A failed test must always expose its captured diagnostics. Previously,
+    // normal (non-verbose) runs discarded both stdout and stderr, leaving only
+    // the test filename and making intermittent failures impossible to locate.
+    if (!streamOutput && (!result.passed || verbose)) {
       if (result.output.isNotEmpty) {
         console.writeln('');
         console.write(Style().foreground(Colors.white).render("Output:"));

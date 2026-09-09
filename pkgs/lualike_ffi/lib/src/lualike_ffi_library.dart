@@ -49,22 +49,38 @@ enum FfiType {
 
   static FfiType parse(String name) {
     switch (name) {
-      case 'void': return FfiType.void_;
-      case 'bool': return FfiType.bool_;
-      case 'i8': return FfiType.i8;
-      case 'u8': return FfiType.u8;
-      case 'i16': return FfiType.i16;
-      case 'u16': return FfiType.u16;
-      case 'i32': return FfiType.i32;
-      case 'u32': return FfiType.u32;
-      case 'i64': return FfiType.i64;
-      case 'u64': return FfiType.u64;
-      case 'f32': return FfiType.f32;
-      case 'f64': return FfiType.f64;
-      case 'pointer': return FfiType.pointer;
-      case 'string': return FfiType.string;
-      case 'buffer': return FfiType.buffer;
-      default: throw FormatException('Unknown FFI type: $name');
+      case 'void':
+        return FfiType.void_;
+      case 'bool':
+        return FfiType.bool_;
+      case 'i8':
+        return FfiType.i8;
+      case 'u8':
+        return FfiType.u8;
+      case 'i16':
+        return FfiType.i16;
+      case 'u16':
+        return FfiType.u16;
+      case 'i32':
+        return FfiType.i32;
+      case 'u32':
+        return FfiType.u32;
+      case 'i64':
+        return FfiType.i64;
+      case 'u64':
+        return FfiType.u64;
+      case 'f32':
+        return FfiType.f32;
+      case 'f64':
+        return FfiType.f64;
+      case 'pointer':
+        return FfiType.pointer;
+      case 'string':
+        return FfiType.string;
+      case 'buffer':
+        return FfiType.buffer;
+      default:
+        throw FormatException('Unknown FFI type: $name');
     }
   }
 }
@@ -105,24 +121,44 @@ class FfiFunctionHandle {
     // Look up the function for each call (cached by DynamicLibrary internally)
     switch ((resultType, argumentTypes.length)) {
       case (FfiType.i32, 1):
-        final f = lib.lookupFunction<int Function(int), int Function(int)>(symbol);
+        final f = lib.lookupFunction<int Function(int), int Function(int)>(
+          symbol,
+        );
         return f(_toNative(args[0], argumentTypes[0]) as int);
       case (FfiType.i32, 2):
-        final f = lib.lookupFunction<int Function(int, int), int Function(int, int)>(symbol);
-        return f(_toNative(args[0], argumentTypes[0]) as int,
-                 _toNative(args[1], argumentTypes[1]) as int);
+        final f = lib
+            .lookupFunction<int Function(int, int), int Function(int, int)>(
+              symbol,
+            );
+        return f(
+          _toNative(args[0], argumentTypes[0]) as int,
+          _toNative(args[1], argumentTypes[1]) as int,
+        );
       case (FfiType.i64, 1):
-        final f = lib.lookupFunction<int Function(int), int Function(int)>(symbol);
+        final f = lib.lookupFunction<int Function(int), int Function(int)>(
+          symbol,
+        );
         return f(_toNative(args[0], argumentTypes[0]) as int);
       case (FfiType.f64, 1):
-        final f = lib.lookupFunction<double Function(double), double Function(double)>(symbol);
+        final f = lib
+            .lookupFunction<double Function(double), double Function(double)>(
+              symbol,
+            );
         return f(_toNative(args[0], argumentTypes[0]) as double);
       case (FfiType.f64, 2):
-        final f = lib.lookupFunction<double Function(double, double), double Function(double, double)>(symbol);
-        return f(_toNative(args[0], argumentTypes[0]) as double,
-                 _toNative(args[1], argumentTypes[1]) as double);
+        final f = lib
+            .lookupFunction<
+              double Function(double, double),
+              double Function(double, double)
+            >(symbol);
+        return f(
+          _toNative(args[0], argumentTypes[0]) as double,
+          _toNative(args[1], argumentTypes[1]) as double,
+        );
       case (FfiType.void_, 1):
-        final f = lib.lookupFunction<Void Function(int), void Function(int)>(symbol);
+        final f = lib.lookupFunction<Void Function(int), void Function(int)>(
+          symbol,
+        );
         f(_toNative(args[0], argumentTypes[0]) as int);
         return null;
       default:
@@ -245,7 +281,12 @@ class FfiHost {
     List<FfiType> argumentTypes,
   ) {
     try {
-      return FfiFunctionHandle(handle.library, symbol, resultType, argumentTypes);
+      return FfiFunctionHandle(
+        handle.library,
+        symbol,
+        resultType,
+        argumentTypes,
+      );
     } catch (e) {
       throw FfiException('Symbol not found: $symbol ($e)');
     }

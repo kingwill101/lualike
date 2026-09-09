@@ -4,7 +4,6 @@
 /// and load the result into the Lua 5.5 VM — all from Dart code.
 library;
 
-
 import 'package:lualike/src/compile/compiler_pass.dart';
 import 'package:lualike/src/compile/constant_folding_pass.dart';
 import 'package:lualike/src/compile/pipeline.dart';
@@ -24,10 +23,7 @@ Future<void> main(List<String> args) async {
   print('2. Running compiler passes...');
   final context = CompilerContext(program);
 
-  final passes = <CompilerPass>[
-    ConstantFoldingPass(),
-    ASTSimplifier(),
-  ];
+  final passes = <CompilerPass>[ConstantFoldingPass(), ASTSimplifier()];
 
   for (final pass in passes) {
     print('   -> ${pass.name}');
@@ -62,24 +58,32 @@ Future<void> main(List<String> args) async {
 
   // ---- Bonus: Compare with/without peephole ----
   print('\n6. Peephole optimization comparison:');
-  final withPeephole = CompilePipeline(
-    config: const CompilePipelineConfig(
-      enableConstantFolding: true,
-      enablePeephole: true,
-      target: CompileBackend.lualikeIR,
-    ),
-  ).compileSource(script) as LualikeIrArtifact;
+  final withPeephole =
+      CompilePipeline(
+            config: const CompilePipelineConfig(
+              enableConstantFolding: true,
+              enablePeephole: true,
+              target: CompileBackend.lualikeIR,
+            ),
+          ).compileSource(script)
+          as LualikeIrArtifact;
 
-  final withoutPeephole = CompilePipeline(
-    config: const CompilePipelineConfig(
-      enableConstantFolding: true,
-      enablePeephole: false,
-      target: CompileBackend.lualikeIR,
-    ),
-  ).compileSource(script) as LualikeIrArtifact;
+  final withoutPeephole =
+      CompilePipeline(
+            config: const CompilePipelineConfig(
+              enableConstantFolding: true,
+              enablePeephole: false,
+              target: CompileBackend.lualikeIR,
+            ),
+          ).compileSource(script)
+          as LualikeIrArtifact;
 
-  print('   Without peephole: ${withoutPeephole.chunk.mainPrototype.instructions.length} instr');
-  print('   With peephole:    ${withPeephole.chunk.mainPrototype.instructions.length} instr');
+  print(
+    '   Without peephole: ${withoutPeephole.chunk.mainPrototype.instructions.length} instr',
+  );
+  print(
+    '   With peephole:    ${withPeephole.chunk.mainPrototype.instructions.length} instr',
+  );
 }
 
 const _exampleSource = '''

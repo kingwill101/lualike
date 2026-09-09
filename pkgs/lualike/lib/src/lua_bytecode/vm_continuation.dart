@@ -288,8 +288,7 @@ CallFrame? _resolveVisibleBytecodeFrame(LuaRuntime runtime, int level) {
     if (candidate is Interpreter) {
       debugInterpreter = candidate;
     }
-  } catch (_) {
-  }
+  } catch (_) {}
   if (debugInterpreter == null) {
     return null;
   }

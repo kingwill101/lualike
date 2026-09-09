@@ -159,8 +159,11 @@ void main() {
       for (final block in ssa.blocks) {
         for (final value in block.definedValues) {
           final t = analysis.typeOf(value);
-          expect(t, LualikeIrSsaType.number,
-              reason: '${value.label} should be number, got $t');
+          expect(
+            t,
+            LualikeIrSsaType.number,
+            reason: '${value.label} should be number, got $t',
+          );
         }
       }
     });

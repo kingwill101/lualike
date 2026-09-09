@@ -9,6 +9,7 @@ import 'package:lualike/src/coroutine.dart';
 import 'package:lualike/src/environment.dart';
 import 'package:lualike/src/file_manager.dart';
 import 'package:lualike/src/gc/generational_gc.dart' show GenerationalGCManager;
+import 'package:lualike/src/gc/gc.dart' show LuaGcPolicy;
 import 'package:lualike/src/gc/gc_access.dart';
 import 'package:lualike/src/io/lua_file.dart';
 import 'package:lualike/src/logging/logger.dart';
@@ -43,6 +44,7 @@ import 'package:lualike/src/value_class.dart';
 import 'package:lualike/src/table_storage.dart';
 import 'package:lualike/src/utils/file_system_utils.dart' as fs;
 import 'package:lualike/src/interpreter/upvalue_assignment.dart';
+import 'package:lualike/src/interpreter/ast_local_frame.dart';
 import 'package:lualike/src/ir/loop_compiler.dart';
 import 'package:lualike/src/ir/serialization.dart';
 import 'package:lualike/src/ir/vm.dart';
@@ -88,6 +90,40 @@ Map<String, int> _statementLabelMap(List<AstNode> statements) {
   return metadata.labelMap = labels ?? const <String, int>{};
 }
 
+class _NumericPrimitiveValueCache<K extends Object> {
+  final bool bounded;
+  final int capacity;
+  final Map<K, Value> _values = <K, Value>{};
+  late final List<K?> _evictionRing = bounded
+      ? List<K?>.filled(capacity, null, growable: false)
+      : const <Never>[];
+  int _nextEvictionIndex = 0;
+
+  _NumericPrimitiveValueCache({required this.bounded, required int capacity})
+    : capacity = capacity < 1 ? 1 : capacity;
+
+  int get length => _values.length;
+
+  Value? operator [](K key) => _values[key];
+
+  void put(K key, Value value) {
+    if (!bounded) {
+      _values[key] = value;
+      return;
+    }
+
+    if (_values.length >= capacity) {
+      final evictedKey = _evictionRing[_nextEvictionIndex];
+      if (evictedKey != null) {
+        _values.remove(evictedKey);
+      }
+    }
+    _values[key] = value;
+    _evictionRing[_nextEvictionIndex] = key;
+    _nextEvictionIndex = (_nextEvictionIndex + 1) % capacity;
+  }
+}
+
 /// Virtual Machine for the LuaLike interpreter.
 ///
 /// Implements the AstVisitor interface to execute the AST nodes by traversing
@@ -102,6 +138,26 @@ class Interpreter extends AstVisitor<Object?>
         InterpreterLiteralMixin,
         InterpreterTableMixin
     implements LuaRuntime {
+  static const bool identifierFrameLookupFastPathEnabled = bool.fromEnvironment(
+    'LUALIKE_IDENTIFIER_FRAME_LOOKUP_FAST_PATH',
+    defaultValue: true,
+  );
+
+  /// Maximum retained wrappers in each exact numeric primitive cache.
+  ///
+  /// Lua numbers have value semantics, so evicting an idle wrapper cannot be
+  /// observed by Lua code. Values still referenced by tables, locals, host
+  /// code, or closures remain alive normally; only the interpreter's cache
+  /// ownership is bounded.
+  static const int numericPrimitiveCacheLimit = int.fromEnvironment(
+    'LUALIKE_NUMERIC_PRIMITIVE_CACHE_LIMIT',
+    defaultValue: 4096,
+  );
+  static const bool boundedNumericPrimitiveCache = bool.fromEnvironment(
+    'LUALIKE_BOUNDED_NUMERIC_PRIMITIVE_CACHE',
+    defaultValue: true,
+  );
+
   /// Currently active coroutine
   Coroutine? _currentCoroutine;
 
@@ -213,7 +269,7 @@ class Interpreter extends AstVisitor<Object?>
   final Set<AstNode> _skipPostExecutionHooks = HashSet<AstNode>.identity();
 
   /// Fast path cache for local variable boxes in the current function.
-  Map<String, Box<dynamic>>? _currentFastLocals;
+  AstLocalFrame? _currentFastLocals;
 
   /// Counts AST safe points so finalizer-sensitive loops can receive sparse
   /// incremental GC progress without requiring loop-specific bookkeeping.
@@ -243,61 +299,110 @@ class Interpreter extends AstVisitor<Object?>
   Value? _cachedNilValue;
   Value? _cachedTrueValue;
   Value? _cachedFalseValue;
-  final Map<int, Value> _cachedIntValues = <int, Value>{};
+  final _NumericPrimitiveValueCache<int> _cachedIntValues =
+      _NumericPrimitiveValueCache<int>(
+        bounded: boundedNumericPrimitiveCache,
+        capacity: numericPrimitiveCacheLimit,
+      );
 
-  /// Cache of shared [Value] wrappers for [double] constants, keyed by the
-  /// raw IEEE-754 bit pattern split into two 32-bit halves.
+  /// Cache of shared [Value] wrappers for [double] constants.
   ///
-  /// We **cannot** use [double] itself as the map key because IEEE 754
-  /// equality conflates values that have different bit patterns but
-  /// distinct Lua semantics:
+  /// Native Dart VMs can represent the exact signed 64-bit IEEE-754 bit
+  /// pattern as an [int]. JavaScript targets cannot represent every 64-bit
+  /// integer exactly, so they retain the two-32-bit-word key.
   ///
-  ///   | value      | -0.0 == 0.0 | NaN == NaN |
-  ///   |------------|-------------|-------------|
-  ///   | IEEE 754   | true        | false       |
-  ///   | Lua need   | distinct    | distinct    |
-  ///
-  /// Using a `(int, int)` record from the raw 64-bit bit pattern avoids the
-  /// [BigInt] allocation that a full [NumberUtils.doubleToRawBits] round-trip
-  /// would incur (the profiler showed `BigInt.from` on the hot path).
-  final Map<(int, int), Value> _cachedDoubleValues = <(int, int), Value>{};
-  final Map<BigInt, Value> _cachedBigIntValues = <BigInt, Value>{};
+  /// Both forms preserve distinct cache entries for -0.0 and 0.0 and avoid
+  /// [double] map equality's NaN behavior. The native key also avoids the
+  /// transient record allocation previously paid on every lookup.
+  final _NumericPrimitiveValueCache<int> _cachedNativeDoubleValues =
+      _NumericPrimitiveValueCache<int>(
+        bounded: boundedNumericPrimitiveCache,
+        capacity: numericPrimitiveCacheLimit,
+      );
+  final _NumericPrimitiveValueCache<(int, int)> _cachedRecordDoubleValues =
+      _NumericPrimitiveValueCache<(int, int)>(
+        bounded: boundedNumericPrimitiveCache,
+        capacity: numericPrimitiveCacheLimit,
+      );
+  final _NumericPrimitiveValueCache<BigInt> _cachedBigIntValues =
+      _NumericPrimitiveValueCache<BigInt>(
+        bounded: boundedNumericPrimitiveCache,
+        capacity: numericPrimitiveCacheLimit,
+      );
+
+  static const bool _usesJavaScriptNumbers = bool.fromEnvironment(
+    'dart.library.js_interop',
+  );
+  static const bool _useNativeDoubleCacheKey = bool.fromEnvironment(
+    'LUALIKE_NATIVE_DOUBLE_CACHE_KEY',
+    defaultValue: true,
+  );
 
   /// Scratch buffer shared across all [_doubleToKey] calls.
   static final ByteData _doubleKeyScratch = ByteData(8);
 
-  /// Converts a [double] to a `(int, int)` record for the double-value cache.
-  ///
-  /// Uses the raw IEEE-754 bit pattern split into two 32-bit halves via the
-  /// shared scratch buffer.  This avoids both the [BigInt] allocation that
-  /// [NumberUtils.doubleToRawBits] would incur and the IEEE-754 equality
-  /// pitfalls of using [double] directly as a map key.
-  static (int, int) _doubleToKey(double value) {
-    final data = _doubleKeyScratch..setFloat64(0, value, Endian.big);
-    return (data.getUint32(0, Endian.big), data.getUint32(4, Endian.big));
+  Value _createSharedPrimitive(Object? value) =>
+      Value.primitive(value, isSharedPrimitive: true, isRawPrimitive: true);
+
+  Value _cachedIntValue(int value) {
+    final cached = _cachedIntValues[value];
+    if (cached != null) return cached;
+    final created = _createSharedPrimitive(value);
+    _cachedIntValues.put(value, created);
+    return created;
   }
+
+  Value _cachedDoubleValue(double value) {
+    final data = _doubleKeyScratch..setFloat64(0, value, Endian.big);
+    if (_usesJavaScriptNumbers || !_useNativeDoubleCacheKey) {
+      final key = (
+        data.getUint32(0, Endian.big),
+        data.getUint32(4, Endian.big),
+      );
+      final cached = _cachedRecordDoubleValues[key];
+      if (cached != null) return cached;
+      final created = _createSharedPrimitive(value);
+      _cachedRecordDoubleValues.put(key, created);
+      return created;
+    }
+
+    final key = data.getInt64(0, Endian.big);
+    final cached = _cachedNativeDoubleValues[key];
+    if (cached != null) return cached;
+    final created = _createSharedPrimitive(value);
+    _cachedNativeDoubleValues.put(key, created);
+    return created;
+  }
+
+  Value _cachedBigIntValue(BigInt value) {
+    final cached = _cachedBigIntValues[value];
+    if (cached != null) return cached;
+    final created = _createSharedPrimitive(value);
+    _cachedBigIntValues.put(value, created);
+    return created;
+  }
+
+  /// Snapshot of numeric-wrapper cache retention for profiling and tests.
+  Map<String, Object> numericPrimitiveCacheDiagnostics() => <String, Object>{
+    'bounded': boundedNumericPrimitiveCache,
+    'limitPerType': numericPrimitiveCacheLimit < 1
+        ? 1
+        : numericPrimitiveCacheLimit,
+    'ints': _cachedIntValues.length,
+    'nativeDoubles': _cachedNativeDoubleValues.length,
+    'recordDoubles': _cachedRecordDoubleValues.length,
+    'bigInts': _cachedBigIntValues.length,
+  };
 
   @override
   Value constantPrimitiveValue(Object? raw) {
-    Value create(Object? value) =>
-        Value.primitive(value, isSharedPrimitive: true, isRawPrimitive: true);
-
     final cached = switch (raw) {
-      null => _cachedNilValue ??= create(null),
-      true => _cachedTrueValue ??= create(true),
-      false => _cachedFalseValue ??= create(false),
-      final int value => _cachedIntValues.putIfAbsent(
-        value,
-        () => create(value),
-      ),
-      final double value => _cachedDoubleValues.putIfAbsent(
-        _doubleToKey(value),
-        () => create(value),
-      ),
-      final BigInt value => _cachedBigIntValues.putIfAbsent(
-        value,
-        () => create(value),
-      ),
+      null => _cachedNilValue ??= _createSharedPrimitive(null),
+      true => _cachedTrueValue ??= _createSharedPrimitive(true),
+      false => _cachedFalseValue ??= _createSharedPrimitive(false),
+      final int value => _cachedIntValue(value),
+      final double value => _cachedDoubleValue(value),
+      final BigInt value => _cachedBigIntValue(value),
       _ => throw ArgumentError.value(raw, 'raw', 'Not a cached primitive'),
     };
     final metatableGeneration = MetaTable().defaultMetatableGeneration;
@@ -490,6 +595,11 @@ class Interpreter extends AstVisitor<Object?>
   }
 
   int? _debugHookLineForNode(AstNode node) {
+    final cachedLine = node.cachedDebugHookLine;
+    if (cachedLine != -2) {
+      return cachedLine >= 0 ? cachedLine : null;
+    }
+
     int lastMeaningfulSpanLine(AstNode n, SourceSpan span) {
       final endLine = n.cachedEndLine;
       if (span.end.column == 0 && endLine > n.cachedStartLine) {
@@ -502,6 +612,7 @@ class Interpreter extends AstVisitor<Object?>
       return endLine;
     }
 
+    int? resolvedLine;
     if (node case Assignment(exprs: final exprs) when exprs.length == 1) {
       final expr = exprs.first;
       if (expr is BinaryExpression &&
@@ -509,58 +620,69 @@ class Interpreter extends AstVisitor<Object?>
           expr.cachedStartLine >= 0 &&
           expr.right.cachedStartLine >= 0 &&
           expr.left.cachedStartLine != expr.right.cachedStartLine) {
-        return expr.operatorLine;
+        resolvedLine = expr.operatorLine;
       }
     }
 
-    final span = node.span;
-    if (span == null) {
-      return null;
+    if (resolvedLine == null) {
+      final span = node.span;
+      if (span != null) {
+        var endLine = node.cachedEndLine;
+        if (span.end.column == 0 && endLine > node.cachedStartLine) {
+          endLine -= 1;
+        }
+
+        resolvedLine = switch (node) {
+          LocalDeclaration(exprs: final exprs, span: final SourceSpan span)
+              when exprs.any((expr) => expr is FunctionLiteral) =>
+            lastMeaningfulSpanLine(node, span),
+          DoBlock() => null,
+          IfStatement() ||
+          ElseIfClause() ||
+          WhileStatement() ||
+          RepeatUntilLoop() ||
+          ForLoop() ||
+          ForInLoop() ||
+          FunctionDef() ||
+          LocalFunctionDef() => endLine,
+          _ =>
+            node.cachedStartLine >= 0 ? node.cachedStartLine : span.start.line,
+        };
+      }
     }
 
-    var endLine = node.cachedEndLine;
-    if (span.end.column == 0 && endLine > node.cachedStartLine) {
-      endLine -= 1;
-    }
-
-    return switch (node) {
-      LocalDeclaration(exprs: final exprs, span: final SourceSpan span)
-          when exprs.any((expr) => expr is FunctionLiteral) =>
-        lastMeaningfulSpanLine(node, span),
-      DoBlock() => null,
-      IfStatement() ||
-      ElseIfClause() ||
-      WhileStatement() ||
-      RepeatUntilLoop() ||
-      ForLoop() ||
-      ForInLoop() ||
-      FunctionDef() ||
-      LocalFunctionDef() => endLine,
-      _ => node.cachedStartLine >= 0 ? node.cachedStartLine : span.start.line,
-    };
+    node.cachedDebugHookLine = resolvedLine ?? -1;
+    return resolvedLine;
   }
 
   int? _traceLineForNode(AstNode node) {
-    if (node.span == null) {
-      return null;
+    final cachedLine = node.cachedTraceLine;
+    if (cachedLine != -2) {
+      return cachedLine >= 0 ? cachedLine : null;
     }
 
-    return switch (node) {
-      BinaryExpression(operatorLine: final operatorLine?) => operatorLine,
-      UnaryExpression(operatorLine: final operatorLine?) => operatorLine,
-      UnaryExpression() ||
-      FunctionCall() ||
-      MethodCall() ||
-      ReturnStatement() =>
-        node.cachedStartLine >= 0
-            ? node.cachedStartLine
-            : node.span!.start.line,
-      _ =>
-        _debugHookLineForNode(node) ??
-            (node.cachedStartLine >= 0
-                ? node.cachedStartLine
-                : node.span!.start.line),
-    };
+    int? resolvedLine;
+    if (node.span != null) {
+      resolvedLine = switch (node) {
+        BinaryExpression(operatorLine: final operatorLine?) => operatorLine,
+        UnaryExpression(operatorLine: final operatorLine?) => operatorLine,
+        UnaryExpression() ||
+        FunctionCall() ||
+        MethodCall() ||
+        ReturnStatement() =>
+          node.cachedStartLine >= 0
+              ? node.cachedStartLine
+              : node.span!.start.line,
+        _ =>
+          _debugHookLineForNode(node) ??
+              (node.cachedStartLine >= 0
+                  ? node.cachedStartLine
+                  : node.span!.start.line),
+      };
+    }
+
+    node.cachedTraceLine = resolvedLine ?? -1;
+    return resolvedLine;
   }
 
   bool _fireStatementHookAfterExecution(AstNode node) {
@@ -707,6 +829,9 @@ class Interpreter extends AstVisitor<Object?>
   CallFrame? findFrameForCallable(Value? callable) {
     if (callable == null) {
       return null;
+    }
+    if (identifierFrameLookupFastPathEnabled) {
+      return callStack.findLatestFrameForCallable(callable);
     }
     for (final frame in callStack.frames.toList().reversed) {
       if (identical(frame.callable, callable)) {
@@ -880,6 +1005,9 @@ class Interpreter extends AstVisitor<Object?>
       ],
       for (final frame in callStack.frames) frame.env,
       for (final frame in callStack.frames) frame.callable,
+      for (final frame in callStack.frames)
+        if (frame.engineFrameState case final AstLocalFrame astFrame)
+          ...astFrame.slotOnlyGcRoots,
       for (final frame in callStack.frames)
         if (frame.callable case final Value callable?) ...[
           callable.closureEnvironment,
@@ -1098,7 +1226,17 @@ class Interpreter extends AstVisitor<Object?>
   /// Fast locals let identifier resolution bypass a full environment walk for
   /// ordinary local reads and writes. The cache is valid only for the exact
   /// function context that created it.
-  Map<String, Box<dynamic>>? getCurrentFastLocals() => _currentFastLocals;
+  AstLocalFrame? getCurrentFastLocals() => _currentFastLocals;
+
+  /// Resets opt-in indexed AST local-frame counters.
+  static void resetAstLocalFrameDiagnostics() {
+    AstLocalFrame.resetDiagnostics();
+  }
+
+  /// Returns indexed AST local-frame counters for profile harnesses.
+  static Map<String, Object> astLocalFrameDiagnostics() {
+    return AstLocalFrame.diagnostics();
+  }
 
   /// Installs the cached local boxes for the ambient active function.
   ///
@@ -1107,7 +1245,7 @@ class Interpreter extends AstVisitor<Object?>
   /// debug helpers. Reusing the caller's cache in a different function can make
   /// identifier resolution read or write the wrong locals before it ever
   /// consults the callee's own environment or upvalues.
-  void setCurrentFastLocals(Map<String, Box<dynamic>>? locals) {
+  void setCurrentFastLocals(AstLocalFrame? locals) {
     _currentFastLocals = locals;
   }
 
@@ -1116,13 +1254,8 @@ class Interpreter extends AstVisitor<Object?>
   /// This is used by the Library system to get metamethods for library tables and objects
   /// [libraryName] - The name of the library to get metamethods for (e.g., "io", "string")
   Map<String, Function>? getLibraryMetamethods(String libraryName) {
-    try {
-      // Get all libraries from the interpreter's registry
-      final library = libraryRegistry.libraries.firstWhere(
-        (lib) => lib.name == libraryName,
-      );
-      return library.getMetamethods(this);
-    } catch (e) {
+    final library = libraryRegistry.findByName(libraryName);
+    if (library == null) {
       Logger.warning(
         'Library not found for metamethod access',
         category: 'Interpreter',
@@ -1130,15 +1263,20 @@ class Interpreter extends AstVisitor<Object?>
       );
       return null;
     }
+    return library.getMetamethods(this);
   }
 
   /// Creates a new interpreter instance.
   ///
   /// [fileManager] - Optional file manager for I/O operations
   /// [environment] - Optional environment for variable scope
-  Interpreter({FileManager? fileManager, Environment? environment})
-    : fileManager = fileManager ?? FileManager(),
-      _currentEnv = environment ?? Environment() {
+  Interpreter({
+    FileManager? fileManager,
+    Environment? environment,
+    bool initializeStandardLibraries = true,
+    LuaGcPolicy gcPolicy = LuaGcPolicy.luaCompatible,
+  }) : fileManager = fileManager ?? FileManager(),
+       _currentEnv = environment ?? Environment() {
     Logger.infoLazy(
       () => 'Interpreter created',
       category: 'Interpreter',
@@ -1148,7 +1286,7 @@ class Interpreter extends AstVisitor<Object?>
     // Set the interpreter reference in the file manager
     this.fileManager.setInterpreter(this);
 
-    gc = GenerationalGCManager(this);
+    gc = GenerationalGCManager(this, policy: gcPolicy);
     // Enable automatic GC triggers by default so long-running Lua loops
     // eventually collect unreachable objects without requiring explicit
     // collectgarbage() calls (matching stock Lua behaviour).
@@ -1159,8 +1297,12 @@ class Interpreter extends AstVisitor<Object?>
     // Initialize coroutines before the standard library
     initializeCoroutines();
 
-    // Initialize standard libraries
-    initializeStandardLibrary(vm: this);
+    // Wrapper runtimes install their own library registry and environment.
+    // Keep the internal interpreter lightweight in that mode so every runtime
+    // does not register a second, unreachable standard-library set.
+    if (initializeStandardLibraries) {
+      initializeStandardLibrary(vm: this);
+    }
 
     // Attach this interpreter to the root environment for later lookups
     _currentEnv.interpreter = this;
@@ -1730,7 +1872,7 @@ class Interpreter extends AstVisitor<Object?>
         continue;
       }
 
-      if (_currentEnv.toBeClosedVars.remove(name)) {
+      if (_currentEnv.removeToBeClosedVariable(name)) {
         final value = box.value;
         if (value is Value) {
           await value.close();
@@ -1780,15 +1922,22 @@ class Interpreter extends AstVisitor<Object?>
   /// Explicitly call a function with the given arguments
   @override
   @override
-  Future<Value> loadBytecode(List<int> bytes, {required String moduleName}) async {
-    final result = await loadChunk(LuaChunkLoadRequest(
-      source: Value.primitive(bytes),
-      chunkName: moduleName,
-      mode: 'b',
-    ));
+  Future<Value> loadBytecode(
+    List<int> bytes, {
+    required String moduleName,
+  }) async {
+    final result = await loadChunk(
+      LuaChunkLoadRequest(
+        source: Value.primitive(bytes),
+        chunkName: moduleName,
+        mode: 'b',
+      ),
+    );
     if (!result.isSuccess) {
-      throw Exception('Failed to load bytecode module \'$moduleName\': '
-          '${result.errorMessage}');
+      throw Exception(
+        'Failed to load bytecode module \'$moduleName\': '
+        '${result.errorMessage}',
+      );
     }
     moduleBytecodeCache[moduleName] = result.chunk!;
     return result.chunk!;
@@ -1824,7 +1973,7 @@ class Interpreter extends AstVisitor<Object?>
   }
 
   @override
-  Future<Object?> evaluateAst(AstNode node) => node.accept(this);
+  Future<Object?> evaluateAst(AstNode node) async => await node.accept(this);
 
   @override
   Future<LuaChunkLoadResult> loadChunk(LuaChunkLoadRequest request) async {

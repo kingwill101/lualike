@@ -63,8 +63,7 @@ void main() {
       final rng = Random(99);
 
       // Linear nesting (not exponential): depth 200 = 200 ADD nodes.
-      String nest(int d) =>
-          d <= 0 ? '1' : '(${nest(d - 1)} + 1)';
+      String nest(int d) => d <= 0 ? '1' : '(${nest(d - 1)} + 1)';
 
       for (var i = 0; i < 20; i++) {
         final depth = gen.generate(rng).value;
@@ -81,11 +80,14 @@ void main() {
       for (var i = 0; i < 20; i++) {
         final n = gen.generate(rng).value;
         final params = List.generate(n, (j) => 'p${j}_$i').join(', ');
-        final body =
-            List.generate(n, (j) => 'local x${j}_$i = p${j}_$i + 1;').join('\n');
+        final body = List.generate(
+          n,
+          (j) => 'local x${j}_$i = p${j}_$i + 1;',
+        ).join('\n');
         final sum = List.generate(n, (j) => 'x${j}_$i').join(' + ');
         final args = List.generate(n, (j) => '$j').join(', ');
-        final source = '''
+        final source =
+            '''
           local function f($params)
             $body
             return $sum
@@ -107,10 +109,14 @@ void main() {
           return vars[r.nextInt(vars.length)];
         }
         return switch (r.nextInt(4)) {
-          0 => '(${randExpr(depth + 1, vars, r)} + ${randExpr(depth + 1, vars, r)})',
-          1 => '(${randExpr(depth + 1, vars, r)} * ${randExpr(depth + 1, vars, r)})',
-          2 => '(${randExpr(depth + 1, vars, r)} - ${randExpr(depth + 1, vars, r)})',
-          _ => '(${randExpr(depth + 1, vars, r)} / ${randExpr(depth + 1, vars, r)})',
+          0 =>
+            '(${randExpr(depth + 1, vars, r)} + ${randExpr(depth + 1, vars, r)})',
+          1 =>
+            '(${randExpr(depth + 1, vars, r)} * ${randExpr(depth + 1, vars, r)})',
+          2 =>
+            '(${randExpr(depth + 1, vars, r)} - ${randExpr(depth + 1, vars, r)})',
+          _ =>
+            '(${randExpr(depth + 1, vars, r)} / ${randExpr(depth + 1, vars, r)})',
         };
       }
 
@@ -118,12 +124,13 @@ void main() {
         final depth = depthGen.generate(rng).value;
         final nVars = varCountGen.generate(rng).value;
         final vars = List.generate(nVars, (j) => 'v${j}_$i');
-        final decls =
-            vars.map((v) => 'local $v = ${rng.nextInt(100)};').join('\n');
+        final decls = vars
+            .map((v) => 'local $v = ${rng.nextInt(100)};')
+            .join('\n');
         final expr = randExpr(depth, vars, rng);
         final source = '$decls\nreturn $expr';
-        final err = _compile('rand_${i}_${depth}_${nVars}', source);
-        expect(err, isNull, reason: 'rand_${i}_${depth}_${nVars}: $err');
+        final err = _compile('rand_${i}_${depth}_$nVars', source);
+        expect(err, isNull, reason: 'rand_${i}_${depth}_$nVars: $err');
       }
     });
   });

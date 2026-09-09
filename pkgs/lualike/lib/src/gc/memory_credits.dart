@@ -318,9 +318,7 @@ class MemoryCredits {
 
       // Show top 3 instances with stack traces
       final sortedObjs = objects.toList()
-        ..sort(
-          (a, b) => (_creditsOf(b) ?? 0).compareTo(_creditsOf(a) ?? 0),
-        );
+        ..sort((a, b) => (_creditsOf(b) ?? 0).compareTo(_creditsOf(a) ?? 0));
 
       for (var i = 0; i < sortedObjs.length && i < 3; i++) {
         final obj = sortedObjs[i];

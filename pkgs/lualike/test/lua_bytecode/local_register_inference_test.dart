@@ -173,5 +173,36 @@ assert(select(2, debug.getlocal(1, 2)) == 20)
       );
       await runtime.callFunction(chunk, const <Object?>[]);
     });
+
+    test('full SSA pipeline runtime preserves debug.setlocal writes', () async {
+      final program = parse('''
+local value = 10
+assert(debug.setlocal(1, 1, 42) == "value")
+assert(value == 42)
+''', url: 'setlocal_runtime.lua');
+
+      final artifact =
+          CompilePipeline(
+                config: const CompilePipelineConfig(
+                  enableConstantFolding: true,
+                  enablePeephole: true,
+                  enableSsaDeadCodeElimination: true,
+                  enableSsaGlobalValueNumbering: true,
+                  enableSsaSccp: true,
+                  enableSsaLicm: true,
+                  enableSsaCoalesce: true,
+                  enableSsaEscape: true,
+                  target: CompileBackend.luaBytecode,
+                ),
+              ).compile(program)
+              as LuaBytecodeArtifact;
+
+      final runtime = LuaBytecodeRuntime();
+      final chunk = await runtime.loadBytecode(
+        artifact.serializedBytes,
+        moduleName: 'setlocal_runtime.lua',
+      );
+      await runtime.callFunction(chunk, const <Object?>[]);
+    });
   });
 }

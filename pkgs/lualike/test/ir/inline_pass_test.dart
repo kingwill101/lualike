@@ -233,7 +233,7 @@ void main() {
         ],
       );
       final caller = _prototype(
-        registerCount: 252,
+        registerCount: 251,
         paramCount: 0,
         prototypes: <LualikeIrPrototype>[callee, callee],
         instructions: const <LualikeIrInstruction>[
@@ -249,7 +249,7 @@ void main() {
 
       final result = inlineFunctions(caller);
 
-      expect(result.registerCount, equals(253));
+      expect(result.registerCount, equals(252));
       expect(
         result.instructions.where(
           (instruction) => instruction.opcode == LualikeIrOpcode.call,

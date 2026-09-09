@@ -8,8 +8,7 @@ extension ListValueExtension on List<dynamic> {
       map((item) => item is Value ? item : Value.wrap(item)).toList();
 
   /// Unwrap all Value objects in a list
-  List<Object?> unwrapValueList() =>
-      map((e) => e.unwrap()).toList();
+  List<Object?> unwrapValueList() => map((e) => e.unwrap()).toList();
 
   /// Convert to a Lua-style multi-return Value
   Value toMultiValue() => Value.multi(this);

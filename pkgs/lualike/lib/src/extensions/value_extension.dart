@@ -101,13 +101,13 @@ extension ValueExtension<T> on T {
 
   /// Unwraps a Value to its raw content if it is a Value, otherwise returns the object itself
   dynamic get unwrapped {
-    final rawValue = raw;
-    if (rawValue is Value) {
-      return rawValue.completeUnwrap();
-    } else if (rawValue is LuaString) {
-      return rawValue.toLatin1String();
+    if (this is Value) {
+      return (this as Value).unwrap();
     }
-    return rawValue;
+    if (this is LuaString) {
+      return (this as LuaString).toString();
+    }
+    return this;
   }
 
   /// Checks if this Value is nil (null in Lua sense)

@@ -84,7 +84,9 @@ class Bundler extends CompilerPass {
         if (moduleVar != null) {
           if (node is LocalDeclaration) {
             _bundledNodes.add(
-              LocalDeclaration(node.names, node.attributes, [Identifier(moduleVar)]),
+              LocalDeclaration(node.names, node.attributes, [
+                Identifier(moduleVar),
+              ]),
             );
           } else if (node is Assignment) {
             _bundledNodes.add(
@@ -153,9 +155,7 @@ class Bundler extends CompilerPass {
     _moduleVars[filePath] = moduleVar;
 
     // Declare module var at the outer scope for cross-module references.
-    _bundledNodes.add(
-      LocalDeclaration([Identifier(moduleVar)], [''], []),
-    );
+    _bundledNodes.add(LocalDeclaration([Identifier(moduleVar)], [''], []));
 
     // Recursively bundle the module's own requires, collecting body stmts.
     final bodyNodes = <AstNode>[];
@@ -170,7 +170,10 @@ class Bundler extends CompilerPass {
   /// Recursively bundle a module's body, collecting into [out].
   /// [moduleVar] is the variable name that holds this module's return value.
   void _bundleModuleBody(
-    List<AstNode> stmts, String filePath, String moduleVar, List<AstNode> out,
+    List<AstNode> stmts,
+    String filePath,
+    String moduleVar,
+    List<AstNode> out,
   ) {
     final dir = filePath.substring(0, filePath.lastIndexOf('/'));
     for (final stmt in stmts) {
@@ -181,9 +184,11 @@ class Bundler extends CompilerPass {
           final depVar = _bundleModule(resolvedPath);
           if (depVar != null) {
             if (stmt is LocalDeclaration) {
-              out.add(LocalDeclaration(
-                stmt.names, stmt.attributes, [Identifier(depVar)],
-              ));
+              out.add(
+                LocalDeclaration(stmt.names, stmt.attributes, [
+                  Identifier(depVar),
+                ]),
+              );
             } else if (stmt is Assignment) {
               out.add(Assignment(stmt.targets, [Identifier(depVar)]));
             }

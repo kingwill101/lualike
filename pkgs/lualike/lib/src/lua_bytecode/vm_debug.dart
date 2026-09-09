@@ -64,12 +64,15 @@ extension LuaBytecodeVmDebug on LuaBytecodeVm {
     return <MapEntry<String, Value>>[
       for (final local in activeLocals)
         if (local.register case final register?)
-          MapEntry(local.name ?? '(local)', frame.register(register)),
+          MapEntry(
+            local.name ?? '(local)',
+            frame.materializeRegister(register),
+          ),
       for (var register = 0; register < frame.effectiveTop; register++)
         if (!activeRegisters.contains(register) &&
             register != varargTableRegister &&
             _isVisibleTemporaryRegister(frame, register, currentPc))
-          MapEntry('(temporary)', frame.register(register)),
+          MapEntry('(temporary)', frame.materializeRegister(register)),
     ];
   }
 

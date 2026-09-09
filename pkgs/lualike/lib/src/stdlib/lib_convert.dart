@@ -50,6 +50,43 @@ List<int> _toListInt(Value value) {
   throw LuaError('Expected Uint8List, List<int>, or a table of integers');
 }
 
+Value _jsonToValue(Object? value, LuaRuntime runtime) {
+  return switch (value) {
+    Map() => Value(
+      value.map((key, entry) => MapEntry(key, _jsonToValue(entry, runtime))),
+      interpreter: runtime,
+    ),
+    List() => Value(
+      value.map((entry) => _jsonToValue(entry, runtime)).toList(),
+      interpreter: runtime,
+    ),
+    _ => cachedPrimitiveOrValue(runtime, value),
+  };
+}
+
+Future<Object?> _encodeStringBytes(
+  BuiltinFunction function,
+  List<Object?> args, {
+  required String functionName,
+  required List<int> Function(String) encoder,
+}) async {
+  if (args.isEmpty) {
+    throw LuaError('dart.convert.$functionName requires 1 argument');
+  }
+  final value = args[0];
+  if (value is! Value) {
+    throw LuaError('dart.convert.$functionName requires a Value argument');
+  }
+  try {
+    return valueFromOptionalLuaSlot(
+      function.interpreter,
+      encoder(rawLuaSlot(value).toString()),
+    );
+  } catch (error) {
+    throw LuaError('Failed to encode with $functionName: $error');
+  }
+}
+
 void defineConvertLibrary({required Environment env, LuaRuntime? vm}) {
   final runtime = vm ?? Interpreter();
   final convertTable = {
@@ -119,7 +156,7 @@ class JsonDecode extends BuiltinFunction {
     }
     final str = rawLuaSlot(arg).toString();
     try {
-      return toLuaValue(json.decode(str));
+      return _jsonToValue(json.decode(str), interpreter!);
     } catch (e) {
       throw LuaError('Failed to decode from JSON: $e');
     }
@@ -166,19 +203,12 @@ class Base64Decode extends BuiltinFunction {
 
   @override
   Future<Object?> call(List<Object?> args) async {
-    if (args.isEmpty) {
-      throw LuaError('dart.convert.base64Decode requires 1 argument');
-    }
-    final arg = args[0];
-    if (arg is! Value) {
-      throw LuaError('dart.convert.base64Decode requires a Value argument');
-    }
-    final str = rawLuaSlot(arg).toString();
-    try {
-      return valueFromOptionalLuaSlot(interpreter, base64.decode(str));
-    } catch (e) {
-      throw LuaError('Failed to decode from Base64: $e');
-    }
+    return _encodeStringBytes(
+      this,
+      args,
+      functionName: 'base64Decode',
+      encoder: base64.decode,
+    );
   }
 }
 
@@ -222,19 +252,12 @@ class AsciiEncode extends BuiltinFunction {
 
   @override
   Future<Object?> call(List<Object?> args) async {
-    if (args.isEmpty) {
-      throw LuaError('dart.convert.asciiEncode requires 1 argument');
-    }
-    final arg = args[0];
-    if (arg is! Value) {
-      throw LuaError('dart.convert.asciiEncode requires a Value argument');
-    }
-    final str = rawLuaSlot(arg).toString();
-    try {
-      return valueFromOptionalLuaSlot(interpreter, ascii.encode(str));
-    } catch (e) {
-      throw LuaError('Failed to encode to ASCII: $e');
-    }
+    return _encodeStringBytes(
+      this,
+      args,
+      functionName: 'asciiEncode',
+      encoder: ascii.encode,
+    );
   }
 }
 

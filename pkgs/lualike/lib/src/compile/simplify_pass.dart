@@ -97,8 +97,7 @@ class ASTSimplifier extends CompilerPass {
         return IfStatement(cond, eifs, then, els);
 
       case WhileStatement(:final cond, :final body):
-        if (_result!.isConstant(cond) &&
-            !_isTruthy(_result!.getValue(cond))) {
+        if (_result!.isConstant(cond) && !_isTruthy(_result!.getValue(cond))) {
           return null; // Entire loop is dead code.
         }
         final simplified = _simplifyBlock(body);
@@ -133,11 +132,7 @@ class ASTSimplifier extends CompilerPass {
         }).toList();
         return changed ? Assignment(targets, newExprs) : null;
 
-      case LocalDeclaration(
-        :final names,
-        :final attributes,
-        :final exprs,
-      ):
+      case LocalDeclaration(:final names, :final attributes, :final exprs):
         var changed = false;
         final newExprs = exprs.map((e) {
           final s = _simplifyExpr(e);
@@ -147,9 +142,7 @@ class ASTSimplifier extends CompilerPass {
           }
           return e;
         }).toList();
-        return changed
-            ? LocalDeclaration(names, attributes, newExprs)
-            : null;
+        return changed ? LocalDeclaration(names, attributes, newExprs) : null;
 
       default:
         return null;
@@ -196,8 +189,10 @@ class ASTSimplifier extends CompilerPass {
     Object? combined;
     if (lv is num && rv is num) {
       switch (node.op) {
-        case '+': combined = lv + rv;
-        case '*': combined = lv * rv;
+        case '+':
+          combined = lv + rv;
+        case '*':
+          combined = lv * rv;
       }
     }
     if (combined == null) return null;

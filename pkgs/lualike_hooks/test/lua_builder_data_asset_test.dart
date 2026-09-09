@@ -13,19 +13,24 @@ void main() {
     final packageRoot = temp.uri;
     final luaDir = packageRoot.resolve('lua/');
     await Directory.fromUri(luaDir).create(recursive: true);
-    await File.fromUri(luaDir.resolve('hello.lua')).writeAsString(
-      'return function() return 42 end',
-    );
+    await File.fromUri(
+      luaDir.resolve('hello.lua'),
+    ).writeAsString('return function() return 42 end');
 
-    final inputBuilder = BuildInputBuilder()
-      ..setupShared(
-        packageRoot: packageRoot,
-        packageName: 'example_app',
-        outputDirectoryShared: packageRoot.resolve('.dart_tool/hooks_runner/'),
-        outputFile: packageRoot.resolve('.dart_tool/hooks_runner/output.json'),
-      )
-      ..config.setupBuild(linkingEnabled: false)
-      ..setupBuildInput();
+    final inputBuilder =
+        BuildInputBuilder()
+          ..setupShared(
+            packageRoot: packageRoot,
+            packageName: 'example_app',
+            outputDirectoryShared: packageRoot.resolve(
+              '.dart_tool/hooks_runner/',
+            ),
+            outputFile: packageRoot.resolve(
+              '.dart_tool/hooks_runner/output.json',
+            ),
+          )
+          ..config.setupBuild(linkingEnabled: false)
+          ..setupBuildInput();
     DataAssetsExtension().setupBuildInput(inputBuilder);
 
     final outputBuilder = BuildOutputBuilder();

@@ -156,6 +156,8 @@ class _BuiltinFunctionImpl extends BuiltinFunction {
 /// [initializeAll] to expose it to scripts.
 class LibraryRegistry {
   final List<Library> _libraries = [];
+  final List<Library> _globalLibraries = [];
+  final List<Library> _namespacedLibraries = [];
   final Map<String, Library> _librariesByName = {};
   final Set<Library> _initialized = {};
   final LuaRuntime _interpreter;
@@ -165,6 +167,16 @@ class LibraryRegistry {
   /// The libraries registered with this runtime in registration order.
   List<Library> get libraries => List.unmodifiable(_libraries);
 
+  /// Registered libraries that populate the global environment, in order.
+  List<Library> get globalLibraries => List.unmodifiable(_globalLibraries);
+
+  /// Registered libraries exposed under a namespace, in order.
+  List<Library> get namespacedLibraries =>
+      List.unmodifiable(_namespacedLibraries);
+
+  /// Returns the registered library named [name], if present.
+  Library? findByName(String name) => _librariesByName[name];
+
   /// Registers [library] with this runtime.
   ///
   /// Registration does not expose the library immediately. Call one of the
@@ -172,7 +184,10 @@ class LibraryRegistry {
   void register(Library library) {
     _libraries.add(library);
     if (library.name.isNotEmpty) {
+      _namespacedLibraries.add(library);
       _librariesByName[library.name] = library;
+    } else {
+      _globalLibraries.add(library);
     }
   }
 
@@ -222,16 +237,10 @@ class LibraryRegistry {
     // Create a table for this library's functions
     final libraryTable = <String, dynamic>{};
 
-    // Create a scoped environment for this library
-    final libraryContext = LibraryContext(
-      environment: context.environment,
-      interpreter: context.interpreter,
-    );
-
     // Temporarily store functions in a map during registration
     final functionMap = <String, dynamic>{};
     final tempContext = LibraryRegistrationContext._internal(
-      libraryContext,
+      context,
       functionMap,
       library,
     );
