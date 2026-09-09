@@ -1,0 +1,8 @@
+# The workspace ignores generated Flutter/Lua directories globally, but these
+# example inputs are part of the published package.
+!example/example_dart/lua/
+!example/example_dart/lua/hello.lua
+!example/example_dart_data_assets/lua/
+!example/example_dart_data_assets/lua/hello.lua
+!example/example_dart_data_assets/.fvm/
+!example/example_dart_data_assets/.fvm/fvm_config.json

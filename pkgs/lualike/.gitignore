@@ -38,3 +38,8 @@ benchmarks/parser_profiles/*
 !benchmarks/parser_profiles/*-comparison-*.json
 !benchmarks/parser_profiles/*-comparison-*.md
 a.out
+!lib/src/build/
+!lib/src/build/table_schema_builder.dart
+!luascripts/test_bundle_a.lua
+!luascripts/test_bundle_b.lua
+!luascripts/test/regress/weak_finalizer_block_debug.lua

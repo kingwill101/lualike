@@ -1,3 +1,7 @@
+## 0.2.1
+
+- Update the `lualike` dependency to `^0.5.3`.
+
 ## 0.1.3
 
 - Bump `lualike` dependency to `^0.4.0`.

@@ -1,0 +1,17 @@
+# Publish Firehose validation results as comments on pull requests, including
+# pull requests opened from forks.
+
+name: Comment on the pull request
+
+on:
+  workflow_run:
+    workflows:
+      - Publish
+    types:
+      - completed
+
+jobs:
+  upload:
+    uses: dart-lang/ecosystem/.github/workflows/post_summaries.yaml@main
+    permissions:
+      pull-requests: write
