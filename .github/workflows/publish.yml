@@ -13,7 +13,7 @@ on:
 jobs:
   validate:
     if: ${{ github.event_name == 'pull_request' }}
-    uses: dart-lang/ecosystem/.github/workflows/publish.yaml@1bdafd85bb97b331ddd683577f48a5dfa7f4cb49
+    uses: dart-lang/ecosystem/.github/workflows/publish.yaml@main
     with:
       use-flutter: true
       # Same-repository PRs can receive the result directly. Fork PRs use
@@ -26,26 +26,24 @@ jobs:
     if: ${{ github.event_name == 'push' }}
     runs-on: ubuntu-latest
     permissions:
+      contents: read
       id-token: write
     steps:
       - name: Check out repository
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
-
-      # setup-dart provisions the GitHub OIDC credentials used by pub.dev.
-      # Install it before Flutter because flutter-actions/setup-flutter
-      # replaces the dart executable on PATH.
-      - name: Set up Dart
-        uses: dart-lang/setup-dart@6afc89df92d6eb3834022f73cd65adc8cdfcb92d
+        uses: actions/checkout@main
 
       - name: Set up Flutter
-        uses: flutter-actions/setup-flutter@6e2468fd827c4a7337cd4b835a6049b78bc0bd1f
+        uses: flutter-actions/setup-flutter@main
+
+      - name: Set up pub.dev credentials
+        uses: flutter-actions/setup-pubdev-credentials@main
 
       - name: Install Firehose
         run: >
           dart pub global activate --source git
           https://github.com/dart-lang/ecosystem
           --git-path pkgs/firehose/
-          --git-ref 1bdafd85bb97b331ddd683577f48a5dfa7f4cb49
+          --git-ref main
 
       - name: Publish packages
         env:
