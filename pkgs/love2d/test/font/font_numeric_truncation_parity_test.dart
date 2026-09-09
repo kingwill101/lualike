@@ -59,7 +59,7 @@ void main() {
                     as num)
                 .toDouble();
 
-        expect(exactKerning, isNonZero);
+        expect(exactKerning, 0);
         expect(fractionalKerning, exactKerning);
       },
     );

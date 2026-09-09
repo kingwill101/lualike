@@ -153,7 +153,9 @@ end
       expect(filesystem.identity, 'love_conf_identity');
       expect(
         filesystem.getSaveDirectory(),
-        path.join(tempRoot.path, 'appdata', 'love', 'love_conf_identity'),
+        path.normalize(
+          path.join(tempRoot.path, 'appdata', 'love', 'love_conf_identity'),
+        ),
       );
     });
   });

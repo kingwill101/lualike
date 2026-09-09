@@ -9,7 +9,8 @@ import 'dart:async';
 import 'dart:collection';
 import 'dart:convert' as convert;
 import 'dart:math' as math;
-import 'dart:typed_data' show ByteData, BytesBuilder, Endian, Uint8List;
+import 'dart:typed_data'
+    show ByteData, BytesBuilder, Endian, Float64List, Int32List, Uint8List;
 
 import 'package:archive/archive.dart';
 import 'package:crypto/crypto.dart' as crypto;
@@ -69,6 +70,17 @@ const int loveVersionMinor = 5;
 
 /// The revision version reported by the emulated LÖVE runtime.
 const int loveVersionRevision = 0;
+
+/// Whether generated image mipmaps use centered linear downsampling.
+///
+/// This matches the normalized sampling geometry used by a GPU blit when an
+/// odd source dimension is reduced by half. Set
+/// `LOVE2D_CENTERED_LINEAR_MIPMAPS=false` for the previous area-partition
+/// generator during a matched visual or startup-cost comparison.
+const bool loveCenteredLinearMipmaps = bool.fromEnvironment(
+  'LOVE2D_CENTERED_LINEAR_MIPMAPS',
+  defaultValue: true,
+);
 
 /// Whether source-backed TrueType fonts build and use a reusable glyph atlas.
 ///
@@ -1205,9 +1217,20 @@ class LoveImageData {
   }
 
   /// Generates a full mipmap chain starting from this image data.
-  List<LoveImageData> generateMipmaps() {
+  List<LoveImageData> generateMipmaps({
+    bool centeredLinear = loveCenteredLinearMipmaps,
+  }) {
     final levels = <LoveImageData>[clone()];
     if (width == 1 && height == 1) {
+      return List<LoveImageData>.unmodifiable(levels);
+    }
+
+    if (centeredLinear) {
+      var current = this;
+      while (current.width > 1 || current.height > 1) {
+        current = current._centeredLinearHalfSize();
+        levels.add(current);
+      }
       return List<LoveImageData>.unmodifiable(levels);
     }
 
@@ -1225,6 +1248,66 @@ class LoveImageData {
     }
 
     return List<LoveImageData>.unmodifiable(levels);
+  }
+
+  LoveImageData _centeredLinearHalfSize() {
+    final nextWidth = math.max(1, width ~/ 2);
+    final nextHeight = math.max(1, height ~/ 2);
+    final nextPixels = Uint8List(nextWidth * nextHeight * 4);
+    final left = Int32List(nextWidth);
+    final right = Int32List(nextWidth);
+    final horizontalWeight = Float64List(nextWidth);
+
+    for (var x = 0; x < nextWidth; x++) {
+      final sourceX = ((x + 0.5) * width / nextWidth) - 0.5;
+      final sourceLeft = sourceX.floor().clamp(0, width - 1);
+      left[x] = sourceLeft;
+      right[x] = math.min(sourceLeft + 1, width - 1);
+      horizontalWeight[x] = sourceX - sourceLeft;
+    }
+
+    for (var y = 0; y < nextHeight; y++) {
+      final sourceY = ((y + 0.5) * height / nextHeight) - 0.5;
+      final top = sourceY.floor().clamp(0, height - 1);
+      final bottom = math.min(top + 1, height - 1);
+      final verticalWeight = sourceY - top;
+      final topRow = top * width * 4;
+      final bottomRow = bottom * width * 4;
+
+      for (var x = 0; x < nextWidth; x++) {
+        final leftOffset = left[x] * 4;
+        final rightOffset = right[x] * 4;
+        final topLeft = topRow + leftOffset;
+        final topRight = topRow + rightOffset;
+        final bottomLeft = bottomRow + leftOffset;
+        final bottomRight = bottomRow + rightOffset;
+        final horizontal = horizontalWeight[x];
+        final outputOffset = ((y * nextWidth) + x) * 4;
+
+        for (var channel = 0; channel < 4; channel++) {
+          final upper =
+              _pixels[topLeft + channel] +
+              ((_pixels[topRight + channel] - _pixels[topLeft + channel]) *
+                  horizontal);
+          final lower =
+              _pixels[bottomLeft + channel] +
+              ((_pixels[bottomRight + channel] -
+                      _pixels[bottomLeft + channel]) *
+                  horizontal);
+          nextPixels[outputOffset +
+              channel] = (upper + ((lower - upper) * verticalWeight))
+              .round()
+              .clamp(0, 255);
+        }
+      }
+    }
+
+    return LoveImageData._fromPixels(
+      width: nextWidth,
+      height: nextHeight,
+      format: format,
+      pixels: nextPixels,
+    );
   }
 
   /// Copies a rectangular region into a new [LoveImageData] instance.
@@ -2775,6 +2858,7 @@ class LoveRectangleCommand extends LoveDrawCommand {
     required this.height,
     this.cornerRadiusX = 0,
     this.cornerRadiusY = 0,
+    this.pointCount,
   });
 
   final LoveGraphicsDrawMode mode;
@@ -2784,6 +2868,7 @@ class LoveRectangleCommand extends LoveDrawCommand {
   final double height;
   final double cornerRadiusX;
   final double cornerRadiusY;
+  final int? pointCount;
 }
 
 class LoveTextCommand extends LoveDrawCommand {
@@ -2984,12 +3069,14 @@ class LoveCircleCommand extends LoveDrawCommand {
     required this.x,
     required this.y,
     required this.radius,
+    this.pointCount,
   });
 
   final LoveGraphicsDrawMode mode;
   final double x;
   final double y;
   final double radius;
+  final int? pointCount;
 }
 
 class LoveLineCommand extends LoveDrawCommand {
@@ -3097,6 +3184,7 @@ class LoveEllipseCommand extends LoveDrawCommand {
     required this.y,
     required this.radiusX,
     required this.radiusY,
+    this.pointCount,
   });
 
   final LoveGraphicsDrawMode mode;
@@ -3104,6 +3192,7 @@ class LoveEllipseCommand extends LoveDrawCommand {
   final double y;
   final double radiusX;
   final double radiusY;
+  final int? pointCount;
 }
 
 class LoveArcCommand extends LoveDrawCommand {
@@ -3126,6 +3215,7 @@ class LoveArcCommand extends LoveDrawCommand {
     required this.radius,
     required this.angle1,
     required this.angle2,
+    this.pointCount,
   });
 
   final LoveGraphicsDrawMode drawMode;
@@ -3135,6 +3225,7 @@ class LoveArcCommand extends LoveDrawCommand {
   final double radius;
   final double angle1;
   final double angle2;
+  final int? pointCount;
 }
 
 class LovePointsCommand extends LoveDrawCommand {

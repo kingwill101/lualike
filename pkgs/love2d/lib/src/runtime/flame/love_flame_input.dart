@@ -107,10 +107,19 @@ class LoveFlameInputAdapter {
   final bool consumeKeyboardEvents;
 
   /// Optional transform applied to converted LOVE logical pointer points.
-  final LoveFlameInputPointTransform? pointTransform;
+  LoveFlameInputPointTransform? pointTransform;
 
   /// Optional transform applied to converted LOVE logical pointer deltas.
-  final LoveFlameInputDeltaTransform? deltaTransform;
+  LoveFlameInputDeltaTransform? deltaTransform;
+
+  /// Replaces comparison-layout coordinate transforms without resetting input.
+  void updateCoordinateTransforms({
+    required LoveFlameInputPointTransform? pointTransform,
+    required LoveFlameInputDeltaTransform? deltaTransform,
+  }) {
+    this.pointTransform = pointTransform;
+    this.deltaTransform = deltaTransform;
+  }
 
   /// The active mouse button tracked for each Flutter pointer identifier.
   final Map<int, int> _pointerButtons = <int, int>{};

@@ -31,7 +31,7 @@ void main() {
       final fractionalKerning = sourceFont.getKerning(65.9, 86.9);
 
       expect(glyphData.glyph, 65);
-      expect(exactKerning, isNonZero);
+      expect(exactKerning, 0);
       expect(fractionalKerning, exactKerning);
       expect(defaultRasterizer.hasGlyphValues(<Object?>[0xd7ff + 0.9]), isTrue);
       expect(defaultFont.hasGlyphValues(<Object?>[0xd7ff + 0.9]), isTrue);

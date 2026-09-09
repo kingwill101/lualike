@@ -599,8 +599,8 @@ void main() {
                   'V',
                 ])
                 as num;
-        expect(avKerning, lessThan(0));
-        expect(avWidth, lessThan(aWidth + vWidth));
+        expect(avKerning, 0);
+        expect(avWidth, aWidth + vWidth);
       },
     );
 

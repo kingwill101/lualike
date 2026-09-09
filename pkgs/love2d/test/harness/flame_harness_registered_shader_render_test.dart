@@ -11,6 +11,8 @@ const String _solidColorAssetKey =
     'test_assets/shaders/runtime_effect_solid_color.frag';
 const String _textureAssetKey =
     'test_assets/shaders/runtime_effect_uniform_texture.frag';
+const String _straightAlphaImageAssetKey =
+    'shaders/love_straight_alpha_image.frag';
 
 const String _solidColorShaderSource =
     '''
@@ -38,8 +40,12 @@ void main() {
   test('registered fragment shader test assets load', () async {
     final solid = await ui.FragmentProgram.fromAsset(_solidColorAssetKey);
     final texture = await ui.FragmentProgram.fromAsset(_textureAssetKey);
+    final straightAlpha = await ui.FragmentProgram.fromAsset(
+      _straightAlphaImageAssetKey,
+    );
     expect(solid, isNotNull);
     expect(texture, isNotNull);
+    expect(straightAlpha, isNotNull);
   });
 
   test(

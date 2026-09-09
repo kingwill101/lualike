@@ -1,5 +1,6 @@
 import 'package:lualike/lualike.dart';
 import 'dart:async';
+import 'dart:ui' as ui;
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -26,6 +27,77 @@ void main() {
       isFalse,
     );
   });
+
+  testWidgets(
+    'LoveFlameHarness switches renderers without recreating the LOVE runtime',
+    (tester) async {
+      binding.handleAppLifecycleStateChanged(AppLifecycleState.resumed);
+      final firstBackend = _HarnessTestRenderBackend('first');
+      final secondBackend = _HarnessTestRenderBackend('second');
+      final games = <LoveFlameHarnessGame>[];
+      final adapter = _scriptAdapter('function love.load() end');
+
+      Widget harness(LoveRenderBackend backend) => MaterialApp(
+        home: LoveFlameHarness(
+          key: const ValueKey('stable-love-runtime'),
+          entryAsset: 'assets/game/main.lua',
+          filesystemAdapter: adapter,
+          renderBackend: backend,
+          onQuitRequested: () async {},
+          debugOnGameCreated: games.add,
+        ),
+      );
+
+      await tester.pumpWidget(harness(firstBackend));
+      await _pumpUntilStatus(tester, 'Running');
+      expect(games, hasLength(1));
+      expect(games.single.renderBackend, same(firstBackend));
+
+      await tester.pumpWidget(harness(secondBackend));
+      await tester.pump();
+
+      expect(games, hasLength(1));
+      expect(games.single.renderBackend, same(secondBackend));
+    },
+  );
+
+  testWidgets(
+    'LoveFlameHarnessGame exposes scalar runtime globals for diagnostics',
+    (tester) async {
+      binding.handleAppLifecycleStateChanged(AppLifecycleState.resumed);
+      final games = <LoveFlameHarnessGame>[];
+      const script = '''
+neon_relay_workload = "signal-lattice"
+neon_relay_signal_tick = 64
+neon_relay_signal_checksum = 137768
+function love.load() end
+''';
+
+      await tester.pumpWidget(
+        MaterialApp(
+          home: LoveFlameHarness(
+            entryAsset: 'assets/game/main.lua',
+            filesystemAdapter: _scriptAdapter(script),
+            onQuitRequested: () async {},
+            debugOnGameCreated: games.add,
+          ),
+        ),
+      );
+      await _pumpUntilStatus(tester, 'Running');
+
+      expect(games, hasLength(1));
+      expect(
+        games.single.readRuntimeGlobal('neon_relay_workload'),
+        'signal-lattice',
+      );
+      expect(games.single.readRuntimeGlobal('neon_relay_signal_tick'), 64);
+      expect(
+        games.single.readRuntimeGlobal('neon_relay_signal_checksum'),
+        137768,
+      );
+      expect(games.single.readRuntimeGlobal('missing'), isNull);
+    },
+  );
 
   testWidgets(
     'LoveFlameHarness stays in Prewarming until startup warmup completes',
@@ -370,6 +442,24 @@ end
       expect(rectangle.transform.storage[13], closeTo(6, 1e-9));
     },
   );
+}
+
+final class _HarnessTestRenderBackend implements LoveRenderBackend {
+  const _HarnessTestRenderBackend(this.name);
+
+  @override
+  final String name;
+
+  @override
+  bool get isAvailable => true;
+
+  @override
+  void renderSurface(
+    ui.Canvas canvas,
+    LoveGraphicsSurfaceSnapshot surface,
+    ui.Size viewportSize, {
+    LoveRenderStatsAccumulator? stats,
+  }) {}
 }
 
 LoveAssetBundleFilesystemAdapter _scriptAdapter(String script) {

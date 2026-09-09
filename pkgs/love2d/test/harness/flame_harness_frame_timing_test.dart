@@ -98,6 +98,12 @@ void main() {
       greaterThanOrEqualTo(stats.p95UpdateDuration.inMicroseconds),
     );
     expect(
+      stats.lastFrame.runtimeFrameDuration,
+      stats.lastFrame.updateDuration,
+    );
+    expect(stats.p95RuntimeFrameDuration, stats.p95UpdateDuration);
+    expect(stats.p99RuntimeFrameDuration, stats.p99UpdateDuration);
+    expect(
       stats.maxRenderDuration.inMicroseconds,
       greaterThanOrEqualTo(stats.p99RenderDuration.inMicroseconds),
     );
@@ -139,6 +145,43 @@ void main() {
     expect(game.frameTimingStats.sampleCount, 0);
     expect(game.recentFrameTimingSamples, isEmpty);
   });
+
+  test('external LOVE timing records only completed runtime frames', () {
+    final game = LoveFlameHarnessGame(usesExternalRuntimeFrameTiming: true);
+    const windowMetrics = LoveWindowMetrics(width: 4, height: 4);
+    game.host.windowMetrics = windowMetrics;
+    game.onGameResize(
+      Vector2(windowMetrics.width.toDouble(), windowMetrics.height.toDouble()),
+    );
+    final graphics = game.host.graphics
+      ..beginFrame()
+      ..addCommand(_rectangleCommand());
+    game.presentFrame(graphics.snapshotScreenSurface());
+
+    game.update(1 / 60);
+    _renderGame(game);
+    expect(game.frameTimingStats.sampleCount, 0);
+
+    game.recordRuntimeFrameTiming(
+      deltaSeconds: 1 / 60,
+      updateDuration: const Duration(milliseconds: 3),
+      runtimeFrameDuration: const Duration(milliseconds: 5),
+    );
+    _renderGame(game);
+    _renderGame(game);
+
+    final stats = game.frameTimingStats;
+    expect(stats.sampleCount, 1);
+    expect(stats.lastFrame.updateDuration, const Duration(milliseconds: 3));
+    expect(
+      stats.lastFrame.runtimeFrameDuration,
+      const Duration(milliseconds: 5),
+    );
+    expect(
+      stats.lastFrame.cpuFrameDuration,
+      const Duration(milliseconds: 5) + stats.lastFrame.renderDuration,
+    );
+  });
 }
 
 Future<void> _recordFrame(
@@ -151,6 +194,10 @@ Future<void> _recordFrame(
   graphics.addCommand(command);
   game.presentFrame(graphics.snapshotScreenSurface());
   game.update(dt);
+  _renderGame(game);
+}
+
+void _renderGame(LoveFlameHarnessGame game) {
   final recorder = ui.PictureRecorder();
   final canvas = ui.Canvas(recorder);
   game.render(canvas);

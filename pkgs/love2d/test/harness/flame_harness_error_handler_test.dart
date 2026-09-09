@@ -42,14 +42,13 @@ end
         ),
       );
       await _pumpUntilStatus(tester, 'Error');
-      await tester.pump(const Duration(milliseconds: 16));
 
       final gameFinder = find.byWidgetPredicate(
         (widget) => widget is GameWidget,
       );
       final gameWidget = tester.widget<GameWidget>(gameFinder);
       final game = gameWidget.game as dynamic;
-      final text = game.host.graphics.commands.single as LoveTextCommand;
+      final text = await _pumpUntilErrorText(tester, game);
       expect(text.text, contains('handled:'));
       expect(text.text, contains('handled boom'));
       expect(text.text, contains('stack traceback:'));
@@ -87,20 +86,44 @@ end
         ),
       );
       await _pumpUntilStatus(tester, 'Error');
-      await tester.pump(const Duration(milliseconds: 16));
 
       final gameFinder = find.byWidgetPredicate(
         (widget) => widget is GameWidget,
       );
       final gameWidget = tester.widget<GameWidget>(gameFinder);
       final game = gameWidget.game as dynamic;
-      final text = game.host.graphics.commands.single as LoveTextCommand;
+      final text = await _pumpUntilErrorText(tester, game);
       expect(text.text, contains('default boom'));
       expect(text.text, contains('stack traceback:'));
       expect(text.text, contains("function 'explode'"));
       expect(text.text, contains("function 'update'"));
       expect(find.byKey(const Key('error-message')), findsNothing);
     },
+  );
+}
+
+Future<LoveTextCommand> _pumpUntilErrorText(
+  WidgetTester tester,
+  dynamic game, {
+  int maxPumps = 120,
+}) async {
+  var lastCommands = const <LoveDrawCommand>[];
+  for (var index = 0; index < maxPumps; index++) {
+    await tester.pump(const Duration(milliseconds: 16));
+    await tester.runAsync(
+      () => Future<void>.delayed(const Duration(milliseconds: 1)),
+    );
+    final commands = game.host.graphics.commands as List<LoveDrawCommand>;
+    lastCommands = commands;
+    for (final command in commands) {
+      if (command is LoveTextCommand) {
+        return command;
+      }
+    }
+  }
+  fail(
+    'Timed out waiting for the LOVE error loop to present its text frame. '
+    'Last commands: ${lastCommands.map((command) => command.runtimeType).toList()}',
   );
 }
 

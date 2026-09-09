@@ -213,20 +213,29 @@ class LoveCanvasRasterizer {
       (x: cmd.x + cmd.width, y: cmd.y + cmd.height),
       (x: cmd.x, y: cmd.y + cmd.height),
     ]);
+    final rounded = cmd.cornerRadiusX > 0 && cmd.cornerRadiusY > 0;
+    final path = rounded ? _roundedRectPts(cmd) : pts;
 
     if (cmd.mode == LoveGraphicsDrawMode.fill) {
-      if (cmd.cornerRadiusX <= 0 && cmd.cornerRadiusY <= 0) {
-        _fillPolygon(cmd, pts, cmd.color);
-      } else {
-        // Generate a polygon that approximates the rounded corners.
-        _fillPolygon(cmd, _roundedRectPts(cmd), cmd.color);
-      }
+      _fillPolygon(cmd, path, cmd.color);
     } else {
-      _strokePolyline(cmd, pts, cmd.color, closed: true);
+      _strokePolyline(cmd, path, cmd.color, closed: true);
     }
   }
 
   void _renderCircle(LoveCircleCommand cmd) {
+    if (cmd.pointCount case final pointCount?) {
+      final points = _mapPoints(
+        cmd.transform,
+        _ellipsePoints(cmd.x, cmd.y, cmd.radius, cmd.radius, pointCount),
+      );
+      if (cmd.mode == LoveGraphicsDrawMode.fill) {
+        _fillPolygon(cmd, points, cmd.color);
+      } else {
+        _strokePolyline(cmd, points, cmd.color, closed: true);
+      }
+      return;
+    }
     final c = _mapPt(cmd.transform, cmd.x, cmd.y);
     final r = cmd.radius * _scaleX(cmd.transform);
 
@@ -238,6 +247,18 @@ class LoveCanvasRasterizer {
   }
 
   void _renderEllipse(LoveEllipseCommand cmd) {
+    if (cmd.pointCount case final pointCount?) {
+      final points = _mapPoints(
+        cmd.transform,
+        _ellipsePoints(cmd.x, cmd.y, cmd.radiusX, cmd.radiusY, pointCount),
+      );
+      if (cmd.mode == LoveGraphicsDrawMode.fill) {
+        _fillPolygon(cmd, points, cmd.color);
+      } else {
+        _strokePolyline(cmd, points, cmd.color, closed: true);
+      }
+      return;
+    }
     final c = _mapPt(cmd.transform, cmd.x, cmd.y);
     final rx = cmd.radiusX * _scaleX(cmd.transform);
     final ry = cmd.radiusY * _scaleY(cmd.transform);
@@ -250,6 +271,10 @@ class LoveCanvasRasterizer {
   }
 
   void _renderArc(LoveArcCommand cmd) {
+    if (cmd.pointCount case final pointCount?) {
+      _renderExplicitArc(cmd, pointCount);
+      return;
+    }
     final c = _mapPt(cmd.transform, cmd.x, cmd.y);
     final r = cmd.radius * _scaleX(cmd.transform);
 
@@ -274,6 +299,48 @@ class LoveCanvasRasterizer {
         cmd.angle2,
         cmd.arcMode,
         cmd.color,
+      );
+    }
+  }
+
+  void _renderExplicitArc(LoveArcCommand cmd, int pointCount) {
+    final sweep = cmd.angle2 - cmd.angle1;
+    if (pointCount <= 0 || sweep == 0) return;
+    if (sweep.abs() >= math.pi * 2) {
+      final points = _mapPoints(
+        cmd.transform,
+        _ellipsePoints(cmd.x, cmd.y, cmd.radius, cmd.radius, pointCount),
+      );
+      if (cmd.drawMode == LoveGraphicsDrawMode.fill) {
+        _fillPolygon(cmd, points, cmd.color);
+      } else {
+        _strokePolyline(cmd, points, cmd.color, closed: true);
+      }
+      return;
+    }
+
+    final points = _mapPoints(
+      cmd.transform,
+      _arcPoints(
+        cmd.x,
+        cmd.y,
+        cmd.radius,
+        cmd.angle1,
+        cmd.angle2,
+        pointCount: pointCount,
+      ),
+    );
+    if (cmd.arcMode == LoveGraphicsArcMode.pie) {
+      points.insert(0, _mapPt(cmd.transform, cmd.x, cmd.y));
+    }
+    if (cmd.drawMode == LoveGraphicsDrawMode.fill) {
+      _fillPolygon(cmd, points, cmd.color);
+    } else {
+      _strokePolyline(
+        cmd,
+        points,
+        cmd.color,
+        closed: cmd.arcMode != LoveGraphicsArcMode.open,
       );
     }
   }
@@ -1195,13 +1262,14 @@ class LoveCanvasRasterizer {
     double cy,
     double r,
     double a1,
-    double a2,
-  ) {
+    double a2, {
+    int? pointCount,
+  }) {
     var sweep = a2 - a1;
     // Clamp to a full circle at most.
     if (sweep.abs() > 2 * math.pi) sweep = sweep.sign * 2 * math.pi;
 
-    final steps = math.max(8, (r.abs() * sweep.abs() * 2).ceil());
+    final steps = pointCount ?? math.max(8, (r.abs() * sweep.abs() * 2).ceil());
     final pts = <({double x, double y})>[];
     for (var i = 0; i <= steps; i++) {
       final angle = a1 + sweep * i / steps;
@@ -1210,14 +1278,45 @@ class LoveCanvasRasterizer {
     return pts;
   }
 
+  List<({double x, double y})> _ellipsePoints(
+    double cx,
+    double cy,
+    double rx,
+    double ry,
+    int requestedPoints,
+  ) {
+    final points = math.max(requestedPoints, 1);
+    final result = <({double x, double y})>[];
+    for (var index = 0; index < points; index++) {
+      final angle = math.pi * 2 * index / points;
+      result.add((x: cx + math.cos(angle) * rx, y: cy + math.sin(angle) * ry));
+    }
+    return result;
+  }
+
   // --------------------------------------------------------------------------
   // Rounded rectangle polygon approximation
   // --------------------------------------------------------------------------
 
   List<({double x, double y})> _roundedRectPts(LoveRectangleCommand cmd) {
-    final rx = cmd.cornerRadiusX;
-    final ry = cmd.cornerRadiusY;
-    const steps = 6; // arc segments per corner
+    var rx = cmd.cornerRadiusX;
+    var ry = cmd.cornerRadiusY;
+    final meanRadius =
+        (math.min(rx, (cmd.width * 0.5).abs()) +
+            math.min(ry, (cmd.height * 0.5).abs())) *
+        0.5;
+    final pixelScale = (_scaleX(cmd.transform) + _scaleY(cmd.transform)) * 0.5;
+    final automaticPointCount = math.max(
+      math.sqrt(meanRadius * 20 * pixelScale).floor(),
+      8,
+    );
+    final pointsPerCorner = math.max(
+      (cmd.pointCount ?? automaticPointCount) ~/ 4,
+      1,
+    );
+    if (cmd.width >= 0.02) rx = math.min(rx, cmd.width * 0.5 - 0.01);
+    if (cmd.height >= 0.02) ry = math.min(ry, cmd.height * 0.5 - 0.01);
+    final angleStep = (math.pi * 0.5) / (pointsPerCorner + 1);
 
     List<({double x, double y})> cornerArc(
       double cx,
@@ -1225,23 +1324,18 @@ class LoveCanvasRasterizer {
       double startAngle,
     ) {
       final pts = <({double x, double y})>[];
-      for (var i = 0; i <= steps; i++) {
-        final a = startAngle + (math.pi / 2) * i / steps;
+      for (var i = 0; i <= pointsPerCorner + 1; i++) {
+        final a = startAngle + angleStep * i;
         pts.add((x: cx + math.cos(a) * rx, y: cy + math.sin(a) * ry));
       }
       return pts;
     }
 
-    final l = cmd.x + rx;
-    final t = cmd.y + ry;
-    final r = cmd.x + cmd.width - rx;
-    final b = cmd.y + cmd.height - ry;
-
     final pts = <({double x, double y})>[
-      ...cornerArc(r, t, -math.pi / 2), // top-right
-      ...cornerArc(r, b, 0), // bottom-right
-      ...cornerArc(l, b, math.pi / 2), // bottom-left
-      ...cornerArc(l, t, math.pi), // top-left
+      ...cornerArc(cmd.x + rx, cmd.y + ry, math.pi),
+      ...cornerArc(cmd.x + cmd.width - rx, cmd.y + ry, math.pi * 1.5),
+      ...cornerArc(cmd.x + cmd.width - rx, cmd.y + cmd.height - ry, 0),
+      ...cornerArc(cmd.x + rx, cmd.y + cmd.height - ry, math.pi * 0.5),
     ];
 
     return _mapPoints(cmd.transform, pts);

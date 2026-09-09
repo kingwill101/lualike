@@ -57,12 +57,16 @@ LoveApiImplementation _bindGraphicsRectangle(
     final y = _requireNumber(args, 2, 'love.graphics.rectangle');
     final width = _requireNumber(args, 3, 'love.graphics.rectangle');
     final height = _requireNumber(args, 4, 'love.graphics.rectangle');
-    final radiusX = args.length >= 6
+    final hasRadius = _rawValue(_valueAt(args, 5)) != null;
+    final radiusX = hasRadius
         ? _requireNumber(args, 5, 'love.graphics.rectangle')
         : 0.0;
-    final radiusY = args.length >= 7
+    final radiusY = hasRadius && _rawValue(_valueAt(args, 6)) != null
         ? _requireNumber(args, 6, 'love.graphics.rectangle')
         : radiusX;
+    final pointCount = hasRadius && _rawValue(_valueAt(args, 7)) != null
+        ? _requireRoundedInt(args, 7, 'love.graphics.rectangle')
+        : null;
 
     runtime.graphics.addCommand(
       LoveRectangleCommand(
@@ -84,6 +88,7 @@ LoveApiImplementation _bindGraphicsRectangle(
         height: height,
         cornerRadiusX: radiusX,
         cornerRadiusY: radiusY,
+        pointCount: pointCount,
       ),
     );
     return null;
@@ -100,6 +105,9 @@ LoveApiImplementation _bindGraphicsCircle(LibraryRegistrationContext context) {
     final x = _requireNumber(args, 1, 'love.graphics.circle');
     final y = _requireNumber(args, 2, 'love.graphics.circle');
     final radius = _requireNumber(args, 3, 'love.graphics.circle');
+    final pointCount = _rawValue(_valueAt(args, 4)) == null
+        ? null
+        : _requireRoundedInt(args, 4, 'love.graphics.circle');
 
     runtime.graphics.addCommand(
       LoveCircleCommand(
@@ -118,6 +126,7 @@ LoveApiImplementation _bindGraphicsCircle(LibraryRegistrationContext context) {
         x: x,
         y: y,
         radius: radius,
+        pointCount: pointCount,
       ),
     );
     return null;
@@ -237,9 +246,12 @@ LoveApiImplementation _bindGraphicsEllipse(LibraryRegistrationContext context) {
     final x = _requireNumber(args, 1, 'love.graphics.ellipse');
     final y = _requireNumber(args, 2, 'love.graphics.ellipse');
     final radiusX = _requireNumber(args, 3, 'love.graphics.ellipse');
-    final radiusY = args.length >= 5
+    final radiusY = _rawValue(_valueAt(args, 4)) != null
         ? _requireNumber(args, 4, 'love.graphics.ellipse')
         : radiusX;
+    final pointCount = _rawValue(_valueAt(args, 5)) == null
+        ? null
+        : _requireRoundedInt(args, 5, 'love.graphics.ellipse');
 
     runtime.graphics.addCommand(
       LoveEllipseCommand(
@@ -259,6 +271,7 @@ LoveApiImplementation _bindGraphicsEllipse(LibraryRegistrationContext context) {
         y: y,
         radiusX: radiusX,
         radiusY: radiusY,
+        pointCount: pointCount,
       ),
     );
     return null;
@@ -286,6 +299,9 @@ LoveApiImplementation _bindGraphicsArc(LibraryRegistrationContext context) {
     final radius = _requireNumber(args, startIndex + 2, 'love.graphics.arc');
     final angle1 = _requireNumber(args, startIndex + 3, 'love.graphics.arc');
     final angle2 = _requireNumber(args, startIndex + 4, 'love.graphics.arc');
+    final pointCount = _rawValue(_valueAt(args, startIndex + 5)) == null
+        ? null
+        : _requireRoundedInt(args, startIndex + 5, 'love.graphics.arc');
 
     runtime.graphics.addCommand(
       LoveArcCommand(
@@ -307,6 +323,7 @@ LoveApiImplementation _bindGraphicsArc(LibraryRegistrationContext context) {
         radius: radius,
         angle1: angle1,
         angle2: angle2,
+        pointCount: pointCount,
       ),
     );
     return null;

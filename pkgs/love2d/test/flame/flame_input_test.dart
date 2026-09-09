@@ -361,6 +361,57 @@ end
       },
     );
 
+    test(
+      'updates point and delta transforms without replacing input',
+      () async {
+        adapter = LoveFlameInputAdapter(
+          host: host,
+          runtimeProvider: () => runtime,
+          viewportSizeProvider: () => const Size(800, 600),
+        );
+        adapter.updateCoordinateTransforms(
+          pointTransform: (point, _) => point + const Offset(50, 70),
+          deltaTransform: (delta, _, _) => delta * 3,
+        );
+
+        adapter.handlePointerHover(
+          const PointerHoverEvent(
+            kind: PointerDeviceKind.mouse,
+            position: Offset(10, 20),
+            delta: Offset(3, 4),
+          ),
+        );
+        await _flushQueuedInput(adapter, runtime);
+
+        expect(
+          runtime.unwrapGlobalTable('testbed')!['mousemoved'],
+          '60,90,9,12,false',
+        );
+        expect(host.mouse.x, 60);
+        expect(host.mouse.y, 90);
+
+        adapter.updateCoordinateTransforms(
+          pointTransform: null,
+          deltaTransform: null,
+        );
+        adapter.handlePointerHover(
+          const PointerHoverEvent(
+            kind: PointerDeviceKind.mouse,
+            position: Offset(12, 24),
+            delta: Offset(2, 4),
+          ),
+        );
+        await _flushQueuedInput(adapter, runtime);
+
+        expect(
+          runtime.unwrapGlobalTable('testbed')!['mousemoved'],
+          '12,24,2,4,false',
+        );
+        expect(host.mouse.x, 12);
+        expect(host.mouse.y, 24);
+      },
+    );
+
     test('dispatches touch callbacks and tracks touch state', () async {
       adapter.handlePointerDown(
         const PointerDownEvent(

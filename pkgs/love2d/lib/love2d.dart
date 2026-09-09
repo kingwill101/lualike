@@ -35,7 +35,15 @@ export 'src/runtime/flame/love_flame_harness_renderer.dart'
         LoveFlameFrameTimingStats,
         LoveFlameHarnessGame,
         LoveFlameRenderStats,
-        renderSurfaceSnapshot;
+        loveCanvasSupportsRuntimeRoughCurveTuning,
+        loveCanvasSupportsRuntimeStraightAlphaTextureTuning,
+        loveCanvasStraightAlphaTextureBindingCount,
+        loveCanvasStraightAlphaTextureEstimatedBytes,
+        loveCanvasUsesRoughCurveTessellation,
+        loveCanvasUsesStraightAlphaTextures,
+        renderSurfaceSnapshot,
+        setLoveCanvasRoughCurveTessellationForDiagnostics,
+        setLoveCanvasStraightAlphaTexturesForDiagnostics;
 export 'src/runtime/renderer/renderer.dart';
 export 'src/runtime/input/love_joystick_input_adapter.dart'
     show LoveJoystickInputAdapter;

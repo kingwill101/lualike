@@ -76,7 +76,7 @@ Value _createLoveFilesystemSearcher(LuaRuntime runtime) {
               throw LuaError('unknown error');
             }
 
-            return runtime.callFunction(
+            return await runtime.callFunction(
               chunk,
               loaderArgs,
               debugName: logicalPath,

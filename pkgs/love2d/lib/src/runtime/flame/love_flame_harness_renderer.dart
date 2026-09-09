@@ -39,6 +39,65 @@ const bool _loveCanvasRoughLinePixelSnap = bool.fromEnvironment(
   'LOVE_CANVAS_ROUGH_LINE_PIXEL_SNAP',
   defaultValue: true,
 );
+const bool _loveCanvasRoughCurveTessellation = bool.fromEnvironment(
+  'LOVE_CANVAS_ROUGH_CURVE_TESSELLATION',
+  defaultValue: true,
+);
+const bool _loveCanvasStraightAlphaTextures = bool.fromEnvironment(
+  'LOVE_CANVAS_STRAIGHT_ALPHA_TEXTURES',
+  defaultValue: false,
+);
+const bool loveCanvasSupportsRuntimeStraightAlphaTextureTuning =
+    bool.fromEnvironment(
+      'LOVE_CANVAS_RUNTIME_STRAIGHT_ALPHA_TEXTURE_TUNING',
+      defaultValue: false,
+    );
+bool _loveCanvasRuntimeStraightAlphaTextures = _loveCanvasStraightAlphaTextures;
+const String _loveStraightAlphaImageShaderAsset =
+    'packages/love2d/shaders/love_straight_alpha_image.frag';
+const int _loveStraightAlphaRgbMaxDimension = int.fromEnvironment(
+  'LOVE_CANVAS_STRAIGHT_ALPHA_RGB_MAX_DIMENSION',
+  defaultValue: 512,
+);
+const int _loveStraightAlphaMinProjectedDimension = int.fromEnvironment(
+  'LOVE_CANVAS_STRAIGHT_ALPHA_MIN_PROJECTED_DIMENSION',
+  defaultValue: 80,
+);
+const bool loveCanvasSupportsRuntimeRoughCurveTuning = bool.fromEnvironment(
+  'LOVE_CANVAS_RUNTIME_ROUGH_CURVE_TUNING',
+  defaultValue: false,
+);
+bool _loveCanvasRuntimeRoughCurveTessellation =
+    _loveCanvasRoughCurveTessellation;
+
+/// Whether Canvas rasterizes rough circles and arcs as native-style polygons.
+bool get loveCanvasUsesRoughCurveTessellation =>
+    loveCanvasSupportsRuntimeRoughCurveTuning
+    ? _loveCanvasRuntimeRoughCurveTessellation
+    : _loveCanvasRoughCurveTessellation;
+
+/// Selects the Canvas rough-curve path in diagnostic A/B builds.
+void setLoveCanvasRoughCurveTessellationForDiagnostics(bool enabled) {
+  if (!loveCanvasSupportsRuntimeRoughCurveTuning) {
+    throw StateError('runtime Canvas rough-curve tuning is not enabled');
+  }
+  _loveCanvasRuntimeRoughCurveTessellation = enabled;
+}
+
+/// Whether Canvas separates straight RGB and alpha while filtering textures.
+bool get loveCanvasUsesStraightAlphaTextures =>
+    loveCanvasSupportsRuntimeStraightAlphaTextureTuning
+    ? _loveCanvasRuntimeStraightAlphaTextures
+    : _loveCanvasStraightAlphaTextures;
+
+/// Selects straight-alpha Canvas texture filtering in diagnostic A/B builds.
+void setLoveCanvasStraightAlphaTexturesForDiagnostics(bool enabled) {
+  if (!loveCanvasSupportsRuntimeStraightAlphaTextureTuning) {
+    throw StateError('runtime Canvas straight-alpha tuning is not enabled');
+  }
+  _loveCanvasRuntimeStraightAlphaTextures = enabled;
+}
+
 const int _loveFrameTimingHistoryCapacity = 240;
 const int _love120HzCpuBudgetMicros = 8333;
 const int _love60HzCpuBudgetMicros = 16667;
@@ -60,11 +119,47 @@ final Paint _loveShapePaint = Paint();
 final Paint _lovePointsPaint = Paint()..style = PaintingStyle.fill;
 final Paint _loveImagePaint = Paint();
 final Paint _loveImageDataPaint = Paint();
+final Paint _loveStraightAlphaImagePaint = Paint()
+  ..isAntiAlias = false
+  ..blendMode = BlendMode.srcOver;
 final Path _lovePath = Path();
+final Map<int, Path> _loveUnitCirclePathCache = <int, Path>{};
+final Map<int, Map<double, Path>> _loveUnitArcPathCache =
+    <int, Map<double, Path>>{};
+int _loveUnitArcPathCacheEntries = 0;
 final Paint _loveClearPaint = Paint();
 final Paint _loveEmptyLayerPaint = Paint();
 final Paint _loveSrcLayerPaint = Paint()..blendMode = BlendMode.src;
 final Paint _loveDstInLayerPaint = Paint()..blendMode = BlendMode.dstIn;
+ui.FragmentProgram? _loveStraightAlphaImageProgram;
+Future<ui.FragmentProgram?>? _loveStraightAlphaImageProgramFuture;
+final Map<LoveImage, _LoveStraightAlphaImageBinding>
+_loveStraightAlphaImageBindings = <LoveImage, _LoveStraightAlphaImageBinding>{};
+final Set<LoveImage> _pendingLoveStraightAlphaImageBindings = <LoveImage>{};
+final Set<LoveImage> _unsupportedLoveStraightAlphaImages = <LoveImage>{};
+
+/// Number of direct images with a ready straight-alpha Canvas binding.
+int get loveCanvasStraightAlphaTextureBindingCount =>
+    _loveStraightAlphaImageBindings.length;
+
+/// Approximate resident bytes for opaque-RGB base levels and generated mips.
+int get loveCanvasStraightAlphaTextureEstimatedBytes {
+  var baseBytes = 0;
+  for (final binding in _loveStraightAlphaImageBindings.values) {
+    baseBytes += binding.opaqueRgb.width * binding.opaqueRgb.height * 4;
+  }
+  return ((baseBytes * 4) / 3).ceil();
+}
+
+final class _LoveStraightAlphaImageBinding {
+  const _LoveStraightAlphaImageBinding({
+    required this.opaqueRgb,
+    required this.shader,
+  });
+
+  final ui.Image opaqueRgb;
+  final ui.FragmentShader shader;
+}
 
 /// Per-frame counters for the LOVE-to-Flame renderer's major hot paths.
 class LoveFlameRenderStats {
@@ -155,6 +250,7 @@ class LoveFlameFrameTimingSample {
   const LoveFlameFrameTimingSample({
     this.deltaSeconds = 0,
     this.updateDuration = Duration.zero,
+    this.runtimeFrameDuration = Duration.zero,
     this.renderDuration = Duration.zero,
     this.renderStats = const LoveFlameRenderStats(),
   });
@@ -162,8 +258,11 @@ class LoveFlameFrameTimingSample {
   /// The simulation delta Flame passed into `update`.
   final double deltaSeconds;
 
-  /// The CPU time spent inside `LoveFlameHarnessGame.update`.
+  /// The CPU time spent awaiting the game's `love.update` callback.
   final Duration updateDuration;
+
+  /// The complete asynchronous LOVE frame cost through draw-list commit.
+  final Duration runtimeFrameDuration;
 
   /// The CPU time spent inside `LoveFlameHarnessGame.render`.
   final Duration renderDuration;
@@ -171,8 +270,8 @@ class LoveFlameFrameTimingSample {
   /// The renderer counters recorded for this frame.
   final LoveFlameRenderStats renderStats;
 
-  /// The combined CPU cost of the recorded update and render work.
-  Duration get cpuFrameDuration => updateDuration + renderDuration;
+  /// The combined LOVE runtime and host-renderer CPU cost.
+  Duration get cpuFrameDuration => runtimeFrameDuration + renderDuration;
 }
 
 /// A rolling summary of recently recorded Flame frame timings.
@@ -187,6 +286,10 @@ class LoveFlameFrameTimingStats {
     this.p95UpdateDuration = Duration.zero,
     this.p99UpdateDuration = Duration.zero,
     this.maxUpdateDuration = Duration.zero,
+    this.averageRuntimeFrameDuration = Duration.zero,
+    this.p95RuntimeFrameDuration = Duration.zero,
+    this.p99RuntimeFrameDuration = Duration.zero,
+    this.maxRuntimeFrameDuration = Duration.zero,
     this.averageRenderDuration = Duration.zero,
     this.p95RenderDuration = Duration.zero,
     this.p99RenderDuration = Duration.zero,
@@ -243,6 +346,18 @@ class LoveFlameFrameTimingStats {
   /// The maximum CPU time spent updating a sampled frame.
   final Duration maxUpdateDuration;
 
+  /// The average complete asynchronous LOVE frame cost.
+  final Duration averageRuntimeFrameDuration;
+
+  /// The p95 complete asynchronous LOVE frame cost.
+  final Duration p95RuntimeFrameDuration;
+
+  /// The p99 complete asynchronous LOVE frame cost.
+  final Duration p99RuntimeFrameDuration;
+
+  /// The maximum complete asynchronous LOVE frame cost.
+  final Duration maxRuntimeFrameDuration;
+
   /// The average CPU time spent rendering each sampled frame.
   final Duration averageRenderDuration;
 
@@ -255,16 +370,16 @@ class LoveFlameFrameTimingStats {
   /// The maximum CPU time spent rendering a sampled frame.
   final Duration maxRenderDuration;
 
-  /// The average combined CPU update+render time per sampled frame.
+  /// The average combined LOVE runtime and host-render time per sampled frame.
   final Duration averageCpuFrameDuration;
 
-  /// The p95 combined CPU update+render time across sampled frames.
+  /// The p95 combined LOVE runtime and host-render time across sampled frames.
   final Duration p95CpuFrameDuration;
 
-  /// The p99 combined CPU update+render time across sampled frames.
+  /// The p99 combined LOVE runtime and host-render time across sampled frames.
   final Duration p99CpuFrameDuration;
 
-  /// The maximum combined CPU update+render time across sampled frames.
+  /// The maximum combined LOVE runtime and host-render time across samples.
   final Duration maxCpuFrameDuration;
 
   /// Sampled CPU frames that exceeded the 8.333 ms budget for 120 Hz.
@@ -352,6 +467,7 @@ class _LoveFlameFrameTimingRecorder {
     final samples = _samples.toList(growable: false);
     var totalDeltaSeconds = 0.0;
     var totalUpdateMicros = 0;
+    var totalRuntimeFrameMicros = 0;
     var totalRenderMicros = 0;
     var totalCpuFrameMicros = 0;
     var totalRenderedCommands = 0;
@@ -374,11 +490,14 @@ class _LoveFlameFrameTimingRecorder {
     var maxSoftwareSurfaceFallbacks = 0;
     final deltaSeconds = <double>[];
     final updateMicros = <int>[];
+    final runtimeFrameMicros = <int>[];
     final renderMicros = <int>[];
     final cpuFrameMicros = <int>[];
 
     for (final sample in samples) {
       final sampleUpdateMicros = sample.updateDuration.inMicroseconds;
+      final sampleRuntimeFrameMicros =
+          sample.runtimeFrameDuration.inMicroseconds;
       final sampleRenderMicros = sample.renderDuration.inMicroseconds;
       final sampleCpuFrameMicros = sample.cpuFrameDuration.inMicroseconds;
       final sampleSaveLayers = sample.renderStats.totalSaveLayers;
@@ -396,6 +515,7 @@ class _LoveFlameFrameTimingRecorder {
 
       totalDeltaSeconds += sample.deltaSeconds;
       totalUpdateMicros += sampleUpdateMicros;
+      totalRuntimeFrameMicros += sampleRuntimeFrameMicros;
       totalRenderMicros += sampleRenderMicros;
       totalCpuFrameMicros += sampleCpuFrameMicros;
       totalRenderedCommands += sampleRenderedCommands;
@@ -440,12 +560,14 @@ class _LoveFlameFrameTimingRecorder {
       );
       deltaSeconds.add(sample.deltaSeconds);
       updateMicros.add(sampleUpdateMicros);
+      runtimeFrameMicros.add(sampleRuntimeFrameMicros);
       renderMicros.add(sampleRenderMicros);
       cpuFrameMicros.add(sampleCpuFrameMicros);
     }
 
     deltaSeconds.sort();
     updateMicros.sort();
+    runtimeFrameMicros.sort();
     renderMicros.sort();
     cpuFrameMicros.sort();
 
@@ -466,6 +588,19 @@ class _LoveFlameFrameTimingRecorder {
         _percentileInt(updateMicros, 0.99),
       ),
       maxUpdateDuration: _durationFromMicroseconds(updateMicros.last),
+      averageRuntimeFrameDuration: _averageDuration(
+        totalMicroseconds: totalRuntimeFrameMicros,
+        sampleCount: samples.length,
+      ),
+      p95RuntimeFrameDuration: _durationFromMicroseconds(
+        _percentileInt(runtimeFrameMicros, 0.95),
+      ),
+      p99RuntimeFrameDuration: _durationFromMicroseconds(
+        _percentileInt(runtimeFrameMicros, 0.99),
+      ),
+      maxRuntimeFrameDuration: _durationFromMicroseconds(
+        runtimeFrameMicros.last,
+      ),
       averageRenderDuration: _averageDuration(
         totalMicroseconds: totalRenderMicros,
         sampleCount: samples.length,
@@ -516,6 +651,9 @@ class _LoveFlameFrameTimingRecorder {
   }
 }
 
+/// Reads one unwrapped global from the currently mounted LOVE runtime.
+typedef LoveRuntimeGlobalReader = Object? Function(String name);
+
 /// Flame game host that presents a LOVE surface through the compatibility harness.
 class LoveFlameHarnessGame extends FlameGame with KeyboardEvents {
   LoveFlameHarnessGame({
@@ -523,6 +661,8 @@ class LoveFlameHarnessGame extends FlameGame with KeyboardEvents {
     LoveVideoFrameProviderFactory? videoFrameProviderFactory,
     AssetBundle? assetBundle,
     LoveRenderBackend? renderBackend,
+    this.runtimeGlobalReader,
+    this.usesExternalRuntimeFrameTiming = false,
   }) : _assetBundle = assetBundle,
        _videoFrameProviderFactory =
            videoFrameProviderFactory ?? _defaultVideoFrameProviderFactory(),
@@ -537,6 +677,8 @@ class LoveFlameHarnessGame extends FlameGame with KeyboardEvents {
   }
 
   final LoveAudioBackendFactory? audioBackendFactory;
+  final LoveRuntimeGlobalReader? runtimeGlobalReader;
+  final bool usesExternalRuntimeFrameTiming;
   final AssetBundle? _assetBundle;
   final LoveVideoFrameProviderFactory? _videoFrameProviderFactory;
 
@@ -556,10 +698,32 @@ class LoveFlameHarnessGame extends FlameGame with KeyboardEvents {
   );
   bool _presentationNotifierDisposed = false;
 
-  final LoveRenderBackend _renderBackend;
+  LoveRenderBackend _renderBackend;
 
   /// The active render backend used to replay draw commands.
   LoveRenderBackend get renderBackend => _renderBackend;
+
+  /// Reads a game global for diagnostics without exposing the runtime itself.
+  ///
+  /// Returns null before startup completes, after teardown, or when [name] is
+  /// absent. Benchmark tools should expose only small scalar values; unwrapping
+  /// a large Lua table can allocate a corresponding Dart object graph.
+  Object? readRuntimeGlobal(String name) => runtimeGlobalReader?.call(name);
+
+  /// Replaces the renderer without restarting the LOVE runtime.
+  ///
+  /// Renderer comparison tools can switch Canvas, GPU, and mirrored output
+  /// while preserving one simulation, asset set, and input state. Recreating
+  /// the harness for a renderer-only change would decode every image and
+  /// rebuild every mip chain again.
+  void setRenderBackend(LoveRenderBackend? backend) {
+    final next = backend ?? LoveCanvasRenderBackend();
+    if (identical(next, _renderBackend)) {
+      return;
+    }
+    _renderBackend = next;
+    syncPresentationCamera();
+  }
 
   void Function(double dt)? onTick;
   KeyEventResult Function(KeyEvent event, Set<LogicalKeyboardKey> keysPressed)?
@@ -571,6 +735,9 @@ class LoveFlameHarnessGame extends FlameGame with KeyboardEvents {
       _LoveFlameFrameTimingRecorder(capacity: _loveFrameTimingHistoryCapacity);
   double _lastUpdateDeltaSeconds = 0;
   Duration _lastUpdateDuration = Duration.zero;
+  Duration _lastRuntimeFrameDuration = Duration.zero;
+  int _runtimeFrameSequence = 0;
+  int _lastRecordedRuntimeFrameSequence = 0;
 
   LoveGraphicsSurfaceSnapshot get presentedFrame => _presentedFrame;
   LoveFlameRenderStats get lastRenderStats => _lastRenderStats;
@@ -588,6 +755,20 @@ class LoveFlameHarnessGame extends FlameGame with KeyboardEvents {
     _frameTimingRecorder.clear();
     _lastUpdateDeltaSeconds = 0;
     _lastUpdateDuration = Duration.zero;
+    _lastRuntimeFrameDuration = Duration.zero;
+    _lastRecordedRuntimeFrameSequence = _runtimeFrameSequence;
+  }
+
+  /// Records one fully awaited LOVE runtime frame for the next host render.
+  void recordRuntimeFrameTiming({
+    required double deltaSeconds,
+    required Duration updateDuration,
+    required Duration runtimeFrameDuration,
+  }) {
+    _lastUpdateDeltaSeconds = deltaSeconds;
+    _lastUpdateDuration = updateDuration;
+    _lastRuntimeFrameDuration = runtimeFrameDuration;
+    _runtimeFrameSequence += 1;
   }
 
   /// Returns the current logical presentation geometry for the LOVE surface.
@@ -663,8 +844,12 @@ class LoveFlameHarnessGame extends FlameGame with KeyboardEvents {
       onTick?.call(dt);
     } finally {
       _updateStopwatch.stop();
-      _lastUpdateDeltaSeconds = dt;
-      _lastUpdateDuration = _updateStopwatch.elapsed;
+      if (!usesExternalRuntimeFrameTiming) {
+        _lastUpdateDeltaSeconds = dt;
+        _lastUpdateDuration = _updateStopwatch.elapsed;
+        _lastRuntimeFrameDuration = _updateStopwatch.elapsed;
+        _runtimeFrameSequence += 1;
+      }
     }
   }
 
@@ -721,11 +906,14 @@ class LoveFlameHarnessGame extends FlameGame with KeyboardEvents {
       recordedFrame = true;
     } finally {
       _renderStopwatch.stop();
-      if (recordedFrame) {
+      if (recordedFrame &&
+          _lastRecordedRuntimeFrameSequence != _runtimeFrameSequence) {
+        _lastRecordedRuntimeFrameSequence = _runtimeFrameSequence;
         _frameTimingRecorder.add(
           LoveFlameFrameTimingSample(
             deltaSeconds: _lastUpdateDeltaSeconds,
             updateDuration: _lastUpdateDuration,
+            runtimeFrameDuration: _lastRuntimeFrameDuration,
             renderDuration: _renderStopwatch.elapsed,
             renderStats: _lastRenderStats,
           ),
@@ -818,6 +1006,314 @@ Rect _rectForScissor(LoveScissorRect scissor) {
   return Rect.fromLTWH(scissor.x, scissor.y, scissor.width, scissor.height);
 }
 
+void _buildEllipsePointPath(
+  Path path,
+  double centerX,
+  double centerY,
+  double radiusX,
+  double radiusY,
+  int requestedPoints,
+) {
+  final points = math.max(requestedPoints, 1);
+  final angleStep = math.pi * 2 / points;
+  path
+    ..reset()
+    ..moveTo(centerX + radiusX, centerY);
+  for (var index = 1; index < points; index++) {
+    final angle = angleStep * index;
+    path.lineTo(
+      centerX + radiusX * math.cos(angle),
+      centerY + radiusY * math.sin(angle),
+    );
+  }
+  path.close();
+}
+
+void _buildArcPointPath(Path path, LoveArcCommand arc, int pointCount) {
+  final angleStep = (arc.angle2 - arc.angle1) / pointCount;
+  if (arc.arcMode == LoveGraphicsArcMode.pie) {
+    path.moveTo(arc.x, arc.y);
+    path.lineTo(
+      arc.x + arc.radius * math.cos(arc.angle1),
+      arc.y + arc.radius * math.sin(arc.angle1),
+    );
+  } else {
+    path.moveTo(
+      arc.x + arc.radius * math.cos(arc.angle1),
+      arc.y + arc.radius * math.sin(arc.angle1),
+    );
+  }
+  for (var index = 1; index <= pointCount; index++) {
+    final angle = arc.angle1 + angleStep * index;
+    path.lineTo(
+      arc.x + arc.radius * math.cos(angle),
+      arc.y + arc.radius * math.sin(angle),
+    );
+  }
+  if (arc.arcMode != LoveGraphicsArcMode.open ||
+      arc.drawMode == LoveGraphicsDrawMode.fill) {
+    path.close();
+  }
+}
+
+bool _drawRoughCircleStroke(
+  Canvas canvas,
+  LoveCircleCommand circle,
+  Paint paint,
+) {
+  if (!loveCanvasUsesRoughCurveTessellation ||
+      circle.mode != LoveGraphicsDrawMode.line ||
+      circle.lineStyle != LoveGraphicsLineStyle.rough ||
+      circle.shader != null ||
+      circle.radius <= 0 ||
+      circle.lineWidth <= 0) {
+    return false;
+  }
+  final pointCount =
+      circle.pointCount ??
+      math.max(
+        8,
+        math
+            .sqrt(
+              circle.radius * 20 * _loveTransformPixelScale(circle.transform),
+            )
+            .floor(),
+      );
+  if (pointCount < 3) {
+    return false;
+  }
+
+  // LOVE chooses a transform-aware point count and strokes the generated
+  // polygon. Avoid Canvas.drawCircle's analytically smooth rough outline while
+  // retaining a single centerline path for inexpensive Canvas rasterization.
+  final path = _loveUnitCirclePath(pointCount);
+  canvas.save();
+  canvas.translate(circle.x, circle.y);
+  canvas.scale(circle.radius, circle.radius);
+  paint.strokeWidth = circle.lineWidth / circle.radius;
+  canvas.drawPath(path, paint);
+  canvas.restore();
+  return true;
+}
+
+Path _loveUnitCirclePath(int pointCount) {
+  final cached = _loveUnitCirclePathCache[pointCount];
+  if (cached != null) {
+    return cached;
+  }
+  if (_loveUnitCirclePathCache.length >= 128) {
+    _loveUnitCirclePathCache.clear();
+  }
+  final path = Path()..moveTo(1, 0);
+  for (var index = 1; index < pointCount; index++) {
+    final angle = math.pi * 2 * index / pointCount;
+    path.lineTo(math.cos(angle), math.sin(angle));
+  }
+  path.close();
+  _loveUnitCirclePathCache[pointCount] = path;
+  return path;
+}
+
+Path _loveUnitArcPath(int steps, double sweep) {
+  final pathsForSteps = _loveUnitArcPathCache[steps];
+  final cached = pathsForSteps?[sweep];
+  if (cached != null) {
+    return cached;
+  }
+  if (_loveUnitArcPathCacheEntries >= 128) {
+    _loveUnitArcPathCache.clear();
+    _loveUnitArcPathCacheEntries = 0;
+  }
+  final path = Path()..moveTo(1, 0);
+  for (var index = 1; index <= steps; index++) {
+    final angle = sweep * index / steps;
+    path.lineTo(math.cos(angle), math.sin(angle));
+  }
+  final target = _loveUnitArcPathCache.putIfAbsent(
+    steps,
+    () => <double, Path>{},
+  );
+  target[sweep] = path;
+  _loveUnitArcPathCacheEntries++;
+  return path;
+}
+
+bool _drawRoughOpenArcStroke(Canvas canvas, LoveArcCommand arc, Paint paint) {
+  if (!loveCanvasUsesRoughCurveTessellation ||
+      arc.drawMode != LoveGraphicsDrawMode.line ||
+      arc.arcMode != LoveGraphicsArcMode.open ||
+      arc.lineStyle != LoveGraphicsLineStyle.rough ||
+      arc.lineJoin != LoveGraphicsLineJoin.miter ||
+      arc.shader != null ||
+      arc.radius <= 0 ||
+      arc.lineWidth <= 0) {
+    return false;
+  }
+  var sweep = arc.angle2 - arc.angle1;
+  if (sweep.abs() > math.pi * 2) {
+    sweep = sweep.sign * math.pi * 2;
+  }
+  final automaticEllipsePoints = math.max(
+    8,
+    math
+        .sqrt(arc.radius * 20 * _loveTransformPixelScale(arc.transform))
+        .floor(),
+  );
+  final automaticSteps = sweep.abs() < math.pi * 2
+      ? (automaticEllipsePoints * sweep.abs() / (math.pi * 2) + 0.5).floor()
+      : automaticEllipsePoints;
+  final steps = arc.pointCount ?? automaticSteps;
+  if (sweep == 0 || steps <= 0) {
+    return false;
+  }
+
+  final path = _loveUnitArcPath(steps, sweep);
+  canvas.save();
+  canvas.translate(arc.x, arc.y);
+  canvas.rotate(arc.angle1);
+  canvas.scale(arc.radius, arc.radius);
+  paint.strokeWidth = arc.lineWidth / arc.radius;
+  canvas.drawPath(path, paint);
+  canvas.restore();
+  return true;
+}
+
+double _loveTransformPixelScale(vm.Matrix4 transform) {
+  final matrix = transform.storage;
+  final scaleX = math.sqrt(matrix[0] * matrix[0] + matrix[1] * matrix[1]);
+  final scaleY = math.sqrt(matrix[4] * matrix[4] + matrix[5] * matrix[5]);
+  final scale = (scaleX + scaleY) * 0.5;
+  return scale.isFinite && scale > 1e-6 ? scale : 1;
+}
+
+void _buildRoundedRectanglePointPath(Path path, LoveRectangleCommand command) {
+  var radiusX = command.cornerRadiusX;
+  var radiusY = command.cornerRadiusY;
+  final meanRadius =
+      (math.min(radiusX, (command.width * 0.5).abs()) +
+          math.min(radiusY, (command.height * 0.5).abs())) *
+      0.5;
+  final automaticPointCount = math.max(
+    math
+        .sqrt(meanRadius * 20 * _loveTransformPixelScale(command.transform))
+        .floor(),
+    8,
+  );
+  final pointsPerCorner = math.max(
+    (command.pointCount ?? automaticPointCount) ~/ 4,
+    1,
+  );
+  if (command.width >= 0.02) {
+    radiusX = math.min(radiusX, command.width * 0.5 - 0.01);
+  }
+  if (command.height >= 0.02) {
+    radiusY = math.min(radiusY, command.height * 0.5 - 0.01);
+  }
+  final angleStep = (math.pi * 0.5) / (pointsPerCorner + 1);
+  path.reset();
+  var first = true;
+
+  void addCorner(double centerX, double centerY, double startAngle) {
+    for (var index = 0; index <= pointsPerCorner + 1; index++) {
+      final angle = startAngle + angleStep * index;
+      final x = centerX + math.cos(angle) * radiusX;
+      final y = centerY + math.sin(angle) * radiusY;
+      if (first) {
+        path.moveTo(x, y);
+        first = false;
+      } else {
+        path.lineTo(x, y);
+      }
+    }
+  }
+
+  addCorner(command.x + radiusX, command.y + radiusY, math.pi);
+  addCorner(
+    command.x + command.width - radiusX,
+    command.y + radiusY,
+    math.pi * 1.5,
+  );
+  addCorner(
+    command.x + command.width - radiusX,
+    command.y + command.height - radiusY,
+    0,
+  );
+  addCorner(
+    command.x + radiusX,
+    command.y + command.height - radiusY,
+    math.pi * 0.5,
+  );
+  path.close();
+}
+
+void _paintRoundedRectangleRoughRuns(
+  Canvas canvas,
+  LoveRectangleCommand command,
+) {
+  if (command.mode != LoveGraphicsDrawMode.line ||
+      command.lineStyle != LoveGraphicsLineStyle.rough ||
+      (command.lineWidth - 1).abs() > 1e-6) {
+    return;
+  }
+  final matrix = command.transform.storage;
+  if ((matrix[0] - 1).abs() > 1e-6 ||
+      matrix[1].abs() > 1e-6 ||
+      matrix[4].abs() > 1e-6 ||
+      (matrix[5] - 1).abs() > 1e-6 ||
+      (matrix[12] - matrix[12].round()).abs() > 1e-6 ||
+      (matrix[13] - matrix[13].round()).abs() > 1e-6) {
+    return;
+  }
+  if ((command.x - command.x.round()).abs() > 1e-6 ||
+      (command.y - command.y.round()).abs() > 1e-6 ||
+      (command.width - command.width.round()).abs() > 1e-6 ||
+      (command.height - command.height.round()).abs() > 1e-6) {
+    return;
+  }
+
+  var radiusX = command.cornerRadiusX;
+  var radiusY = command.cornerRadiusY;
+  if (command.width >= 0.02) {
+    radiusX = math.min(radiusX, command.width * 0.5 - 0.01);
+  }
+  if (command.height >= 0.02) {
+    radiusY = math.min(radiusY, command.height * 0.5 - 0.01);
+  }
+  final horizontalLength = command.width - radiusX * 2;
+  final verticalLength = command.height - radiusY * 2;
+  if (horizontalLength <= 0 || verticalLength <= 0) return;
+
+  final paint = _lovePointsPaint
+    ..color = _toFlutterColor(command.color)
+    ..isAntiAlias = false;
+  canvas.drawRect(
+    Rect.fromLTWH(command.x + radiusX, command.y - 1, horizontalLength, 1),
+    paint,
+  );
+  canvas.drawRect(
+    Rect.fromLTWH(
+      command.x + radiusX,
+      command.y + command.height - 1,
+      horizontalLength,
+      1,
+    ),
+    paint,
+  );
+  canvas.drawRect(
+    Rect.fromLTWH(command.x - 1, command.y + radiusY, 1, verticalLength),
+    paint,
+  );
+  canvas.drawRect(
+    Rect.fromLTWH(
+      command.x + command.width - 1,
+      command.y + radiusY,
+      1,
+      verticalLength,
+    ),
+    paint,
+  );
+}
+
 void _renderRecordedCommand(
   Canvas canvas,
   LoveDrawCommand command, {
@@ -888,12 +1384,10 @@ void _renderRecordedCommand(
         rectangle.height,
       );
 
-      if (rectangle.cornerRadiusX > 0 || rectangle.cornerRadiusY > 0) {
-        final rrect = RRect.fromRectAndRadius(
-          rect,
-          Radius.elliptical(rectangle.cornerRadiusX, rectangle.cornerRadiusY),
-        );
-        canvas.drawRRect(rrect, paint);
+      if (rectangle.cornerRadiusX > 0 && rectangle.cornerRadiusY > 0) {
+        _buildRoundedRectanglePointPath(_lovePath, rectangle);
+        canvas.drawPath(_lovePath, paint);
+        _paintRoundedRectangleRoughRuns(canvas, rectangle);
       } else {
         canvas.drawRect(rect, paint);
       }
@@ -907,7 +1401,22 @@ void _renderRecordedCommand(
         lineStyle: circle.lineStyle,
         command: circle,
       );
-      canvas.drawCircle(Offset(circle.x, circle.y), circle.radius, paint);
+      if (_drawRoughCircleStroke(canvas, circle, paint)) {
+        break;
+      }
+      if (circle.pointCount case final pointCount?) {
+        _buildEllipsePointPath(
+          _lovePath,
+          circle.x,
+          circle.y,
+          circle.radius,
+          circle.radius,
+          pointCount,
+        );
+        canvas.drawPath(_lovePath, paint);
+      } else {
+        canvas.drawCircle(Offset(circle.x, circle.y), circle.radius, paint);
+      }
     case final LoveLineCommand line:
       final paint = _configureShapePaint(
         _loveShapePaint,
@@ -972,14 +1481,26 @@ void _renderRecordedCommand(
         lineStyle: ellipse.lineStyle,
         command: ellipse,
       );
-      canvas.drawOval(
-        Rect.fromCenter(
-          center: Offset(ellipse.x, ellipse.y),
-          width: ellipse.radiusX * 2,
-          height: ellipse.radiusY * 2,
-        ),
-        paint,
-      );
+      if (ellipse.pointCount case final pointCount?) {
+        _buildEllipsePointPath(
+          _lovePath,
+          ellipse.x,
+          ellipse.y,
+          ellipse.radiusX,
+          ellipse.radiusY,
+          pointCount,
+        );
+        canvas.drawPath(_lovePath, paint);
+      } else {
+        canvas.drawOval(
+          Rect.fromCenter(
+            center: Offset(ellipse.x, ellipse.y),
+            width: ellipse.radiusX * 2,
+            height: ellipse.radiusY * 2,
+          ),
+          paint,
+        );
+      }
     case final LoveArcCommand arc:
       final paint = _configureShapePaint(
         _loveShapePaint,
@@ -990,12 +1511,35 @@ void _renderRecordedCommand(
         lineStyle: arc.lineStyle,
         command: arc,
       );
+      if (_drawRoughOpenArcStroke(canvas, arc, paint)) {
+        break;
+      }
       final rect = Rect.fromCircle(
         center: Offset(arc.x, arc.y),
         radius: arc.radius,
       );
       final sweepAngle = arc.angle2 - arc.angle1;
       final path = _lovePath..reset();
+
+      if (arc.pointCount case final pointCount?) {
+        if (pointCount <= 0 || sweepAngle == 0) {
+          break;
+        }
+        if (sweepAngle.abs() >= math.pi * 2) {
+          _buildEllipsePointPath(
+            path,
+            arc.x,
+            arc.y,
+            arc.radius,
+            arc.radius,
+            pointCount,
+          );
+        } else {
+          _buildArcPointPath(path, arc, pointCount);
+        }
+        canvas.drawPath(path, paint);
+        break;
+      }
 
       switch (arc.arcMode) {
         case LoveGraphicsArcMode.open:
@@ -1704,7 +2248,7 @@ _FlameAtlasBatchPlan? _flameAtlasBatchPlan({
       continue;
     }
 
-    final resolvedFilterQuality = _filterQualityForLove(resolvedImage.filter);
+    final resolvedFilterQuality = _filterQualityForImage(resolvedImage);
     if (atlas == null) {
       atlas = rawImage;
       filterQuality = resolvedFilterQuality;
@@ -1792,6 +2336,186 @@ void _renderFlameAtlasBatch(
       ..filterQuality = batch.filterQuality,
   );
   spriteBatch.clear();
+}
+
+bool _drawStraightAlphaImage(
+  Canvas canvas, {
+  required LoveDrawCommand command,
+  required LoveImage image,
+  required ui.Image nativeImage,
+  required Rect sourceRect,
+  required Rect destinationRect,
+  required vm.Matrix4 drawTransform,
+  required LoveColor tint,
+}) {
+  if (!loveCanvasUsesStraightAlphaTextures ||
+      image.mipmapCount <= 1 ||
+      image.mipmapFilter != LoveGraphicsFilterMode.linear ||
+      image.filter.min != LoveGraphicsFilterMode.linear ||
+      image.filter.mag != LoveGraphicsFilterMode.linear) {
+    return false;
+  }
+
+  final commandMatrix = command.transform.storage;
+  final drawMatrix = drawTransform.storage;
+  final combined00 =
+      commandMatrix[0] * drawMatrix[0] + commandMatrix[4] * drawMatrix[1];
+  final combined10 =
+      commandMatrix[1] * drawMatrix[0] + commandMatrix[5] * drawMatrix[1];
+  final combined01 =
+      commandMatrix[0] * drawMatrix[4] + commandMatrix[4] * drawMatrix[5];
+  final combined11 =
+      commandMatrix[1] * drawMatrix[4] + commandMatrix[5] * drawMatrix[5];
+  final outputWidth =
+      sourceRect.width *
+      math.sqrt(combined00 * combined00 + combined10 * combined10);
+  final outputHeight =
+      sourceRect.height *
+      math.sqrt(combined01 * combined01 + combined11 * combined11);
+  if (math.max(outputWidth, outputHeight) <
+          _loveStraightAlphaMinProjectedDimension ||
+      outputWidth > _loveStraightAlphaRgbMaxDimension + 1e-6 ||
+      outputHeight > _loveStraightAlphaRgbMaxDimension + 1e-6) {
+    return false;
+  }
+
+  final binding = _loveStraightAlphaImageBindings[image];
+  if (binding == null) {
+    _prepareStraightAlphaImageBinding(image, nativeImage);
+    return false;
+  }
+  if (outputWidth > binding.opaqueRgb.width + 1e-6 ||
+      outputHeight > binding.opaqueRgb.height + 1e-6) {
+    return false;
+  }
+
+  final shader = binding.shader;
+  var floatIndex = 0;
+  void write(double value) => shader.setFloat(floatIndex++, value);
+
+  write(image.width.toDouble());
+  write(image.height.toDouble());
+  write(sourceRect.left);
+  write(sourceRect.top);
+  write(sourceRect.width);
+  write(sourceRect.height);
+  write(destinationRect.left);
+  write(destinationRect.top);
+  write(destinationRect.width);
+  write(destinationRect.height);
+  write(tint.r);
+  write(tint.g);
+  write(tint.b);
+  write(tint.a);
+
+  _loveStraightAlphaImagePaint.shader = shader;
+  canvas.drawRect(destinationRect, _loveStraightAlphaImagePaint);
+  return true;
+}
+
+void _prepareStraightAlphaImageBinding(LoveImage image, ui.Image nativeImage) {
+  if (_pendingLoveStraightAlphaImageBindings.contains(image) ||
+      _unsupportedLoveStraightAlphaImages.contains(image)) {
+    return;
+  }
+  final imageData = image.imageData;
+  if (imageData == null) {
+    _unsupportedLoveStraightAlphaImages.add(image);
+    return;
+  }
+
+  _pendingLoveStraightAlphaImageBindings.add(image);
+  Future.wait<Object?>(<Future<Object?>>[
+        _loadStraightAlphaImageProgram(),
+        _decodeOpaqueRgbImage(image),
+      ])
+      .then((results) {
+        final program = results[0];
+        final opaqueRgb = results[1];
+        if (program is! ui.FragmentProgram || opaqueRgb is! ui.Image) {
+          _unsupportedLoveStraightAlphaImages.add(image);
+          return;
+        }
+        final shader = program.fragmentShader();
+        shader
+          ..setImageSampler(0, opaqueRgb, filterQuality: FilterQuality.medium)
+          ..setImageSampler(
+            1,
+            nativeImage,
+            filterQuality: FilterQuality.medium,
+          );
+        _loveStraightAlphaImageBindings[image] = _LoveStraightAlphaImageBinding(
+          opaqueRgb: opaqueRgb,
+          shader: shader,
+        );
+      })
+      .catchError((Object _) {
+        _unsupportedLoveStraightAlphaImages.add(image);
+      })
+      .whenComplete(() {
+        _pendingLoveStraightAlphaImageBindings.remove(image);
+      });
+}
+
+Future<ui.FragmentProgram?> _loadStraightAlphaImageProgram() {
+  final loaded = _loveStraightAlphaImageProgram;
+  if (loaded != null) return Future<ui.FragmentProgram?>.value(loaded);
+  return _loveStraightAlphaImageProgramFuture ??=
+      _loadStraightAlphaImageProgramAsset();
+}
+
+Future<ui.FragmentProgram?> _loadStraightAlphaImageProgramAsset() async {
+  try {
+    final program = await ui.FragmentProgram.fromAsset(
+      _loveStraightAlphaImageShaderAsset,
+    );
+    _loveStraightAlphaImageProgram = program;
+    return program;
+  } catch (_) {
+    return null;
+  }
+}
+
+Future<ui.Image?> _decodeOpaqueRgbImage(LoveImage image) async {
+  final baseImageData = image.imageData;
+  if (baseImageData == null) return null;
+  LoveImageData imageData = baseImageData;
+  final mipmaps = image.imageDataMipmaps;
+  if (mipmaps != null) {
+    for (final mipmap in mipmaps) {
+      if (math.max(mipmap.width, mipmap.height) <=
+          _loveStraightAlphaRgbMaxDimension) {
+        imageData = mipmap;
+        break;
+      }
+    }
+  }
+  final source = imageData.toRgbaBytes();
+  var hasTransparency = false;
+  for (var offset = 3; offset < source.length; offset += 4) {
+    if (source[offset] != 255) {
+      hasTransparency = true;
+      break;
+    }
+  }
+  if (!hasTransparency) return null;
+
+  final opaque = Uint8List(source.length);
+  for (var offset = 0; offset < source.length; offset += 4) {
+    opaque[offset] = source[offset];
+    opaque[offset + 1] = source[offset + 1];
+    opaque[offset + 2] = source[offset + 2];
+    opaque[offset + 3] = 255;
+  }
+  final completer = Completer<ui.Image>();
+  ui.decodeImageFromPixels(
+    opaque,
+    imageData.width,
+    imageData.height,
+    ui.PixelFormat.rgba8888,
+    completer.complete,
+  );
+  return completer.future;
 }
 
 void _renderResolvedImage(
@@ -1897,13 +2621,24 @@ void _renderResolvedImage(
           }
         }
       } else if (rawImage is ui.Image) {
-        final paint = _loveImagePaint
-          ..shader = null
-          ..filterQuality = _filterQualityForLove(resolvedImage.filter)
-          ..colorFilter = tint == LoveColor.white
-              ? null
-              : ColorFilter.mode(_toFlutterColor(tint), BlendMode.modulate);
-        canvas.drawImageRect(rawImage, sourceRect, destinationRect, paint);
+        if (!_drawStraightAlphaImage(
+          canvas,
+          command: command,
+          image: resolvedImage,
+          nativeImage: rawImage,
+          sourceRect: sourceRect,
+          destinationRect: destinationRect,
+          drawTransform: drawTransform,
+          tint: tint,
+        )) {
+          final paint = _loveImagePaint
+            ..shader = null
+            ..filterQuality = _filterQualityForImage(resolvedImage)
+            ..colorFilter = tint == LoveColor.white
+                ? null
+                : ColorFilter.mode(_toFlutterColor(tint), BlendMode.modulate);
+          canvas.drawImageRect(rawImage, sourceRect, destinationRect, paint);
+        }
       }
   }
   if (radialGradientOverlayPaint != null) {
@@ -3474,6 +4209,24 @@ FilterQuality _filterQualityForLove(LoveGraphicsDefaultFilter filter) {
       FilterQuality.none,
     _ => FilterQuality.low,
   };
+}
+
+FilterQuality _filterQualityForImage(LoveImage image) {
+  final baseQuality = _filterQualityForLove(image.filter);
+  if (baseQuality != FilterQuality.low ||
+      image.mipmapCount <= 1 ||
+      image.mipmapFilter != LoveGraphicsFilterMode.linear) {
+    return baseQuality;
+  }
+  return FilterQuality.medium;
+}
+
+/// Resolves Flutter's sampling quality for a LOVE image.
+///
+/// Linear mip chains use Flutter's mipmapped sampling path. Images without a
+/// mip chain retain the existing nearest or bilinear behavior.
+FilterQuality loveFilterQualityForImage(LoveImage image) {
+  return _filterQualityForImage(image);
 }
 
 FilterQuality loveFilterQualityForGraphicsDefaultFilter(
