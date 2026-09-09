@@ -12,12 +12,12 @@ on:
 
 jobs:
   publish:
-    uses: dart-lang/ecosystem/.github/workflows/publish.yaml@main
+    uses: dart-lang/ecosystem/.github/workflows/publish.yaml@1bdafd85bb97b331ddd683577f48a5dfa7f4cb49
     with:
       use-flutter: true
-      # Fork pull requests cannot write comments with the pull_request token.
-      # post_summaries.yml republishes this result with a trusted token.
-      write-comments: false
+      # Same-repository PRs can receive the result directly. Fork PRs use
+      # post_summaries.yml, which republishes the result with a trusted token.
+      write-comments: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository }}
     permissions:
       id-token: write
       pull-requests: write

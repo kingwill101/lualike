@@ -1,3 +1,5 @@
+# lualike changelog
+
 ## 0.5.3
 
 - Add an opt-in `LuaGcPolicy.hostManaged` mode for hosts that delegate object

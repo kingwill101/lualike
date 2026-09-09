@@ -1,3 +1,5 @@
+# love2d changelog
+
 ## 0.1.1
 
 - Bump `lualike` dependency to `^0.4.0`.

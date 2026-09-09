@@ -1,3 +1,5 @@
+# lualike_hooks changelog
+
 ## 0.2.1
 
 - Update the `lualike` dependency to `^0.5.3`.
