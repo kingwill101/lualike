@@ -146,7 +146,6 @@ if (((logical_height - pane_height) % 2 != 0)); then
 fi
 pane_top=$(((logical_height - pane_height) / 2))
 right_pane_x=$((pane_width + gap))
-crop_y=$((chrome_height + pane_top))
 window_height=$((logical_height + chrome_height))
 
 query_window() {
@@ -222,7 +221,8 @@ if [[ -n "$vm_service_url" ]]; then
   extension resetInputState >/dev/null
   render_state="$(extension setVirtualPointer \
     --data-urlencode "x=$pointer_x" \
-    --data-urlencode "y=$pointer_y")"
+    --data-urlencode "y=$pointer_y" \
+    --data-urlencode 'lockPhysicalMouseInput=true')"
   if [[ "$reset_key" != none ]]; then
     previous_frame="$(jq --raw-output '.result.presentedFrame' <<<"$render_state")"
     extension setVirtualKey \
@@ -243,10 +243,17 @@ fi
 
 geometry="$(query_window)"
 IFS=$'\t' read -r address x y width height floating <<<"$geometry"
-if [[ "$width" != "$logical_width" || "$height" != "$window_height" ]]; then
-  echo "Flutter window resize mismatch: expected=${logical_width}x${window_height} actual=${width}x${height}" >&2
+if [[ "$width" != "$logical_width" ]]; then
+  echo "Flutter window width mismatch: expected=$logical_width actual=$width" >&2
   exit 1
 fi
+effective_chrome_height=$((height - logical_height))
+chrome_delta=$((effective_chrome_height - chrome_height))
+if ((effective_chrome_height < 0 || chrome_delta < -1 || chrome_delta > 1)); then
+  echo "Flutter window height mismatch: expected=${logical_width}x${window_height} actual=${width}x${height}" >&2
+  exit 1
+fi
+crop_y=$((effective_chrome_height + pane_top))
 
 mkdir -p "$(dirname "$output_prefix")"
 window_path="${output_prefix}-window.png"
@@ -273,6 +280,10 @@ jq -n \
   --arg logicalSize "$logical_size" \
   --argjson paneWidth "$pane_width" \
   --argjson paneHeight "$pane_height" \
+  --argjson requestedChromeHeight "$chrome_height" \
+  --argjson effectiveChromeHeight "$effective_chrome_height" \
+  --argjson windowWidth "$width" \
+  --argjson windowHeight "$height" \
   --argjson normalizedRmse "$normalized_rmse" \
   --argjson renderState "$render_state" \
   '{
@@ -281,8 +292,11 @@ jq -n \
     canvas: $canvas,
     gpu: $gpu,
     logicalSize: $logicalSize,
+    windowSize: {width: $windowWidth, height: $windowHeight},
     paneWidth: $paneWidth,
     paneHeight: $paneHeight,
+    requestedChromeHeight: $requestedChromeHeight,
+    effectiveChromeHeight: $effectiveChromeHeight,
     normalizedRmse: $normalizedRmse,
     renderState: ($renderState.result // null)
   }' >"$summary_path"

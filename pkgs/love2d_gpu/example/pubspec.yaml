@@ -15,6 +15,8 @@ dependencies:
   flame: ^1.37.0
   flutter_lualike:
     path: ../../flutter_lualike
+  lualike:
+    path: ../../lualike
   love2d:
     path: ../../love2d
   love2d_gpu:
@@ -23,6 +25,8 @@ dependencies:
 dependency_overrides:
   lualike:
     path: ../../lualike
+  lualike_hooks:
+    path: ../../lualike_hooks
   love2d:
     path: ../../love2d
 
@@ -38,5 +42,15 @@ flutter:
   assets:
     - assets/conf.lua
     - assets/main.lua
+    - assets/texture_probe.lua
+    - assets/composition_probe.lua
+    - assets/asset_probe.lua
     - assets/issue_probe.lua
+    - assets/signal_lattice_benchmark.lua
+    - assets/shared/
     - assets/art/
+    - assets/parity_probe/
+    - assets/curve_probe/
+    - assets/segment_probe/
+    - assets/asset_probe/
+    - assets/formatted_text_probe/

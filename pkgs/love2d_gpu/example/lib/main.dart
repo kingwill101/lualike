@@ -7,6 +7,7 @@ import 'package:flutter_driver/driver_extension.dart';
 import 'package:flutter_lualike/flutter_lualike.dart';
 import 'package:love2d/love2d.dart' hide LoveGpuRenderBackend;
 import 'package:love2d_gpu/love2d_gpu.dart';
+import 'package:lualike/lualike.dart' show LuaGcPolicy;
 import 'package:marionette_flutter/marionette_flutter.dart';
 
 import 'love2d_demo_diagnostics.dart';
@@ -18,6 +19,18 @@ const String _entryAsset = String.fromEnvironment(
 const String _engineModeName = String.fromEnvironment(
   'LOVE_ENGINE_MODE',
   defaultValue: 'ast',
+);
+const bool _hostManagedGc = bool.fromEnvironment(
+  'LUALIKE_HOST_MANAGED_GC',
+  defaultValue: false,
+);
+const bool _recreateHarnessOnModeSwitch = bool.fromEnvironment(
+  'LOVE2D_DEMO_RECREATE_HARNESS_ON_MODE_SWITCH',
+  defaultValue: false,
+);
+const bool _forceCanvasBackend = bool.fromEnvironment(
+  'LOVE2D_DEMO_FORCE_CANVAS',
+  defaultValue: false,
 );
 
 enum _DemoRenderMode { comparison, gpu, canvas }
@@ -77,21 +90,26 @@ void main() async {
   );
 
   debugPrint('[love2d_gpu_demo] initializing...');
-  debugPrint('[love2d_gpu_demo] trying gpu.gpuContext...');
-
   LoveGpuRenderBackend? gpuBackend;
-  try {
-    gpuBackend = await LoveGpuRenderBackend.create();
-    if (gpuBackend != null) {
-      debugPrint('[love2d_gpu_demo] USING FLUTTER GPU BACKEND');
-    } else {
-      debugPrint(
-        '[love2d_gpu_demo] GPU backend returned null, falling back to Canvas',
-      );
+  if (_forceCanvasBackend) {
+    debugPrint(
+      '[love2d_gpu_demo] GPU initialization disabled; using Canvas only',
+    );
+  } else {
+    debugPrint('[love2d_gpu_demo] trying gpu.gpuContext...');
+    try {
+      gpuBackend = await LoveGpuRenderBackend.create();
+      if (gpuBackend != null) {
+        debugPrint('[love2d_gpu_demo] USING FLUTTER GPU BACKEND');
+      } else {
+        debugPrint(
+          '[love2d_gpu_demo] GPU backend returned null, falling back to Canvas',
+        );
+      }
+    } catch (e, stack) {
+      debugPrint('[love2d_gpu_demo] GPU backend FAILED: $e');
+      debugPrint('[love2d_gpu_demo] stack: $stack');
     }
-  } catch (e, stack) {
-    debugPrint('[love2d_gpu_demo] GPU backend FAILED: $e');
-    debugPrint('[love2d_gpu_demo] stack: $stack');
   }
 
   final backend = gpuBackend ?? LoveCanvasRenderBackend();
@@ -100,6 +118,9 @@ void main() async {
     entryAsset: _entryAsset,
     gpuBackend: gpuBackend,
     engineMode: engineMode.name,
+    gcPolicy: _hostManagedGc ? 'hostManaged' : 'luaCompatible',
+    recreateHarnessOnModeSwitch: _recreateHarnessOnModeSwitch,
+    gpuInitializationDisabled: _forceCanvasBackend,
     initialMode: gpuBackend == null ? 'canvas' : 'comparison',
   );
   if (useMarionette) {
@@ -168,11 +189,17 @@ class _Love2dGpuDemoState extends State<Love2dGpuDemo> {
     super.initState();
     _mode = _modeFromName(widget.diagnostics.mode.value);
     widget.diagnostics.mode.addListener(_handleRequestedModeChanged);
+    widget.diagnostics.capturePresentation.addListener(
+      _handleCapturePresentationChanged,
+    );
   }
 
   @override
   void dispose() {
     widget.diagnostics.mode.removeListener(_handleRequestedModeChanged);
+    widget.diagnostics.capturePresentation.removeListener(
+      _handleCapturePresentationChanged,
+    );
     super.dispose();
   }
 
@@ -181,6 +208,12 @@ class _Love2dGpuDemoState extends State<Love2dGpuDemo> {
     final requestedMode = _modeFromName(widget.diagnostics.mode.value);
     if (requestedMode == _mode) return;
     setState(() => _mode = requestedMode);
+  }
+
+  void _handleCapturePresentationChanged() {
+    if (mounted) {
+      setState(() {});
+    }
   }
 
   LoveRenderBackend get _activeBackend {
@@ -238,9 +271,14 @@ class _Love2dGpuDemoState extends State<Love2dGpuDemo> {
         body: Stack(
           children: [
             LoveFlameHarness(
-              key: ValueKey('${_mode.name}:$_entryAsset'),
+              key: _recreateHarnessOnModeSwitch
+                  ? ValueKey('${_mode.name}:$_entryAsset')
+                  : const ValueKey(_entryAsset),
               entryAsset: _entryAsset,
               engineMode: widget.engineMode,
+              gcPolicy: _hostManagedGc
+                  ? LuaGcPolicy.hostManaged
+                  : LuaGcPolicy.luaCompatible,
               filesystemAdapter: widget.filesystemAdapter,
               renderBackend: backend,
               imageWarmupAssetKeys: widget.imageWarmupAssetKeys,
@@ -268,44 +306,47 @@ class _Love2dGpuDemoState extends State<Love2dGpuDemo> {
                     }
                   : null,
               showProgrammaticCursorOverlay:
+                  !widget.diagnostics.capturePresentation.value &&
                   _mode != _DemoRenderMode.comparison,
+              showStatusOverlay: !widget.diagnostics.capturePresentation.value,
             ),
-            Positioned(
-              top: 12,
-              right: 12,
-              child: SafeArea(
-                child: Material(
-                  color: const Color(0xDD111827),
-                  elevation: 6,
-                  borderRadius: BorderRadius.circular(999),
-                  child: InkWell(
-                    key: const ValueKey('love2d-render-mode-toggle'),
+            if (!widget.diagnostics.capturePresentation.value)
+              Positioned(
+                top: 12,
+                right: 12,
+                child: SafeArea(
+                  child: Material(
+                    color: const Color(0xDD111827),
+                    elevation: 6,
                     borderRadius: BorderRadius.circular(999),
-                    onTap: _gpuAvailable ? _cycleRendererMode : null,
-                    child: Padding(
-                      padding: const EdgeInsets.symmetric(
-                        horizontal: 14,
-                        vertical: 10,
-                      ),
-                      child: Row(
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          Icon(_modeIcon, size: 18, color: Colors.white70),
-                          const SizedBox(width: 8),
-                          Text(
-                            _modeActionLabel,
-                            style: const TextStyle(
-                              color: Colors.white70,
-                              fontWeight: FontWeight.w600,
+                    child: InkWell(
+                      key: const ValueKey('love2d-render-mode-toggle'),
+                      borderRadius: BorderRadius.circular(999),
+                      onTap: _gpuAvailable ? _cycleRendererMode : null,
+                      child: Padding(
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 14,
+                          vertical: 10,
+                        ),
+                        child: Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Icon(_modeIcon, size: 18, color: Colors.white70),
+                            const SizedBox(width: 8),
+                            Text(
+                              _modeActionLabel,
+                              style: const TextStyle(
+                                color: Colors.white70,
+                                fontWeight: FontWeight.w600,
+                              ),
                             ),
-                          ),
-                        ],
+                          ],
+                        ),
                       ),
                     ),
                   ),
                 ),
               ),
-            ),
           ],
         ),
       ),

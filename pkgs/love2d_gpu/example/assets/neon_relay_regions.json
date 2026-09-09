@@ -1,0 +1,15 @@
+{
+  "schemaVersion": 1,
+  "logicalSize": {"width": 800, "height": 600},
+  "regions": [
+    {"name": "full", "x": 0, "y": 0, "width": 800, "height": 600},
+    {"name": "hud", "x": 20, "y": 20, "width": 760, "height": 55},
+    {"name": "sentinel", "x": 300, "y": 50, "width": 200, "height": 190},
+    {"name": "left_field", "x": 40, "y": 70, "width": 250, "height": 310},
+    {"name": "right_field", "x": 510, "y": 70, "width": 250, "height": 310},
+    {"name": "relay", "x": 325, "y": 245, "width": 150, "height": 145},
+    {"name": "player", "x": 335, "y": 400, "width": 130, "height": 170},
+    {"name": "bottom_hud", "x": 20, "y": 525, "width": 760, "height": 55},
+    {"name": "arena_only", "x": 180, "y": 420, "width": 100, "height": 80}
+  ]
+}

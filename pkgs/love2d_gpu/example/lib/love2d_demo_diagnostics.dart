@@ -5,6 +5,8 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/widgets.dart';
 import 'package:love2d/love2d.dart' hide LoveGpuRenderBackend;
 import 'package:love2d_gpu/love2d_gpu.dart';
+import 'package:lualike/lualike.dart'
+    show Box, Interpreter, LuaBytecodeVm, Value;
 import 'package:marionette_flutter/marionette_flutter.dart';
 
 const String love2dDiagnosticsStream = 'Love2D';
@@ -22,13 +24,20 @@ final class Love2dDemoDiagnostics {
     required this.entryAsset,
     required this.gpuBackend,
     required this.engineMode,
+    required this.gcPolicy,
+    required this.recreateHarnessOnModeSwitch,
+    required this.gpuInitializationDisabled,
     required String initialMode,
   }) : mode = ValueNotifier<String>(initialMode);
 
   final String entryAsset;
   final LoveGpuRenderBackend? gpuBackend;
   final String engineMode;
+  final String gcPolicy;
+  final bool recreateHarnessOnModeSwitch;
+  final bool gpuInitializationDisabled;
   final ValueNotifier<String> mode;
+  final ValueNotifier<bool> capturePresentation = ValueNotifier<bool>(false);
 
   LoveFlameHarnessGame? _game;
   LoveFlameInputAdapter? _input;
@@ -69,7 +78,11 @@ final class Love2dDemoDiagnostics {
   }
 
   /// Moves the LOVE pointer to a logical window coordinate for automation.
-  String? setVirtualPointer(double x, double y) {
+  String? setVirtualPointer(
+    double x,
+    double y, {
+    bool lockPhysicalMouseInput = false,
+  }) {
     final input = _input;
     if (input == null) {
       return 'LOVE input adapter is not ready';
@@ -77,7 +90,11 @@ final class Love2dDemoDiagnostics {
     if (!x.isFinite || !y.isFinite) {
       return 'x and y must be finite numbers';
     }
-    input.setVirtualPointerPosition(x, y);
+    input.setVirtualPointerPosition(
+      x,
+      y,
+      lockPhysicalMouseInput: lockPhysicalMouseInput,
+    );
     return null;
   }
 
@@ -107,8 +124,99 @@ final class Love2dDemoDiagnostics {
     return null;
   }
 
+  /// Hides demo-only controls so screenshots contain only the LOVE surface.
+  void setCapturePresentation({required bool enabled}) {
+    if (capturePresentation.value == enabled) {
+      return;
+    }
+    capturePresentation.value = enabled;
+    _emit('capture_presentation_changed', state());
+  }
+
+  String? setTypedGeneratedStrokes({required bool enabled}) {
+    final backend = gpuBackend;
+    if (backend == null) {
+      return 'GPU backend is unavailable';
+    }
+    if (!backend.supportsRuntimeStrokeTuning) {
+      return 'runtime stroke tuning is not enabled in this build';
+    }
+    backend.setTypedGeneratedStrokesForDiagnostics(enabled);
+    _emit('gpu_stroke_path_changed', state());
+    return null;
+  }
+
+  String? setCanvasRoughCurves({required bool enabled}) {
+    if (!loveCanvasSupportsRuntimeRoughCurveTuning) {
+      return 'runtime Canvas rough-curve tuning is not enabled in this build';
+    }
+    setLoveCanvasRoughCurveTessellationForDiagnostics(enabled);
+    _emit('canvas_rough_curve_path_changed', state());
+    return null;
+  }
+
+  String? setCanvasStraightAlphaTextures({required bool enabled}) {
+    if (!loveCanvasSupportsRuntimeStraightAlphaTextureTuning) {
+      return 'runtime Canvas straight-alpha tuning is not enabled in this build';
+    }
+    setLoveCanvasStraightAlphaTexturesForDiagnostics(enabled);
+    _emit('canvas_straight_alpha_texture_path_changed', state());
+    return null;
+  }
+
+  String? setRoughLineShader({required bool enabled}) {
+    final backend = gpuBackend;
+    if (backend == null) {
+      return 'GPU backend is unavailable';
+    }
+    if (!backend.supportsRuntimeRoughLineShaderTuning) {
+      return 'runtime rough-line shader tuning is not enabled in this build';
+    }
+    backend.setRoughLineShaderForDiagnostics(enabled);
+    _emit('gpu_rough_line_shader_changed', state());
+    return null;
+  }
+
+  String? setRoughAxisRuns({required bool enabled}) {
+    final backend = gpuBackend;
+    if (backend == null) {
+      return 'GPU backend is unavailable';
+    }
+    if (!backend.supportsRuntimeRoughAxisRunTuning) {
+      return 'runtime rough-axis-run tuning is not enabled in this build';
+    }
+    backend.setRoughAxisRunsForDiagnostics(enabled);
+    _emit('gpu_rough_axis_runs_changed', state());
+    return null;
+  }
+
+  String? setDirectSpriteGeometry({required bool enabled}) {
+    final backend = gpuBackend;
+    if (backend == null) {
+      return 'GPU backend is unavailable';
+    }
+    if (!backend.supportsRuntimeSpriteGeometryTuning) {
+      return 'runtime sprite geometry tuning is not enabled in this build';
+    }
+    backend.setDirectSpriteGeometryForDiagnostics(enabled);
+    _emit('gpu_sprite_geometry_changed', state());
+    return null;
+  }
+
+  String? setSyncPlainTableOpcodes({required bool enabled}) {
+    if (!LuaBytecodeVm.supportsRuntimeSyncPlainTableTuning) {
+      return 'runtime sync-table tuning is not enabled in this build';
+    }
+    LuaBytecodeVm.setSyncPlainTableOpcodesForDiagnostics(enabled);
+    _emit('lualike_sync_table_path_changed', state());
+    return null;
+  }
+
   void resetFrameTiming() {
     _game?.resetFrameTimingStats();
+    Box.resetBindingDiagnostics();
+    Value.resetAllocationDiagnostics();
+    Interpreter.resetAstLocalFrameDiagnostics();
     _emit('frame_timing_reset', state());
   }
 
@@ -120,6 +228,11 @@ final class Love2dDemoDiagnostics {
     final mouse = game?.host.mouse;
     final windowMetrics = game?.host.windowMetrics;
     final presentation = game?.presentationGeometry;
+    final workloadName = game?.readRuntimeGlobal('neon_relay_workload');
+    final workloadTick = game?.readRuntimeGlobal('neon_relay_signal_tick');
+    final workloadChecksum = game?.readRuntimeGlobal(
+      'neon_relay_signal_checksum',
+    );
     final comparisonStats = switch (game?.renderBackend) {
       final LoveSideBySideRenderBackend backend => <String, Object?>{
         'canvas': _renderStatsMap(backend.lastLeftStats),
@@ -128,19 +241,61 @@ final class Love2dDemoDiagnostics {
       _ => null,
     };
     final result = <String, Object?>{
-      'schemaVersion': 2,
+      'schemaVersion': 3,
       'entryAsset': entryAsset,
       'engineMode': engineMode,
+      'gcPolicy': gcPolicy,
+      'recreateHarnessOnModeSwitch': recreateHarnessOnModeSwitch,
+      'gpuInitializationDisabled': gpuInitializationDisabled,
       'mode': mode.value,
+      'capturePresentation': capturePresentation.value,
       'gpuAvailable': gpuAvailable,
+      'workload': <String, Object?>{
+        'name': workloadName is String ? workloadName : null,
+        'tick': workloadTick is num ? workloadTick : null,
+        'checksum': workloadChecksum is num ? workloadChecksum : null,
+      },
       'gpuMsaa': gpuBackend?.usesMultisampleAntialiasing ?? false,
       'gpuSampleCount': gpuBackend?.renderSampleCount ?? 1,
+      'gpuMipmapUploads': gpuBackend?.mipmapUploadsEnabled ?? false,
+      'gpuManualMipmapsSupported':
+          gpuBackend?.manuallyMippedTexturesSupported ?? false,
+      'canvasRoughCurveTessellation': loveCanvasUsesRoughCurveTessellation,
+      'canvasRuntimeRoughCurveTuning':
+          loveCanvasSupportsRuntimeRoughCurveTuning,
+      'canvasStraightAlphaTextures': loveCanvasUsesStraightAlphaTextures,
+      'canvasRuntimeStraightAlphaTextureTuning':
+          loveCanvasSupportsRuntimeStraightAlphaTextureTuning,
+      'canvasStraightAlphaTextureBindings':
+          loveCanvasStraightAlphaTextureBindingCount,
+      'canvasStraightAlphaTextureEstimatedBytes':
+          loveCanvasStraightAlphaTextureEstimatedBytes,
+      'gpuTypedGeneratedStrokes':
+          gpuBackend?.usesTypedGeneratedStrokes ?? false,
+      'gpuRuntimeStrokeTuning':
+          gpuBackend?.supportsRuntimeStrokeTuning ?? false,
+      'gpuRoughLineShader': gpuBackend?.usesRoughLineShader ?? false,
+      'gpuRuntimeRoughLineShaderTuning':
+          gpuBackend?.supportsRuntimeRoughLineShaderTuning ?? false,
+      'gpuRoughAxisRuns': gpuBackend?.usesRoughAxisRuns ?? false,
+      'gpuRuntimeRoughAxisRunTuning':
+          gpuBackend?.supportsRuntimeRoughAxisRunTuning ?? false,
+      'gpuDirectSpriteGeometry': gpuBackend?.usesDirectSpriteGeometry ?? false,
+      'gpuRuntimeSpriteGeometryTuning':
+          gpuBackend?.supportsRuntimeSpriteGeometryTuning ?? false,
+      'lualikeSyncPlainTableOpcodes': LuaBytecodeVm.usesSyncPlainTableOpcodes,
+      'lualikeRuntimeSyncPlainTableTuning':
+          LuaBytecodeVm.supportsRuntimeSyncPlainTableTuning,
       'ready': _presentedFrameCount > 0,
       'presentedFrame': _presentedFrameCount,
       'commandCount': snapshot?.commands.length ?? 0,
+      'runtimeBindings': Box.bindingDiagnostics(),
+      'runtimeValues': Value.allocationDiagnostics(),
+      'runtimeLocalFrames': Interpreter.astLocalFrameDiagnostics(),
       'input': <String, Object?>{
         'mouseX': mouse?.x ?? 0,
         'mouseY': mouse?.y ?? 0,
+        'physicalMouseInputLocked': _input?.physicalMouseInputLocked ?? false,
         'buttonsDown':
             mouse?.buttonsDown.toList(growable: false) ?? const <int>[],
         'pressedScancodes':
@@ -164,6 +319,12 @@ final class Love2dDemoDiagnostics {
         'p95UpdateMicros': frameTiming?.p95UpdateDuration.inMicroseconds ?? 0,
         'p99UpdateMicros': frameTiming?.p99UpdateDuration.inMicroseconds ?? 0,
         'maxUpdateMicros': frameTiming?.maxUpdateDuration.inMicroseconds ?? 0,
+        'p95RuntimeFrameMicros':
+            frameTiming?.p95RuntimeFrameDuration.inMicroseconds ?? 0,
+        'p99RuntimeFrameMicros':
+            frameTiming?.p99RuntimeFrameDuration.inMicroseconds ?? 0,
+        'maxRuntimeFrameMicros':
+            frameTiming?.maxRuntimeFrameDuration.inMicroseconds ?? 0,
         'p95CpuFrameMicros':
             frameTiming?.p95CpuFrameDuration.inMicroseconds ?? 0,
         'p99CpuFrameMicros':
@@ -175,6 +336,8 @@ final class Love2dDemoDiagnostics {
         'cpuFramesOver120HzBudget': frameTiming?.cpuFramesOver120HzBudget ?? 0,
         'cpuFramesOver60HzBudget': frameTiming?.cpuFramesOver60HzBudget ?? 0,
         'lastRenderedCommands': lastFrame?.renderStats.renderedCommands ?? 0,
+        'lastHybridFallbackCommands':
+            lastFrame?.renderStats.hybridFallbackCommands ?? 0,
         'averageRenderedCommands': frameTiming?.averageRenderedCommands ?? 0,
         'averageSoftwareSurfaceFallbacks':
             frameTiming?.averageSoftwareSurfaceFallbacks ?? 0,
@@ -191,6 +354,7 @@ final class Love2dDemoDiagnostics {
   Map<String, Object?> _renderStatsMap(LoveRenderStats stats) {
     return <String, Object?>{
       'renderedCommands': stats.renderedCommands,
+      'hybridFallbackCommands': stats.hybridFallbackCommands,
       'softwareSurfaceFallbacks': stats.softwareSurfaceFallbacks,
       'atlasBatchCommands': stats.atlasBatchCommands,
       'atlasBatchItems': stats.atlasBatchItems,
@@ -232,7 +396,7 @@ final class Love2dDemoDiagnostics {
       return;
     }
     developer.postEvent(eventKind, <String, Object?>{
-      'schemaVersion': 2,
+      'schemaVersion': 3,
       'source': 'love2d_gpu_demo',
       'timestampMicros': DateTime.now().microsecondsSinceEpoch,
       ...data,
@@ -283,6 +447,177 @@ void registerLove2dMarionetteExtensions(Love2dDemoDiagnostics diagnostics) {
     },
   );
   registerMarionetteExtension(
+    name: 'love2d.setCanvasRoughCurves',
+    description: 'Selects native-style or stroked-Path Canvas rough curves.',
+    callback: (params) async {
+      final enabled = switch (params['enabled']) {
+        'true' => true,
+        'false' => false,
+        _ => null,
+      };
+      if (enabled == null) {
+        return MarionetteExtensionResult.invalidParams(
+          'enabled must be a boolean',
+        );
+      }
+      final error = diagnostics.setCanvasRoughCurves(enabled: enabled);
+      if (error != null) {
+        return MarionetteExtensionResult.invalidParams(error);
+      }
+      return MarionetteExtensionResult.success(diagnostics.state());
+    },
+  );
+  registerMarionetteExtension(
+    name: 'love2d.setCanvasStraightAlphaTextures',
+    description: 'Selects premultiplied or straight-alpha Canvas filtering.',
+    callback: (params) async {
+      final enabled = switch (params['enabled']) {
+        'true' => true,
+        'false' => false,
+        _ => null,
+      };
+      if (enabled == null) {
+        return MarionetteExtensionResult.invalidParams(
+          'enabled must be a boolean',
+        );
+      }
+      final error = diagnostics.setCanvasStraightAlphaTextures(
+        enabled: enabled,
+      );
+      if (error != null) {
+        return MarionetteExtensionResult.invalidParams(error);
+      }
+      return MarionetteExtensionResult.success(diagnostics.state());
+    },
+  );
+  registerMarionetteExtension(
+    name: 'love2d.setTypedGeneratedStrokes',
+    description:
+        'Selects typed coordinates or legacy point records in an A/B build.',
+    callback: (params) async {
+      final enabled = switch (params['enabled']) {
+        'true' => true,
+        'false' => false,
+        _ => null,
+      };
+      if (enabled == null) {
+        return MarionetteExtensionResult.invalidParams(
+          'enabled must be a boolean',
+        );
+      }
+      final error = diagnostics.setTypedGeneratedStrokes(enabled: enabled);
+      if (error != null) {
+        return MarionetteExtensionResult.invalidParams(error);
+      }
+      return MarionetteExtensionResult.success(diagnostics.state());
+    },
+  );
+  registerMarionetteExtension(
+    name: 'love2d.setRoughLineShader',
+    description: 'Selects the native rough-line shader in an A/B build.',
+    callback: (params) async {
+      final enabled = switch (params['enabled']) {
+        'true' => true,
+        'false' => false,
+        _ => null,
+      };
+      if (enabled == null) {
+        return MarionetteExtensionResult.invalidParams(
+          'enabled must be a boolean',
+        );
+      }
+      final error = diagnostics.setRoughLineShader(enabled: enabled);
+      if (error != null) {
+        return MarionetteExtensionResult.invalidParams(error);
+      }
+      return MarionetteExtensionResult.success(diagnostics.state());
+    },
+  );
+  registerMarionetteExtension(
+    name: 'love2d.setRoughAxisRuns',
+    description: 'Selects exact axis-aligned rough-line runs in an A/B build.',
+    callback: (params) async {
+      final enabled = switch (params['enabled']) {
+        'true' => true,
+        'false' => false,
+        _ => null,
+      };
+      if (enabled == null) {
+        return MarionetteExtensionResult.invalidParams(
+          'enabled must be a boolean',
+        );
+      }
+      final error = diagnostics.setRoughAxisRuns(enabled: enabled);
+      if (error != null) {
+        return MarionetteExtensionResult.invalidParams(error);
+      }
+      return MarionetteExtensionResult.success(diagnostics.state());
+    },
+  );
+  registerMarionetteExtension(
+    name: 'love2d.setDirectSpriteGeometry',
+    description:
+        'Selects direct affine or legacy matrix sprite expansion in an A/B build.',
+    callback: (params) async {
+      final enabled = switch (params['enabled']) {
+        'true' => true,
+        'false' => false,
+        _ => null,
+      };
+      if (enabled == null) {
+        return MarionetteExtensionResult.invalidParams(
+          'enabled must be a boolean',
+        );
+      }
+      final error = diagnostics.setDirectSpriteGeometry(enabled: enabled);
+      if (error != null) {
+        return MarionetteExtensionResult.invalidParams(error);
+      }
+      return MarionetteExtensionResult.success(diagnostics.state());
+    },
+  );
+  registerMarionetteExtension(
+    name: 'love2d.setSyncPlainTableOpcodes',
+    description:
+        'Selects synchronous or async plain-table bytecode ops in an A/B build.',
+    callback: (params) async {
+      final enabled = switch (params['enabled']) {
+        'true' => true,
+        'false' => false,
+        _ => null,
+      };
+      if (enabled == null) {
+        return MarionetteExtensionResult.invalidParams(
+          'enabled must be a boolean',
+        );
+      }
+      final error = diagnostics.setSyncPlainTableOpcodes(enabled: enabled);
+      if (error != null) {
+        return MarionetteExtensionResult.invalidParams(error);
+      }
+      return MarionetteExtensionResult.success(diagnostics.state());
+    },
+  );
+  registerMarionetteExtension(
+    name: 'love2d.setCapturePresentation',
+    description:
+        'Hides demo-only controls and cursor overlays for clean LOVE captures.',
+    callback: (params) async {
+      final enabled = switch (params['enabled']) {
+        'true' => true,
+        'false' => false,
+        _ => null,
+      };
+      if (enabled == null) {
+        return MarionetteExtensionResult.invalidParams(
+          'enabled must be a boolean',
+        );
+      }
+      diagnostics.setCapturePresentation(enabled: enabled);
+      return MarionetteExtensionResult.success(diagnostics.state());
+    },
+  );
+  registerMarionetteExtension(
     name: 'love2d.setVirtualKey',
     description: 'Presses or releases a LOVE key for deterministic testing.',
     callback: (params) async {
@@ -324,12 +659,21 @@ void registerLove2dMarionetteExtensions(Love2dDemoDiagnostics diagnostics) {
     callback: (params) async {
       final x = double.tryParse(params['x'] ?? '');
       final y = double.tryParse(params['y'] ?? '');
-      if (x == null || y == null) {
+      final lockPhysicalMouseInput = switch (params['lockPhysicalMouseInput']) {
+        null || 'false' => false,
+        'true' => true,
+        _ => null,
+      };
+      if (x == null || y == null || lockPhysicalMouseInput == null) {
         return MarionetteExtensionResult.invalidParams(
-          'x and y must be numbers',
+          'x and y must be numbers; lockPhysicalMouseInput must be a boolean',
         );
       }
-      final error = diagnostics.setVirtualPointer(x, y);
+      final error = diagnostics.setVirtualPointer(
+        x,
+        y,
+        lockPhysicalMouseInput: lockPhysicalMouseInput,
+      );
       if (error != null) {
         return MarionetteExtensionResult.invalidParams(error);
       }
@@ -380,6 +724,226 @@ void registerLove2dVmExtensions(Love2dDemoDiagnostics diagnostics) {
     _,
   ) async {
     diagnostics.resetFrameTiming();
+    return developer.ServiceExtensionResponse.result(
+      convert.jsonEncode(diagnostics.state()),
+    );
+  });
+  developer.registerExtension('ext.flutter.love2d.setCanvasRoughCurves', (
+    _,
+    parameters,
+  ) async {
+    final enabled = switch (parameters['enabled']) {
+      'true' => true,
+      'false' => false,
+      _ => null,
+    };
+    if (enabled == null) {
+      return developer.ServiceExtensionResponse.error(
+        developer.ServiceExtensionResponse.invalidParams,
+        convert.jsonEncode(<String, Object?>{
+          'error': 'enabled=true|false is required',
+        }),
+      );
+    }
+    final error = diagnostics.setCanvasRoughCurves(enabled: enabled);
+    if (error != null) {
+      return developer.ServiceExtensionResponse.error(
+        developer.ServiceExtensionResponse.invalidParams,
+        convert.jsonEncode(<String, Object?>{'error': error}),
+      );
+    }
+    return developer.ServiceExtensionResponse.result(
+      convert.jsonEncode(diagnostics.state()),
+    );
+  });
+  developer.registerExtension(
+    'ext.flutter.love2d.setCanvasStraightAlphaTextures',
+    (_, parameters) async {
+      final enabled = switch (parameters['enabled']) {
+        'true' => true,
+        'false' => false,
+        _ => null,
+      };
+      if (enabled == null) {
+        return developer.ServiceExtensionResponse.error(
+          developer.ServiceExtensionResponse.invalidParams,
+          convert.jsonEncode(<String, Object?>{
+            'error': 'enabled=true|false is required',
+          }),
+        );
+      }
+      final error = diagnostics.setCanvasStraightAlphaTextures(
+        enabled: enabled,
+      );
+      if (error != null) {
+        return developer.ServiceExtensionResponse.error(
+          developer.ServiceExtensionResponse.invalidParams,
+          convert.jsonEncode(<String, Object?>{'error': error}),
+        );
+      }
+      return developer.ServiceExtensionResponse.result(
+        convert.jsonEncode(diagnostics.state()),
+      );
+    },
+  );
+  developer.registerExtension('ext.flutter.love2d.setTypedGeneratedStrokes', (
+    _,
+    parameters,
+  ) async {
+    final enabled = switch (parameters['enabled']) {
+      'true' => true,
+      'false' => false,
+      _ => null,
+    };
+    if (enabled == null) {
+      return developer.ServiceExtensionResponse.error(
+        developer.ServiceExtensionResponse.invalidParams,
+        convert.jsonEncode(<String, Object?>{
+          'error': 'enabled=true|false is required',
+        }),
+      );
+    }
+    final error = diagnostics.setTypedGeneratedStrokes(enabled: enabled);
+    if (error != null) {
+      return developer.ServiceExtensionResponse.error(
+        developer.ServiceExtensionResponse.invalidParams,
+        convert.jsonEncode(<String, Object?>{'error': error}),
+      );
+    }
+    return developer.ServiceExtensionResponse.result(
+      convert.jsonEncode(diagnostics.state()),
+    );
+  });
+  developer.registerExtension('ext.flutter.love2d.setRoughLineShader', (
+    _,
+    parameters,
+  ) async {
+    final enabled = switch (parameters['enabled']) {
+      'true' => true,
+      'false' => false,
+      _ => null,
+    };
+    if (enabled == null) {
+      return developer.ServiceExtensionResponse.error(
+        developer.ServiceExtensionResponse.invalidParams,
+        convert.jsonEncode(<String, Object?>{
+          'error': 'enabled=true|false is required',
+        }),
+      );
+    }
+    final error = diagnostics.setRoughLineShader(enabled: enabled);
+    if (error != null) {
+      return developer.ServiceExtensionResponse.error(
+        developer.ServiceExtensionResponse.invalidParams,
+        convert.jsonEncode(<String, Object?>{'error': error}),
+      );
+    }
+    return developer.ServiceExtensionResponse.result(
+      convert.jsonEncode(diagnostics.state()),
+    );
+  });
+  developer.registerExtension('ext.flutter.love2d.setRoughAxisRuns', (
+    _,
+    parameters,
+  ) async {
+    final enabled = switch (parameters['enabled']) {
+      'true' => true,
+      'false' => false,
+      _ => null,
+    };
+    if (enabled == null) {
+      return developer.ServiceExtensionResponse.error(
+        developer.ServiceExtensionResponse.invalidParams,
+        convert.jsonEncode(<String, Object?>{
+          'error': 'enabled=true|false is required',
+        }),
+      );
+    }
+    final error = diagnostics.setRoughAxisRuns(enabled: enabled);
+    if (error != null) {
+      return developer.ServiceExtensionResponse.error(
+        developer.ServiceExtensionResponse.invalidParams,
+        convert.jsonEncode(<String, Object?>{'error': error}),
+      );
+    }
+    return developer.ServiceExtensionResponse.result(
+      convert.jsonEncode(diagnostics.state()),
+    );
+  });
+  developer.registerExtension('ext.flutter.love2d.setDirectSpriteGeometry', (
+    _,
+    parameters,
+  ) async {
+    final enabled = switch (parameters['enabled']) {
+      'true' => true,
+      'false' => false,
+      _ => null,
+    };
+    if (enabled == null) {
+      return developer.ServiceExtensionResponse.error(
+        developer.ServiceExtensionResponse.invalidParams,
+        convert.jsonEncode(<String, Object?>{
+          'error': 'enabled=true|false is required',
+        }),
+      );
+    }
+    final error = diagnostics.setDirectSpriteGeometry(enabled: enabled);
+    if (error != null) {
+      return developer.ServiceExtensionResponse.error(
+        developer.ServiceExtensionResponse.invalidParams,
+        convert.jsonEncode(<String, Object?>{'error': error}),
+      );
+    }
+    return developer.ServiceExtensionResponse.result(
+      convert.jsonEncode(diagnostics.state()),
+    );
+  });
+  developer.registerExtension('ext.flutter.love2d.setSyncPlainTableOpcodes', (
+    _,
+    parameters,
+  ) async {
+    final enabled = switch (parameters['enabled']) {
+      'true' => true,
+      'false' => false,
+      _ => null,
+    };
+    if (enabled == null) {
+      return developer.ServiceExtensionResponse.error(
+        developer.ServiceExtensionResponse.invalidParams,
+        convert.jsonEncode(<String, Object?>{
+          'error': 'enabled=true|false is required',
+        }),
+      );
+    }
+    final error = diagnostics.setSyncPlainTableOpcodes(enabled: enabled);
+    if (error != null) {
+      return developer.ServiceExtensionResponse.error(
+        developer.ServiceExtensionResponse.invalidParams,
+        convert.jsonEncode(<String, Object?>{'error': error}),
+      );
+    }
+    return developer.ServiceExtensionResponse.result(
+      convert.jsonEncode(diagnostics.state()),
+    );
+  });
+  developer.registerExtension('ext.flutter.love2d.setCapturePresentation', (
+    _,
+    parameters,
+  ) async {
+    final enabled = switch (parameters['enabled']) {
+      'true' => true,
+      'false' => false,
+      _ => null,
+    };
+    if (enabled == null) {
+      return developer.ServiceExtensionResponse.error(
+        developer.ServiceExtensionResponse.invalidParams,
+        convert.jsonEncode(<String, Object?>{
+          'error': 'enabled=true|false is required',
+        }),
+      );
+    }
+    diagnostics.setCapturePresentation(enabled: enabled);
     return developer.ServiceExtensionResponse.result(
       convert.jsonEncode(diagnostics.state()),
     );
@@ -435,15 +999,27 @@ void registerLove2dVmExtensions(Love2dDemoDiagnostics diagnostics) {
   ) async {
     final x = double.tryParse(parameters['x'] ?? '');
     final y = double.tryParse(parameters['y'] ?? '');
-    if (x == null || y == null) {
+    final lockPhysicalMouseInput =
+        switch (parameters['lockPhysicalMouseInput']) {
+          null || 'false' => false,
+          'true' => true,
+          _ => null,
+        };
+    if (x == null || y == null || lockPhysicalMouseInput == null) {
       return developer.ServiceExtensionResponse.error(
         developer.ServiceExtensionResponse.invalidParams,
         convert.jsonEncode(<String, Object?>{
-          'error': 'x and y must be numbers',
+          'error':
+              'x and y must be numbers; '
+              'lockPhysicalMouseInput must be true or false',
         }),
       );
     }
-    final error = diagnostics.setVirtualPointer(x, y);
+    final error = diagnostics.setVirtualPointer(
+      x,
+      y,
+      lockPhysicalMouseInput: lockPhysicalMouseInput,
+    );
     if (error != null) {
       return developer.ServiceExtensionResponse.error(
         developer.ServiceExtensionResponse.invalidParams,

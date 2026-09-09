@@ -1,0 +1,16 @@
+{
+  "schemaVersion": 1,
+  "logicalSize": {"width": 800, "height": 600},
+  "regions": [
+    {"name": "full", "x": 0, "y": 0, "width": 800, "height": 600},
+    {"name": "header", "x": 20, "y": 12, "width": 760, "height": 58},
+    {"name": "player_direct_small", "x": 55, "y": 105, "width": 130, "height": 150},
+    {"name": "player_direct_rotated", "x": 202, "y": 88, "width": 196, "height": 196},
+    {"name": "sentinel_direct_small", "x": 435, "y": 105, "width": 130, "height": 150},
+    {"name": "sentinel_direct_rotated", "x": 582, "y": 88, "width": 196, "height": 196},
+    {"name": "player_batch_small", "x": 55, "y": 365, "width": 130, "height": 150},
+    {"name": "player_batch_rotated", "x": 202, "y": 348, "width": 196, "height": 196},
+    {"name": "sentinel_batch_small", "x": 435, "y": 365, "width": 130, "height": 150},
+    {"name": "sentinel_batch_rotated", "x": 582, "y": 348, "width": 196, "height": 196}
+  ]
+}
