@@ -388,7 +388,7 @@ class LoveFilesystemFile {
     return _withTemporarilyOpenedFile(() async {
       final openedPath = _openedPath;
       if (openedPath != null) {
-        return state.adapter.fileSize(openedPath);
+        return await state.adapter.fileSize(openedPath);
       }
 
       return (await state.getInfo(

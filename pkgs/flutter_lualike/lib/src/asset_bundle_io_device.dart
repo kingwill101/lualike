@@ -79,62 +79,67 @@ class AssetBundleIODevice extends BaseIODevice {
           return ReadResult(LuaString.fromBytes(content));
 
         case 'l':
-        case 'L': {
-          if (_position >= _data.length) return ReadResult(null);
-          final start = _position;
-          while (_position < _data.length && _data[_position] != 10) {
-            _position++;
+        case 'L':
+          {
+            if (_position >= _data.length) return ReadResult(null);
+            final start = _position;
+            while (_position < _data.length && _data[_position] != 10) {
+              _position++;
+            }
+            if (normalizedFormat == 'L' && _position < _data.length) {
+              _position++; // include newline
+            }
+            final line = _data.sublist(start, _position);
+            if (normalizedFormat != 'L' && line.isNotEmpty && line.last == 10) {
+              // strip trailing newline for 'l'
+              _position--;
+              return ReadResult(
+                LuaString.fromBytes(_data.sublist(start, _position)),
+              );
+            }
+            return ReadResult(LuaString.fromBytes(line));
           }
-          if (normalizedFormat == 'L' && _position < _data.length) {
-            _position++; // include newline
-          }
-          final line = _data.sublist(start, _position);
-          if (normalizedFormat != 'L' && line.isNotEmpty && line.last == 10) {
-            // strip trailing newline for 'l'
-            _position--;
-            return ReadResult(
-              LuaString.fromBytes(_data.sublist(start, _position)),
-            );
-          }
-          return ReadResult(LuaString.fromBytes(line));
-        }
 
-        case 'n': {
-          if (_position >= _data.length) return ReadResult(null);
-          final buffer = <int>[];
-          while (_position < _data.length && _data[_position] <= 32) {
-            _position++;
+        case 'n':
+          {
+            if (_position >= _data.length) return ReadResult(null);
+            final buffer = <int>[];
+            while (_position < _data.length && _data[_position] <= 32) {
+              _position++;
+            }
+            if (_position >= _data.length) return ReadResult(null);
+            const digits = {45, 43, 46, 101, 69, 120, 88};
+            while (_position < _data.length &&
+                (_data[_position] >= 48 && _data[_position] <= 57 ||
+                    digits.contains(_data[_position]))) {
+              buffer.add(_data[_position]);
+              _position++;
+            }
+            if (buffer.isEmpty) return ReadResult(null);
+            final numStr = String.fromCharCodes(buffer);
+            try {
+              return ReadResult(num.parse(numStr));
+            } catch (_) {
+              return ReadResult(null);
+            }
           }
-          if (_position >= _data.length) return ReadResult(null);
-          const digits = {45, 43, 46, 101, 69, 120, 88};
-          while (_position < _data.length &&
-              (_data[_position] >= 48 && _data[_position] <= 57 ||
-                  digits.contains(_data[_position]))) {
-            buffer.add(_data[_position]);
-            _position++;
-          }
-          if (buffer.isEmpty) return ReadResult(null);
-          final numStr = String.fromCharCodes(buffer);
-          try {
-            return ReadResult(num.parse(numStr));
-          } catch (_) {
-            return ReadResult(null);
-          }
-        }
 
-        default: {
-          final n = int.parse(normalizedFormat);
-          if (n == 0) {
-            return _position >= _data.length ? ReadResult(null) : ReadResult('');
+        default:
+          {
+            final n = int.parse(normalizedFormat);
+            if (n == 0) {
+              return _position >= _data.length
+                  ? ReadResult(null)
+                  : ReadResult('');
+            }
+            if (_position >= _data.length) return ReadResult(null);
+            final end = (_position + n) > _data.length
+                ? _data.length
+                : _position + n;
+            final chunk = _data.sublist(_position, end);
+            _position = end;
+            return ReadResult(LuaString.fromBytes(chunk));
           }
-          if (_position >= _data.length) return ReadResult(null);
-          final end = (_position + n) > _data.length
-              ? _data.length
-              : _position + n;
-          final chunk = _data.sublist(_position, end);
-          _position = end;
-          return ReadResult(LuaString.fromBytes(chunk));
-        }
       }
     } catch (e) {
       return ReadResult(null, e.toString());

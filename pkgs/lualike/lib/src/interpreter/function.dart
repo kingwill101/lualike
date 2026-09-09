@@ -2735,8 +2735,9 @@ mixin InterpreterFunctionMixin on AstVisitor<Object?> {
             if (await rebindTailCall(awaited)) continue;
             return awaited;
           }
-          if (await rebindTailCall(result)) continue;
-          return result;
+          final Object? synchronousResult = result;
+          if (await rebindTailCall(synchronousResult)) continue;
+          return synchronousResult;
         }
 
         try {

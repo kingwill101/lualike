@@ -223,8 +223,8 @@ void main() {
 }
 
 /// Returns the path to a luac55 binary, or throws if none can be found or
-/// downloaded. The cache is checked in order: env var → project .tmp →
-/// workspace .tmp → system temp → download.
+/// downloaded. Platform-specific caches are checked in order: env var →
+/// project .tmp → workspace .tmp → system temp → download.
 Future<String> _resolveLuac55Binary() async {
   // 1. LUAC55 env var
   final envPath = Platform.environment['LUAC55'];
@@ -241,7 +241,7 @@ Future<String> _resolveLuac55Binary() async {
   // 3. Download to project .tmp and cache
   final packageRoot = _findPackageRoot();
   final projectCache = Directory(
-    p.join(packageRoot, '.tmp', 'lualike_luac55_cache'),
+    p.join(packageRoot, '.tmp', _luacCacheDirectoryName),
   );
   projectCache.createSync(recursive: true);
   await _downloadLuac55Binary(projectCache);
@@ -258,9 +258,9 @@ Future<String> _resolveLuac55Binary() async {
 
 /// Prior to running this test, download a luac55 binary and place it in one of:
 ///   1. `LUAC55` env var pointing to the binary
-///   2. `{package_root}/.tmp/lualike_luac55_cache/`
-///   3. `{workspace_root}/.tmp/lualike_luac55_cache/`
-///   4. `{system_temp}/lualike_luac55_cache/`
+///   2. `{package_root}/.tmp/lualike_luac55_cache_<platform>/`
+///   3. `{workspace_root}/.tmp/lualike_luac55_cache_<platform>/`
+///   4. `{system_temp}/lualike_luac55_cache_<platform>/`
 ///
 /// Download URLs by platform:
 ///   - Linux:   https://downloads.sourceforge.net/project/luabinaries/5.5.0/Tools%20Executables/lua-5.5.0_Linux515_64_bin.tar.gz
@@ -273,22 +273,25 @@ Future<String> _resolveLuac55Binary() async {
 
 Directory get _luacCacheDir => _pickLuacCacheDir();
 
+String get _luacCacheDirectoryName =>
+    'lualike_luac55_cache_${Platform.operatingSystem}';
+
 Directory _pickLuacCacheDir() {
   // Prefer project-local .tmp cache.
   final packageRoot = _findPackageRoot();
   final projectCache = Directory(
-    p.join(packageRoot, '.tmp', 'lualike_luac55_cache'),
+    p.join(packageRoot, '.tmp', _luacCacheDirectoryName),
   );
   if (projectCache.existsSync()) return projectCache;
 
   // Fall back to workspace-level .tmp cache.
   final workspaceCache = Directory(
-    p.join(packageRoot, '..', '..', '.tmp', 'lualike_luac55_cache'),
+    p.join(packageRoot, '..', '..', '.tmp', _luacCacheDirectoryName),
   );
   if (workspaceCache.existsSync()) return workspaceCache;
 
   // Finally, system temp.
-  return Directory(p.join(Directory.systemTemp.path, 'lualike_luac55_cache'));
+  return Directory(p.join(Directory.systemTemp.path, _luacCacheDirectoryName));
 }
 
 /// Returns the package root directory by walking up from cwd.
@@ -365,7 +368,9 @@ String? _findLuacBinary(Directory root) {
     return null;
   }
 
-  final candidates = <String>['luac55', 'luac', 'luac55.exe', 'luac.exe'];
+  final candidates = Platform.isWindows
+      ? const <String>{'luac55.exe', 'luac.exe'}
+      : const <String>{'luac55', 'luac'};
 
   for (final entity in root.listSync(recursive: true)) {
     if (entity is! File) continue;

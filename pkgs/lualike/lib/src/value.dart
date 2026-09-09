@@ -2810,11 +2810,11 @@ class Value with GCObject implements Map<String, dynamic> {
     }
 
     if (method is Function) {
+      Object? result;
       try {
-        var result = method(list);
+        result = method(list);
         if (result is Future) result = await result;
         result = await normalizeTailCallSignal(result);
-        return result;
       } on TailCallException catch (t) {
         final callee = t.functionValue is Value
             ? t.functionValue as Value
@@ -2825,6 +2825,7 @@ class Value with GCObject implements Map<String, dynamic> {
         }
         return result;
       }
+      return result;
     } else if (method is BuiltinFunction) {
       final interpreter = _resolveInterpreter();
       if (interpreter != null) {
@@ -2837,11 +2838,11 @@ class Value with GCObject implements Map<String, dynamic> {
           debugNameWhat: 'metamethod',
         );
       }
+      Object? result;
       try {
-        var result = method.call(list);
+        result = method.call(list);
         if (result is Future) result = await result;
         result = await normalizeTailCallSignal(result);
-        return result;
       } on TailCallException catch (t) {
         final callee = t.functionValue is Value
             ? t.functionValue as Value
@@ -2852,6 +2853,7 @@ class Value with GCObject implements Map<String, dynamic> {
         }
         return result;
       }
+      return result;
     } else if (method is Value) {
       if (rawMethod is Function) {
         final interpreter =
@@ -2893,7 +2895,7 @@ class Value with GCObject implements Map<String, dynamic> {
           );
         }
         try {
-          var result = rawMethod.call(list);
+          Object? result = rawMethod.call(list);
           if (result is Future) result = await result;
           return result;
         } on TailCallException catch (t) {

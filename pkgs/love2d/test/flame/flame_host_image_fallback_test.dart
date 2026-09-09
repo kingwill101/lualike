@@ -157,8 +157,18 @@ bottom_right = {snapshot:getPixel(1, 1)}
 
       expect(runtime.unwrapGlobal('top_left'), <Object?>[1.0, 0.0, 0.0, 1.0]);
       expect(runtime.unwrapGlobal('top_right'), <Object?>[0.0, 1.0, 0.0, 1.0]);
-      expect(runtime.unwrapGlobal('bottom_left'), <Object?>[0.0, 0.0, 1.0, 1.0]);
-      expect(runtime.unwrapGlobal('bottom_right'), <Object?>[1.0, 1.0, 1.0, 1.0]);
+      expect(runtime.unwrapGlobal('bottom_left'), <Object?>[
+        0.0,
+        0.0,
+        1.0,
+        1.0,
+      ]);
+      expect(runtime.unwrapGlobal('bottom_right'), <Object?>[
+        1.0,
+        1.0,
+        1.0,
+        1.0,
+      ]);
     },
   );
 

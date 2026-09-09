@@ -1,6 +1,4 @@
-## 0.2.0
-
-- Broaden the `lualike` dependency constraint to `>=0.3.0 <0.6.0`.
+# love2d changelog
 
 ## 0.1.1
 

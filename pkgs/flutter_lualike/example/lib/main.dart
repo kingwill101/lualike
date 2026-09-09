@@ -64,7 +64,9 @@ class _HomePageState extends State<HomePage> {
 
     final greetFn = module['greet'] as Value;
     greetFn.interpreter ??= runtime;
-    final greeting = await runtime.callFunction(greetFn, const <Object?>['Flutter']);
+    final greeting = await runtime.callFunction(greetFn, const <Object?>[
+      'Flutter',
+    ]);
     _add('   M.greet("Flutter") = ${(greeting as Value).unwrap()}');
 
     final addFn = module['add'] as Value;
@@ -93,15 +95,16 @@ class _HomePageState extends State<HomePage> {
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(title: const Text('flutter_lualike Example')),
-      body: _running
-          ? const Center(child: CircularProgressIndicator())
-          : ListView(
-              padding: const EdgeInsets.all(16),
-              children: [
-                for (final line in _log)
-                  Text(line, style: const TextStyle(fontFamily: 'monospace')),
-              ],
-            ),
+      body:
+          _running
+              ? const Center(child: CircularProgressIndicator())
+              : ListView(
+                padding: const EdgeInsets.all(16),
+                children: [
+                  for (final line in _log)
+                    Text(line, style: const TextStyle(fontFamily: 'monospace')),
+                ],
+              ),
     );
   }
 }

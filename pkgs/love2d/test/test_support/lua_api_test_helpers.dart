@@ -135,7 +135,6 @@ Future<Object?> luaResolveCallResultList(Object? result) {
 Object? luaUnwrapValue(Object? value) =>
     value is Value ? value.unwrap() : value;
 
-
 LuaRuntime _luaRuntime(Object runtime) {
   return switch (runtime) {
     final LoveScriptRuntime scriptRuntime => scriptRuntime.runtime,

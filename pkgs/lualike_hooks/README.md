@@ -189,5 +189,5 @@ await useAssetBundle(rootBundle, assetRoot: 'build/lua');
 
 | Example | Mode | Notes |
 |---------|------|-------|
-| [`examples/example_dart/`](example_dart/) | bytecode | Dart CLI end-to-end |
-| [`examples/example_dart_data_assets/`](example_dart_data_assets/) | bytecode | Dart CLI + experimental DataAssets |
+| [`example/example_dart/`](example/example_dart/) | bytecode | Dart CLI end-to-end |
+| [`example/example_dart_data_assets/`](example/example_dart_data_assets/) | bytecode | Dart CLI + experimental DataAssets |

@@ -1,49 +1,23 @@
-name: Publish to pub.dev
+# Validate packages on pull requests and publish tagged packages to pub.dev.
+
+name: Publish
 
 on:
+  pull_request:
+    branches: [master]
+    types: [opened, synchronize, reopened, labeled, unlabeled]
   push:
     tags:
-      - "v[0-9]+.[0-9]+.[0-9]+*"
-      - "lualike-v[0-9]+.[0-9]+.[0-9]+*"
-      - "file_lualike-v[0-9]+.[0-9]+.[0-9]+*"
-      - "process_lualike-v[0-9]+.[0-9]+.[0-9]+*"
-      - "flutter_lualike-v[0-9]+.[0-9]+.[0-9]+*"
-  workflow_run:
-    workflows: ["Dart", "Lua Test Suite"]
-    types: [completed]
-    branches: ["master"]
+      - '[0-9A-z]+-v[0-9]+.[0-9]+.[0-9]+'
 
 jobs:
   publish:
-    if: ${{ github.event.workflow_run.conclusion == 'success' || github.ref_type == 'tag' }}
+    uses: dart-lang/ecosystem/.github/workflows/publish.yaml@1bdafd85bb97b331ddd683577f48a5dfa7f4cb49
+    with:
+      use-flutter: true
+      # Same-repository PRs can receive the result directly. Fork PRs use
+      # post_summaries.yml, which republishes the result with a trusted token.
+      write-comments: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository }}
     permissions:
       id-token: write
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: subosito/flutter-action@v2
-        with:
-          channel: stable
-
-      - name: Parse package name from tag
-        id: parse-tag
-        run: |
-          TAG="${{ github.ref_name }}"
-          if [[ "$TAG" == lualike-v* ]]; then
-            echo "package=lualike" >> "$GITHUB_OUTPUT"
-          elif [[ "$TAG" == file_lualike-v* ]]; then
-            echo "package=file_lualike" >> "$GITHUB_OUTPUT"
-          elif [[ "$TAG" == process_lualike-v* ]]; then
-            echo "package=process_lualike" >> "$GITHUB_OUTPUT"
-          elif [[ "$TAG" == flutter_lualike-v* ]]; then
-            echo "package=flutter_lualike" >> "$GITHUB_OUTPUT"
-          else
-            echo "package=lualike" >> "$GITHUB_OUTPUT"
-          fi
-
-      - name: Install dependencies
-        run: dart pub get
-
-      - name: Publish
-        run: dart pub publish --force
-        working-directory: pkgs/${{ steps.parse-tag.outputs.package }}
+      pull-requests: write

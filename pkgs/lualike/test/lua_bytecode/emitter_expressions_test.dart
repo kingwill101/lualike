@@ -225,30 +225,26 @@ return sample()
       );
     });
 
-    test(
-      'matches luac opcode shape for stable global and method calls',
-      () {
-        for (final source in <String>[
-          'return math.sqrt(49)\n',
-          'return t:add(1)\n',
-          'return a < b, a ~= b\n',
-        ]) {
-          final fixture = _compileFixture(luacBinary!, source);
-          final emitted = const LuaBytecodeEmitter().compileSource(
-            source,
-            chunkName: fixture.sourcePath,
-          );
+    test('matches luac opcode shape for stable global and method calls', () {
+      for (final source in <String>[
+        'return math.sqrt(49)\n',
+        'return t:add(1)\n',
+        'return a < b, a ~= b\n',
+      ]) {
+        final fixture = _compileFixture(luacBinary!, source);
+        final emitted = const LuaBytecodeEmitter().compileSource(
+          source,
+          chunkName: fixture.sourcePath,
+        );
 
-          final actual = opcodeNames(
-            const LuaBytecodeParser().parse(emitted.bytes),
-          );
-          final oracle = _parseOpcodeSections(fixture.listing).single;
+        final actual = opcodeNames(
+          const LuaBytecodeParser().parse(emitted.bytes),
+        );
+        final oracle = _parseOpcodeSections(fixture.listing).single;
 
-          expect(actual, equals(oracle));
-        }
-      },
-      skip: skipReason,
-    );
+        expect(actual, equals(oracle));
+      }
+    }, skip: skipReason);
 
     test('matches luac table opcode families where meaningful', () {
       const source = '''

@@ -1,6 +1,4 @@
-## 2.0.0
-
-- Broaden the `lualike` dependency constraint to `>=0.3.0 <0.6.0`.
+# test changelog
 
 ## 1.0.1
 

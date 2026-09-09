@@ -1,7 +1,9 @@
-## 0.3.0
+# flutter_lualike changelog
 
-- Broaden the `lualike` dependency constraint to `>=0.3.0 <0.6.0`.
-- Bump the `lualike_hooks` dependency to `^0.2.0`.
+## 0.3.1
+
+- Update the `lualike` dependency to `^0.5.3`.
+- Update the `lualike_hooks` dependency to `^0.2.1`.
 
 ## 0.2.1
 
