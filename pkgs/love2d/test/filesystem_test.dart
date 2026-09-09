@@ -616,60 +616,56 @@ void main() {
     );
   });
 
-  test(
-    'filesystem setSource mounts existing .7z archives',
-    () async {
-      final adapter = _TestLoveFilesystemAdapter();
-      adapter.addFileBytes(
-        '/source/game.7z',
-        _encode7z(<String, String>{
-          'main.lua': 'return "archive-7z"',
-          'lib/tool.lua': 'return { answer = 77, label = "archive-7z" }',
-        }),
-      );
+  test('filesystem setSource mounts existing .7z archives', () async {
+    final adapter = _TestLoveFilesystemAdapter();
+    adapter.addFileBytes(
+      '/source/game.7z',
+      _encode7z(<String, String>{
+        'main.lua': 'return "archive-7z"',
+        'lib/tool.lua': 'return { answer = 77, label = "archive-7z" }',
+      }),
+    );
 
-      final runtime = LoveScriptRuntime(filesystemAdapter: adapter);
-      final interpreter = runtime.runtime;
+    final runtime = LoveScriptRuntime(filesystemAdapter: adapter);
+    final interpreter = runtime.runtime;
 
-      expect(
-        await luaCall(
-          interpreter,
-          const ['love', 'filesystem', 'setSource'],
-          const <Object?>['/source/game.7z'],
-        ),
-        isNull,
-      );
-      expect(
-        await luaCall(interpreter, const ['love', 'filesystem', 'getSource']),
-        '/source/game.7z',
-      );
-
-      final sourceRead = await luaCall(
-        interpreter,
-        const ['love', 'filesystem', 'read'],
-        const <Object?>['main.lua'],
-      );
-      expect(sourceRead, <Object?>['return "archive-7z"', 19]);
-
+    expect(
       await luaCall(
         interpreter,
-        const ['love', 'filesystem', 'setRequirePath'],
-        const <Object?>['?.lua;?/init.lua'],
-      );
-      final toolResult = _rawResults(
-        await _callRawPath(
-          interpreter,
-          const ['require'],
-          <Object?>[Value('lib.tool')],
-        ),
-      );
-      expect(luaUnwrapValue(toolResult[1]), 'lib/tool.lua');
-      final tool = (toolResult.first as Value).unwrap() as Map;
-      expect(tool['answer'], 77);
-      expect(tool['label'], 'archive-7z');
-    },
-    skip: _sevenZipSupportSkipReason,
-  );
+        const ['love', 'filesystem', 'setSource'],
+        const <Object?>['/source/game.7z'],
+      ),
+      isNull,
+    );
+    expect(
+      await luaCall(interpreter, const ['love', 'filesystem', 'getSource']),
+      '/source/game.7z',
+    );
+
+    final sourceRead = await luaCall(
+      interpreter,
+      const ['love', 'filesystem', 'read'],
+      const <Object?>['main.lua'],
+    );
+    expect(sourceRead, <Object?>['return "archive-7z"', 19]);
+
+    await luaCall(
+      interpreter,
+      const ['love', 'filesystem', 'setRequirePath'],
+      const <Object?>['?.lua;?/init.lua'],
+    );
+    final toolResult = _rawResults(
+      await _callRawPath(
+        interpreter,
+        const ['require'],
+        <Object?>[Value('lib.tool')],
+      ),
+    );
+    expect(luaUnwrapValue(toolResult[1]), 'lib/tool.lua');
+    final tool = (toolResult.first as Value).unwrap() as Map;
+    expect(tool['answer'], 77);
+    expect(tool['label'], 'archive-7z');
+  }, skip: _sevenZipSupportSkipReason);
 
   test(
     'filesystem setSource rejects missing archive-looking source paths',

@@ -29,12 +29,9 @@ jobs:
       - uses: subosito/flutter-action@v2
         with:
           channel: ${{ matrix.sdk == 'beta' && 'beta' || 'stable' }}
-      - uses: dart-lang/setup-dart@v1
-        with:
-          sdk: ${{ matrix.sdk }}
 
       - name: Install dependencies
-        run: dart pub get
+        run: flutter pub get
 
       - run: dart format --output=none --set-exit-if-changed .
         if: matrix.sdk == 'stable'
@@ -49,12 +46,12 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: dart-lang/setup-dart@v1
+      - uses: subosito/flutter-action@v2
         with:
-          sdk: stable
+          channel: stable
 
       - name: Install dependencies
-        run: dart pub get
+        run: flutter pub get
 
       - name: Test file_lualike
         run: dart test

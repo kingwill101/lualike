@@ -23,9 +23,8 @@ import 'package:love2d/love2d.dart';
 /// preserve the GPU output beneath.
 class GpuFallbackHandler {
   /// Creates a fallback handler that wraps [canvasBackend].
-  GpuFallbackHandler({
-    required LoveCanvasRenderBackend canvasBackend,
-  }) : _canvasBackend = canvasBackend;
+  GpuFallbackHandler({required LoveCanvasRenderBackend canvasBackend})
+    : _canvasBackend = canvasBackend;
 
   final LoveCanvasRenderBackend _canvasBackend;
 

@@ -12,9 +12,7 @@ import 'package:lualike_hooks/lualike_hooks.dart';
 
 void main(List<String> args) async {
   await build(args, (input, output) async {
-    final builder = LuaBuilder(
-      sources: ['assets/lua/'],
-    );
+    final builder = LuaBuilder(sources: ['assets/lua/']);
     await builder.run(input: input, output: output, logger: null);
   });
 }

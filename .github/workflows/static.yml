@@ -28,6 +28,7 @@ jobs:
           channel: stable
       - run: dart pub global activate webdev
       - run: flutter pub get
+      - run: flutter pub upgrade build_daemon
       - name: Build web app
         run: webdev build
       - name: Setup Pages
