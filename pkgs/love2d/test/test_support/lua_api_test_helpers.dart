@@ -129,6 +129,9 @@ Future<Object?> luaResolveRawCallResult(Object? result) async {
   if (resolved case final Value wrapped when wrapped.isMulti) {
     return List<Object?>.from(wrapped.raw as List<Object?>, growable: false);
   }
+  if (resolved is LuaResults) {
+    return List<Object?>.from(resolved.values, growable: false);
+  }
   return resolved;
 }
 
@@ -156,8 +159,21 @@ Future<Object?> luaResolveCallResultRawList(Object? result) {
   );
 }
 
-Object? luaUnwrapValue(Object? value) =>
-    value is Value ? value.unwrap() : value;
+Object? luaUnwrapValue(Object? value) {
+  if (value is! Value) {
+    return value;
+  }
+
+  final raw = value.raw;
+  if (raw is Map) {
+    return <Object?, Object?>{
+      for (final entry in raw.entries)
+        luaUnwrapValue(entry.key): luaUnwrapValue(entry.value),
+    };
+  }
+
+  return value.unwrap();
+}
 
 Object? luaUnwrapRawValue(Object? value) => value is Value ? value.raw : value;
 
