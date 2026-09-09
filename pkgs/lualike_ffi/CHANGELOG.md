@@ -1,3 +1,9 @@
+# lualike_ffi changelog
+
+## 0.2.1
+
+- Update the `lualike` dependency to `^0.5.3`.
+
 ## 0.1.1
 
 - Bump `lualike` dependency to `^0.4.0`.

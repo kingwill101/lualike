@@ -80,8 +80,9 @@
 /// await useAssetBundle(rootBundle, assetRoot: 'build/lua');
 /// ```
 ///
-/// See [`examples/example_dart/`](../examples/example_dart/)
-/// and [`examples/example_dart_data_assets/`](../examples/example_dart_data_assets/)
+/// See [`example/example_dart/`](../example/example_dart/)
+/// and
+/// [`example/example_dart_data_assets/`](../example/example_dart_data_assets/)
 /// for complete working Dart CLI examples.
 library;
 

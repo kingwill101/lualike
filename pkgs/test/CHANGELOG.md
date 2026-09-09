@@ -1,3 +1,5 @@
+# test changelog
+
 ## 1.0.1
 
 - Bump `lualike` dependency to `^0.4.0`.
