@@ -22,8 +22,15 @@ dependencies:
 flutter:
   assets:
     - assets/love2d_gpu.shaderbundle
+    - build/shaderbundles/love2d_gpu.shaderbundle
 
 dev_dependencies:
   flutter_lints: ^6.0.0
   flutter_test:
     sdk: flutter
+
+# Keep package-level renderer tests on the same in-repository runtime as the
+# path-based love2d dependency. Pub ignores dependency overrides in consumers.
+dependency_overrides:
+  lualike:
+    path: ../lualike

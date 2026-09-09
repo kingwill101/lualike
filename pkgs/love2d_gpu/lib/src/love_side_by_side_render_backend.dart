@@ -14,7 +14,8 @@ import 'package:love2d/love2d.dart';
 /// The panes preserve the LOVE viewport aspect ratio. If the available width
 /// is too small, the comparison is letterboxed vertically rather than
 /// stretching either renderer.
-final class LoveSideBySideRenderBackend implements LoveRenderBackend {
+final class LoveSideBySideRenderBackend
+    implements LoveRenderBackend, LoveWindowMetricsAwareRenderBackend {
   LoveSideBySideRenderBackend({
     required this.left,
     required this.right,
@@ -44,6 +45,16 @@ final class LoveSideBySideRenderBackend implements LoveRenderBackend {
 
   @override
   bool get isAvailable => left.isAvailable && right.isAvailable;
+
+  @override
+  void updateLoveWindowMetrics(LoveWindowMetrics metrics) {
+    if (left case final LoveWindowMetricsAwareRenderBackend backend) {
+      backend.updateLoveWindowMetrics(metrics);
+    }
+    if (right case final LoveWindowMetricsAwareRenderBackend backend) {
+      backend.updateLoveWindowMetrics(metrics);
+    }
+  }
 
   /// Converts a point from either rendered pane to shared LOVE coordinates.
   ///

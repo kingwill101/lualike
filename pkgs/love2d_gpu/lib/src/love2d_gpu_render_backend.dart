@@ -7,7 +7,7 @@ import 'package:love2d/love2d.dart';
 import 'renderer/renderer.dart';
 import 'shader/love_shader_bundle.dart';
 
-const bool _loveGpuMsaaEnabled = bool.fromEnvironment(
+const bool _loveGpuMsaaPermitted = bool.fromEnvironment(
   'LOVE2D_GPU_MSAA',
   defaultValue: true,
 );
@@ -34,7 +34,8 @@ const bool _loveGpuMsaaEnabled = bool.fromEnvironment(
 ///
 /// This is a work-in-progress skeleton. The concrete backend will be filled
 /// in incrementally as each command type gains GPU support.
-class LoveGpuRenderBackend implements LoveRenderBackend {
+class LoveGpuRenderBackend
+    implements LoveRenderBackend, LoveWindowMetricsAwareRenderBackend {
   LoveGpuRenderBackend._(this._renderer);
 
   static LoveGpuRenderBackend? _instance;
@@ -56,7 +57,9 @@ class LoveGpuRenderBackend implements LoveRenderBackend {
           gpuContext: gpuContext,
           surfaceManager: GpuSurfaceManager(
             gpuContext,
-            enableMsaa: _loveGpuMsaaEnabled,
+            // LOVE defaults t.window.msaa to zero. The harness applies the
+            // effective mode through updateLoveWindowMetrics after love.conf.
+            enableMsaa: false,
           ),
           pipelineCache: GpuPipelineCache(gpuContext),
           textureCache: GpuTextureCache(gpuContext),
@@ -85,6 +88,73 @@ class LoveGpuRenderBackend implements LoveRenderBackend {
 
   /// The sample count of the currently allocated offscreen color target.
   int get renderSampleCount => _renderer.renderSampleCount;
+
+  @override
+  void updateLoveWindowMetrics(LoveWindowMetrics metrics) {
+    _renderer.setMultisampleAntialiasingEnabled(
+      _loveGpuMsaaPermitted && metrics.msaa > 1,
+    );
+  }
+
+  /// Whether this build permits uploading LOVE-authored mip chains.
+  bool get mipmapUploadsEnabled => _renderer.mipmapUploadsEnabled;
+
+  /// Whether the active GPU backend supports manually uploaded mip chains.
+  bool get manuallyMippedTexturesSupported =>
+      _renderer.manuallyMippedTexturesSupported;
+
+  /// Whether generated circle and arc strokes use reusable typed coordinates.
+  bool get usesTypedGeneratedStrokes => _renderer.usesTypedGeneratedStrokes;
+
+  /// Whether this build permits live stroke-path A/B switching.
+  bool get supportsRuntimeStrokeTuning => _renderer.supportsRuntimeStrokeTuning;
+
+  /// Switches the generated-stroke path in an explicitly instrumented build.
+  ///
+  /// Production builds reject this unless compiled with
+  /// `LOVE2D_GPU_RUNTIME_STROKE_TUNING=true`, allowing the compiler to remove
+  /// the legacy control path from ordinary builds.
+  void setTypedGeneratedStrokesForDiagnostics(bool enabled) {
+    _renderer.setTypedGeneratedStrokesForDiagnostics(enabled);
+  }
+
+  /// Whether eligible odd-width rough lines use the native pixel shader.
+  bool get usesRoughLineShader => _renderer.usesRoughLineShader;
+
+  /// Whether this build permits live rough-line shader A/B switching.
+  bool get supportsRuntimeRoughLineShaderTuning =>
+      _renderer.supportsRuntimeRoughLineShaderTuning;
+
+  void setRoughLineShaderForDiagnostics(bool enabled) {
+    _renderer.setRoughLineShaderForDiagnostics(enabled);
+  }
+
+  /// Whether exact half-open rectangles render eligible axis-aligned rough lines.
+  bool get usesRoughAxisRuns => _renderer.usesRoughAxisRuns;
+
+  /// Whether this build permits live exact-axis-run A/B switching.
+  bool get supportsRuntimeRoughAxisRunTuning =>
+      _renderer.supportsRuntimeRoughAxisRunTuning;
+
+  void setRoughAxisRunsForDiagnostics(bool enabled) {
+    _renderer.setRoughAxisRunsForDiagnostics(enabled);
+  }
+
+  /// Whether sprite and particle quads use reusable direct affine expansion.
+  bool get usesDirectSpriteGeometry => _renderer.usesDirectSpriteGeometry;
+
+  /// Whether this build permits live sprite-geometry A/B switching.
+  bool get supportsRuntimeSpriteGeometryTuning =>
+      _renderer.supportsRuntimeSpriteGeometryTuning;
+
+  /// Switches the sprite-geometry path in an explicitly instrumented build.
+  ///
+  /// Production builds reject this unless compiled with
+  /// `LOVE2D_GPU_RUNTIME_SPRITE_GEOMETRY_TUNING=true`, allowing the compiler
+  /// to remove the legacy expansion path from ordinary builds.
+  void setDirectSpriteGeometryForDiagnostics(bool enabled) {
+    _renderer.setDirectSpriteGeometryForDiagnostics(enabled);
+  }
 
   @override
   void renderSurface(

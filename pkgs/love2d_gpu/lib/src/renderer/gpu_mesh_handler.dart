@@ -136,7 +136,13 @@ class GpuMeshHandler {
       command.color.b,
       command.color.a,
     );
-    final vertInfo = _hostBufferPool.emplaceVertInfo(mvp, color);
+    final vertInfo = _hostBufferPool.emplaceVertInfo(
+      mvp,
+      color,
+      mipBias: loveTexture == null
+          ? 0.0
+          : gpuMipmapLodBiasForLoveImage(loveTexture),
+    );
     final vertInfoSlot = pipeline.vertexShader.getUniformSlot('VertInfo');
     renderPass.bindUniform(vertInfoSlot, vertInfo);
 

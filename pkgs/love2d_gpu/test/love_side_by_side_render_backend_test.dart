@@ -5,6 +5,19 @@ import 'package:love2d/love2d.dart';
 import 'package:love2d_gpu/love2d_gpu.dart';
 
 void main() {
+  test('forwards LOVE window metrics to both aware pane backends', () {
+    final left = _RecordingBackend('left');
+    final right = _RecordingBackend('right');
+    final comparison = LoveSideBySideRenderBackend(left: left, right: right);
+
+    comparison.updateLoveWindowMetrics(
+      const LoveWindowMetrics(width: 960, height: 540, msaa: 4),
+    );
+
+    expect(left.windowMetrics.single.msaa, 4);
+    expect(right.windowMetrics.single.msaa, 4);
+  });
+
   test('replays the same snapshot and viewport through both backends', () {
     final left = _RecordingBackend('left');
     final right = _RecordingBackend('right');
@@ -65,7 +78,8 @@ void main() {
   });
 }
 
-final class _RecordingBackend implements LoveRenderBackend {
+final class _RecordingBackend
+    implements LoveRenderBackend, LoveWindowMetricsAwareRenderBackend {
   _RecordingBackend(this.name);
 
   @override
@@ -74,9 +88,15 @@ final class _RecordingBackend implements LoveRenderBackend {
   int calls = 0;
   LoveGraphicsSurfaceSnapshot? snapshot;
   ui.Size? viewportSize;
+  final List<LoveWindowMetrics> windowMetrics = <LoveWindowMetrics>[];
 
   @override
   bool get isAvailable => true;
+
+  @override
+  void updateLoveWindowMetrics(LoveWindowMetrics metrics) {
+    windowMetrics.add(metrics);
+  }
 
   @override
   void renderSurface(

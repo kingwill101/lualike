@@ -32,13 +32,13 @@ import 'package:flutter_gpu/gpu.dart' as gpu;
 /// eliminates per-frame allocation churn.
 class GpuSurfaceManager {
   /// Creates a surface manager rooted at [gpuContext].
-  GpuSurfaceManager(this._gpuContext, {bool enableMsaa = true})
+  GpuSurfaceManager(this._gpuContext, {bool enableMsaa = false})
     : _enableMsaa = enableMsaa;
 
   static const _retiredCapacity = 8;
 
   final gpu.GpuContext _gpuContext;
-  final bool _enableMsaa;
+  bool _enableMsaa;
 
   gpu.Texture? _colorTexture;
   gpu.Texture? _msaaColorTexture;
@@ -61,6 +61,19 @@ class GpuSurfaceManager {
   /// backend can attempt MSAA, while this value confirms what the pooled
   /// surface actually allocated after size-dependent fallback.
   int get renderSampleCount => _msaaColorTexture?.sampleCount ?? 1;
+
+  /// Selects whether subsequent surfaces may use offscreen MSAA.
+  ///
+  /// Changing the requested LOVE window mode releases only pooled render
+  /// targets. The next frame recreates them with the matching sample count;
+  /// retained presentation images remain valid until their normal retirement.
+  void setMultisampleAntialiasingEnabled(bool enabled) {
+    if (_enableMsaa == enabled) {
+      return;
+    }
+    _enableMsaa = enabled;
+    release();
+  }
 
   /// Returns a [Frame] containing color and depth-stencil textures sized to
   /// [width]×[height].

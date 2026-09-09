@@ -12,14 +12,8 @@ import 'gpu_pipeline_cache.dart';
 import 'gpu_shape_handler.dart';
 import 'gpu_sprite_batch_handler.dart';
 import 'gpu_surface_manager.dart';
+import 'gpu_text_handler.dart';
 import 'gpu_texture_cache.dart';
-
-final class _GpuFallbackSummaryEntry {
-  _GpuFallbackSummaryEntry({required this.description, required this.count});
-
-  final String description;
-  int count;
-}
 
 /// Returns a human-readable description for a command that failed the GPU path.
 String describeGpuFallbackCommand(LoveDrawCommand command, {String? reason}) {
@@ -173,8 +167,8 @@ String _previewPoints(List<({double x, double y})> points, {int limit = 3}) {
 /// | LovePolygonCommand | ✅ | GpuShapeHandler |
 /// | LovePointsCommand | ✅ | GpuShapeHandler |
 /// | LoveParticleSystemCommand | ✅ | GpuSpriteBatchHandler |
-/// | LoveTextCommand | 🟡 (rasterized → GPU texture) | inline |
-/// | LoveTextObjectCommand | 🟡 (rasterized → GPU texture) | inline |
+/// | LoveTextCommand | ✅ when atlas-backed; otherwise Canvas fallback | GpuTextHandler |
+/// | LoveTextObjectCommand | ✅ when atlas-backed; otherwise Canvas fallback | GpuTextHandler |
 /// | LoveStencilClearCommand | 🟡 (rasterized → GPU texture) | inline |
 /// | LoveVideoCommand | ✅ (no-op, handled by overlay) | inline |
 class GpuCommandRenderer {
@@ -210,6 +204,11 @@ class GpuCommandRenderer {
          pipelineCache: pipelineCache,
          hostBufferPool: hostBufferPool,
        ),
+       _textHandler = GpuTextHandler(
+         pipelineCache: pipelineCache,
+         textureCache: textureCache,
+         hostBufferPool: hostBufferPool,
+       ),
        _fallbackHandler = fallbackHandler;
 
   final gpu.GpuContext _gpuContext;
@@ -221,16 +220,71 @@ class GpuCommandRenderer {
   final GpuImageHandler _imageHandler;
   final GpuSpriteBatchHandler _spriteBatchHandler;
   final GpuShapeHandler _shapeHandler;
+  final GpuTextHandler _textHandler;
   final GpuFallbackHandler _fallbackHandler;
-  String? _lastLoggedFallbackSummaryKey;
-  final Map<String, String> _fallbackDescriptionCache = {};
+  final List<int> _fallbackIndices = <int>[];
 
   /// Whether the current surface manager can use offscreen multisampling.
   bool get usesMultisampleAntialiasing =>
       _surfaceManager.usesMultisampleAntialiasing;
 
+  /// Whether this build permits uploading LOVE-authored mip chains.
+  bool get mipmapUploadsEnabled => _textureCache.mipmapUploadsEnabled;
+
+  /// Whether the active GPU backend supports manually uploaded mip chains.
+  bool get manuallyMippedTexturesSupported =>
+      _textureCache.manuallyMippedTexturesSupported;
+
   /// The sample count of the currently allocated offscreen color target.
   int get renderSampleCount => _surfaceManager.renderSampleCount;
+
+  /// Applies the sample-count semantics requested by the LOVE window mode.
+  void setMultisampleAntialiasingEnabled(bool enabled) {
+    _surfaceManager.setMultisampleAntialiasingEnabled(enabled);
+  }
+
+  /// Whether generated circle and arc strokes use reusable typed coordinates.
+  bool get usesTypedGeneratedStrokes => _shapeHandler.usesTypedGeneratedStrokes;
+
+  /// Whether this build permits live stroke-path A/B switching.
+  bool get supportsRuntimeStrokeTuning =>
+      _shapeHandler.supportsRuntimeStrokeTuning;
+
+  /// Switches the generated-stroke path in an explicitly instrumented build.
+  void setTypedGeneratedStrokesForDiagnostics(bool enabled) {
+    _shapeHandler.setTypedGeneratedStrokesForDiagnostics(enabled);
+  }
+
+  bool get usesRoughLineShader => _shapeHandler.usesRoughLineShader;
+
+  bool get supportsRuntimeRoughLineShaderTuning =>
+      _shapeHandler.supportsRuntimeRoughLineShaderTuning;
+
+  void setRoughLineShaderForDiagnostics(bool enabled) {
+    _shapeHandler.setRoughLineShaderForDiagnostics(enabled);
+  }
+
+  bool get usesRoughAxisRuns => _shapeHandler.usesRoughAxisRuns;
+
+  bool get supportsRuntimeRoughAxisRunTuning =>
+      _shapeHandler.supportsRuntimeRoughAxisRunTuning;
+
+  void setRoughAxisRunsForDiagnostics(bool enabled) {
+    _shapeHandler.setRoughAxisRunsForDiagnostics(enabled);
+  }
+
+  /// Whether sprite and particle quads use reusable direct affine expansion.
+  bool get usesDirectSpriteGeometry =>
+      _spriteBatchHandler.usesDirectSpriteGeometry;
+
+  /// Whether this build permits live sprite-geometry A/B switching.
+  bool get supportsRuntimeSpriteGeometryTuning =>
+      _spriteBatchHandler.supportsRuntimeSpriteGeometryTuning;
+
+  /// Switches the sprite-geometry path in an explicitly instrumented build.
+  void setDirectSpriteGeometryForDiagnostics(bool enabled) {
+    _spriteBatchHandler.setDirectSpriteGeometryForDiagnostics(enabled);
+  }
 
   /// Renders a single LOVE frame onto [canvas].
   ///
@@ -260,8 +314,7 @@ class GpuCommandRenderer {
     // ── PHASE 1: Synchronous texture pre-warm ─────────────────────────
     // Upload textures from LoveImage.imageData (decoded CPU pixels) so
     // the GPU path finds them cached during the render pass.
-    final fallbackIndices = <int>[];
-    final fallbackCounts = <String, _GpuFallbackSummaryEntry>{};
+    final fallbackIndices = _fallbackIndices..clear();
     for (var i = 0; i < snapshot.commands.length; i++) {
       final cmd = snapshot.commands[i];
       final reason = _commandFallbackReason(cmd);
@@ -271,9 +324,7 @@ class GpuCommandRenderer {
         continue;
       }
       fallbackIndices.add(i);
-      _countFallback(fallbackCounts, cmd, reason);
     }
-    _debugLogFallbackSummary(fallbackCounts);
 
     // ── PHASE 2: GPU render pass ─────────────────────────────────────
     final frame = _surfaceManager.acquire(width, height);
@@ -290,12 +341,49 @@ class GpuCommandRenderer {
     renderPass.setPrimitiveType(gpu.PrimitiveType.triangle);
 
     var renderedCommands = 0;
+    var fallbackCursor = 0;
     for (var i = 0; i < snapshot.commands.length; i++) {
-      if (fallbackIndices.contains(i)) continue;
+      if (fallbackCursor < fallbackIndices.length &&
+          fallbackIndices[fallbackCursor] == i) {
+        fallbackCursor++;
+        continue;
+      }
       final command = snapshot.commands[i];
       if (command is LoveColorClearCommand) continue;
+      if (command is LoveTextCommand || command is LoveTextObjectCommand) {
+        var end = i + 1;
+        while (end < snapshot.commands.length &&
+            _textHandler.canBatch(
+              snapshot.commands[end - 1],
+              snapshot.commands[end],
+            )) {
+          end++;
+        }
+        if (end > i + 1) {
+          try {
+            _textHandler.renderTextRange(
+              renderPass,
+              snapshot.commands,
+              i,
+              end,
+              viewportSize,
+            );
+          } catch (_) {
+            // Preserve the established best-effort GPU behavior. Texture
+            // failures leave the range absent rather than crashing a frame.
+          }
+          renderedCommands += end - i;
+          i = end - 1;
+          continue;
+        }
+      }
       try {
-        _dispatchGpuCommand(renderPass, command, viewportSize);
+        _dispatchGpuCommand(
+          renderPass,
+          command,
+          viewportSize,
+          singleSample: frame.renderColorTexture.sampleCount == 1,
+        );
       } catch (_) {
         // Texture binding fails on this platform for hostVisible textures.
         // Command is skipped; the result may be incomplete but not crashing.
@@ -367,8 +455,10 @@ class GpuCommandRenderer {
       LoveArcCommand _ => null,
       LoveParticleSystemCommand _ => null,
       LoveVideoCommand _ => null,
-      LoveTextCommand _ => 'rasterized via software fallback',
-      LoveTextObjectCommand _ => 'rasterized via software fallback',
+      LoveTextCommand _ || LoveTextObjectCommand _ =>
+        _textHandler.supportsCommand(command)
+            ? null
+            : 'text is not covered by a pre-rasterized GPU atlas',
       LoveStencilClearCommand _ => 'rasterized via software fallback',
     };
   }
@@ -386,38 +476,23 @@ class GpuCommandRenderer {
           }
         case LoveParticleSystemCommand(:final particleSystem):
           _textureCache.uploadSync(particleSystem.texture);
+        case LoveTextCommand() || LoveTextObjectCommand():
+          final atlasImage = _textHandler.atlasImageFor(command);
+          if (atlasImage != null) {
+            _textureCache.uploadSync(atlasImage);
+          }
         default:
           break;
       }
     } catch (_) {}
   }
 
-  void _countFallback(
-    Map<String, _GpuFallbackSummaryEntry> counts,
-    LoveDrawCommand command,
-    String reason,
-  ) {
-    final bucketKey = _fallbackSummaryBucketKey(command, reason);
-    final description = _fallbackDescriptionCache.putIfAbsent(
-      bucketKey,
-      () => describeGpuFallbackCommand(command, reason: reason),
-    );
-    counts.update(
-      bucketKey,
-      (entry) {
-        entry.count++;
-        return entry;
-      },
-      ifAbsent: () =>
-          _GpuFallbackSummaryEntry(description: description, count: 1),
-    );
-  }
-
   void _dispatchGpuCommand(
     gpu.RenderPass renderPass,
     LoveDrawCommand command,
-    ui.Size viewportSize,
-  ) {
+    ui.Size viewportSize, {
+    required bool singleSample,
+  }) {
     switch (command) {
       case LoveMeshCommand cmd:
         _dispatchMesh(renderPass, cmd, viewportSize);
@@ -432,7 +507,12 @@ class GpuCommandRenderer {
       case LoveEllipseCommand cmd:
         _dispatchEllipse(renderPass, cmd, viewportSize);
       case LoveLineCommand cmd:
-        _dispatchLine(renderPass, cmd, viewportSize);
+        _dispatchLine(
+          renderPass,
+          cmd,
+          viewportSize,
+          singleSample: singleSample,
+        );
       case LovePolygonCommand cmd:
         _dispatchPolygon(renderPass, cmd, viewportSize);
       case LovePointsCommand cmd:
@@ -441,10 +521,12 @@ class GpuCommandRenderer {
         _dispatchArc(renderPass, cmd, viewportSize);
       case LoveParticleSystemCommand cmd:
         _dispatchParticleSystem(renderPass, cmd, viewportSize);
+      case LoveTextCommand cmd:
+        _textHandler.renderText(renderPass, cmd, viewportSize);
+      case LoveTextObjectCommand cmd:
+        _textHandler.renderTextObject(renderPass, cmd, viewportSize);
       case LoveColorClearCommand _:
       case LoveVideoCommand _:
-      case LoveTextCommand _:
-      case LoveTextObjectCommand _:
       case LoveStencilClearCommand _:
         break;
     }
@@ -480,10 +562,16 @@ class GpuCommandRenderer {
   void _dispatchLine(
     gpu.RenderPass renderPass,
     LoveLineCommand cmd,
-    ui.Size viewportSize,
-  ) {
+    ui.Size viewportSize, {
+    required bool singleSample,
+  }) {
     if (cmd.points.length < 2) return;
-    _shapeHandler.renderLine(renderPass, cmd, viewportSize);
+    _shapeHandler.renderLine(
+      renderPass,
+      cmd,
+      viewportSize,
+      singleSample: singleSample,
+    );
   }
 
   void _dispatchPolygon(
@@ -555,42 +643,6 @@ class GpuCommandRenderer {
   ) {
     if (cmd.particleSystem.particles.isEmpty) return;
     _spriteBatchHandler.renderParticles(renderPass, cmd, viewportSize);
-  }
-
-  void _debugLogFallbackSummary(
-    Map<String, _GpuFallbackSummaryEntry> fallbackCounts,
-  ) {
-    if (fallbackCounts.isEmpty) {
-      return;
-    }
-
-    final summaryEntries = fallbackCounts.entries.toList()
-      ..sort((left, right) {
-        final leftKey = _normalizeFallbackSummaryKey(left.value.description);
-        final rightKey = _normalizeFallbackSummaryKey(right.value.description);
-        return leftKey.compareTo(rightKey);
-      });
-    final summaryKey = summaryEntries
-        .map(
-          (entry) =>
-              '${entry.value.count}x ${_normalizeFallbackSummaryKey(entry.value.description)}',
-        )
-        .join(' | ');
-    if (summaryKey == _lastLoggedFallbackSummaryKey) {
-      return;
-    }
-
-    _lastLoggedFallbackSummaryKey = summaryKey;
-  }
-
-  String _fallbackSummaryBucketKey(LoveDrawCommand command, String? reason) {
-    return '${command.runtimeType}|${reason ?? ''}';
-  }
-
-  String _normalizeFallbackSummaryKey(String description) {
-    return description
-        .replaceAll(RegExp(r' textLength=\d+'), '')
-        .replaceAll(RegExp(r' preview=(?:"[^"]*"|\[[^\]]*\])'), '');
   }
 
   /// Releases all GPU resources held by the renderer's subsystems.

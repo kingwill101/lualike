@@ -1,4 +1,3 @@
-import 'dart:typed_data';
 import 'dart:ui' as ui;
 
 import 'package:flutter_gpu/gpu.dart' as gpu;
@@ -9,16 +8,18 @@ import 'gpu_api_compat.dart';
 import 'gpu_draw_state.dart';
 import 'gpu_host_buffer_pool.dart';
 import 'gpu_pipeline_cache.dart';
+import 'gpu_sprite_geometry.dart';
 import 'gpu_texture_cache.dart';
 import 'gpu_texture_samplers.dart';
 
-const _triVertexOrder = <int>[0, 1, 2, 1, 3, 2];
-const _quadPositions = <({double x, double y})>[
-  (x: 0.0, y: 0.0),
-  (x: 1.0, y: 0.0),
-  (x: 0.0, y: 1.0),
-  (x: 1.0, y: 1.0),
-];
+const bool _kDefaultDirectSpriteGeometry = bool.fromEnvironment(
+  'LOVE2D_GPU_DIRECT_SPRITE_GEOMETRY',
+  defaultValue: true,
+);
+const bool _kRuntimeSpriteGeometryTuning = bool.fromEnvironment(
+  'LOVE2D_GPU_RUNTIME_SPRITE_GEOMETRY_TUNING',
+  defaultValue: false,
+);
 
 /// Handles GPU rendering of [LoveSpriteBatchCommand] instances.
 ///
@@ -27,7 +28,7 @@ const _quadPositions = <({double x, double y})>[
 /// the resulting triangle list in one call.
 class GpuSpriteBatchHandler {
   /// Creates a sprite batch handler.
-  const GpuSpriteBatchHandler({
+  GpuSpriteBatchHandler({
     required GpuPipelineCache pipelineCache,
     required GpuTextureCache textureCache,
     required GpuHostBufferPool hostBufferPool,
@@ -38,6 +39,24 @@ class GpuSpriteBatchHandler {
   final GpuPipelineCache _pipelineCache;
   final GpuTextureCache _textureCache;
   final GpuHostBufferPool _hostBufferPool;
+  final GpuSpriteGeometryBuilder _geometryBuilder = GpuSpriteGeometryBuilder();
+  bool _runtimeDirectSpriteGeometry = _kDefaultDirectSpriteGeometry;
+
+  bool get usesDirectSpriteGeometry => _kRuntimeSpriteGeometryTuning
+      ? _runtimeDirectSpriteGeometry
+      : _kDefaultDirectSpriteGeometry;
+
+  bool get supportsRuntimeSpriteGeometryTuning => _kRuntimeSpriteGeometryTuning;
+
+  void setDirectSpriteGeometryForDiagnostics(bool enabled) {
+    if (!_kRuntimeSpriteGeometryTuning) {
+      throw StateError(
+        'Runtime sprite geometry tuning requires '
+        'LOVE2D_GPU_RUNTIME_SPRITE_GEOMETRY_TUNING=true',
+      );
+    }
+    _runtimeDirectSpriteGeometry = enabled;
+  }
 
   /// Renders [command] into [renderPass] synchronously.
   ///
@@ -80,62 +99,36 @@ class GpuSpriteBatchHandler {
     final vertInfo = _hostBufferPool.emplaceVertInfo(
       _screenSpaceMVP(viewportSize),
       vm.Vector4(1, 1, 1, 1),
+      mipBias: gpuMipmapLodBiasForLoveImage(loveImage),
     );
     final vertInfoSlot = pipeline.vertexShader.getUniformSlot('VertInfo');
     renderPass.bindUniform(vertInfoSlot, vertInfo);
 
-    final batchBase = vm.Matrix4.copy(command.transform)
-      ..multiply(command.drawTransform);
-
-    final vertices = Float32List(sprites.length * 6 * 8);
-    var vertexOffset = 0;
-
-    for (final sprite in sprites) {
-      final quad = sprite.quad;
-      final imageWidth = quad?.textureWidth ?? loveImage.width.toDouble();
-      final imageHeight = quad?.textureHeight ?? loveImage.height.toDouble();
-      final quadWidth = quad?.width ?? imageWidth;
-      final quadHeight = quad?.height ?? imageHeight;
-      final uvX = (quad?.x ?? 0.0) / imageWidth;
-      final uvY = (quad?.y ?? 0.0) / imageHeight;
-      final uvScaleX = quadWidth / imageWidth;
-      final uvScaleY = quadHeight / imageHeight;
-
-      final scale = vm.Matrix4.diagonal3Values(quadWidth, quadHeight, 1.0);
-      final instanceTransform = vm.Matrix4.copy(batchBase)
-        ..multiply(sprite.transform)
-        ..multiply(scale);
-
-      final tint = sprite.color == null
-          ? command.color
-          : LoveColor(
-              command.color.r * sprite.color!.r,
-              command.color.g * sprite.color!.g,
-              command.color.b * sprite.color!.b,
-              command.color.a * sprite.color!.a,
-            );
-
-      for (final index in _triVertexOrder) {
-        final point = _quadPositions[index];
-        final transformed = _transformPoint(
-          instanceTransform,
-          point.x,
-          point.y,
-        );
-        vertices[vertexOffset++] = transformed.dx;
-        vertices[vertexOffset++] = transformed.dy;
-        vertices[vertexOffset++] = point.x * uvScaleX + uvX;
-        vertices[vertexOffset++] = point.y * uvScaleY + uvY;
-        vertices[vertexOffset++] = tint.r;
-        vertices[vertexOffset++] = tint.g;
-        vertices[vertexOffset++] = tint.b;
-        vertices[vertexOffset++] = tint.a;
-      }
-    }
-
-    final vertexBuffer = _hostBufferPool.emplaceFloat32List(vertices);
+    final directGeometry = usesDirectSpriteGeometry;
+    final vertices = directGeometry
+        ? _geometryBuilder.buildSprites(
+            sprites: sprites,
+            image: loveImage,
+            commandTransform: command.transform,
+            drawTransform: command.drawTransform,
+            commandColor: command.color,
+          )
+        : buildLegacySpriteVertices(
+            sprites: sprites,
+            image: loveImage,
+            commandTransform: command.transform,
+            drawTransform: command.drawTransform,
+            commandColor: command.color,
+          );
+    final floatLength = directGeometry
+        ? _geometryBuilder.floatLength
+        : vertices.length;
+    final vertexBuffer = _hostBufferPool.emplaceFloat32List(
+      vertices,
+      length: floatLength,
+    );
     bindVertexBufferCompat(renderPass, vertexBuffer);
-    drawVerticesCompat(renderPass, vertices.length ~/ 8);
+    drawVerticesCompat(renderPass, floatLength ~/ 8);
 
     return true;
   }
@@ -166,56 +159,39 @@ class GpuSpriteBatchHandler {
       sampler: gpuSamplerForLoveImage(loveImage),
     );
 
-    final batchBase = vm.Matrix4.copy(command.transform)
-      ..multiply(command.drawTransform);
+    final vertInfo = _hostBufferPool.emplaceVertInfo(
+      _screenSpaceMVP(viewportSize),
+      vm.Vector4(1, 1, 1, 1),
+      mipBias: gpuMipmapLodBiasForLoveImage(loveImage),
+    );
+    final vertInfoSlot = pipeline.vertexShader.getUniformSlot('VertInfo');
+    renderPass.bindUniform(vertInfoSlot, vertInfo);
 
-    final imageWidth = loveImage.width.toDouble();
-    final imageHeight = loveImage.height.toDouble();
-    final vertices = Float32List(particles.length * 6 * 8);
-    var vertexOffset = 0;
-
-    for (final particle in particles) {
-      final quad = particle.quad;
-      final quadWidth = quad?.width ?? imageWidth;
-      final quadHeight = quad?.height ?? imageHeight;
-      final uvX = (quad?.x ?? 0.0) / imageWidth;
-      final uvY = (quad?.y ?? 0.0) / imageHeight;
-      final uvScaleX = quadWidth / imageWidth;
-      final uvScaleY = quadHeight / imageHeight;
-
-      final scale = vm.Matrix4.diagonal3Values(quadWidth, quadHeight, 1.0);
-      final particleTransform = vm.Matrix4.copy(batchBase)
-        ..multiply(particle.transform)
-        ..multiply(scale);
-
-      final tint = LoveColor(
-        command.color.r * particle.color.r,
-        command.color.g * particle.color.g,
-        command.color.b * particle.color.b,
-        command.color.a * particle.color.a,
-      );
-
-      for (final index in _triVertexOrder) {
-        final point = _quadPositions[index];
-        final transformed = _transformPoint(
-          particleTransform,
-          point.x,
-          point.y,
-        );
-        vertices[vertexOffset++] = transformed.dx;
-        vertices[vertexOffset++] = transformed.dy;
-        vertices[vertexOffset++] = point.x * uvScaleX + uvX;
-        vertices[vertexOffset++] = point.y * uvScaleY + uvY;
-        vertices[vertexOffset++] = tint.r;
-        vertices[vertexOffset++] = tint.g;
-        vertices[vertexOffset++] = tint.b;
-        vertices[vertexOffset++] = tint.a;
-      }
-    }
-
-    final vertexBuffer = _hostBufferPool.emplaceFloat32List(vertices);
+    final directGeometry = usesDirectSpriteGeometry;
+    final vertices = directGeometry
+        ? _geometryBuilder.buildParticles(
+            particles: particles,
+            image: loveImage,
+            commandTransform: command.transform,
+            drawTransform: command.drawTransform,
+            commandColor: command.color,
+          )
+        : buildLegacyParticleVertices(
+            particles: particles,
+            image: loveImage,
+            commandTransform: command.transform,
+            drawTransform: command.drawTransform,
+            commandColor: command.color,
+          );
+    final floatLength = directGeometry
+        ? _geometryBuilder.floatLength
+        : vertices.length;
+    final vertexBuffer = _hostBufferPool.emplaceFloat32List(
+      vertices,
+      length: floatLength,
+    );
     bindVertexBufferCompat(renderPass, vertexBuffer);
-    drawVerticesCompat(renderPass, vertices.length ~/ 8);
+    drawVerticesCompat(renderPass, floatLength ~/ 8);
 
     return true;
   }
@@ -235,10 +211,5 @@ class GpuSpriteBatchHandler {
     // Column 2: (0, 0, 1, 0)
     // Column 3: (-1, 1, 0, 1)
     return vm.Matrix4(2 / w, 0, 0, 0, 0, -2 / h, 0, 0, 0, 0, 1, 0, -1, 1, 0, 1);
-  }
-
-  ui.Offset _transformPoint(vm.Matrix4 matrix, double x, double y) {
-    final s = matrix.storage;
-    return ui.Offset(s[0] * x + s[4] * y + s[12], s[1] * x + s[5] * y + s[13]);
   }
 }

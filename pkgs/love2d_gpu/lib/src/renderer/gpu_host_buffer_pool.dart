@@ -31,7 +31,7 @@ class GpuHostBufferPool {
        );
 
   final gpu.HostBuffer _hostBuffer;
-  final Float32List _vertInfoScratch = Float32List(20);
+  final Float32List _vertInfoScratch = Float32List(24);
 
   /// Advances the host buffer to the next internal frame.
   ///
@@ -66,12 +66,17 @@ class GpuHostBufferPool {
     return _hostBuffer.emplace(data);
   }
 
-  /// Appends a combined MVP matrix + color uniform block.
+  /// Appends a combined MVP matrix, color, and texture-state uniform block.
   ///
   /// The block layout matches `VertInfo` in `love_base.vert`:
-  ///   mat4 mvp;   // 16 floats = 64 bytes
-  ///   vec4 color; // 4 floats = 16 bytes
-  gpu.BufferView emplaceVertInfo(vm.Matrix4 mvp, vm.Vector4 color) {
+  ///   mat4 mvp;          // 16 floats = 64 bytes
+  ///   vec4 color;        // 4 floats = 16 bytes
+  ///   vec4 texture_info; // x = mip LOD bias, yzw reserved
+  gpu.BufferView emplaceVertInfo(
+    vm.Matrix4 mvp,
+    vm.Vector4 color, {
+    double mipBias = 0.0,
+  }) {
     final matrix = mvp.storage;
     for (var i = 0; i < 16; i++) {
       _vertInfoScratch[i] = matrix[i];
@@ -80,6 +85,10 @@ class GpuHostBufferPool {
     _vertInfoScratch[17] = color.y;
     _vertInfoScratch[18] = color.z;
     _vertInfoScratch[19] = color.w;
+    _vertInfoScratch[20] = mipBias;
+    _vertInfoScratch[21] = 0.0;
+    _vertInfoScratch[22] = 0.0;
+    _vertInfoScratch[23] = 0.0;
     // HostBuffer.emplace copies into its bump-allocated frame block before
     // the next command can reuse this scratch array.
     return emplaceFloat32List(_vertInfoScratch);

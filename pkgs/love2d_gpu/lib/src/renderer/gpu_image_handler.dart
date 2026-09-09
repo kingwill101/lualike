@@ -1,5 +1,6 @@
 import 'dart:typed_data';
 import 'dart:ui' as ui;
+import 'dart:math' as math;
 
 import 'package:flutter_gpu/gpu.dart' as gpu;
 import 'package:love2d/love2d.dart';
@@ -108,7 +109,14 @@ class GpuImageHandler {
       command.color.b,
       command.color.a,
     );
-    final vertInfo = _hostBufferPool.emplaceVertInfo(mvp, color);
+    final vertInfo = _hostBufferPool.emplaceVertInfo(
+      mvp,
+      color,
+      mipBias: gpuMipmapLodBiasForLoveImage(
+        image,
+        effectiveScale: _effectiveTextureScale(fullTransform, image),
+      ),
+    );
     final vertInfoSlot = pipeline.vertexShader.getUniformSlot('VertInfo');
     renderPass.bindUniform(vertInfoSlot, vertInfo);
 
@@ -140,5 +148,21 @@ class GpuImageHandler {
       vm.Vector4(-1, 1, 0, 1),
     );
     return proj * transform;
+  }
+
+  double _effectiveTextureScale(vm.Matrix4 transform, LoveImage image) {
+    final storage = transform.storage;
+    final scaleXSquared = (storage[0] * storage[0]) + (storage[1] * storage[1]);
+    final scaleYSquared = (storage[4] * storage[4]) + (storage[5] * storage[5]);
+    final dpiScale = image.dpiScale <= 0 ? 1.0 : image.dpiScale;
+    final scaleSquared =
+        math.min(scaleXSquared, scaleYSquared) / (dpiScale * dpiScale);
+
+    // Adaptive compensation saturates outside 0.25x..0.5x. Most draws are
+    // either large backgrounds or small sprites, so avoid square roots for
+    // both common cases while preserving the exact transition curve.
+    if (scaleSquared >= 0.25) return 0.5;
+    if (scaleSquared <= 0.0625) return 0.25;
+    return math.sqrt(scaleSquared);
   }
 }
