@@ -11,13 +11,45 @@ on:
       - '[0-9A-z]+-v[0-9]+.[0-9]+.[0-9]+'
 
 jobs:
-  publish:
-    uses: dart-lang/ecosystem/.github/workflows/publish.yaml@1bdafd85bb97b331ddd683577f48a5dfa7f4cb49
+  validate:
+    if: ${{ github.event_name == 'pull_request' }}
+    uses: dart-lang/ecosystem/.github/workflows/publish.yaml@main
     with:
       use-flutter: true
       # Same-repository PRs can receive the result directly. Fork PRs use
       # post_summaries.yml, which republishes the result with a trusted token.
       write-comments: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository }}
     permissions:
-      id-token: write
       pull-requests: write
+
+  publish:
+    if: ${{ github.event_name == 'push' }}
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@main
+
+      - name: Set up Flutter
+        uses: flutter-actions/setup-flutter@main
+
+      - name: Set up pub.dev credentials
+        uses: flutter-actions/setup-pubdev-credentials@main
+
+      - name: Install Firehose
+        run: >
+          dart pub global activate --source git
+          https://github.com/dart-lang/ecosystem
+          --git-path pkgs/firehose/
+          --git-ref main
+
+      - name: Publish packages
+        env:
+          INPUTS_TAG_PREFIX: v
+        run: |
+          dart pub global run firehose \
+            --publish \
+            --use-flutter \
+            --tag-prefix "$INPUTS_TAG_PREFIX"
