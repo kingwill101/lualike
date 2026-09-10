@@ -14,8 +14,7 @@ import 'package:flutter/foundation.dart'
 import 'package:flutter/services.dart';
 import 'package:flutter/widgets.dart';
 
-import 'love_flame_audio.dart';
-import 'love_flame_media_kit_audio.dart';
+import 'love_flame_soloud_audio.dart';
 import '../love_runtime.dart';
 
 /// The bundled TrueType font asset used for LOVE's default font fallback.
@@ -156,17 +155,10 @@ class LoveFlameHost<W extends World> implements LoveHost {
       throw UnsupportedError('No audio asset loader configured for "$source"');
     }
 
-    if (!kIsWeb && sourceType == 'stream') {
-      return LoveFlameMediaKitAudioSourceBackend.open(
-        source: source,
-        bytes: resolvedBytes,
-        mimeType: mimeType,
-      );
-    }
-
-    return LoveFlutterAudioSourceBackend(
+    return LoveFlameSoLoudAudioSourceBackend.open(
+      source: source,
+      sourceType: sourceType,
       bytes: resolvedBytes,
-      mimeType: mimeType,
     );
   }
 

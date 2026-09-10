@@ -1,13 +1,13 @@
 import 'dart:async';
 
 import 'package:flutter_test/flutter_test.dart';
-import 'package:love2d/src/runtime/flame/love_flame_media_kit_audio.dart';
+import 'package:love2d/src/runtime/flame/love_flame_soloud_audio.dart';
 
 void main() {
-  group('LoveFlameMediaKitAudioSourceBackend', () {
+  group('LoveFlameSoLoudAudioSourceBackend', () {
     test('delegates playback operations before disposal', () async {
       final events = <String>[];
-      final backend = LoveFlameMediaKitAudioSourceBackend.test(
+      final backend = LoveFlameSoLoudAudioSourceBackend.test(
         play: () async {
           events.add('play');
         },
@@ -48,7 +48,7 @@ void main() {
     test('dispose stays idempotent while teardown is in flight', () async {
       final events = <String>[];
       final disposeGate = Completer<void>();
-      final backend = LoveFlameMediaKitAudioSourceBackend.test(
+      final backend = LoveFlameSoLoudAudioSourceBackend.test(
         dispose: () async {
           events.add('dispose:start');
           await disposeGate.future;
@@ -74,7 +74,7 @@ void main() {
     test('playback operations no-op once disposal has started', () async {
       final events = <String>[];
       final disposeGate = Completer<void>();
-      final backend = LoveFlameMediaKitAudioSourceBackend.test(
+      final backend = LoveFlameSoLoudAudioSourceBackend.test(
         play: () async {
           events.add('play');
         },
