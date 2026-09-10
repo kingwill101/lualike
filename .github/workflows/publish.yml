@@ -20,6 +20,7 @@ jobs:
       # post_summaries.yml, which republishes the result with a trusted token.
       write-comments: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository }}
     permissions:
+      id-token: write
       pull-requests: write
 
   publish:
