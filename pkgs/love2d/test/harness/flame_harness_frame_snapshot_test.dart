@@ -34,6 +34,10 @@ void main() {
 
       game.presentFrame(graphics.snapshotScreenSurface());
       expect(game.presentedFrame.commands, hasLength(1));
+      expect(
+        () => game.presentedFrame.commands.clear(),
+        throwsUnsupportedError,
+      );
 
       graphics.beginFrame();
       expect(graphics.commands, isEmpty);

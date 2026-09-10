@@ -682,8 +682,9 @@ class LoveGraphicsSurface {
       clearStencil: _clearStencil,
       clearScissor: _clearScissor,
       // Transfer ownership of the current command buffer; future mutations
-      // clone on write so the snapshot remains stable.
-      commands: _commands,
+      // clone on write so the snapshot remains stable. Expose the cached
+      // unmodifiable view so consumers cannot mutate the transferred buffer.
+      commands: commands,
     );
     _commandsShared = true;
     _cachedSnapshot = snapshot;
@@ -2808,13 +2809,14 @@ sealed class LoveDrawCommand {
     required this.colorMask,
     required this.wireframe,
     required this.scissor,
-    this.shader,
+    LoveShader? shader,
     required Matrix4 transform,
     LoveGraphicsCompareMode? stencilCompare,
     int? stencilValue,
     this.stencilAction,
     int? stencilWriteValue,
-  }) : transform = Matrix4.copy(transform),
+  }) : shader = shader?.snapshot(),
+       transform = Matrix4.copy(transform),
        stencilCompare = stencilCompare ?? LoveGraphicsCompareMode.always,
        stencilValue = stencilValue ?? 0,
        stencilWriteValue = stencilWriteValue ?? 1;

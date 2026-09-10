@@ -135,6 +135,24 @@ String _previewPoints(List<({double x, double y})> points, {int limit = 3}) {
   return '[${preview.join(', ')}, ...]';
 }
 
+/// Inserts `[start, end)` at the current cursor in a sorted fallback plan.
+///
+/// Failed GPU commands are discovered while walking the command list, after
+/// inherent fallback indices have already been collected. Inserting at the
+/// cursor preserves draw order for the Canvas fallback pass.
+int insertGpuFallbackRange(
+  List<int> fallbackIndices,
+  int cursor,
+  int start,
+  int end,
+) {
+  for (var index = start; index < end; index++) {
+    fallbackIndices.insert(cursor, index);
+    cursor++;
+  }
+  return cursor;
+}
+
 /// Core GPU rendering engine for LOVE2D draw commands.
 ///
 /// ## Frame pipeline
@@ -360,8 +378,9 @@ class GpuCommandRenderer {
           end++;
         }
         if (end > i + 1) {
+          var rendered = false;
           try {
-            _textHandler.renderTextRange(
+            rendered = _textHandler.renderTextRange(
               renderPass,
               snapshot.commands,
               i,
@@ -369,16 +388,26 @@ class GpuCommandRenderer {
               viewportSize,
             );
           } catch (_) {
-            // Preserve the established best-effort GPU behavior. Texture
-            // failures leave the range absent rather than crashing a frame.
+            // Preserve best-effort GPU behavior and route the failed range to
+            // the Canvas fallback instead of crashing or dropping the text.
           }
-          renderedCommands += end - i;
+          if (rendered) {
+            renderedCommands += end - i;
+          } else {
+            fallbackCursor = insertGpuFallbackRange(
+              fallbackIndices,
+              fallbackCursor,
+              i,
+              end,
+            );
+          }
           i = end - 1;
           continue;
         }
       }
+      var rendered = true;
       try {
-        _dispatchGpuCommand(
+        rendered = _dispatchGpuCommand(
           renderPass,
           command,
           viewportSize,
@@ -388,7 +417,16 @@ class GpuCommandRenderer {
         // Texture binding fails on this platform for hostVisible textures.
         // Command is skipped; the result may be incomplete but not crashing.
       }
-      renderedCommands++;
+      if (rendered) {
+        renderedCommands++;
+      } else {
+        fallbackCursor = insertGpuFallbackRange(
+          fallbackIndices,
+          fallbackCursor,
+          i,
+          i + 1,
+        );
+      }
     }
 
     // Submit GPU work and present to canvas.
@@ -487,7 +525,7 @@ class GpuCommandRenderer {
     } catch (_) {}
   }
 
-  void _dispatchGpuCommand(
+  bool _dispatchGpuCommand(
     gpu.RenderPass renderPass,
     LoveDrawCommand command,
     ui.Size viewportSize, {
@@ -522,14 +560,15 @@ class GpuCommandRenderer {
       case LoveParticleSystemCommand cmd:
         _dispatchParticleSystem(renderPass, cmd, viewportSize);
       case LoveTextCommand cmd:
-        _textHandler.renderText(renderPass, cmd, viewportSize);
+        return _textHandler.renderText(renderPass, cmd, viewportSize);
       case LoveTextObjectCommand cmd:
-        _textHandler.renderTextObject(renderPass, cmd, viewportSize);
+        return _textHandler.renderTextObject(renderPass, cmd, viewportSize);
       case LoveColorClearCommand _:
       case LoveVideoCommand _:
       case LoveStencilClearCommand _:
         break;
     }
+    return true;
   }
 
   void _dispatchRectangle(

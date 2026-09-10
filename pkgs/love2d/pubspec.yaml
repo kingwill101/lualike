@@ -39,6 +39,8 @@ dev_dependencies:
 flutter:
   assets:
     - third_party/love/extra/resources/Vera.ttf
+    - third_party/love/extra/resources/default_font/Vera-12-normal-1x.json
+    - third_party/love/extra/resources/default_font/Vera-12-normal-1x.png
   shaders:
     - shaders/love_straight_alpha_image.frag
     - test_assets/shaders/runtime_effect_solid_color.frag

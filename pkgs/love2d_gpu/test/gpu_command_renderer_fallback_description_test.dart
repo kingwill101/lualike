@@ -67,4 +67,15 @@ void main() {
     expect(description, contains('textLength=10'));
     expect(description, contains('preview="Score: 123"'));
   });
+
+  test('late GPU failures preserve fallback command order', () {
+    final fallbackIndices = <int>[1, 5, 8];
+
+    var cursor = 1;
+    cursor = insertGpuFallbackRange(fallbackIndices, cursor, 2, 4);
+    cursor = insertGpuFallbackRange(fallbackIndices, cursor, 4, 5);
+
+    expect(fallbackIndices, <int>[1, 2, 3, 4, 5, 8]);
+    expect(cursor, 4);
+  });
 }

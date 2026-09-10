@@ -36,6 +36,9 @@ function love.draw()
   shader:send("colorOuter", {0, 0, 0, 1})
   love.graphics.setShader(shader)
   love.graphics.rectangle("fill", 0, 0, 320, 180)
+  shader:send("innerRadius", 40)
+  love.graphics.rectangle("fill", 0, 0, 160, 90)
+  shader:send("innerRadius", 60)
   love.graphics.setShader()
 end
 ''');
@@ -43,12 +46,15 @@ end
       runtime.context.beginDrawFrame();
       await runtime.callDrawIfDefined();
 
-      final command =
-          runtime.context.graphics.commands.single as LoveRectangleCommand;
-      expect(command.shader, isNotNull);
-      expect(command.shader!.kind, LoveShaderKind.radialGradient);
-      expect(command.shader!.uniform('innerRadius'), 20);
-      expect(command.shader!.uniform('center'), <Object?>[100, 60]);
+      final commands = runtime.context.graphics.commands
+          .cast<LoveRectangleCommand>();
+      expect(commands, hasLength(2));
+      expect(commands.first.shader, isNotNull);
+      expect(commands.first.shader!.kind, LoveShaderKind.radialGradient);
+      expect(commands.first.shader!.uniform('innerRadius'), 20);
+      expect(commands.last.shader!.uniform('innerRadius'), 40);
+      expect(commands.first.shader!.uniform('center'), <Object?>[100, 60]);
+      expect(identical(commands.first.shader, commands.last.shader), isFalse);
       expect(runtime.context.graphics.shaderSwitches, 2);
     });
 
