@@ -20,7 +20,8 @@ void main() {
           ((await lualike.execute('''
 local empty = love.data.newByteData(4)
 return empty:type()
-''')) as Value)
+'''))
+                  as Value)
               .unwrap(),
           'ByteData',
         );
@@ -28,7 +29,8 @@ return empty:type()
           ((await lualike.execute('''
 local empty = love.data.newByteData(4)
 return empty:typeOf("Data")
-''')) as Value)
+'''))
+                  as Value)
               .unwrap(),
           isTrue,
         );
@@ -36,7 +38,8 @@ return empty:typeOf("Data")
           ((await lualike.execute('''
 local empty = love.data.newByteData(4)
 return empty:getSize()
-''')) as Value)
+'''))
+                  as Value)
               .unwrap(),
           4,
         );
@@ -45,7 +48,8 @@ return empty:getSize()
           ((await lualike.execute('''
 local source = love.data.newByteData("hello world")
 return source:getString()
-''')) as Value)
+'''))
+                  as Value)
               .unwrap(),
           'hello world',
         );
@@ -55,7 +59,8 @@ return source:getString()
 local source = love.data.newByteData("hello world")
 local slice = love.data.newByteData(source, 6, 5)
 return slice:getString()
-''')) as Value)
+'''))
+                  as Value)
               .unwrap(),
           'world',
         );
@@ -65,7 +70,8 @@ return slice:getString()
 local source = love.data.newByteData("hello world")
 local tail = love.data.newByteData(source, 6)
 return tail:getString()
-''')) as Value)
+'''))
+                  as Value)
               .unwrap(),
           'world',
         );
@@ -81,9 +87,7 @@ local view = love.data.newDataView(source, 1, 3)
 return view:type(), view:typeOf("Data"), view:getString()
 ''');
         expect(
-          (viewResult as List)
-              .map((e) => (e as Value).unwrap())
-              .toList(),
+          (viewResult as List).map((e) => (e as Value).unwrap()).toList(),
           <Object?>['DataView', true, 'bcd'],
         );
 
@@ -94,9 +98,7 @@ local clone = view:clone()
 return clone:type(), clone:getString()
 ''');
         expect(
-          (cloneResult as List)
-              .map((e) => (e as Value).unwrap())
-              .toList(),
+          (cloneResult as List).map((e) => (e as Value).unwrap()).toList(),
           <Object?>['DataView', 'bcd'],
         );
       },
@@ -109,7 +111,8 @@ return clone:type(), clone:getString()
           ((await lualike.execute('''
 local fileData = love.filesystem.newFileData("binary payload", "payload.bin")
 return love.data.newByteData(fileData, 7, 7):getString()
-''')) as Value)
+'''))
+                  as Value)
               .unwrap(),
           'payload',
         );
@@ -118,7 +121,8 @@ return love.data.newByteData(fileData, 7, 7):getString()
           ((await lualike.execute('''
 local fileData = love.filesystem.newFileData("binary payload", "payload.bin")
 return love.data.encode("string", "hex", fileData)
-''')) as Value)
+'''))
+                  as Value)
               .unwrap(),
           '62696e617279207061796c6f6164',
         );
@@ -126,7 +130,8 @@ return love.data.encode("string", "hex", fileData)
         expect(
           ((await lualike.execute('''
 return love.data.encode("string", "hex", "Hi")
-''')) as Value)
+'''))
+                  as Value)
               .unwrap(),
           '4869',
         );
@@ -136,23 +141,23 @@ local decoded = love.data.decode("data", "hex", "48656c6c6f")
 return decoded:type(), decoded:getString()
 ''');
         expect(
-          (decodedResult as List)
-              .map((e) => (e as Value).unwrap())
-              .toList(),
+          (decodedResult as List).map((e) => (e as Value).unwrap()).toList(),
           <Object?>['ByteData', 'Hello'],
         );
 
         expect(
           ((await lualike.execute('''
 return love.data.encode("string", "base64", "hello")
-''')) as Value)
+'''))
+                  as Value)
               .unwrap(),
           'aGVsbG8=',
         );
         expect(
           ((await lualike.execute('''
 return love.data.decode("string", "base64", "aGVsbG8=")
-''')) as Value)
+'''))
+                  as Value)
               .unwrap(),
           'hello',
         );
@@ -160,7 +165,8 @@ return love.data.decode("string", "base64", "aGVsbG8=")
         expect(
           ((await lualike.execute('''
 return love.data.encode("string", "hex", love.data.hash("sha256", "abc"))
-''')) as Value)
+'''))
+                  as Value)
               .unwrap(),
           'ba7816bf8f01cfea414140de5dae2223'
           'b00361a396177a9cb410ff61f20015ad',
@@ -174,16 +180,15 @@ local compressed = love.data.compress("data", "zlib", "hello hello hello")
 return compressed:type(), compressed:typeOf("Data")
 ''');
       expect(
-        (compressedResult as List)
-            .map((e) => (e as Value).unwrap())
-            .toList(),
+        (compressedResult as List).map((e) => (e as Value).unwrap()).toList(),
         <Object?>['CompressedData', true],
       );
       expect(
         ((await lualike.execute('''
 local compressed = love.data.compress("data", "zlib", "hello hello hello")
 return love.data.decompress("string", compressed)
-''')) as Value)
+'''))
+                as Value)
             .unwrap(),
         'hello hello hello',
       );
@@ -193,7 +198,8 @@ return love.data.decompress("string", compressed)
 local source = love.data.newByteData("payload")
 local gzipBytes = love.data.compress("string", "gzip", source)
 return love.data.decompress("string", "gzip", gzipBytes)
-''')) as Value)
+'''))
+                as Value)
             .unwrap(),
         'payload',
       );
@@ -203,7 +209,8 @@ return love.data.decompress("string", "gzip", gzipBytes)
 local deflated = love.data.compress("string", "deflate", "raw bytes")
 local inflated = love.data.decompress("data", "deflate", deflated)
 return inflated:getString()
-''')) as Value)
+'''))
+                as Value)
             .unwrap(),
         'raw bytes',
       );
@@ -224,9 +231,7 @@ local packed = love.data.pack("data", "<I4", 0x12345678)
 return packed:type(), love.data.encode("string", "hex", packed)
 ''');
         expect(
-          (packedResult as List)
-              .map((e) => (e as Value).unwrap())
-              .toList(),
+          (packedResult as List).map((e) => (e as Value).unwrap()).toList(),
           <Object?>['ByteData', '78563412'],
         );
 
@@ -235,9 +240,7 @@ local packed = love.data.pack("data", "<I4", 0x12345678)
 return love.data.unpack("<I4", packed)
 ''');
         expect(
-          (unpackedResult as List)
-              .map((e) => (e as Value).unwrap())
-              .toList(),
+          (unpackedResult as List).map((e) => (e as Value).unwrap()).toList(),
           <Object?>[0x12345678, 5],
         );
       },

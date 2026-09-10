@@ -11,8 +11,9 @@ final Expando<bool> _loveFontExtrasInstalled = Expando<bool>(
 );
 
 /// The generated hinting-mode enum table exposed through the LOVE font module.
-final Map<String, Object?> _loveHintingModeEnumMap =
-    loveEnumMapForSymbol('HintingMode');
+final Map<String, Object?> _loveHintingModeEnumMap = loveEnumMapForSymbol(
+  'HintingMode',
+);
 
 /// Installs font-specific extra bindings into [runtime].
 void installLoveFontExtraBindings(LuaRuntime runtime) {

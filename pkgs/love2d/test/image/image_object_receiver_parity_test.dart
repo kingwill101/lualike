@@ -9,8 +9,8 @@ void main() {
     test(
       'Image type metadata survives release while other methods fail',
       () async {
-      final lualike = LuaLike();
-LuaRuntime runtime = lualike.vm;
+        final lualike = LuaLike();
+        LuaRuntime runtime = lualike.vm;
         installLove2d(runtime: runtime, host: LoveHeadlessHost());
 
         final imageData = await luaCall(

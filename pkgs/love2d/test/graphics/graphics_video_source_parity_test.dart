@@ -13,8 +13,8 @@ void main() {
     test(
       'newVideo missing argument uses the normal argument-1 type error',
       () async {
-      final lualike = LuaLike();
-LuaRuntime runtime = lualike.vm;
+        final lualike = LuaLike();
+        LuaRuntime runtime = lualike.vm;
         installLove2d(runtime: runtime, host: LoveHeadlessHost());
 
         await expectLater(
@@ -35,8 +35,8 @@ LuaRuntime runtime = lualike.vm;
     test(
       '_newVideo mirrors the upstream low-level video constructor surface',
       () async {
-      final lualike = LuaLike();
-LuaRuntime runtime = lualike.vm;
+        final lualike = LuaLike();
+        LuaRuntime runtime = lualike.vm;
         installLove2d(
           runtime: runtime,
           host: LoveHeadlessHost(),
@@ -129,8 +129,8 @@ LuaRuntime runtime = lualike.vm;
     test(
       'Video:_setSource matches the low-level wrapper by not changing stream sync',
       () async {
-      final lualike = LuaLike();
-LuaRuntime runtime = lualike.vm;
+        final lualike = LuaLike();
+        LuaRuntime runtime = lualike.vm;
         installLove2d(
           runtime: runtime,
           host: LoveHeadlessHost(),
@@ -177,8 +177,8 @@ LuaRuntime runtime = lualike.vm;
     test(
       '_newVideo preserves the sync state of an input VideoStream',
       () async {
-      final lualike = LuaLike();
-LuaRuntime runtime = lualike.vm;
+        final lualike = LuaLike();
+        LuaRuntime runtime = lualike.vm;
         installLove2d(
           runtime: runtime,
           host: LoveHeadlessHost(),
@@ -224,8 +224,8 @@ LuaRuntime runtime = lualike.vm;
     );
 
     test('Video source setters reject non-Source values', () async {
-    final lualike = LuaLike();
-LuaRuntime runtime = lualike.vm;
+      final lualike = LuaLike();
+      LuaRuntime runtime = lualike.vm;
       installLove2d(
         runtime: runtime,
         host: LoveHeadlessHost(),
@@ -270,8 +270,8 @@ LuaRuntime runtime = lualike.vm;
     test(
       '_newVideo reuses newVideoStream conversion errors for unsupported or missing inputs',
       () async {
-      final lualike = LuaLike();
-LuaRuntime runtime = lualike.vm;
+        final lualike = LuaLike();
+        LuaRuntime runtime = lualike.vm;
         installLove2d(
           runtime: runtime,
           host: LoveHeadlessHost(),

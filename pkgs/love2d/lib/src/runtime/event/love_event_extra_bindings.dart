@@ -54,4 +54,3 @@ void installLoveEventExtraBindings(LuaRuntime runtime) {
   // Install as the global Event table.
   runtime.globals.define('Event', enumValue);
 }
-

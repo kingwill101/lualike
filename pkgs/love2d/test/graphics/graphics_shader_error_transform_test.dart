@@ -9,7 +9,9 @@ void main() {
       final runtime = lualike.vm;
       installLove2d(runtime: runtime, host: LoveHeadlessHost());
       final transform =
-          await lualike.execute('return love.graphics._transformGLSLErrorMessages')
+          await lualike.execute(
+                'return love.graphics._transformGLSLErrorMessages',
+              )
               as Value;
 
       expect(
@@ -36,18 +38,23 @@ void main() {
       );
     });
 
-    test('_transformGLSLErrorMessages passes through unknown messages', () async {
-      final lualike = LuaLike();
-      final runtime = lualike.vm;
-      installLove2d(runtime: runtime, host: LoveHeadlessHost());
-      final transform =
-          await lualike.execute('return love.graphics._transformGLSLErrorMessages')
-              as Value;
+    test(
+      '_transformGLSLErrorMessages passes through unknown messages',
+      () async {
+        final lualike = LuaLike();
+        final runtime = lualike.vm;
+        installLove2d(runtime: runtime, host: LoveHeadlessHost());
+        final transform =
+            await lualike.execute(
+                  'return love.graphics._transformGLSLErrorMessages',
+                )
+                as Value;
 
-      expect(
-        await transform.call(<Object?>['unstructured compiler output']),
-        'unstructured compiler output',
-      );
-    });
+        expect(
+          await transform.call(<Object?>['unstructured compiler output']),
+          'unstructured compiler output',
+        );
+      },
+    );
   });
 }

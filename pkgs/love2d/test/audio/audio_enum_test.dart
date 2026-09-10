@@ -2,7 +2,6 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:lualike/lualike.dart';
 import 'package:love2d/love2d.dart';
 
-
 void main() {
   group('audio enums', () {
     late LuaRuntime runtime;
@@ -10,7 +9,7 @@ void main() {
 
     setUp(() {
       lualike = LuaLike();
-runtime = lualike.vm;
+      runtime = lualike.vm;
       installLove2d(runtime: runtime, host: LoveHeadlessHost());
     });
 

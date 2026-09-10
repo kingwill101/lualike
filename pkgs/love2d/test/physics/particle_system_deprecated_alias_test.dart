@@ -8,8 +8,8 @@ void main() {
     test(
       'setAreaSpread and getAreaSpread mirror upstream deprecated alias semantics',
       () async {
-      final lualike = LuaLike();
-LuaRuntime runtime = lualike.vm;
+        final lualike = LuaLike();
+        LuaRuntime runtime = lualike.vm;
         installLove2d(runtime: runtime, host: LoveHeadlessHost());
 
         final imageData = await luaCallList(

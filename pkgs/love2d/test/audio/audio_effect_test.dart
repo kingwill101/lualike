@@ -10,7 +10,7 @@ void main() {
 
     setUp(() {
       lualike = LuaLike();
-runtime = lualike.vm;
+      runtime = lualike.vm;
       installLove2d(runtime: runtime, host: LoveHeadlessHost());
     });
 
@@ -215,10 +215,9 @@ runtime = lualike.vm;
             },
           ],
         );
-        expect(
-          await luaCallMethodList(source, 'getActiveEffects'),
-          <Object?>['fx'],
-        );
+        expect(await luaCallMethodList(source, 'getActiveEffects'), <Object?>[
+          'fx',
+        ]);
 
         expect(
           luaCallMethodList(source, 'setFilter', const <Object?>[

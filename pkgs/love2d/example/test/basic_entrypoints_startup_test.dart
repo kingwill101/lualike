@@ -114,7 +114,10 @@ void main() {
       ),
     );
     final filesystem = LoveFilesystemState.of(runtime.runtime);
-    expect(filesystem.setSource('assets/scripts/basic_input_probe.lua'), isTrue);
+    expect(
+      filesystem.setSource('assets/scripts/basic_input_probe.lua'),
+      isTrue,
+    );
     await runtime.loadConfIfPresent();
     final entryData = await filesystem.readFileData(
       path.basename('assets/scripts/basic_input_probe.lua'),

@@ -54,10 +54,7 @@ final class _GpuDrawStateCache {
     _blendAlphaMode = command.blendAlphaMode;
   }
 
-  bool shouldApplyScissor(
-    LoveScissorRect? scissor,
-    ui.Size viewportSize,
-  ) {
+  bool shouldApplyScissor(LoveScissorRect? scissor, ui.Size viewportSize) {
     return !_scissorInitialized ||
         scissor != _scissor ||
         viewportSize.width.ceil() != _viewportWidth ||

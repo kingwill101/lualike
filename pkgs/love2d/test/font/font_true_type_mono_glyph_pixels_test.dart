@@ -10,8 +10,8 @@ void main() {
     test(
       'source-backed mono-hinted rasterizers emit binary alpha coverage',
       () async {
-      final lualike = LuaLike();
-LuaRuntime runtime = lualike.vm;
+        final lualike = LuaLike();
+        LuaRuntime runtime = lualike.vm;
         installLove2d(runtime: runtime, host: LoveHeadlessHost());
 
         final veraBytes = await (await love2dVeraFontFile()).readAsBytes();

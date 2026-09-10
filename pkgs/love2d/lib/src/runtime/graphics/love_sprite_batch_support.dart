@@ -258,9 +258,7 @@ class LoveSpriteBatch {
       texture: texture,
       bufferSize: _bufferSize,
       usage: usage,
-      sprites: _sprites.map((sprite) => sprite.copy()).toList(
-        growable: false,
-      ),
+      sprites: _sprites.map((sprite) => sprite.copy()).toList(growable: false),
       attachedAttributes: _attachedAttributes.map(
         (name, mesh) => MapEntry(name, mesh.copyForDraw()),
       ),

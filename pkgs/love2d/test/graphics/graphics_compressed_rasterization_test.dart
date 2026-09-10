@@ -13,8 +13,8 @@ void main() {
         final host = LoveHeadlessHost(
           windowMetrics: const LoveWindowMetrics(width: 4, height: 4),
         );
-      final lualike = LuaLike();
-LuaRuntime runtime = lualike.vm;
+        final lualike = LuaLike();
+        LuaRuntime runtime = lualike.vm;
         installLove2d(runtime: runtime, host: host);
 
         final compressed = await _newCompressedData(
@@ -59,8 +59,8 @@ LuaRuntime runtime = lualike.vm;
         final host = LoveHeadlessHost(
           windowMetrics: const LoveWindowMetrics(width: 4, height: 4),
         );
-      final lualike = LuaLike();
-LuaRuntime runtime = lualike.vm;
+        final lualike = LuaLike();
+        LuaRuntime runtime = lualike.vm;
         installLove2d(runtime: runtime, host: host);
 
         final compressed = await _newCompressedData(
@@ -113,8 +113,8 @@ LuaRuntime runtime = lualike.vm;
         final host = LoveHeadlessHost(
           windowMetrics: const LoveWindowMetrics(width: 4, height: 4),
         );
-      final lualike = LuaLike();
-LuaRuntime runtime = lualike.vm;
+        final lualike = LuaLike();
+        LuaRuntime runtime = lualike.vm;
         installLove2d(runtime: runtime, host: host);
 
         final red = await _newCompressedData(
@@ -166,8 +166,8 @@ LuaRuntime runtime = lualike.vm;
         final host = LoveHeadlessHost(
           windowMetrics: const LoveWindowMetrics(width: 4, height: 4),
         );
-      final lualike = LuaLike();
-LuaRuntime runtime = lualike.vm;
+        final lualike = LuaLike();
+        LuaRuntime runtime = lualike.vm;
         installLove2d(runtime: runtime, host: host);
 
         final red = await _newCompressedData(
@@ -238,8 +238,8 @@ LuaRuntime runtime = lualike.vm;
       final host = LoveHeadlessHost(
         windowMetrics: const LoveWindowMetrics(width: 4, height: 4),
       );
-    final lualike = LuaLike();
-LuaRuntime runtime = lualike.vm;
+      final lualike = LuaLike();
+      LuaRuntime runtime = lualike.vm;
       installLove2d(runtime: runtime, host: host);
 
       final compressed = await _newCompressedData(
@@ -283,8 +283,8 @@ LuaRuntime runtime = lualike.vm;
         final host = LoveHeadlessHost(
           windowMetrics: const LoveWindowMetrics(width: 4, height: 4),
         );
-      final lualike = LuaLike();
-LuaRuntime runtime = lualike.vm;
+        final lualike = LuaLike();
+        LuaRuntime runtime = lualike.vm;
         installLove2d(runtime: runtime, host: host);
 
         final compressed = await _newCompressedData(
@@ -342,8 +342,8 @@ LuaRuntime runtime = lualike.vm;
         final host = LoveHeadlessHost(
           windowMetrics: const LoveWindowMetrics(width: 4, height: 4),
         );
-      final lualike = LuaLike();
-LuaRuntime runtime = lualike.vm;
+        final lualike = LuaLike();
+        LuaRuntime runtime = lualike.vm;
         installLove2d(runtime: runtime, host: host);
 
         final block = Uint8List(16)
@@ -416,8 +416,8 @@ LuaRuntime runtime = lualike.vm;
         final host = LoveHeadlessHost(
           windowMetrics: const LoveWindowMetrics(width: 4, height: 4),
         );
-      final lualike = LuaLike();
-LuaRuntime runtime = lualike.vm;
+        final lualike = LuaLike();
+        LuaRuntime runtime = lualike.vm;
         installLove2d(runtime: runtime, host: host);
 
         final compressed = await _newCompressedData(
@@ -470,8 +470,8 @@ LuaRuntime runtime = lualike.vm;
         final host = LoveHeadlessHost(
           windowMetrics: const LoveWindowMetrics(width: 4, height: 4),
         );
-      final lualike = LuaLike();
-LuaRuntime runtime = lualike.vm;
+        final lualike = LuaLike();
+        LuaRuntime runtime = lualike.vm;
         installLove2d(runtime: runtime, host: host);
 
         final compressed = await _newCompressedData(
@@ -519,8 +519,8 @@ LuaRuntime runtime = lualike.vm;
         final host = LoveHeadlessHost(
           windowMetrics: const LoveWindowMetrics(width: 4, height: 4),
         );
-      final lualike = LuaLike();
-LuaRuntime runtime = lualike.vm;
+        final lualike = LuaLike();
+        LuaRuntime runtime = lualike.vm;
         installLove2d(runtime: runtime, host: host);
 
         final first = await _newCompressedData(
@@ -577,8 +577,8 @@ LuaRuntime runtime = lualike.vm;
         final host = LoveHeadlessHost(
           windowMetrics: const LoveWindowMetrics(width: 4, height: 4),
         );
-      final lualike = LuaLike();
-LuaRuntime runtime = lualike.vm;
+        final lualike = LuaLike();
+        LuaRuntime runtime = lualike.vm;
         installLove2d(runtime: runtime, host: host);
 
         final compressed = await _newCompressedData(
@@ -641,8 +641,8 @@ LuaRuntime runtime = lualike.vm;
         final host = LoveHeadlessHost(
           windowMetrics: const LoveWindowMetrics(width: 4, height: 4),
         );
-      final lualike = LuaLike();
-LuaRuntime runtime = lualike.vm;
+        final lualike = LuaLike();
+        LuaRuntime runtime = lualike.vm;
         installLove2d(runtime: runtime, host: host);
 
         final first = await _newCompressedData(
@@ -718,8 +718,8 @@ LuaRuntime runtime = lualike.vm;
         final host = LoveHeadlessHost(
           windowMetrics: const LoveWindowMetrics(width: 4, height: 4),
         );
-      final lualike = LuaLike();
-LuaRuntime runtime = lualike.vm;
+        final lualike = LuaLike();
+        LuaRuntime runtime = lualike.vm;
         installLove2d(runtime: runtime, host: host);
 
         final red = await _newCompressedData(
@@ -791,8 +791,8 @@ LuaRuntime runtime = lualike.vm;
         final host = LoveHeadlessHost(
           windowMetrics: const LoveWindowMetrics(width: 4, height: 4),
         );
-      final lualike = LuaLike();
-LuaRuntime runtime = lualike.vm;
+        final lualike = LuaLike();
+        LuaRuntime runtime = lualike.vm;
         installLove2d(runtime: runtime, host: host);
 
         final compressed = await _newCompressedData(
@@ -854,8 +854,8 @@ LuaRuntime runtime = lualike.vm;
         final host = LoveHeadlessHost(
           windowMetrics: const LoveWindowMetrics(width: 4, height: 4),
         );
-      final lualike = LuaLike();
-LuaRuntime runtime = lualike.vm;
+        final lualike = LuaLike();
+        LuaRuntime runtime = lualike.vm;
         installLove2d(runtime: runtime, host: host);
 
         final compressed = await _newCompressedData(

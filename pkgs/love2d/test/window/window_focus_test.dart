@@ -21,8 +21,7 @@ void main() {
         isTrue,
       );
       expect(
-        ((await lualike.execute('return love.window.hasMouseFocus()'))
-                as Value)
+        ((await lualike.execute('return love.window.hasMouseFocus()')) as Value)
             .unwrap(),
         isFalse,
       );
@@ -36,8 +35,7 @@ void main() {
         isFalse,
       );
       expect(
-        ((await lualike.execute('return love.window.hasMouseFocus()'))
-                as Value)
+        ((await lualike.execute('return love.window.hasMouseFocus()')) as Value)
             .unwrap(),
         isTrue,
       );
@@ -60,8 +58,7 @@ void main() {
         isFalse,
       );
       expect(
-        ((await lualike.execute('return love.window.hasMouseFocus()'))
-                as Value)
+        ((await lualike.execute('return love.window.hasMouseFocus()')) as Value)
             .unwrap(),
         isFalse,
       );
@@ -80,8 +77,7 @@ void main() {
         ),
       );
       expect(
-        ((await lualike.execute('return love.window.hasMouseFocus()'))
-                as Value)
+        ((await lualike.execute('return love.window.hasMouseFocus()')) as Value)
             .unwrap(),
         isTrue,
       );
@@ -93,8 +89,7 @@ void main() {
         ),
       );
       expect(
-        ((await lualike.execute('return love.window.hasMouseFocus()'))
-                as Value)
+        ((await lualike.execute('return love.window.hasMouseFocus()')) as Value)
             .unwrap(),
         isFalse,
       );

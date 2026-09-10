@@ -67,8 +67,7 @@ void main() {
         ]);
 
         final vertexFormat =
-            await luaCallMethod(mesh, 'getVertexFormat')
-                as List<Object?>;
+            await luaCallMethod(mesh, 'getVertexFormat') as List<Object?>;
         expect(vertexFormat, hasLength(3));
         expect(vertexFormat[0], <Object?>['VertexPosition', 'float', 2]);
         expect(vertexFormat[1], <Object?>['VertexTexCoord', 'float', 2]);

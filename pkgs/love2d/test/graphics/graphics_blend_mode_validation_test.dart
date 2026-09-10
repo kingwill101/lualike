@@ -2,7 +2,6 @@ import 'package:lualike/lualike.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:love2d/love2d.dart';
 
-
 void main() {
   group('love.graphics.setBlendMode', () {
     test(

@@ -122,8 +122,8 @@ void main() {
 }
 
 LuaRuntime _newRuntime({LoveHost? host}) {
-final lualike = LuaLike();
-LuaRuntime runtime = lualike.vm;
+  final lualike = LuaLike();
+  LuaRuntime runtime = lualike.vm;
   installLove2d(runtime: runtime, host: host ?? LoveHeadlessHost());
   return runtime;
 }

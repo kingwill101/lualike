@@ -2,14 +2,13 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:lualike/lualike.dart';
 import 'package:love2d/love2d.dart';
 
-
 void main() {
   group('love.audio Source release', () {
     test(
       'Object:release disposes Source backends and invalidates the wrapper',
       () async {
-      final lualike = LuaLike();
-LuaRuntime runtime = lualike.vm;
+        final lualike = LuaLike();
+        LuaRuntime runtime = lualike.vm;
         var disposeCount = 0;
         installLove2d(
           runtime: runtime,

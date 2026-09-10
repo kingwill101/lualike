@@ -34,7 +34,9 @@ void main() {
             .unwrap(),
         8,
       );
-      final powerResult = await lualike.execute('return love.system.getPowerInfo()');
+      final powerResult = await lualike.execute(
+        'return love.system.getPowerInfo()',
+      );
       expect(
         (powerResult as List).map((e) => (e as Value).unwrap()).toList(),
         <Object?>['charging', 67, 1234],
@@ -52,7 +54,9 @@ void main() {
         'seed clipboard',
       );
 
-      await lualike.execute('love.system.setClipboardText("updated clipboard")');
+      await lualike.execute(
+        'love.system.setClipboardText("updated clipboard")',
+      );
       expect(host.system.clipboardText, 'updated clipboard');
       expect(
         ((await lualike.execute('return love.system.getClipboardText()'))
@@ -102,11 +106,11 @@ void main() {
               .unwrap(),
           1,
         );
-        final asyncPowerResult = await lualike.execute('return love.system.getPowerInfo()');
+        final asyncPowerResult = await lualike.execute(
+          'return love.system.getPowerInfo()',
+        );
         expect(
-          (asyncPowerResult as List)
-              .map((e) => (e as Value).unwrap())
-              .toList(),
+          (asyncPowerResult as List).map((e) => (e as Value).unwrap()).toList(),
           <Object?>['unknown', null, null],
         );
         expect(
@@ -116,18 +120,24 @@ void main() {
           'external clipboard',
         );
 
-        await lualike.execute('love.system.setClipboardText("written externally")');
+        await lualike.execute(
+          'love.system.setClipboardText("written externally")',
+        );
         expect(clipboard, 'written externally');
         expect(host.system.clipboardText, 'written externally');
 
         expect(
-          ((await lualike.execute('return love.system.openURL("https://love2d.org")'))
+          ((await lualike.execute(
+                    'return love.system.openURL("https://love2d.org")',
+                  ))
                   as Value)
               .unwrap(),
           isTrue,
         );
         expect(
-          ((await lualike.execute('return love.system.openURL("mailto:test@example.com")'))
+          ((await lualike.execute(
+                    'return love.system.openURL("mailto:test@example.com")',
+                  ))
                   as Value)
               .unwrap(),
           isFalse,

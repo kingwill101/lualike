@@ -52,7 +52,8 @@ vec4 effect(vec4 color, Image texture, vec2 texture_coords, vec2 screen_coords) 
   return mix(colorInner, colorOuter, t) * Texel(texture, texture_coords);
 }
 ]])
-''')) as Value)
+'''))
+                  as Value)
               .unwrap(),
           isTrue,
         );
@@ -77,7 +78,8 @@ vec4 effect(vec4 color, Image texture, vec2 texture_coords, vec2 screen_coords) 
   return vec4(tint.rgb * intensity, tint.a) * base;
 }
 ]])
-''')) as List)
+'''))
+                  as List)
               .map((e) => (e as Value).unwrap())
               .toList(),
           <Object?>[false, _unsupportedShaderMessage],
@@ -103,7 +105,8 @@ vec4 effect(vec4 color, Image texture, vec2 texture_coords, vec2 screen_coords) 
   return color * Texel(texture, texture_coords);
 }
 ]])
-''')) as List)
+'''))
+                  as List)
               .map((e) => (e as Value).unwrap())
               .toList(),
           <Object?>[false, _unsupportedShaderMessage],
@@ -123,7 +126,8 @@ vec4 effect(vec4 color, Image texture, vec2 texture_coords, vec2 screen_coords) 
 return love.graphics.validateShader(false, [[
 $_registeredFragmentShaderSource
 ]])
-''')) as Value)
+'''))
+                  as Value)
               .unwrap(),
           isTrue,
         );
@@ -144,7 +148,9 @@ $_missingRegisteredFragmentShaderSource
 ''');
 
         expect(result, isA<List<Object?>>());
-        final values = (result as List).map((e) => (e as Value).unwrap()).toList();
+        final values = (result as List)
+            .map((e) => (e as Value).unwrap())
+            .toList();
         expect(values.first, isFalse);
         expect(
           values[1],
@@ -161,7 +167,9 @@ $_missingRegisteredFragmentShaderSource
       installLove2d(runtime: runtime, host: LoveHeadlessHost());
 
       await expectLater(
-        lualike.execute('return love.graphics.validateShader(false, "shaders/missing.glsl")'),
+        lualike.execute(
+          'return love.graphics.validateShader(false, "shaders/missing.glsl")',
+        ),
         throwsA(
           isA<LuaError>().having(
             (error) => error.message,

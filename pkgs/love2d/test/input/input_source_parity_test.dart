@@ -13,7 +13,7 @@ void main() {
 
     setUp(() {
       lualike = LuaLike();
-runtime = lualike.vm;
+      runtime = lualike.vm;
       host = LoveHeadlessHost();
       installLove2d(runtime: runtime, host: host);
     });

@@ -15,7 +15,7 @@ void main() {
 
     setUp(() {
       lualike = LuaLike();
-runtime = lualike.vm;
+      runtime = lualike.vm;
       installLove2d(runtime: runtime, host: LoveHeadlessHost());
     });
 
@@ -173,8 +173,8 @@ runtime = lualike.vm;
     });
 
     test('setMixWithSystem returns the host result', () async {
-    final lualike = LuaLike();
-LuaRuntime runtime = lualike.vm;
+      final lualike = LuaLike();
+      LuaRuntime runtime = lualike.vm;
       installLove2d(
         runtime: runtime,
         host: LoveHeadlessHost(
@@ -552,7 +552,10 @@ LuaRuntime runtime = lualike.vm;
           'audio',
           'pause',
         ]);
-        expect(paused, isA<List>().having((table) => table.length, 'length', 2));
+        expect(
+          paused,
+          isA<List>().having((table) => table.length, 'length', 2),
+        );
         expect(
           await luaCallList(runtime, const [
             'love',
@@ -583,8 +586,8 @@ LuaRuntime runtime = lualike.vm;
     test(
       'newSource reads mounted LOVE filesystem strings and rejects missing filenames',
       () async {
-      final lualike = LuaLike();
-LuaRuntime runtime = lualike.vm;
+        final lualike = LuaLike();
+        LuaRuntime runtime = lualike.vm;
         installLove2d(
           runtime: runtime,
           host: LoveHeadlessHost(),

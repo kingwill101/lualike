@@ -12,7 +12,7 @@ void main() {
 
     setUp(() {
       lualike = LuaLike();
-runtime = lualike.vm;
+      runtime = lualike.vm;
       installLove2d(runtime: runtime);
     });
 
@@ -260,7 +260,7 @@ runtime = lualike.vm;
 
     setUp(() {
       lualike = LuaLike();
-runtime = lualike.vm;
+      runtime = lualike.vm;
       installLove2d(runtime: runtime);
     });
 
@@ -315,7 +315,7 @@ runtime = lualike.vm;
 
     setUp(() {
       lualike = LuaLike();
-runtime = lualike.vm;
+      runtime = lualike.vm;
       installLove2d(runtime: runtime);
     });
 
@@ -434,7 +434,9 @@ runtime = lualike.vm;
 
 List<double> _indexedNumericValues(Object? table) {
   if (table is List) {
-    return table.map((entry) => (entry as num).toDouble()).toList(growable: false);
+    return table
+        .map((entry) => (entry as num).toDouble())
+        .toList(growable: false);
   }
   final map = table as Map<Object?, Object?>;
   final entries = map.entries.toList(growable: false)

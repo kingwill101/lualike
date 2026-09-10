@@ -13,7 +13,9 @@ List<Object?> indexedValues(Object? table) {
 }
 
 List<double> doubleTable(Object? table) {
-  return indexedValues(table).map((entry) => (entry as num).toDouble()).toList(growable: false);
+  return indexedValues(
+    table,
+  ).map((entry) => (entry as num).toDouble()).toList(growable: false);
 }
 
 List<double> doubleResults(Object? value) {

@@ -2,7 +2,6 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:lualike/lualike.dart';
 import 'package:love2d/love2d.dart';
 
-
 void main() {
   test('graphics enum tables are exposed on love.graphics and as globals', () {
     final lualike = LuaLike();

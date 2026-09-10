@@ -13,8 +13,8 @@ void main() {
     test(
       'newBMFontRasterizer uses LOVE BMFont error text for invalid FileData definitions',
       () async {
-      final lualike = LuaLike();
-LuaRuntime runtime = lualike.vm;
+        final lualike = LuaLike();
+        LuaRuntime runtime = lualike.vm;
         installLove2d(runtime: runtime, host: LoveHeadlessHost());
 
         final definition = await luaCall(
@@ -48,8 +48,8 @@ LuaRuntime runtime = lualike.vm;
     test(
       'graphics.newFont uses LOVE BMFont error text for invalid FileData definitions',
       () async {
-      final lualike = LuaLike();
-LuaRuntime runtime = lualike.vm;
+        final lualike = LuaLike();
+        LuaRuntime runtime = lualike.vm;
         installLove2d(runtime: runtime, host: LoveHeadlessHost());
 
         final definition = await luaCall(
@@ -83,8 +83,8 @@ LuaRuntime runtime = lualike.vm;
     test(
       'graphics.newFont uses LOVE BMFont error text for invalid mounted definitions',
       () async {
-      final lualike = LuaLike();
-LuaRuntime runtime = lualike.vm;
+        final lualike = LuaLike();
+        LuaRuntime runtime = lualike.vm;
         installLove2d(
           runtime: runtime,
           host: LoveHeadlessHost(),
@@ -125,8 +125,8 @@ LuaRuntime runtime = lualike.vm;
     test(
       'newBMFontRasterizer rejects whitespace-prefixed valid definitions like upstream',
       () async {
-      final lualike = LuaLike();
-LuaRuntime runtime = lualike.vm;
+        final lualike = LuaLike();
+        LuaRuntime runtime = lualike.vm;
         installLove2d(runtime: runtime, host: LoveHeadlessHost());
 
         final definition = await luaCall(
@@ -163,8 +163,8 @@ LuaRuntime runtime = lualike.vm;
     test(
       'graphics.newFont rejects whitespace-prefixed valid definitions like upstream',
       () async {
-      final lualike = LuaLike();
-LuaRuntime runtime = lualike.vm;
+        final lualike = LuaLike();
+        LuaRuntime runtime = lualike.vm;
         installLove2d(
           runtime: runtime,
           host: LoveHeadlessHost(),

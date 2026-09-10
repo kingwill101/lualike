@@ -70,7 +70,9 @@ class LoveParticleSystemSnapshot {
     required Iterable<LoveParticleDrawEntry> particles,
     bool copyParticles = true,
   }) : particles = List<LoveParticleDrawEntry>.unmodifiable(
-         copyParticles ? particles.map((particle) => particle.copy()) : particles,
+         copyParticles
+             ? particles.map((particle) => particle.copy())
+             : particles,
        );
 
   /// The texture that should be used to draw the snapshot.

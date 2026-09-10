@@ -9,8 +9,8 @@ void main() {
     test(
       'GlyphData:type and GlyphData:typeOf require a GlyphData receiver',
       () async {
-      final lualike = LuaLike();
-LuaRuntime runtime = lualike.vm;
+        final lualike = LuaLike();
+        LuaRuntime runtime = lualike.vm;
         installLove2d(runtime: runtime, host: LoveHeadlessHost());
 
         final imageData = await luaCall(
@@ -81,8 +81,8 @@ LuaRuntime runtime = lualike.vm;
     test(
       'GlyphData release invalidates methods but preserves type metadata',
       () async {
-      final lualike = LuaLike();
-LuaRuntime runtime = lualike.vm;
+        final lualike = LuaLike();
+        LuaRuntime runtime = lualike.vm;
         installLove2d(runtime: runtime, host: LoveHeadlessHost());
 
         final imageData = await luaCall(

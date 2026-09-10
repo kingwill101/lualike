@@ -25,7 +25,9 @@ void main() {
             .unwrap(),
         <Object?>[12, 11],
       );
-      final positionResult = await lualike.execute('return love.touch.getPosition(11)');
+      final positionResult = await lualike.execute(
+        'return love.touch.getPosition(11)',
+      );
       expect(
         (positionResult as List).map((e) => (e as Value).unwrap()).toList(),
         <Object?>[15.0, 25.0],

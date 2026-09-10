@@ -8,8 +8,8 @@ void main() {
     test(
       'translate, rotate, scale, shear, and origin mirror Transform',
       () async {
-      final lualike = LuaLike();
-LuaRuntime runtime = lualike.vm;
+        final lualike = LuaLike();
+        LuaRuntime runtime = lualike.vm;
         installLove2d(runtime: runtime, host: LoveHeadlessHost());
 
         final oracle = await luaCall(runtime, const [
@@ -89,8 +89,8 @@ LuaRuntime runtime = lualike.vm;
     test(
       'replaceTransform and applyTransform mirror Transform point mapping',
       () async {
-      final lualike = LuaLike();
-LuaRuntime runtime = lualike.vm;
+        final lualike = LuaLike();
+        LuaRuntime runtime = lualike.vm;
         installLove2d(runtime: runtime, host: LoveHeadlessHost());
 
         final base = await luaCall(
@@ -161,8 +161,8 @@ LuaRuntime runtime = lualike.vm;
     );
 
     test('push and pop preserve transform or all-state semantics', () async {
-    final lualike = LuaLike();
-LuaRuntime runtime = lualike.vm;
+      final lualike = LuaLike();
+      LuaRuntime runtime = lualike.vm;
       installLove2d(runtime: runtime, host: LoveHeadlessHost());
 
       await luaCall(
@@ -250,8 +250,8 @@ LuaRuntime runtime = lualike.vm;
     test(
       'push overload matches LOVE stack type and Transform dispatch',
       () async {
-      final lualike = LuaLike();
-LuaRuntime runtime = lualike.vm;
+        final lualike = LuaLike();
+        LuaRuntime runtime = lualike.vm;
         installLove2d(runtime: runtime, host: LoveHeadlessHost());
 
         final offset = await luaCall(

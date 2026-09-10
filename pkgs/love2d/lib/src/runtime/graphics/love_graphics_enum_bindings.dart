@@ -391,4 +391,3 @@ String _graphicsTransformGlslErrorMessages(String message) {
   }
   return lines.join('\n');
 }
-

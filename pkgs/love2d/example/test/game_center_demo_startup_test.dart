@@ -51,7 +51,8 @@ Future<void> _bootEntry(
   expect(
     filesystem.setSource(diskEntry),
     isTrue,
-    reason: '${entry.title}: setSource($diskEntry) from ${Directory.current.path}',
+    reason:
+        '${entry.title}: setSource($diskEntry) from ${Directory.current.path}',
   );
   await runtime.loadConfIfPresent().timeout(const Duration(seconds: 15));
   await runtime

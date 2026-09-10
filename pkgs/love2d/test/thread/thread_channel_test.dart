@@ -11,7 +11,7 @@ void main() {
 
     setUp(() {
       lualike = LuaLike();
-runtime = lualike.vm;
+      runtime = lualike.vm;
       lua = LuaLike(runtime: runtime);
       installLove2d(runtime: runtime);
     });

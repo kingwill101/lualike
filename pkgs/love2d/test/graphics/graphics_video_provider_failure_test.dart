@@ -8,8 +8,8 @@ import '../test_support/memory_filesystem_test_support.dart';
 void main() {
   group('love.graphics Video provider failures', () {
     test('newVideo reports missing libmpv as a LuaError', () async {
-    final lualike = LuaLike();
-LuaRuntime runtime = lualike.vm;
+      final lualike = LuaLike();
+      LuaRuntime runtime = lualike.vm;
       installLove2d(
         runtime: runtime,
         host: LoveHeadlessHost(

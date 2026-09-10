@@ -359,7 +359,8 @@ extension _LoveFilesystemModuleBindingMethods on _LoveFilesystemBindings {
     return (args) async {
       var startIndex = 0;
       var containerType = _LoveFilesystemContainerType.string;
-      if (args.length >= 2 && loveStringLike(_valueAt(args, 1), allowNumber: false) != null) {
+      if (args.length >= 2 &&
+          loveStringLike(_valueAt(args, 1), allowNumber: false) != null) {
         containerType = _containerType(
           _requireString(args, 0, 'love.filesystem.read'),
           'love.filesystem.read',

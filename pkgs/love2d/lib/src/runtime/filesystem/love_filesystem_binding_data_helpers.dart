@@ -99,12 +99,15 @@ Future<List<int>> _dataBytes(
   final bytes = switch (raw) {
     final LuaString stringValue => stringValue.bytes,
     final String stringValue => LuaString.fromDartString(stringValue).bytes,
-    final num numberValue => LuaString.fromDartString(numberValue.toString()).bytes,
+    final num numberValue => LuaString.fromDartString(
+      numberValue.toString(),
+    ).bytes,
     final Uint8List bytes => bytes,
     final List<int> bytes => Uint8List.fromList(bytes),
-    _ when fileData != null => fileData.bytes is Uint8List
-      ? fileData.bytes as Uint8List
-      : Uint8List.fromList(fileData.bytes),
+    _ when fileData != null =>
+      fileData.bytes is Uint8List
+          ? fileData.bytes as Uint8List
+          : Uint8List.fromList(fileData.bytes),
     _ => null,
   };
 

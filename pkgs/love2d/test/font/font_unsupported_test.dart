@@ -9,8 +9,8 @@ void main() {
     test(
       'default true type rasterizers without source data still reject glyph count enumeration',
       () async {
-      final lualike = LuaLike();
-LuaRuntime runtime = lualike.vm;
+        final lualike = LuaLike();
+        LuaRuntime runtime = lualike.vm;
         installLove2d(runtime: runtime, host: LoveHeadlessHost());
 
         final rasterizer = await luaCallList(
@@ -38,8 +38,8 @@ LuaRuntime runtime = lualike.vm;
     test(
       'font fallbacks reject different underlying font data types',
       () async {
-      final lualike = LuaLike();
-LuaRuntime runtime = lualike.vm;
+        final lualike = LuaLike();
+        LuaRuntime runtime = lualike.vm;
         installLove2d(runtime: runtime, host: LoveHeadlessHost());
 
         final bmFontDefinition = await luaCallList(

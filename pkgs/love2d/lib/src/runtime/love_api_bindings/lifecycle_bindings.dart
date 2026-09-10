@@ -209,9 +209,10 @@ Object? _loveTableField(LuaRuntime runtime, String name) {
 
 /// Cached user callbacks for hot main-loop callback lookups.
 final Expando<Map<String, ({Object? slot, Value? callback})>>
-_loveHotUserCallbackCache = Expando<Map<String, ({Object? slot, Value? callback})>>(
-  'love2dHotUserCallbackCache',
-);
+_loveHotUserCallbackCache =
+    Expando<Map<String, ({Object? slot, Value? callback})>>(
+      'love2dHotUserCallbackCache',
+    );
 
 /// Returns a user-defined `love.[name]` callback, excluding builtins.
 Value? _userLoveCallback(LuaRuntime runtime, String name) {
@@ -231,7 +232,8 @@ Value? _userLoveCallback(LuaRuntime runtime, String name) {
 Value? _cachedHotUserCallback(LuaRuntime runtime, String name) {
   final love = _tableRaw(runtime.globals.get('love'));
   if (love == null) {
-    _loveHotUserCallbackCache[runtime] = <String, ({Object? slot, Value? callback})>{};
+    _loveHotUserCallbackCache[runtime] =
+        <String, ({Object? slot, Value? callback})>{};
     return null;
   }
 
@@ -244,8 +246,7 @@ Value? _cachedHotUserCallback(LuaRuntime runtime, String name) {
   }
 
   final callback = _functionValue(slot);
-  final resolved =
-      callback != null && !_isGeneratedLoveCallbackStub(callback)
+  final resolved = callback != null && !_isGeneratedLoveCallbackStub(callback)
       ? callback
       : null;
   cache[name] = (slot: slot, callback: resolved);

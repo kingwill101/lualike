@@ -10,8 +10,8 @@ void main() {
     test(
       'World type metadata survives release while other methods fail',
       () async {
-      final lualike = LuaLike();
-LuaRuntime runtime = lualike.vm;
+        final lualike = LuaLike();
+        LuaRuntime runtime = lualike.vm;
         installLove2d(runtime: runtime);
 
         final world = await luaCall(
@@ -32,8 +32,8 @@ LuaRuntime runtime = lualike.vm;
     test(
       'Body type metadata survives release while other methods fail',
       () async {
-      final lualike = LuaLike();
-LuaRuntime runtime = lualike.vm;
+        final lualike = LuaLike();
+        LuaRuntime runtime = lualike.vm;
         installLove2d(runtime: runtime);
 
         final world = await luaCall(
@@ -59,8 +59,8 @@ LuaRuntime runtime = lualike.vm;
     test(
       'Fixture type metadata survives release while other methods fail',
       () async {
-      final lualike = LuaLike();
-LuaRuntime runtime = lualike.vm;
+        final lualike = LuaLike();
+        LuaRuntime runtime = lualike.vm;
         installLove2d(runtime: runtime);
 
         final world = await luaCall(
@@ -96,8 +96,8 @@ LuaRuntime runtime = lualike.vm;
     test(
       'CircleShape type metadata survives release while other methods fail',
       () async {
-      final lualike = LuaLike();
-LuaRuntime runtime = lualike.vm;
+        final lualike = LuaLike();
+        LuaRuntime runtime = lualike.vm;
         installLove2d(runtime: runtime);
 
         final shape = await luaCall(
@@ -118,8 +118,8 @@ LuaRuntime runtime = lualike.vm;
     test(
       'DistanceJoint type metadata survives release while other methods fail',
       () async {
-      final lualike = LuaLike();
-LuaRuntime runtime = lualike.vm;
+        final lualike = LuaLike();
+        LuaRuntime runtime = lualike.vm;
         installLove2d(runtime: runtime);
 
         final world = await luaCall(
@@ -155,8 +155,8 @@ LuaRuntime runtime = lualike.vm;
     test(
       'Contact type metadata survives release while other methods fail',
       () async {
-      final lualike = LuaLike();
-LuaRuntime runtime = lualike.vm;
+        final lualike = LuaLike();
+        LuaRuntime runtime = lualike.vm;
         installLove2d(runtime: runtime);
 
         final world = await luaCallList(

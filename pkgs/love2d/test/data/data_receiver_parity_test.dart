@@ -52,7 +52,8 @@ return byteData.typeOf("oops", "Data")
           ((await lualike.execute('''
 local byteData = love.data.newByteData("hello")
 return byteData:release()
-''')) as Value)
+'''))
+                  as Value)
               .unwrap(),
           isTrue,
         );
@@ -61,7 +62,8 @@ return byteData:release()
 local byteData = love.data.newByteData("hello")
 byteData:release()
 return byteData:release()
-''')) as Value)
+'''))
+                  as Value)
               .unwrap(),
           isFalse,
         );
@@ -143,7 +145,8 @@ return fileData.typeOf("oops", "Data")
           ((await lualike.execute('''
 local fileData = love.filesystem.newFileData("payload", "payload.bin")
 return fileData:release()
-''')) as Value)
+'''))
+                  as Value)
               .unwrap(),
           isTrue,
         );
@@ -152,7 +155,8 @@ return fileData:release()
 local fileData = love.filesystem.newFileData("payload", "payload.bin")
 fileData:release()
 return fileData:release()
-''')) as Value)
+'''))
+                  as Value)
               .unwrap(),
           isFalse,
         );

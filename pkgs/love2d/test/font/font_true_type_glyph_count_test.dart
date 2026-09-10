@@ -10,8 +10,8 @@ void main() {
     test(
       'source-backed true type rasterizers expose maxp glyph count',
       () async {
-      final lualike = LuaLike();
-LuaRuntime runtime = lualike.vm;
+        final lualike = LuaLike();
+        LuaRuntime runtime = lualike.vm;
         installLove2d(runtime: runtime, host: LoveHeadlessHost());
 
         final veraBytes = await (await love2dVeraFontFile()).readAsBytes();

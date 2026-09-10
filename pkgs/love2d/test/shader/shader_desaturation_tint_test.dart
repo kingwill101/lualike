@@ -2,7 +2,6 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:lualike/lualike.dart';
 import 'package:love2d/love2d.dart';
 
-
 const String _desaturationTintShaderSource = '''
 extern vec4 tint;
 extern number strength;

@@ -156,8 +156,8 @@ LuaRuntime _newMountedRuntime({
   required LoveHost host,
   required Map<String, List<int>> files,
 }) {
-final lualike = LuaLike();
-LuaRuntime runtime = lualike.vm;
+  final lualike = LuaLike();
+  LuaRuntime runtime = lualike.vm;
   installLove2d(
     runtime: runtime,
     host: host,

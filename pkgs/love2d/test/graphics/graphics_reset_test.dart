@@ -11,7 +11,9 @@ void main() {
         final runtime = lualike.vm;
         installLove2d(runtime: runtime, host: LoveHeadlessHost());
 
-        final canvas = await lualike.execute('return love.graphics.newCanvas(4, 4)');
+        final canvas = await lualike.execute(
+          'return love.graphics.newCanvas(4, 4)',
+        );
 
         expect(
           await lualike.execute(
@@ -22,15 +24,22 @@ void main() {
         final setCanvas =
             await lualike.execute('return love.graphics.setCanvas') as Value;
         expect(await setCanvas.call(<Object?>[canvas]), isNull);
-        expect(await lualike.execute('return love.graphics.getCanvas()'), isNotNull);
+        expect(
+          await lualike.execute('return love.graphics.getCanvas()'),
+          isNotNull,
+        );
 
         await lualike.execute('love.graphics.translate(5, 6)');
 
         expect(await lualike.execute('return love.graphics.reset()'), isNull);
 
-        expect(await lualike.execute('return love.graphics.getCanvas()'), isNull);
         expect(
-          (await lualike.execute('return love.graphics.getDefaultFilter()') as List)
+          await lualike.execute('return love.graphics.getCanvas()'),
+          isNull,
+        );
+        expect(
+          (await lualike.execute('return love.graphics.getDefaultFilter()')
+                  as List)
               .map((e) => (e as Value).unwrap())
               .toList(),
           <Object?>['linear', 'linear', 1.0],

@@ -100,13 +100,12 @@ void main() {
 
         await luaCallMethod(particleSystem, 'setQuads', <Object?>[quad]);
         final quads =
-            await luaCallMethod(particleSystem, 'getQuads')
-                as List<Object?>;
+            await luaCallMethod(particleSystem, 'getQuads') as List<Object?>;
         expect(quads, hasLength(1));
-        expect(
-          await luaCallMethod(quads[0], 'getTextureDimensions'),
-          <Object?>[16.0, 16.0],
-        );
+        expect(await luaCallMethod(quads[0], 'getTextureDimensions'), <Object?>[
+          16.0,
+          16.0,
+        ]);
 
         await luaCallMethod(particleSystem, 'setRadialAcceleration', <Object?>[
           -2.0,

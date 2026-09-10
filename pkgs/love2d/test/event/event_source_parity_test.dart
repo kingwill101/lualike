@@ -8,8 +8,8 @@ void main() {
     test(
       'poll_i is installed directly and mirrors upstream event iteration',
       () async {
-      final lualike = LuaLike();
-LuaRuntime runtime = lualike.vm;
+        final lualike = LuaLike();
+        LuaRuntime runtime = lualike.vm;
         installLove2d(runtime: runtime, host: LoveHeadlessHost());
 
         await luaCallList(
@@ -56,8 +56,8 @@ LuaRuntime runtime = lualike.vm;
     );
 
     test('poll_i is available inside thread child runtimes', () async {
-    final lualike = LuaLike();
-LuaRuntime runtime = lualike.vm;
+      final lualike = LuaLike();
+      LuaRuntime runtime = lualike.vm;
       installLove2d(runtime: runtime, host: LoveHeadlessHost());
 
       final output = await luaCallList(runtime, const [

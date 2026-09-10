@@ -10,8 +10,8 @@ void main() {
       'queues a single mesh command with instance count and draw transform',
       () async {
         final host = LoveHeadlessHost();
-      final lualike = LuaLike();
-LuaRuntime runtime = lualike.vm;
+        final lualike = LuaLike();
+        LuaRuntime runtime = lualike.vm;
         installLove2d(runtime: runtime, host: host);
 
         final mesh = await luaCall(
@@ -53,8 +53,8 @@ LuaRuntime runtime = lualike.vm;
 
     test('treats non-positive instance counts as a no-op', () async {
       final host = LoveHeadlessHost();
-    final lualike = LuaLike();
-LuaRuntime runtime = lualike.vm;
+      final lualike = LuaLike();
+      LuaRuntime runtime = lualike.vm;
       installLove2d(runtime: runtime, host: host);
 
       final mesh = await luaCall(
