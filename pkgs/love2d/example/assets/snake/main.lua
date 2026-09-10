@@ -311,6 +311,7 @@ function love.draw()
   drawTextCentered(string.format("SCORE %02d   BEST %02d", score, bestScore), 36, palette.textDim, 1)
 
   drawBoard()
+  drawScanlines()
 
   if state == "menu" then
     drawTextCentered("PRESS ANY ARROW", 400, palette.text, 1)
@@ -328,5 +329,4 @@ function love.draw()
     drawTextCentered("TAP SIDES TO TURN", 428, palette.textDim, 1)
   end
 
-  drawScanlines()
 end

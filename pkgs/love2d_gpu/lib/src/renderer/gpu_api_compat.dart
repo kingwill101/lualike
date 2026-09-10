@@ -5,38 +5,19 @@ void bindVertexBufferCompat(
   gpu.BufferView bufferView, {
   int slot = 0,
 }) {
-  final dynamic rp = pass;
-  try {
-    rp.bindVertexBuffer(bufferView, slot);
-  } catch (_) {
-    rp.bindVertexBuffer(bufferView);
-  }
+  // flutter_gpu's current API makes slot a named argument. The previous
+  // compatibility probe tried the old positional form first, which raised a
+  // NoSuchMethodError on every draw before retrying the correct call.
+  pass.bindVertexBuffer(bufferView, slot: slot);
 }
 
 void bindIndexBufferCompat(
   gpu.RenderPass pass,
   gpu.BufferView bufferView, {
   required gpu.IndexType indexType,
-  int? indexCount,
 }) {
-  final dynamic rp = pass;
-  if (indexCount != null) {
-    try {
-      rp.bindIndexBuffer(bufferView, indexType, indexCount);
-      return;
-    } catch (_) {
-      // fall through
-    }
-  }
-  try {
-    rp.bindIndexBuffer(bufferView, indexType);
-  } catch (_) {
-    if (indexCount != null) {
-      rp.bindIndexBuffer(bufferView, indexType, indexCount);
-    } else {
-      rp.bindIndexBuffer(bufferView, indexType, 0);
-    }
-  }
+  // Index count is supplied to drawIndexed, not to bindIndexBuffer.
+  pass.bindIndexBuffer(bufferView, indexType);
 }
 
 void drawVerticesCompat(
@@ -44,16 +25,7 @@ void drawVerticesCompat(
   int vertexCount, {
   int instanceCount = 1,
 }) {
-  final dynamic rp = pass;
-  try {
-    rp.draw(vertexCount, instanceCount: instanceCount);
-  } catch (_) {
-    try {
-      rp.draw(vertexCount);
-    } catch (_) {
-      rp.draw();
-    }
-  }
+  pass.draw(vertexCount, instanceCount: instanceCount);
 }
 
 void drawIndexedCompat(
@@ -61,18 +33,5 @@ void drawIndexedCompat(
   int indexCount, {
   int instanceCount = 1,
 }) {
-  final dynamic rp = pass;
-  try {
-    rp.drawIndexed(indexCount, instanceCount: instanceCount);
-  } catch (_) {
-    try {
-      rp.draw(indexCount, instanceCount: instanceCount);
-    } catch (_) {
-      try {
-        rp.draw(indexCount);
-      } catch (_) {
-        rp.draw();
-      }
-    }
-  }
+  pass.drawIndexed(indexCount, instanceCount: instanceCount);
 }

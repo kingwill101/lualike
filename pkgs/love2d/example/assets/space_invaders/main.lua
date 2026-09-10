@@ -568,6 +568,7 @@ end
 function love.draw()
   love.graphics.clear(palette.bg)
   drawPlayfield()
+  drawScanlines()
 
   setColor(palette.text)
   love.graphics.print(string.format("SCORE %04d", score), 16, 14)
@@ -588,5 +589,4 @@ function love.draw()
     drawTextCentered("SPACE TO FIRE", 456, palette.textDim, 1)
   end
 
-  drawScanlines()
 end

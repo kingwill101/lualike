@@ -3,18 +3,18 @@ part of '../love_api_bindings.dart';
 /// Whether verbose keyboard trace logging is enabled for debugging.
 const bool _loveTraceKeyboardLeak = bool.fromEnvironment(
   'LOVE2D_TRACE_TOUCH_LEAK',
-  defaultValue: true,
 );
 
 /// Emits a structured keyboard-binding trace when tracing is enabled.
 void _loveTraceKeyboard(
   String stage, {
-  Map<String, Object?> details = const {},
+  Map<String, Object?> Function()? detailsBuilder,
 }) {
   if (!_loveTraceKeyboardLeak) {
     return;
   }
 
+  final details = detailsBuilder?.call() ?? const <String, Object?>{};
   final message = details.entries
       .map((entry) => '${entry.key}=${entry.value}')
       .join(' ');
@@ -90,39 +90,46 @@ LoveApiImplementation _bindKeyboardHasTextInput(
 LoveApiImplementation _bindKeyboardIsDown(LibraryRegistrationContext context) {
   final runtime = _runtimeContext(context);
   return (args) {
-    final rawArgs = _loveDescribeKeyboardArgs(args);
     try {
-      final keys = _keyboardKeySequence(
+      final result = _keyboardAnyKeyDown(
         args,
         'love.keyboard.isDown',
+        keyboard: runtime.keyboard,
         touch: runtime.touch,
       );
-      final result = runtime.keyboard.isDown(keys);
-      _loveTraceKeyboard(
-        'isDown',
-        details: <String, Object?>{
-          'rawArgs': rawArgs,
-          'keys': keys,
-          'touches': runtime.touch.getTouches(),
-          'scancodes': runtime.keyboard.pressedScancodes.toList(
-            growable: false,
-          ),
-          'result': result,
-        },
-      );
+      if (_loveTraceKeyboardLeak) {
+        _loveTraceKeyboard(
+          'isDown',
+          detailsBuilder: () => <String, Object?>{
+            'rawArgs': _loveDescribeKeyboardArgs(args),
+            'keys': _keyboardKeySequence(
+              args,
+              'love.keyboard.isDown',
+              touch: runtime.touch,
+            ),
+            'touches': runtime.touch.getTouches(),
+            'scancodes': runtime.keyboard.pressedScancodes.toList(
+              growable: false,
+            ),
+            'result': result,
+          },
+        );
+      }
       return result;
     } catch (error) {
-      _loveTraceKeyboard(
-        'isDown.error',
-        details: <String, Object?>{
-          'rawArgs': rawArgs,
-          'touches': runtime.touch.getTouches(),
-          'scancodes': runtime.keyboard.pressedScancodes.toList(
-            growable: false,
-          ),
-          'error': error,
-        },
-      );
+      if (_loveTraceKeyboardLeak) {
+        _loveTraceKeyboard(
+          'isDown.error',
+          detailsBuilder: () => <String, Object?>{
+            'rawArgs': _loveDescribeKeyboardArgs(args),
+            'touches': runtime.touch.getTouches(),
+            'scancodes': runtime.keyboard.pressedScancodes.toList(
+              growable: false,
+            ),
+            'error': error,
+          },
+        );
+      }
       rethrow;
     }
   };
@@ -133,8 +140,10 @@ LoveApiImplementation _bindKeyboardIsScancodeDown(
   LibraryRegistrationContext context,
 ) {
   final runtime = _runtimeContext(context);
-  return (args) => runtime.keyboard.isScancodeDown(
-    _keyboardScancodeSequence(args, 'love.keyboard.isScancodeDown'),
+  return (args) => _keyboardAnyScancodeDown(
+    args,
+    'love.keyboard.isScancodeDown',
+    keyboard: runtime.keyboard,
   );
 }
 
@@ -210,17 +219,111 @@ List<String> _keyboardKeySequence(
   return _keyboardKeySequenceWithTouchState(args, symbol, touch: touch);
 }
 
-/// Normalizes scancode arguments into validated LOVE scancode strings.
-List<String> _keyboardScancodeSequence(List<Object?> args, String symbol) {
-  final values = _stringSequence(args, symbol: symbol, coerceNumbers: true);
-  return values
-      .map((value) {
-        if (!loveIsValidScancode(value)) {
-          throw LuaError('$symbol invalid scancode "$value"');
+/// Returns whether any validated LOVE key constant in [args] is pressed.
+bool _keyboardAnyKeyDown(
+  List<Object?> args,
+  String symbol, {
+  required LoveKeyboardState keyboard,
+  LoveTouchState? touch,
+}) {
+  if (args.isEmpty) {
+    return false;
+  }
+
+  final table = args.length == 1 ? _tableIfPresent(args.first) : null;
+  if (table != null) {
+    for (var index = 1; ; index++) {
+      final entry = _tableIndexedEntry(table, index);
+      if (entry == null) {
+        return false;
+      }
+
+      final value = _sequenceStringLike(entry, coerceNumbers: true);
+      if (value == null) {
+        throw LuaError('$symbol expected strings in table argument');
+      }
+      if (!loveIsValidKeyConstant(value)) {
+        if (_isLeakedActiveTouchId(value, touch: touch)) {
+          continue;
         }
-        return value;
-      })
-      .toList(growable: false);
+        throw LuaError('$symbol invalid key constant "$value"');
+      }
+      if (keyboard.isKeyDown(value)) {
+        return true;
+      }
+    }
+  }
+
+  for (var index = 0; index < args.length; index++) {
+    final value = _sequenceStringLike(
+      _valueAt(args, index),
+      coerceNumbers: true,
+    );
+    if (value == null) {
+      throw LuaError('$symbol expected a string at argument ${index + 1}');
+    }
+    if (_isLeakedActiveTouchId(value, touch: touch)) {
+      continue;
+    }
+    if (!loveIsValidKeyConstant(value)) {
+      throw LuaError('$symbol invalid key constant "$value"');
+    }
+    if (keyboard.isKeyDown(value)) {
+      return true;
+    }
+  }
+
+  return false;
+}
+
+/// Returns whether any validated LOVE scancode in [args] is pressed.
+bool _keyboardAnyScancodeDown(
+  List<Object?> args,
+  String symbol, {
+  required LoveKeyboardState keyboard,
+}) {
+  if (args.isEmpty) {
+    return false;
+  }
+
+  final table = args.length == 1 ? _tableIfPresent(args.first) : null;
+  if (table != null) {
+    for (var index = 1; ; index++) {
+      final entry = _tableIndexedEntry(table, index);
+      if (entry == null) {
+        return false;
+      }
+
+      final value = _sequenceStringLike(entry, coerceNumbers: true);
+      if (value == null) {
+        throw LuaError('$symbol expected strings in table argument');
+      }
+      if (!loveIsValidScancode(value)) {
+        throw LuaError('$symbol invalid scancode "$value"');
+      }
+      if (keyboard.isScancodePressed(value)) {
+        return true;
+      }
+    }
+  }
+
+  for (var index = 0; index < args.length; index++) {
+    final value = _sequenceStringLike(
+      _valueAt(args, index),
+      coerceNumbers: true,
+    );
+    if (value == null) {
+      throw LuaError('$symbol expected a string at argument ${index + 1}');
+    }
+    if (!loveIsValidScancode(value)) {
+      throw LuaError('$symbol invalid scancode "$value"');
+    }
+    if (keyboard.isScancodePressed(value)) {
+      return true;
+    }
+  }
+
+  return false;
 }
 
 /// Normalizes keyboard key arguments while filtering leaked active touch IDs.
@@ -236,7 +339,7 @@ List<String> _keyboardKeySequenceWithTouchState(
   final values = _stringSequence(args, symbol: symbol, coerceNumbers: true);
   _loveTraceKeyboard(
     'keySequence.begin',
-    details: <String, Object?>{
+    detailsBuilder: () => <String, Object?>{
       'symbol': symbol,
       'rawArgs': _loveDescribeKeyboardArgs(args),
       'values': values,
@@ -252,7 +355,7 @@ List<String> _keyboardKeySequenceWithTouchState(
     if (_isLeakedActiveTouchId(value, touch: touch)) {
       _loveTraceKeyboard(
         'keySequence.dropTouchId',
-        details: <String, Object?>{
+        detailsBuilder: () => <String, Object?>{
           'symbol': symbol,
           'value': value,
           'touches': touch?.getTouches(),
@@ -262,7 +365,7 @@ List<String> _keyboardKeySequenceWithTouchState(
     }
     _loveTraceKeyboard(
       'keySequence.invalid',
-      details: <String, Object?>{
+      detailsBuilder: () => <String, Object?>{
         'symbol': symbol,
         'value': value,
         'rawArgs': _loveDescribeKeyboardArgs(args),
@@ -273,7 +376,7 @@ List<String> _keyboardKeySequenceWithTouchState(
   }
   _loveTraceKeyboard(
     'keySequence.end',
-    details: <String, Object?>{'symbol': symbol, 'keys': keys},
+    detailsBuilder: () => <String, Object?>{'symbol': symbol, 'keys': keys},
   );
   return keys;
 }

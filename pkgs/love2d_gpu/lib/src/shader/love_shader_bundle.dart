@@ -3,13 +3,14 @@ import 'package:flutter_gpu/gpu.dart' as gpu;
 /// Loads and caches the LOVE2D GPU shader bundle.
 ///
 /// The shader bundle is a compiled `.shaderbundle` asset produced by `impellerc`
-/// from the GLSL sources in `lib/src/shader/`. It contains three pipelines:
+/// from the GLSL sources in `lib/src/shader/`.
 ///
 /// | Pipeline Name | Vertex | Fragment | Use Case |
 /// |---|---|---|---|
 /// | `UnlitPipeline` | love_base.vert | love_unlit.frag | Untextured meshes, shapes |
 /// | `TexturedPipeline` | love_base.vert | love_textured.frag | Textured meshes, images |
 /// | `SpriteBatchPipeline` | love_sprite_batch.vert | love_textured.frag | Sprite batches |
+/// | `RoughLinePipeline` | love_rough_line.vert | love_rough_line.frag | Native single-sample rough lines |
 ///
 /// See `tools/compile_shaders.sh` to regenerate the bundle.
 class LoveShaderBundles {
@@ -29,6 +30,12 @@ class LoveShaderBundles {
   /// The textured fragment shader (texture sample * vertex color).
   static late final gpu.Shader texturedFragment;
 
+  /// Screen-space vertex shader for one-quad rough lines.
+  static late final gpu.Shader roughLineVertex;
+
+  /// Pixel-cell fragment shader for native-style rough lines.
+  static late final gpu.Shader roughLineFragment;
+
   /// Loads the shader bundle from the asset path.
   ///
   /// Must be called once before any rendering. Throws if the bundle cannot be
@@ -42,16 +49,7 @@ class LoveShaderBundles {
   }) async {
     if (_loaded) return;
 
-    final candidates = <String>{
-      assetPath,
-      'love2d_gpu/assets/love2d_gpu.shaderbundle',
-      'assets/love2d_gpu.shaderbundle',
-      'build/shaderbundles/love2d_gpu.shaderbundle',
-      'packages/love2d_gpu/assets/love2d_gpu.shaderbundle',
-      'packages/love2d_gpu/build/shaderbundles/love2d_gpu.shaderbundle',
-      'flutter_gpu_shaders/shaderbundles/love2d_gpu.shaderbundle',
-      'packages/love2d_gpu/flutter_gpu_shaders/shaderbundles/love2d_gpu.shaderbundle',
-    }.toList(growable: false);
+    final candidates = loveShaderBundleAssetCandidates(assetPath);
 
     gpu.ShaderLibrary? library;
     for (final candidate in candidates) {
@@ -75,6 +73,8 @@ class LoveShaderBundles {
     spriteBatchVertex = _requireShader(library, 'LoveSpriteBatchVertex');
     unlitFragment = _requireShader(library, 'LoveUnlitFragment');
     texturedFragment = _requireShader(library, 'LoveTexturedFragment');
+    roughLineVertex = _requireShader(library, 'LoveRoughLineVertex');
+    roughLineFragment = _requireShader(library, 'LoveRoughLineFragment');
 
     _loaded = true;
   }
@@ -90,3 +90,18 @@ class LoveShaderBundles {
     return shader;
   }
 }
+
+/// Ordered shader bundle asset keys used by [LoveShaderBundles.load].
+///
+/// Build-hook output must precede the checked-in fallback so source shader
+/// changes are exercised during local development.
+List<String> loveShaderBundleAssetCandidates(String assetPath) => <String>{
+  'packages/love2d_gpu/build/shaderbundles/love2d_gpu.shaderbundle',
+  'build/shaderbundles/love2d_gpu.shaderbundle',
+  'flutter_gpu_shaders/shaderbundles/love2d_gpu.shaderbundle',
+  'packages/love2d_gpu/flutter_gpu_shaders/shaderbundles/love2d_gpu.shaderbundle',
+  assetPath,
+  'love2d_gpu/assets/love2d_gpu.shaderbundle',
+  'assets/love2d_gpu.shaderbundle',
+  'packages/love2d_gpu/assets/love2d_gpu.shaderbundle',
+}.toList(growable: false);

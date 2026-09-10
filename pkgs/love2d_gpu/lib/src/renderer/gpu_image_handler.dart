@@ -1,5 +1,6 @@
 import 'dart:typed_data';
 import 'dart:ui' as ui;
+import 'dart:math' as math;
 
 import 'package:flutter_gpu/gpu.dart' as gpu;
 import 'package:love2d/love2d.dart';
@@ -32,7 +33,7 @@ import 'gpu_texture_samplers.dart';
 /// to the image's source rectangle via UV coordinates.
 class GpuImageHandler {
   /// Creates an image handler.
-  const GpuImageHandler({
+  GpuImageHandler({
     required GpuPipelineCache pipelineCache,
     required GpuTextureCache textureCache,
     required GpuHostBufferPool hostBufferPool,
@@ -43,6 +44,7 @@ class GpuImageHandler {
   final GpuPipelineCache _pipelineCache;
   final GpuTextureCache _textureCache;
   final GpuHostBufferPool _hostBufferPool;
+  final Float32List _quadVertices = Float32List(6 * 8);
 
   /// Renders [command] into [renderPass] synchronously.
   ///
@@ -69,7 +71,7 @@ class GpuImageHandler {
     final v1 = (quadY + quadH) / imageH;
 
     // Quad rendered as two triangles (six vertices), avoiding indexed draws.
-    final vertices = Float32List(6 * 8);
+    final vertices = _quadVertices;
     var offset = 0;
     void write(double x, double y, double u, double v) {
       vertices[offset++] = x;
@@ -98,13 +100,22 @@ class GpuImageHandler {
     applyGpuDrawState(renderPass, command, viewportSize);
     bindVertexBufferCompat(renderPass, vertexBuffer);
 
-    final fullTransform = vm.Matrix4.fromList(
-      command.transform.storage.toList(),
-    )..multiply(vm.Matrix4.fromList(command.drawTransform.storage.toList()));
+    final fullTransform = vm.Matrix4.copy(command.transform)
+      ..multiply(command.drawTransform);
     final mvp = _buildMVP(fullTransform, viewportSize);
+    final color = vm.Vector4(
+      command.color.r,
+      command.color.g,
+      command.color.b,
+      command.color.a,
+    );
     final vertInfo = _hostBufferPool.emplaceVertInfo(
       mvp,
-      vm.Vector4(1, 1, 1, 1),
+      color,
+      mipBias: gpuMipmapLodBiasForLoveImage(
+        image,
+        effectiveScale: _effectiveTextureScale(fullTransform, image),
+      ),
     );
     final vertInfoSlot = pipeline.vertexShader.getUniformSlot('VertInfo');
     renderPass.bindUniform(vertInfoSlot, vertInfo);
@@ -113,7 +124,11 @@ class GpuImageHandler {
     final textureSlot = pipeline.fragmentShader.getUniformSlot(
       'texture_sampler',
     );
-    renderPass.bindTexture(textureSlot, texture, sampler: kNearestClampSampler);
+    renderPass.bindTexture(
+      textureSlot,
+      texture,
+      sampler: gpuSamplerForLoveImage(image),
+    );
 
     drawVerticesCompat(renderPass, 6);
 
@@ -133,5 +148,21 @@ class GpuImageHandler {
       vm.Vector4(-1, 1, 0, 1),
     );
     return proj * transform;
+  }
+
+  double _effectiveTextureScale(vm.Matrix4 transform, LoveImage image) {
+    final storage = transform.storage;
+    final scaleXSquared = (storage[0] * storage[0]) + (storage[1] * storage[1]);
+    final scaleYSquared = (storage[4] * storage[4]) + (storage[5] * storage[5]);
+    final dpiScale = image.dpiScale <= 0 ? 1.0 : image.dpiScale;
+    final scaleSquared =
+        math.min(scaleXSquared, scaleYSquared) / (dpiScale * dpiScale);
+
+    // Adaptive compensation saturates outside 0.25x..0.5x. Most draws are
+    // either large backgrounds or small sprites, so avoid square roots for
+    // both common cases while preserving the exact transition curve.
+    if (scaleSquared >= 0.25) return 0.5;
+    if (scaleSquared <= 0.0625) return 0.25;
+    return math.sqrt(scaleSquared);
   }
 }

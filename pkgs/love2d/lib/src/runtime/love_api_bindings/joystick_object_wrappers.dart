@@ -72,10 +72,7 @@ Value wrapLoveJoystickForRuntime(
   LuaRuntime runtime,
   LoveJoystickDevice joystick,
 ) {
-  final context = LibraryContext(
-    environment: runtime.getCurrentEnv(),
-    interpreter: runtime,
-  );
+  final context = loveBindingContext(runtime);
   return _wrapJoystick(context, joystick);
 }
 
@@ -86,7 +83,7 @@ Value _wrapJoystick(LibraryContext context, LoveJoystickDevice joystick) {
     return cached;
   }
 
-  final builder = BuiltinFunctionBuilder(context);
+  final builder = loveBindingBuilderForContext(context);
   const hierarchy = <String>{'Joystick', 'Object'};
   final table = ValueClass.table(<Object?, Object?>{
     _loveJoystickObjectKey: joystick,
@@ -173,15 +170,11 @@ Value _wrapJoystick(LibraryContext context, LoveJoystickDevice joystick) {
     'release': Value(
       builder.create((args) {
         final receiver = _valueAt(args, 0);
-        final table = _joystickWrapperTableIfPresent(receiver);
-        if (table == null) {
-          _throwLuaStyleTypeError(
-            symbol: 'Object:release',
-            index: 0,
-            expected: 'Joystick',
-            actual: receiver,
-          );
-        }
+        final table = loveRequireReleaseWrapperTable(
+          receiver,
+          expected: 'Joystick',
+          resolve: _joystickWrapperTableIfPresent,
+        );
 
         final joystick = table[_loveJoystickObjectKey];
         if (joystick is! LoveJoystickDevice) {

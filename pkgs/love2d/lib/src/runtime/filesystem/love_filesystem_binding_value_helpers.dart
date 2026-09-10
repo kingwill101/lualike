@@ -16,30 +16,9 @@ Object? _rawValue(Object? value) {
   return value;
 }
 
-/// Converts string-like Lua values to a Dart string.
-String? _luaStringLike(Object? value) {
-  final raw = value is Value ? value.raw : value;
-  return switch (raw) {
-    final String stringValue => stringValue,
-    final LuaString stringValue => stringValue.toString(),
-    final num numberValue => numberValue.toString(),
-    _ => null,
-  };
-}
-
-/// Converts only exact string-like Lua values to a Dart string.
-String? _exactStringLike(Object? value) {
-  final raw = value is Value ? value.raw : value;
-  return switch (raw) {
-    final String stringValue => stringValue,
-    final LuaString stringValue => stringValue.toString(),
-    _ => null,
-  };
-}
-
 /// Returns the required string argument for [symbol] at [index].
 String _requireString(List<Object?> args, int index, String symbol) {
-  final value = _luaStringLike(_valueAt(args, index));
+  final value = loveStringLike(_valueAt(args, index));
   if (value != null) {
     return value;
   }
@@ -221,32 +200,13 @@ Set<String> _wrapperHierarchy(List<Object?> args, int index, String symbol) {
 
 /// Returns the Lua table represented by [value], if any.
 Map<dynamic, dynamic>? _tableIfPresent(Object? value) {
-  if (value case final Value wrapped when wrapped.raw is Map) {
-    return wrapped.raw as Map<dynamic, dynamic>;
-  }
-  if (value is Map<dynamic, dynamic>) {
-    return value;
-  }
-  return null;
-}
-
-/// Returns the current `love.filesystem` module table from [runtime], if
-/// available.
-Map<dynamic, dynamic>? _filesystemModuleTable(LuaRuntime runtime) {
-  final loveTable = _tableIfPresent(runtime.getCurrentEnv().get('love'));
-  return _tableIfPresent(loveTable?['filesystem']);
+  return loveTableIfPresent(value);
 }
 
 /// Returns a writable table target for in-place updates, if [value] is a Lua
 /// table wrapper.
 (Value?, Map<dynamic, dynamic>)? _tableTargetIfPresent(Object? value) {
-  if (value case final Value wrapped when wrapped.raw is Map) {
-    return (wrapped, wrapped.raw as Map<dynamic, dynamic>);
-  }
-  if (value is Map<dynamic, dynamic>) {
-    return (null, value);
-  }
-  return null;
+  return loveTableTargetIfPresent(value);
 }
 
 /// Validates a LOVE file mode string.

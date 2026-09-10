@@ -9,7 +9,8 @@ import 'dart:async';
 import 'dart:collection';
 import 'dart:convert' as convert;
 import 'dart:math' as math;
-import 'dart:typed_data' show ByteData, BytesBuilder, Endian, Uint8List;
+import 'dart:typed_data'
+    show ByteData, BytesBuilder, Endian, Float64List, Int32List, Uint8List;
 
 import 'package:archive/archive.dart';
 import 'package:crypto/crypto.dart' as crypto;
@@ -69,6 +70,63 @@ const int loveVersionMinor = 5;
 
 /// The revision version reported by the emulated LÖVE runtime.
 const int loveVersionRevision = 0;
+
+/// Whether generated image mipmaps use centered linear downsampling.
+///
+/// This matches the normalized sampling geometry used by a GPU blit when an
+/// odd source dimension is reduced by half. Set
+/// `LOVE2D_CENTERED_LINEAR_MIPMAPS=false` for the previous area-partition
+/// generator during a matched visual or startup-cost comparison.
+const bool loveCenteredLinearMipmaps = bool.fromEnvironment(
+  'LOVE2D_CENTERED_LINEAR_MIPMAPS',
+  defaultValue: true,
+);
+
+/// Whether source-backed TrueType fonts build and use a reusable glyph atlas.
+///
+/// Set `LOVE_FREETYPE_GLYPH_ATLAS=false` at compile time for the cached
+/// TextPainter compatibility path.
+const bool loveFreeTypeGlyphAtlasEnabled = bool.fromEnvironment(
+  'LOVE_FREETYPE_GLYPH_ATLAS',
+  defaultValue: true,
+);
+
+/// Whether atlas glyph quads include LOVE's one-pixel transparent border.
+///
+/// LOVE expands each FreeType glyph quad by one physical atlas pixel on every
+/// available side. This preserves antialiased edge coverage when the texture
+/// is sampled. Set `LOVE_FREETYPE_GLYPH_QUAD_EXTRUSION=false` to compare with
+/// the older tight-quad renderer.
+const bool loveFreeTypeGlyphQuadExtrusionEnabled = bool.fromEnvironment(
+  'LOVE_FREETYPE_GLYPH_QUAD_EXTRUSION',
+  defaultValue: true,
+);
+
+/// Whether the implicit 12 px default font uses glyphs exported by LOVE 11.5.
+///
+/// The immutable atlas preserves FreeType's native normal-hinting output. Set
+/// `LOVE_NATIVE_DEFAULT_FONT_ATLAS=false` for the pure-Dart rasterizer path.
+const bool loveNativeDefaultFontAtlasEnabled = bool.fromEnvironment(
+  'LOVE_NATIVE_DEFAULT_FONT_ATLAS',
+  defaultValue: true,
+);
+
+/// Calibrates pure-Dart grayscale glyph coverage against FreeType output.
+///
+/// A value above one reduces partially covered edge pixels while preserving
+/// fully covered stems. Matched native LOVE captures select the default; use
+/// `LOVE_FREETYPE_GLYPH_COVERAGE_GAMMA=1.0` for neutral coverage.
+final double loveFreeTypeGlyphCoverageGamma = _readLoveGlyphCoverageGamma();
+
+double _readLoveGlyphCoverageGamma() {
+  final value = double.tryParse(
+    const String.fromEnvironment(
+      'LOVE_FREETYPE_GLYPH_COVERAGE_GAMMA',
+      defaultValue: '3.0',
+    ),
+  );
+  return value != null && value.isFinite && value > 0 ? value : 3.0;
+}
 
 /// The release codename reported by the emulated LÖVE runtime.
 const String loveVersionCodename = 'Mysterious Mysteries';
@@ -518,10 +576,12 @@ class LoveGraphicsSurface {
        _lastClearColorMask = clearColorMask ?? LoveGraphicsColorMask.all,
        _lastClearScissor = clearScissor;
 
-  final List<LoveDrawCommand> _commands = <LoveDrawCommand>[];
+  List<LoveDrawCommand> _commands = <LoveDrawCommand>[];
+  bool _commandsShared = false;
   int _revision = 0;
   int? _cachedSnapshotRevision;
   LoveGraphicsSurfaceSnapshot? _cachedSnapshot;
+  UnmodifiableListView<LoveDrawCommand>? _cachedCommandsView;
   LoveColor _clearColor;
   LoveGraphicsColorMask _clearColorMask;
   int _clearStencil;
@@ -544,7 +604,7 @@ class LoveGraphicsSurface {
 
   /// The recorded draw commands for this surface.
   List<LoveDrawCommand> get commands =>
-      List<LoveDrawCommand>.unmodifiable(_commands);
+      _cachedCommandsView ??= UnmodifiableListView<LoveDrawCommand>(_commands);
 
   /// Monotonically increasing revision for this surface's recorded contents.
   int get revision => _revision;
@@ -556,7 +616,9 @@ class LoveGraphicsSurface {
     int clearStencil = 0,
     LoveScissorRect? clearScissor,
   }) {
-    _commands.clear();
+    _commands = <LoveDrawCommand>[];
+    _commandsShared = false;
+    _cachedCommandsView = null;
     _revision++;
     _clearColor = clearColor.clamped();
     _clearColorMask = clearColorMask;
@@ -589,6 +651,7 @@ class LoveGraphicsSurface {
       return;
     }
 
+    _ensureCommandsWritable();
     _commands.add(
       LoveColorClearCommand(
         scissor: clearScissor,
@@ -601,6 +664,7 @@ class LoveGraphicsSurface {
 
   /// Appends [command] to the recorded draw command list.
   void addCommand(LoveDrawCommand command) {
+    _ensureCommandsWritable();
     _commands.add(command);
     _revision++;
   }
@@ -617,13 +681,25 @@ class LoveGraphicsSurface {
       clearColorMask: _clearColorMask,
       clearStencil: _clearStencil,
       clearScissor: _clearScissor,
-      commands: List<LoveDrawCommand>.unmodifiable(
-        List<LoveDrawCommand>.from(_commands),
-      ),
+      // Transfer ownership of the current command buffer; future mutations
+      // clone on write so the snapshot remains stable. Expose the cached
+      // unmodifiable view so consumers cannot mutate the transferred buffer.
+      commands: commands,
     );
+    _commandsShared = true;
     _cachedSnapshot = snapshot;
     _cachedSnapshotRevision = _revision;
     return snapshot;
+  }
+
+  void _ensureCommandsWritable() {
+    if (!_commandsShared) {
+      return;
+    }
+
+    _commands = List<LoveDrawCommand>.of(_commands, growable: true);
+    _commandsShared = false;
+    _cachedCommandsView = null;
   }
 }
 
@@ -1092,6 +1168,12 @@ class LoveImageData {
   /// Returns a full copy of this image data.
   LoveImageData clone() => copyRegion(x: 0, y: 0, width: width, height: height);
 
+  /// Returns a copy of the stored 8-bit RGBA pixels in row-major order.
+  ///
+  /// The returned list never aliases this image's mutable backing storage, so
+  /// callers may safely pass it to native encoders or GPU upload APIs.
+  Uint8List toRgbaBytes() => Uint8List.fromList(_pixels);
+
   /// Converts this image data into a `package:image` bitmap.
   package_image.Image toPackageImage() {
     final image = package_image.Image(
@@ -1136,9 +1218,20 @@ class LoveImageData {
   }
 
   /// Generates a full mipmap chain starting from this image data.
-  List<LoveImageData> generateMipmaps() {
+  List<LoveImageData> generateMipmaps({
+    bool centeredLinear = loveCenteredLinearMipmaps,
+  }) {
     final levels = <LoveImageData>[clone()];
     if (width == 1 && height == 1) {
+      return List<LoveImageData>.unmodifiable(levels);
+    }
+
+    if (centeredLinear) {
+      var current = this;
+      while (current.width > 1 || current.height > 1) {
+        current = current._centeredLinearHalfSize();
+        levels.add(current);
+      }
       return List<LoveImageData>.unmodifiable(levels);
     }
 
@@ -1156,6 +1249,66 @@ class LoveImageData {
     }
 
     return List<LoveImageData>.unmodifiable(levels);
+  }
+
+  LoveImageData _centeredLinearHalfSize() {
+    final nextWidth = math.max(1, width ~/ 2);
+    final nextHeight = math.max(1, height ~/ 2);
+    final nextPixels = Uint8List(nextWidth * nextHeight * 4);
+    final left = Int32List(nextWidth);
+    final right = Int32List(nextWidth);
+    final horizontalWeight = Float64List(nextWidth);
+
+    for (var x = 0; x < nextWidth; x++) {
+      final sourceX = ((x + 0.5) * width / nextWidth) - 0.5;
+      final sourceLeft = sourceX.floor().clamp(0, width - 1);
+      left[x] = sourceLeft;
+      right[x] = math.min(sourceLeft + 1, width - 1);
+      horizontalWeight[x] = sourceX - sourceLeft;
+    }
+
+    for (var y = 0; y < nextHeight; y++) {
+      final sourceY = ((y + 0.5) * height / nextHeight) - 0.5;
+      final top = sourceY.floor().clamp(0, height - 1);
+      final bottom = math.min(top + 1, height - 1);
+      final verticalWeight = sourceY - top;
+      final topRow = top * width * 4;
+      final bottomRow = bottom * width * 4;
+
+      for (var x = 0; x < nextWidth; x++) {
+        final leftOffset = left[x] * 4;
+        final rightOffset = right[x] * 4;
+        final topLeft = topRow + leftOffset;
+        final topRight = topRow + rightOffset;
+        final bottomLeft = bottomRow + leftOffset;
+        final bottomRight = bottomRow + rightOffset;
+        final horizontal = horizontalWeight[x];
+        final outputOffset = ((y * nextWidth) + x) * 4;
+
+        for (var channel = 0; channel < 4; channel++) {
+          final upper =
+              _pixels[topLeft + channel] +
+              ((_pixels[topRight + channel] - _pixels[topLeft + channel]) *
+                  horizontal);
+          final lower =
+              _pixels[bottomLeft + channel] +
+              ((_pixels[bottomRight + channel] -
+                      _pixels[bottomLeft + channel]) *
+                  horizontal);
+          nextPixels[outputOffset +
+              channel] = (upper + ((lower - upper) * verticalWeight))
+              .round()
+              .clamp(0, 255);
+        }
+      }
+    }
+
+    return LoveImageData._fromPixels(
+      width: nextWidth,
+      height: nextHeight,
+      format: format,
+      pixels: nextPixels,
+    );
   }
 
   /// Copies a rectangular region into a new [LoveImageData] instance.
@@ -1586,6 +1739,94 @@ typedef LoveFontWrapText =
 /// Reports whether a font implementation supports a Unicode codepoint.
 typedef LoveFontSupportsCodepoint = bool Function(int codepoint);
 
+/// One glyph's packed pixel rectangle and LOVE rasterizer metrics.
+final class LoveFontAtlasGlyph {
+  const LoveFontAtlasGlyph({
+    required this.codepoint,
+    required this.x,
+    required this.y,
+    required this.width,
+    required this.height,
+    required this.advance,
+    required this.bearingX,
+    required this.bearingY,
+  });
+
+  final int codepoint;
+  final int x;
+  final int y;
+  final int width;
+  final int height;
+  final int advance;
+  final int bearingX;
+  final int bearingY;
+}
+
+/// A pre-rasterized font atlas shared by Canvas and GPU-capable hosts.
+///
+/// The atlas [image] keeps portable RGBA bytes plus an optional host-native
+/// image. Glyph metrics are physical pixels and are normalized through the
+/// owning [LoveFont.dpiScale] when commands are rendered.
+final class LoveFontGlyphAtlas {
+  LoveFontGlyphAtlas({
+    required this.image,
+    required Map<int, LoveFontAtlasGlyph> glyphs,
+  }) : glyphs = Map<int, LoveFontAtlasGlyph>.unmodifiable(glyphs);
+
+  final LoveImage image;
+  final Map<int, LoveFontAtlasGlyph> glyphs;
+}
+
+/// Source and destination geometry for one atlas-backed glyph.
+typedef LoveFontAtlasGlyphQuad = ({
+  double left,
+  double top,
+  double width,
+  double height,
+  double sourceX,
+  double sourceY,
+  double sourceWidth,
+  double sourceHeight,
+});
+
+/// Computes LOVE-compatible atlas geometry for [glyph].
+///
+/// The packed atlases reserve a transparent pixel around glyphs. LOVE 11.5
+/// includes that border in both the sampled rectangle and rendered quad. Atlas
+/// edges are clamped so externally supplied atlases cannot sample out of
+/// bounds.
+LoveFontAtlasGlyphQuad loveFontAtlasGlyphQuad({
+  required LoveFontGlyphAtlas atlas,
+  required LoveFontAtlasGlyph glyph,
+  required double penX,
+  required double lineY,
+  required double baseline,
+  required double dpiScale,
+}) {
+  final safeDpiScale = dpiScale > 0 ? dpiScale : 1.0;
+  final glyphScale = 1.0 / safeDpiScale;
+  final extrude = loveFreeTypeGlyphQuadExtrusionEnabled;
+  final leftPadding = extrude && glyph.x > 0 ? 1.0 : 0.0;
+  final topPadding = extrude && glyph.y > 0 ? 1.0 : 0.0;
+  final rightPadding = extrude && glyph.x + glyph.width < atlas.image.width
+      ? 1.0
+      : 0.0;
+  final bottomPadding = extrude && glyph.y + glyph.height < atlas.image.height
+      ? 1.0
+      : 0.0;
+
+  return (
+    left: penX + ((glyph.bearingX - leftPadding) * glyphScale),
+    top: lineY + baseline - ((glyph.bearingY + topPadding) * glyphScale),
+    width: (glyph.width + leftPadding + rightPadding) * glyphScale,
+    height: (glyph.height + topPadding + bottomPadding) * glyphScale,
+    sourceX: glyph.x - leftPadding,
+    sourceY: glyph.y - topPadding,
+    sourceWidth: glyph.width + leftPadding + rightPadding,
+    sourceHeight: glyph.height + topPadding + bottomPadding,
+  );
+}
+
 const int _loveTabCodepoint = 0x09;
 const int _loveSpacesPerTab = 4;
 
@@ -1623,6 +1864,7 @@ class LoveFont {
     LoveFontMeasureWidth? measureWidthCallback,
     LoveFontWrapText? wrapTextCallback,
     LoveFontSupportsCodepoint? supportsCodepointCallback,
+    this.glyphAtlas,
     this.isImplicitDefaultGraphicsFont = false,
   }) : dataType = dataType ?? fontType,
        _glyphAdvances = _immutableGlyphMetricMap(glyphAdvances),
@@ -1658,6 +1900,7 @@ class LoveFont {
     LoveFontMeasureWidth? measureWidthCallback,
     LoveFontWrapText? wrapTextCallback,
     LoveFontSupportsCodepoint? supportsCodepointCallback,
+    this.glyphAtlas,
     required this.isImplicitDefaultGraphicsFont,
   }) : _glyphAdvances = glyphAdvances,
        _glyphKernings = glyphKernings,
@@ -1740,6 +1983,7 @@ class LoveFont {
   final LoveFontMeasureWidth? _measureWidthCallback;
   final LoveFontWrapText? _wrapTextCallback;
   final LoveFontSupportsCodepoint? _supportsCodepointCallback;
+  final LoveFontGlyphAtlas? glyphAtlas;
   final List<LoveFont> _fallbacks;
   final Map<int, double> _cachedGlyphAdvances = <int, double>{};
   final Map<int, double> _cachedGlyphKernings = <int, double>{};
@@ -2024,6 +2268,7 @@ class LoveFont {
       measureWidthCallback: _measureWidthCallback,
       wrapTextCallback: _wrapTextCallback,
       supportsCodepointCallback: _supportsCodepointCallback,
+      glyphAtlas: glyphAtlas,
       isImplicitDefaultGraphicsFont: isImplicitDefaultGraphicsFont,
     );
   }
@@ -2053,6 +2298,7 @@ class LoveFont {
       measureWidthCallback: _measureWidthCallback,
       wrapTextCallback: _wrapTextCallback,
       supportsCodepointCallback: _supportsCodepointCallback,
+      glyphAtlas: glyphAtlas,
       isImplicitDefaultGraphicsFont: isImplicitDefaultGraphicsFont,
     );
   }
@@ -2082,6 +2328,7 @@ class LoveFont {
     LoveFontMeasureWidth? measureWidthCallback,
     LoveFontWrapText? wrapTextCallback,
     LoveFontSupportsCodepoint? supportsCodepointCallback,
+    LoveFontGlyphAtlas? glyphAtlas,
     bool? isImplicitDefaultGraphicsFont,
   }) {
     return LoveFont(
@@ -2109,6 +2356,7 @@ class LoveFont {
       wrapTextCallback: wrapTextCallback ?? _wrapTextCallback,
       supportsCodepointCallback:
           supportsCodepointCallback ?? _supportsCodepointCallback,
+      glyphAtlas: glyphAtlas ?? this.glyphAtlas,
       isImplicitDefaultGraphicsFont:
           isImplicitDefaultGraphicsFont ?? this.isImplicitDefaultGraphicsFont,
     );
@@ -2332,8 +2580,9 @@ class LoveTextEntry {
     Matrix4? transform,
     this.wrapLimit,
     this.align = 'left',
+    bool copySpans = true,
   }) : spans = List<LoveTextSpan>.unmodifiable(
-         spans.map((segment) => segment.copy()),
+         copySpans ? spans.map((segment) => segment.copy()) : spans,
        ),
        transform = transform == null
            ? Matrix4.identity()
@@ -2377,16 +2626,22 @@ class LoveTextEntry {
       transform: transform,
       wrapLimit: wrapLimit,
       align: align,
+      copySpans: false,
     );
   }
 }
 
 /// A batched text object matching the behavior of LÖVE's `Text` type.
 class LoveTextDrawable {
-  LoveTextDrawable({required this.font, List<LoveTextEntry>? entries})
-    : _entries = entries == null
-          ? <LoveTextEntry>[]
-          : List<LoveTextEntry>.from(entries.map((entry) => entry.copy()));
+  LoveTextDrawable({
+    required this.font,
+    List<LoveTextEntry>? entries,
+    bool copyEntries = true,
+  }) : _entries = entries == null
+           ? <LoveTextEntry>[]
+           : List<LoveTextEntry>.from(
+               copyEntries ? entries.map((entry) => entry.copy()) : entries,
+             );
 
   // Mirrors the high-level LOVE Text object flow from wrap_Text.cpp/Text.cpp:
   // set* replaces the batch, add* appends, and width/height default to the
@@ -2470,7 +2725,11 @@ class LoveTextDrawable {
 
   /// Returns a copy of this text batch and its entries.
   LoveTextDrawable copy() {
-    return LoveTextDrawable(font: font.copy(), entries: _entries);
+    return LoveTextDrawable(
+      font: font.copy(),
+      entries: _entries.map((entry) => entry.copy()).toList(growable: true),
+      copyEntries: false,
+    );
   }
 
   LoveTextEntry? _entryAt(int index) {
@@ -2601,6 +2860,7 @@ class LoveRectangleCommand extends LoveDrawCommand {
     required this.height,
     this.cornerRadiusX = 0,
     this.cornerRadiusY = 0,
+    this.pointCount,
   });
 
   final LoveGraphicsDrawMode mode;
@@ -2610,6 +2870,7 @@ class LoveRectangleCommand extends LoveDrawCommand {
   final double height;
   final double cornerRadiusX;
   final double cornerRadiusY;
+  final int? pointCount;
 }
 
 class LoveTextCommand extends LoveDrawCommand {
@@ -2625,7 +2886,8 @@ class LoveTextCommand extends LoveDrawCommand {
     required super.scissor,
     super.shader,
     required super.transform,
-    required Matrix4 textTransform,
+    // Caller passes an owned matrix (_standardTransform / Matrix4.copy).
+    required this.textTransform,
     required LoveFont font,
     required List<LoveTextSpan> spans,
     required this.x,
@@ -2633,8 +2895,7 @@ class LoveTextCommand extends LoveDrawCommand {
     this.limit,
     this.align = 'left',
   }) : spans = List<LoveTextSpan>.unmodifiable(spans),
-       font = font._snapshotForDrawCommand(),
-       textTransform = Matrix4.copy(textTransform);
+       font = font._snapshotForDrawCommand();
 
   final List<LoveTextSpan> spans;
   final LoveFont font;
@@ -2660,10 +2921,10 @@ class LoveTextObjectCommand extends LoveDrawCommand {
     required super.scissor,
     super.shader,
     required super.transform,
-    required Matrix4 drawTransform,
+    // Caller passes an owned matrix from transform helpers.
+    required this.drawTransform,
     required LoveTextDrawable textObject,
-  }) : drawTransform = Matrix4.copy(drawTransform),
-       textObject = textObject.copy();
+  }) : textObject = textObject.copy();
 
   final Matrix4 drawTransform;
   final LoveTextDrawable textObject;
@@ -2682,12 +2943,12 @@ class LoveImageCommand extends LoveDrawCommand {
     required super.scissor,
     super.shader,
     required super.transform,
-    required Matrix4 drawTransform,
+    // Caller passes an owned matrix from transform helpers.
+    required this.drawTransform,
     required this.image,
     LoveQuad? quad,
     this.layer,
-  }) : quad = quad?.copy(),
-       drawTransform = Matrix4.copy(drawTransform);
+  }) : quad = quad?.copy();
 
   final LoveImage image;
   final LoveQuad? quad;
@@ -2708,11 +2969,11 @@ class LoveVideoCommand extends LoveDrawCommand {
     required super.scissor,
     super.shader,
     required super.transform,
-    required Matrix4 drawTransform,
+    // Caller passes an owned matrix from transform helpers.
+    required this.drawTransform,
     required this.video,
     LoveQuad? quad,
-  }) : quad = quad?.copy(),
-       drawTransform = Matrix4.copy(drawTransform);
+  }) : quad = quad?.copy();
 
   final LoveVideo video;
   final LoveQuad? quad;
@@ -2732,10 +2993,10 @@ class LoveSpriteBatchCommand extends LoveDrawCommand {
     required super.scissor,
     super.shader,
     required super.transform,
-    required Matrix4 drawTransform,
-    required LoveSpriteBatch spriteBatch,
-  }) : drawTransform = Matrix4.copy(drawTransform),
-       spriteBatch = spriteBatch.copyForDraw();
+    // Caller passes an owned matrix from transform helpers.
+    required this.drawTransform,
+    required this.spriteBatch,
+  });
 
   final Matrix4 drawTransform;
   final LoveSpriteBatch spriteBatch;
@@ -2754,10 +3015,10 @@ class LoveParticleSystemCommand extends LoveDrawCommand {
     required super.scissor,
     super.shader,
     required super.transform,
-    required Matrix4 drawTransform,
-    required LoveParticleSystemSnapshot particleSystem,
-  }) : drawTransform = Matrix4.copy(drawTransform),
-       particleSystem = particleSystem.copy();
+    // Caller passes an owned matrix from transform helpers.
+    required this.drawTransform,
+    required this.particleSystem,
+  });
 
   final Matrix4 drawTransform;
   final LoveParticleSystemSnapshot particleSystem;
@@ -2776,14 +3037,14 @@ class LoveMeshCommand extends LoveDrawCommand {
     required super.scissor,
     required super.shader,
     required super.transform,
-    required Matrix4 drawTransform,
-    required LoveMesh mesh,
+    // Caller passes an owned matrix from transform helpers.
+    required this.drawTransform,
+    required this.mesh,
     this.instanceCount = 1,
     this.pointSize = 1.0,
     required this.frontFaceWinding,
     required this.cullMode,
-  }) : drawTransform = Matrix4.copy(drawTransform),
-       mesh = mesh.copyForDraw();
+  });
 
   final LoveMesh mesh;
   final Matrix4 drawTransform;
@@ -2810,12 +3071,14 @@ class LoveCircleCommand extends LoveDrawCommand {
     required this.x,
     required this.y,
     required this.radius,
+    this.pointCount,
   });
 
   final LoveGraphicsDrawMode mode;
   final double x;
   final double y;
   final double radius;
+  final int? pointCount;
 }
 
 class LoveLineCommand extends LoveDrawCommand {
@@ -2835,6 +3098,53 @@ class LoveLineCommand extends LoveDrawCommand {
   });
 
   final List<({double x, double y})> points;
+}
+
+/// Bit flag returned by [loveRoughLinePixelSnapAxes] for the x axis.
+const int loveRoughLinePixelSnapX = 1;
+
+/// Bit flag returned by [loveRoughLinePixelSnapAxes] for the y axis.
+const int loveRoughLinePixelSnapY = 2;
+
+/// Selects device axes that need LÖVE-style odd-width rough-line snapping.
+///
+/// LÖVE places drawing coordinates at pixel corners. At exact 1:1 scale, an
+/// odd integral-width rough line whose transformed coordinates are integral
+/// occupies the upper/left pixel row. Coordinates authored on half pixels are
+/// already centered and must remain unchanged. Returning a bit mask keeps this
+/// hot-path decision allocation-free for both Canvas and Flutter GPU replay.
+int loveRoughLinePixelSnapAxes(
+  LoveGraphicsLineStyle lineStyle,
+  double lineWidth,
+  List<({double x, double y})> points,
+  Matrix4 transform,
+) {
+  const epsilon = 1e-6;
+  if (lineStyle != LoveGraphicsLineStyle.rough ||
+      !lineWidth.isFinite ||
+      points.isEmpty) {
+    return 0;
+  }
+  final integralWidth = lineWidth.round();
+  if ((lineWidth - integralWidth).abs() > epsilon || integralWidth.isEven) {
+    return 0;
+  }
+
+  final matrix = transform.storage;
+  var integralX = true;
+  var integralY = true;
+  for (final point in points) {
+    final transformedX = matrix[0] * point.x + matrix[4] * point.y + matrix[12];
+    final transformedY = matrix[1] * point.x + matrix[5] * point.y + matrix[13];
+    integralX =
+        integralX && (transformedX - transformedX.round()).abs() <= epsilon;
+    integralY =
+        integralY && (transformedY - transformedY.round()).abs() <= epsilon;
+    if (!integralX && !integralY) return 0;
+  }
+
+  return (integralX ? loveRoughLinePixelSnapX : 0) |
+      (integralY ? loveRoughLinePixelSnapY : 0);
 }
 
 class LovePolygonCommand extends LoveDrawCommand {
@@ -2876,6 +3186,7 @@ class LoveEllipseCommand extends LoveDrawCommand {
     required this.y,
     required this.radiusX,
     required this.radiusY,
+    this.pointCount,
   });
 
   final LoveGraphicsDrawMode mode;
@@ -2883,6 +3194,7 @@ class LoveEllipseCommand extends LoveDrawCommand {
   final double y;
   final double radiusX;
   final double radiusY;
+  final int? pointCount;
 }
 
 class LoveArcCommand extends LoveDrawCommand {
@@ -2905,6 +3217,7 @@ class LoveArcCommand extends LoveDrawCommand {
     required this.radius,
     required this.angle1,
     required this.angle2,
+    this.pointCount,
   });
 
   final LoveGraphicsDrawMode drawMode;
@@ -2914,6 +3227,7 @@ class LoveArcCommand extends LoveDrawCommand {
   final double radius;
   final double angle1;
   final double angle2;
+  final int? pointCount;
 }
 
 class LovePointsCommand extends LoveDrawCommand {
@@ -3083,11 +3397,19 @@ class LoveGraphicsState {
 }
 
 class LoveGraphicsStackFrame {
-  LoveGraphicsStackFrame({required this.type, required LoveGraphicsState state})
-    : state = state.copy();
+  LoveGraphicsStackFrame.transformOnly({required Matrix4 transform})
+    : type = LoveGraphicsStackType.transform,
+      state = null,
+      transform = Matrix4.copy(transform);
+
+  LoveGraphicsStackFrame.all({required LoveGraphicsState state})
+    : type = LoveGraphicsStackType.all,
+      state = state.copy(),
+      transform = null;
 
   final LoveGraphicsStackType type;
-  final LoveGraphicsState state;
+  final LoveGraphicsState? state;
+  final Matrix4? transform;
 }
 
 class LoveCanvasRenderTarget {
@@ -3443,7 +3765,14 @@ class LoveGraphicsFrame {
       throw StateError('Maximum graphics stack depth reached');
     }
 
-    _stack.add(LoveGraphicsStackFrame(type: type, state: _state));
+    switch (type) {
+      case LoveGraphicsStackType.all:
+        _stack.add(LoveGraphicsStackFrame.all(state: _state));
+      case LoveGraphicsStackType.transform:
+        _stack.add(
+          LoveGraphicsStackFrame.transformOnly(transform: _state.transform),
+        );
+    }
   }
 
   void pop() {
@@ -3454,12 +3783,12 @@ class LoveGraphicsFrame {
     final frame = _stack.removeLast();
     switch (frame.type) {
       case LoveGraphicsStackType.all:
-        _state = frame.state.copy();
+        _state = frame.state!;
         if (_commandColorMaskOverride != null) {
           _commandColorMaskOverride = _state.colorMask;
         }
       case LoveGraphicsStackType.transform:
-        _state.transform = Matrix4.copy(frame.state.transform);
+        _state.transform = Matrix4.copy(frame.transform!);
     }
   }
 

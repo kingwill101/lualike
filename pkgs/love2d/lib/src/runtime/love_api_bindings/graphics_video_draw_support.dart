@@ -24,7 +24,7 @@ bool _canUseLiveVideoCommand(
   // canvas-backed image path. Shader-bound and destination-aware states still
   // need the sampled-frame fallback because the current Flutter shader bridge
   // binds ui.Image samplers, not external video textures.
-  return runtime.graphics.shader == null &&
+  return runtime.graphics.currentShader == null &&
       ((blendMode == LoveGraphicsBlendMode.alpha &&
               (blendAlphaMode == LoveGraphicsBlendAlphaMode.alphaMultiply ||
                   blendAlphaMode ==

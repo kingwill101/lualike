@@ -13,7 +13,7 @@ LoveApiImplementation _bindLoveErrorHandler(
     throw StateError('No Lua runtime available for LOVE bindings');
   }
 
-  final builder = BuiltinFunctionBuilder(context);
+  final builder = loveBindingBuilderForContext(context);
   return (args) async {
     final rawMessage = _rawValue(_valueAt(args, 0));
     final message = rawMessage?.toString() ?? 'nil';
@@ -128,8 +128,8 @@ void _drawLoveErrorHandlerFrame(LoveRuntimeContext runtime, String text) {
       colorMask: runtime.graphics.colorMask,
       wireframe: runtime.graphics.wireframe,
       scissor: runtime.graphics.scissor,
-      shader: runtime.graphics.shader,
-      transform: runtime.graphics.copyTransform(),
+      shader: runtime.graphics.currentShader,
+      transform: runtime.graphics.transform,
       textTransform: Matrix4.identity(),
       font: runtime.graphics.font,
       spans: <LoveTextSpan>[LoveTextSpan(text: text)],

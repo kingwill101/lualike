@@ -23,29 +23,28 @@ class LoveJoystickInputAdapter {
   final LoveScriptRuntime? Function() _runtimeProvider;
   final void Function(Object error, StackTrace stackTrace)? onError;
 
-  Future<void> _dispatchQueue = Future<void>.value();
-
   /// The managed joystick registry exposed by the host.
   LoveJoystickManager get joysticks => _host.joysticks;
 
   /// Waits for all queued state transitions and callback dispatches to finish.
-  Future<void> flush() => _dispatchQueue;
+  ///
+  /// Joystick queueing is synchronous, so this is a no-op retained for API
+  /// compatibility with host frame loops that still call [flush].
+  Future<void> flush() => Future<void>.value();
 
   void handleDeviceAdded(LoveJoystickDevice joystick) {
-    _enqueue((runtime) async {
+    _enqueue((runtime) {
       final managed = _trackAddedJoystick(joystick);
-      if (managed == null) {
+      if (managed == null || runtime == null) {
         return;
       }
-      if (runtime == null) {
-        return;
-      }
-      await runtime.queueJoystickAdded(managed);
+      // queue* only pushes onto the event queue; ignore completed Future.
+      runtime.queueJoystickAdded(managed);
     });
   }
 
   void handleDeviceRemoved(LoveJoystickDevice joystick) {
-    _enqueue((runtime) async {
+    _enqueue((runtime) {
       final managed = _managedJoystickById(joystick.id) ?? joystick;
       if (!managed.connected && _managedJoystickById(managed.id) == null) {
         return;
@@ -54,7 +53,7 @@ class LoveJoystickInputAdapter {
       managed.connected = false;
       try {
         if (runtime != null) {
-          await runtime.queueJoystickRemoved(managed);
+          runtime.queueJoystickRemoved(managed);
         }
       } finally {
         // Remove after dispatch so the callback can still query the object.
@@ -68,13 +67,13 @@ class LoveJoystickInputAdapter {
       return;
     }
 
-    _enqueue((runtime) async {
+    _enqueue((runtime) {
       final managed = _ensureTrackedJoystick(joystick);
       managed.setButtonDown(button, down: true);
       if (runtime == null) {
         return;
       }
-      await runtime.queueJoystickPressed(managed, button);
+      runtime.queueJoystickPressed(managed, button);
     });
   }
 
@@ -83,13 +82,13 @@ class LoveJoystickInputAdapter {
       return;
     }
 
-    _enqueue((runtime) async {
+    _enqueue((runtime) {
       final managed = _ensureTrackedJoystick(joystick);
       managed.setButtonDown(button, down: false);
       if (runtime == null) {
         return;
       }
-      await runtime.queueJoystickReleased(managed, button);
+      runtime.queueJoystickReleased(managed, button);
     });
   }
 
@@ -102,13 +101,13 @@ class LoveJoystickInputAdapter {
       return;
     }
 
-    _enqueue((runtime) async {
+    _enqueue((runtime) {
       final managed = _ensureTrackedJoystick(joystick);
       managed.setAxis(axis, value);
       if (runtime == null) {
         return;
       }
-      await runtime.queueJoystickAxis(managed, axis, value);
+      runtime.queueJoystickAxis(managed, axis, value);
     });
   }
 
@@ -121,13 +120,13 @@ class LoveJoystickInputAdapter {
       return;
     }
 
-    _enqueue((runtime) async {
+    _enqueue((runtime) {
       final managed = _ensureTrackedJoystick(joystick);
       managed.setHat(hat, value);
       if (runtime == null) {
         return;
       }
-      await runtime.queueJoystickHat(managed, hat, value);
+      runtime.queueJoystickHat(managed, hat, value);
     });
   }
 
@@ -136,13 +135,13 @@ class LoveJoystickInputAdapter {
       return;
     }
 
-    _enqueue((runtime) async {
+    _enqueue((runtime) {
       final managed = _ensureTrackedJoystick(joystick);
       managed.setGamepadButton(button, down: true);
       if (runtime == null) {
         return;
       }
-      await runtime.queueGamepadPressed(managed, button);
+      runtime.queueGamepadPressed(managed, button);
     });
   }
 
@@ -151,13 +150,13 @@ class LoveJoystickInputAdapter {
       return;
     }
 
-    _enqueue((runtime) async {
+    _enqueue((runtime) {
       final managed = _ensureTrackedJoystick(joystick);
       managed.setGamepadButton(button, down: false);
       if (runtime == null) {
         return;
       }
-      await runtime.queueGamepadReleased(managed, button);
+      runtime.queueGamepadReleased(managed, button);
     });
   }
 
@@ -170,13 +169,13 @@ class LoveJoystickInputAdapter {
       return;
     }
 
-    _enqueue((runtime) async {
+    _enqueue((runtime) {
       final managed = _ensureTrackedJoystick(joystick);
       managed.setGamepadAxis(axis, value);
       if (runtime == null) {
         return;
       }
-      await runtime.queueGamepadAxis(managed, axis, value);
+      runtime.queueGamepadAxis(managed, axis, value);
     });
   }
 
@@ -196,7 +195,7 @@ class LoveJoystickInputAdapter {
       return;
     }
 
-    _enqueue((_) async {
+    _enqueue((_) {
       final managed = _ensureTrackedJoystick(joystick);
       for (final button in buttonsToClear) {
         managed.setButtonDown(button, down: false);
@@ -225,7 +224,7 @@ class LoveJoystickInputAdapter {
       return;
     }
 
-    _enqueue((_) async {
+    _enqueue((_) {
       final managed = _ensureTrackedJoystick(joystick);
       for (final button in buttonsToClear) {
         managed.setGamepadButton(button, down: false);
@@ -285,16 +284,16 @@ class LoveJoystickInputAdapter {
     return false;
   }
 
-  void _enqueue(Future<void> Function(LoveScriptRuntime? runtime) action) {
-    _dispatchQueue = _dispatchQueue.then((_) async {
-      try {
-        await action(_runtimeProvider());
-      } catch (error, stackTrace) {
-        final handler = onError;
-        if (handler != null) {
-          handler(error, stackTrace);
-        }
-      }
-    });
+  /// Runs [action] immediately for synchronous joystick queueing.
+  ///
+  /// Joystick `queue*` helpers only push onto the LOVE event queue. Running
+  /// them through a Future chain forced every axis/button event onto the
+  /// microtask queue and made [flush] wait for that artificial latency.
+  void _enqueue(void Function(LoveScriptRuntime? runtime) action) {
+    try {
+      action(_runtimeProvider());
+    } catch (error, stackTrace) {
+      onError?.call(error, stackTrace);
+    }
   }
 }

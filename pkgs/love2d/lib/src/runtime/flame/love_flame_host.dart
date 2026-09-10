@@ -2,6 +2,7 @@ library;
 
 import 'dart:async';
 import 'dart:collection';
+import 'dart:convert' as convert;
 import 'dart:math' as math;
 import 'dart:ui' as ui;
 
@@ -13,8 +14,7 @@ import 'package:flutter/foundation.dart'
 import 'package:flutter/services.dart';
 import 'package:flutter/widgets.dart';
 
-import 'love_flame_audio.dart';
-import 'love_flame_media_kit_audio.dart';
+import 'love_flame_soloud_audio.dart';
 import '../love_runtime.dart';
 
 /// The bundled TrueType font asset used for LOVE's default font fallback.
@@ -23,8 +23,12 @@ const String _loveDefaultTrueTypeFontAssetPath =
 
 /// The cache key used for the bundled default TrueType font instance.
 const String _loveDefaultTrueTypeFontCacheKey = '__love2d_default_vera__';
+const String _loveNativeDefaultFontAssetBase =
+    'packages/love2d/third_party/love/extra/resources/default_font/'
+    'Vera-12-normal-1x';
 const int _loveFontMetricsCacheCapacity = 64;
 const int _loveTextWidthCacheCapacity = 512;
+const int _loveGlyphAtlasWidth = 256;
 
 /// A [LoveHost] implementation that maps LOVE services onto Flame and Flutter.
 class LoveFlameHost<W extends World> implements LoveHost {
@@ -151,17 +155,10 @@ class LoveFlameHost<W extends World> implements LoveHost {
       throw UnsupportedError('No audio asset loader configured for "$source"');
     }
 
-    if (!kIsWeb && sourceType == 'stream') {
-      return LoveFlameMediaKitAudioSourceBackend.open(
-        source: source,
-        bytes: resolvedBytes,
-        mimeType: mimeType,
-      );
-    }
-
-    return LoveFlutterAudioSourceBackend(
+    return LoveFlameSoLoudAudioSourceBackend.open(
+      source: source,
+      sourceType: sourceType,
       bytes: resolvedBytes,
-      mimeType: mimeType,
     );
   }
 
@@ -552,16 +549,28 @@ class LoveFlameHost<W extends World> implements LoveHost {
       cacheKey,
       () => _loadFontFamily(cacheKey, bytes),
     );
-    final fontMetrics = _measureFontMetrics(family: family, size: size);
     final metadata = parseLoveTrueTypeFontMetadata(bytes);
+    final nativeDefaultFont = await _loadNativeDefaultFontAsset(
+      cacheKey: cacheKey,
+      size: size,
+      hinting: hinting,
+      dpiScale: dpiScale,
+      defaultFilter: defaultFilter,
+    );
+    final fontMetrics =
+        nativeDefaultFont?.metrics ??
+        _measureFontMetrics(family: family, size: size);
     final resolvedDpiScale = dpiScale <= 0 ? 1.0 : dpiScale;
     final pixelHeight = math.max(1, (size * dpiScale).round());
     final glyphAdvance = metadata?.logicalMaxAdvance(size, dpiScale: dpiScale);
-    final glyphAdvances = metadata?.logicalGlyphAdvances(
-      size,
-      dpiScale: dpiScale,
-    );
-    final glyphKernings = metadata?.logicalKerning(size, dpiScale: dpiScale);
+    final glyphAdvances = <int, double>{
+      ...?metadata?.logicalGlyphAdvances(size, dpiScale: dpiScale),
+      ...?nativeDefaultFont?.glyphAdvances,
+    };
+    final glyphKernings = <int, double>{
+      ...?metadata?.logicalKerning(size, dpiScale: dpiScale),
+      ...?nativeDefaultFont?.glyphKernings,
+    };
     final missingGlyphAdvance = switch (metadata?.pixelMaxAdvance(
       pixelHeight,
     )) {
@@ -577,6 +586,18 @@ class LoveFlameHost<W extends World> implements LoveHost {
         (pixelAdvance * 4) / resolvedDpiScale,
       _ => null,
     };
+    final glyphAtlas =
+        nativeDefaultFont?.atlas ??
+        (loveFreeTypeGlyphAtlasEnabled
+            ? await _buildTrueTypeGlyphAtlas(
+                cacheKey: cacheKey,
+                bytes: bytes,
+                size: size,
+                hinting: hinting,
+                dpiScale: dpiScale,
+                defaultFilter: defaultFilter,
+              )
+            : null);
 
     return LoveFont(
       size: size,
@@ -603,6 +624,227 @@ class LoveFlameHost<W extends World> implements LoveHost {
         wrapLimit: wrapLimit,
       ),
       supportsCodepointCallback: metadata?.supportsCodepointCallback,
+      glyphAtlas: glyphAtlas,
+    );
+  }
+
+  Future<_LoveNativeDefaultFontAsset?> _loadNativeDefaultFontAsset({
+    required String cacheKey,
+    required double size,
+    required String hinting,
+    required double dpiScale,
+    required LoveGraphicsDefaultFilter defaultFilter,
+  }) async {
+    if (!loveNativeDefaultFontAtlasEnabled ||
+        cacheKey != _loveDefaultTrueTypeFontCacheKey ||
+        size != LoveFont.defaultSize ||
+        hinting != 'normal' ||
+        (dpiScale - 1.0).abs() > 0.000001) {
+      return null;
+    }
+
+    try {
+      final metadataData = await _assetBundle.load(
+        '$_loveNativeDefaultFontAssetBase.json',
+      );
+      final metadataBytes = metadataData.buffer.asUint8List(
+        metadataData.offsetInBytes,
+        metadataData.lengthInBytes,
+      );
+      final root = Map<String, dynamic>.from(
+        convert.jsonDecode(convert.utf8.decode(metadataBytes)) as Map,
+      );
+      if (root['schemaVersion'] != 1) {
+        return null;
+      }
+      final fontData = Map<String, dynamic>.from(root['font'] as Map);
+      final atlasData = Map<String, dynamic>.from(root['atlas'] as Map);
+      final encodedAtlas = await _assetBundle.load(
+        '$_loveNativeDefaultFontAssetBase.png',
+      );
+      final nativeImage = await _decodeImage(encodedAtlas);
+      final encodedAtlasBytes = encodedAtlas.buffer.asUint8List(
+        encodedAtlas.offsetInBytes,
+        encodedAtlas.lengthInBytes,
+      );
+      final imageData = LoveImageData.decodeEncodedBytes(
+        bytes: encodedAtlasBytes,
+        source: '$_loveNativeDefaultFontAssetBase.png',
+      );
+      if (nativeImage.width != atlasData['width'] ||
+          nativeImage.height != atlasData['height']) {
+        nativeImage.dispose();
+        return null;
+      }
+
+      final glyphs = <int, LoveFontAtlasGlyph>{};
+      final glyphAdvances = <int, double>{};
+      for (final rawGlyph in root['glyphs'] as List) {
+        final glyph = Map<String, dynamic>.from(rawGlyph as Map);
+        final codepoint = glyph['codepoint'] as int;
+        final advance = (glyph['advance'] as num).toDouble();
+        glyphs[codepoint] = LoveFontAtlasGlyph(
+          codepoint: codepoint,
+          x: glyph['x'] as int,
+          y: glyph['y'] as int,
+          width: glyph['width'] as int,
+          height: glyph['height'] as int,
+          advance: advance.round(),
+          bearingX: glyph['bearingX'] as int,
+          bearingY: glyph['bearingY'] as int,
+        );
+        glyphAdvances[codepoint] = advance;
+      }
+
+      final glyphKernings = <int, double>{};
+      for (final rawKerning in root['kernings'] as List) {
+        final kerning = Map<String, dynamic>.from(rawKerning as Map);
+        final left = kerning['left'] as int;
+        final right = kerning['right'] as int;
+        glyphKernings[(left << 32) ^ right] = (kerning['value'] as num)
+            .toDouble();
+      }
+
+      return _LoveNativeDefaultFontAsset(
+        atlas: LoveFontGlyphAtlas(
+          image: LoveImage(
+            source: '$_loveNativeDefaultFontAssetBase.png',
+            width: nativeImage.width,
+            height: nativeImage.height,
+            filter: defaultFilter,
+            imageData: imageData,
+            nativeImage: nativeImage,
+          ),
+          glyphs: glyphs,
+        ),
+        glyphAdvances: glyphAdvances,
+        glyphKernings: glyphKernings,
+        metrics: (
+          ascent: (fontData['ascent'] as num).toDouble(),
+          descent: (fontData['descent'] as num).toDouble(),
+          height: (fontData['height'] as num).toDouble(),
+        ),
+      );
+    } catch (_) {
+      return null;
+    }
+  }
+
+  Future<LoveFontGlyphAtlas?> _buildTrueTypeGlyphAtlas({
+    required String cacheKey,
+    required Uint8List bytes,
+    required double size,
+    required String hinting,
+    required double dpiScale,
+    required LoveGraphicsDefaultFilter defaultFilter,
+  }) async {
+    final rasterizer = LoveRasterizer.trueType(
+      size: size,
+      hinting: hinting,
+      dpiScale: dpiScale,
+      sourceBytes: bytes,
+    );
+    final packed = <({LoveGlyphData data, int x, int y})>[];
+    final glyphs = <int, LoveFontAtlasGlyph>{};
+    var cursorX = 1;
+    var cursorY = 1;
+    var rowHeight = 0;
+
+    for (var codepoint = 0x20; codepoint <= 0x7e; codepoint++) {
+      if (!rasterizer.hasGlyph(codepoint)) {
+        continue;
+      }
+      final data = rasterizer.glyphDataForValue(codepoint);
+      if (data.width > 0 && data.height > 0) {
+        if (cursorX + data.width + 1 > _loveGlyphAtlasWidth) {
+          cursorX = 1;
+          cursorY += rowHeight + 1;
+          rowHeight = 0;
+        }
+        packed.add((data: data, x: cursorX, y: cursorY));
+        glyphs[codepoint] = LoveFontAtlasGlyph(
+          codepoint: codepoint,
+          x: cursorX,
+          y: cursorY,
+          width: data.width,
+          height: data.height,
+          advance: data.advance,
+          bearingX: data.bearingX,
+          bearingY: data.bearingY,
+        );
+        cursorX += data.width + 1;
+        rowHeight = math.max(rowHeight, data.height);
+      } else {
+        glyphs[codepoint] = LoveFontAtlasGlyph(
+          codepoint: codepoint,
+          x: 0,
+          y: 0,
+          width: 0,
+          height: 0,
+          advance: data.advance,
+          bearingX: data.bearingX,
+          bearingY: data.bearingY,
+        );
+      }
+    }
+
+    if (glyphs.isEmpty) {
+      return null;
+    }
+
+    final atlasHeight = math.max(1, cursorY + rowHeight + 1);
+    final rgba = Uint8List(_loveGlyphAtlasWidth * atlasHeight * 4);
+    final nativeRgba = Uint8List(rgba.length);
+    for (final entry in packed) {
+      final data = entry.data;
+      if (data.format != 'la8' ||
+          data.bytes.length < data.width * data.height * 2) {
+        return null;
+      }
+      for (var y = 0; y < data.height; y++) {
+        for (var x = 0; x < data.width; x++) {
+          final sourceOffset = ((y * data.width) + x) * 2;
+          final targetOffset =
+              ((((entry.y + y) * _loveGlyphAtlasWidth) + entry.x + x) * 4);
+          final luminance = data.bytes[sourceOffset];
+          final alpha = data.bytes[sourceOffset + 1];
+          final premultiplied = ((luminance * alpha) / 255).round();
+          rgba[targetOffset] = luminance;
+          rgba[targetOffset + 1] = luminance;
+          rgba[targetOffset + 2] = luminance;
+          rgba[targetOffset + 3] = alpha;
+          nativeRgba[targetOffset] = premultiplied;
+          nativeRgba[targetOffset + 1] = premultiplied;
+          nativeRgba[targetOffset + 2] = premultiplied;
+          nativeRgba[targetOffset + 3] = alpha;
+        }
+      }
+    }
+
+    final completer = Completer<ui.Image>();
+    ui.decodeImageFromPixels(
+      nativeRgba,
+      _loveGlyphAtlasWidth,
+      atlasHeight,
+      ui.PixelFormat.rgba8888,
+      completer.complete,
+    );
+    final nativeImage = await completer.future;
+    final imageData = LoveImageData.fromRgbaBytes(
+      width: _loveGlyphAtlasWidth,
+      height: atlasHeight,
+      bytes: rgba,
+    );
+    return LoveFontGlyphAtlas(
+      image: LoveImage(
+        source: '__love2d_font_atlas__/$cacheKey/$size/$hinting/$dpiScale',
+        width: _loveGlyphAtlasWidth,
+        height: atlasHeight,
+        filter: defaultFilter,
+        imageData: imageData,
+        nativeImage: nativeImage,
+      ),
+      glyphs: glyphs,
     );
   }
 
@@ -876,6 +1118,20 @@ class LoveFlameHost<W extends World> implements LoveHost {
 }
 
 typedef _LoveFontMetrics = ({double ascent, double descent, double height});
+
+final class _LoveNativeDefaultFontAsset {
+  const _LoveNativeDefaultFontAsset({
+    required this.atlas,
+    required this.glyphAdvances,
+    required this.glyphKernings,
+    required this.metrics,
+  });
+
+  final LoveFontGlyphAtlas atlas;
+  final Map<int, double> glyphAdvances;
+  final Map<int, double> glyphKernings;
+  final _LoveFontMetrics metrics;
+}
 
 T? _readLruCache<K, T>(LinkedHashMap<K, T> cache, K key) {
   if (!cache.containsKey(key)) {

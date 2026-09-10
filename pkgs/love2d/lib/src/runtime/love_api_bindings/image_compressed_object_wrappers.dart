@@ -10,7 +10,7 @@ Value _wrapCompressedImageData(
     return cached;
   }
 
-  final builder = BuiltinFunctionBuilder(context);
+  final builder = loveBindingBuilderForContext(context);
   const hierarchy = <String>{'CompressedImageData', 'Data', 'Object'};
   final table = ValueClass.table(<Object?, Object?>{
     _loveCompressedImageDataObjectKey: imageData,

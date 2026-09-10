@@ -77,9 +77,11 @@ class GpuMeshHandler {
 
     // Look up texture from cache (must be pre-warmed)
     gpu.Texture? gpuTexture;
+    LoveImage? loveTexture;
     if (isTextured) {
       final texObj = mesh.textureObject;
       if (texObj is LoveImage) {
+        loveTexture = texObj;
         gpuTexture = _textureCache.getCachedLoveImage(texObj);
         if (gpuTexture == null) return false;
       } else {
@@ -121,14 +123,12 @@ class GpuMeshHandler {
         renderPass,
         indexBuffer,
         indexType: gpu.IndexType.int16,
-        indexCount: indexCount,
       );
     }
 
     // Build and bind the VertInfo uniform (MVP + color)
-    final fullTransform = vm.Matrix4.fromList(
-      command.transform.storage.toList(),
-    )..multiply(vm.Matrix4.fromList(command.drawTransform.storage.toList()));
+    final fullTransform = vm.Matrix4.copy(command.transform)
+      ..multiply(command.drawTransform);
     final mvp = _buildMVP(fullTransform, viewportSize);
     final color = vm.Vector4(
       command.color.r,
@@ -136,7 +136,13 @@ class GpuMeshHandler {
       command.color.b,
       command.color.a,
     );
-    final vertInfo = _hostBufferPool.emplaceVertInfo(mvp, color);
+    final vertInfo = _hostBufferPool.emplaceVertInfo(
+      mvp,
+      color,
+      mipBias: loveTexture == null
+          ? 0.0
+          : gpuMipmapLodBiasForLoveImage(loveTexture),
+    );
     final vertInfoSlot = pipeline.vertexShader.getUniformSlot('VertInfo');
     renderPass.bindUniform(vertInfoSlot, vertInfo);
 
@@ -148,7 +154,7 @@ class GpuMeshHandler {
       renderPass.bindTexture(
         textureSlot,
         gpuTexture,
-        sampler: kNearestClampSampler,
+        sampler: gpuSamplerForLoveImage(loveTexture!),
       );
     }
 

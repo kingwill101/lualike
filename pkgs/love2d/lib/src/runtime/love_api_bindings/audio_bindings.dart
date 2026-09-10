@@ -575,7 +575,10 @@ Future<_LoveAudioSourceInput> _requireAudioSourceInput(
     source: fileData.filename,
     filename: fileData.filename,
     defaultSourceType: 'stream',
-    bytes: Uint8List.fromList(fileData.bytes),
+    // Share typed buffers; only copy plain List<int> once at the boundary.
+    bytes: fileData.bytes is Uint8List
+        ? fileData.bytes as Uint8List
+        : _loveUint8List(fileData.bytes, copy: true),
     mimeType: loveAudioMimeTypeFromFilename(fileData.filename),
     durationSeconds: decodedMetadata?.durationSeconds ?? -1.0,
     durationSamples: decodedMetadata?.durationSamples ?? -1,
@@ -753,10 +756,11 @@ LoveSoundData _queueLightUserdata(
 
   try {
     return LoveSoundData.fromPcmBytes(
-      bytes: bytes.sublist(offset, offset + length),
+      bytes: Uint8List.sublistView(bytes, offset, offset + length),
       sampleRate: sampleRate,
       bitDepth: bitDepth,
       channels: channels,
+      copyBytes: false,
     );
   } on ArgumentError catch (error) {
     throw LuaError(error.message.toString());

@@ -3,6 +3,7 @@
 uniform VertInfo {
   mat4 mvp;
   vec4 color;
+  vec4 texture_info;
 } vert_info;
 
 in vec2 position;
@@ -11,9 +12,11 @@ in vec4 color;
 
 out vec2 v_texcoord;
 out vec4 v_color;
+out float v_mip_bias;
 
 void main() {
   gl_Position = vert_info.mvp * vec4(position, 0.0, 1.0);
   v_texcoord = texcoord;
   v_color = vert_info.color * color;
+  v_mip_bias = vert_info.texture_info.x;
 }

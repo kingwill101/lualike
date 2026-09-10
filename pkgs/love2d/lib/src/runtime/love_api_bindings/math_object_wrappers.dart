@@ -76,11 +76,7 @@ bool _randomGeneratorWrapperReleased(Object? value) {
 
 /// Returns wrapped [LoveBezierCurve] data when [value] is a BezierCurve table.
 LoveBezierCurve? _bezierCurveIfPresent(Object? value) {
-  final raw = _rawValue(value);
-  final table = switch (raw) {
-    final Map<dynamic, dynamic> map => map,
-    _ => null,
-  };
+  final table = _tableIdentityIfPresent(value);
 
   if (table == null) {
     return null;
@@ -92,11 +88,7 @@ LoveBezierCurve? _bezierCurveIfPresent(Object? value) {
 
 /// Returns wrapped [LoveRandomGenerator] when [value] is a generator table.
 LoveRandomGenerator? _randomGeneratorIfPresent(Object? value) {
-  final raw = _rawValue(value);
-  final table = switch (raw) {
-    final Map<dynamic, dynamic> map => map,
-    _ => null,
-  };
+  final table = _tableIdentityIfPresent(value);
 
   if (table == null) {
     return null;
@@ -164,7 +156,7 @@ Value _wrapBezierCurve(
     return cached;
   }
 
-  final builder = BuiltinFunctionBuilder(context);
+  final builder = loveBindingBuilderForContext(context);
   const hierarchy = <String>{'BezierCurve', 'Object'};
   final table = ValueClass.table(<Object?, Object?>{
     _loveBezierCurveObjectKey: curve,
@@ -383,15 +375,11 @@ Value _wrapBezierCurve(
     'release': Value(
       builder.create((args) {
         final receiver = _valueAt(args, 0);
-        final table = _bezierCurveWrapperTableIfPresent(receiver);
-        if (table == null) {
-          _throwLuaStyleTypeError(
-            symbol: 'Object:release',
-            index: 0,
-            expected: 'BezierCurve',
-            actual: receiver,
-          );
-        }
+        final table = loveRequireReleaseWrapperTable(
+          receiver,
+          expected: 'BezierCurve',
+          resolve: _bezierCurveWrapperTableIfPresent,
+        );
 
         final curve = table[_loveBezierCurveObjectKey];
         if (curve is! LoveBezierCurve) {
@@ -454,7 +442,7 @@ Value _wrapRandomGenerator(
     return cached;
   }
 
-  final builder = BuiltinFunctionBuilder(unusedContext);
+  final builder = loveBindingBuilderForRegistrationContext(unusedContext);
   const hierarchy = <String>{'RandomGenerator', 'Object'};
   final table = ValueClass.table(<Object?, Object?>{
     _loveRandomGeneratorObjectKey: generator,
@@ -552,15 +540,11 @@ Value _wrapRandomGenerator(
     'release': Value(
       builder.create((args) {
         final receiver = _valueAt(args, 0);
-        final table = _randomGeneratorWrapperTableIfPresent(receiver);
-        if (table == null) {
-          _throwLuaStyleTypeError(
-            symbol: 'Object:release',
-            index: 0,
-            expected: 'RandomGenerator',
-            actual: receiver,
-          );
-        }
+        final table = loveRequireReleaseWrapperTable(
+          receiver,
+          expected: 'RandomGenerator',
+          resolve: _randomGeneratorWrapperTableIfPresent,
+        );
 
         final generator = table[_loveRandomGeneratorObjectKey];
         if (generator is! LoveRandomGenerator) {

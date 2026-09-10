@@ -30,16 +30,142 @@ final Map<ui.Image, SpriteBatch> _flameAtlasSpriteBatchCache =
     <ui.Image, SpriteBatch>{};
 const int _loveCanvasSnapshotPictureCacheCapacity = 128;
 const int _loveTextPainterCacheCapacity = 256;
+const int _loveGlyphAtlasLayoutCacheCapacity = 256;
+const bool _loveUseFreeTypeTextSpacing = bool.fromEnvironment(
+  'LOVE_FREETYPE_TEXT_SPACING',
+  defaultValue: true,
+);
+const bool _loveCanvasRoughLinePixelSnap = bool.fromEnvironment(
+  'LOVE_CANVAS_ROUGH_LINE_PIXEL_SNAP',
+  defaultValue: true,
+);
+const bool _loveCanvasRoughCurveTessellation = bool.fromEnvironment(
+  'LOVE_CANVAS_ROUGH_CURVE_TESSELLATION',
+  defaultValue: true,
+);
+const bool _loveCanvasStraightAlphaTextures = bool.fromEnvironment(
+  'LOVE_CANVAS_STRAIGHT_ALPHA_TEXTURES',
+  defaultValue: false,
+);
+const bool loveCanvasSupportsRuntimeStraightAlphaTextureTuning =
+    bool.fromEnvironment(
+      'LOVE_CANVAS_RUNTIME_STRAIGHT_ALPHA_TEXTURE_TUNING',
+      defaultValue: false,
+    );
+bool _loveCanvasRuntimeStraightAlphaTextures = _loveCanvasStraightAlphaTextures;
+const String _loveStraightAlphaImageShaderAsset =
+    'packages/love2d/shaders/love_straight_alpha_image.frag';
+const int _loveStraightAlphaRgbMaxDimension = int.fromEnvironment(
+  'LOVE_CANVAS_STRAIGHT_ALPHA_RGB_MAX_DIMENSION',
+  defaultValue: 512,
+);
+const int _loveStraightAlphaMinProjectedDimension = int.fromEnvironment(
+  'LOVE_CANVAS_STRAIGHT_ALPHA_MIN_PROJECTED_DIMENSION',
+  defaultValue: 80,
+);
+const bool loveCanvasSupportsRuntimeRoughCurveTuning = bool.fromEnvironment(
+  'LOVE_CANVAS_RUNTIME_ROUGH_CURVE_TUNING',
+  defaultValue: false,
+);
+bool _loveCanvasRuntimeRoughCurveTessellation =
+    _loveCanvasRoughCurveTessellation;
+
+/// Whether Canvas rasterizes rough circles and arcs as native-style polygons.
+bool get loveCanvasUsesRoughCurveTessellation =>
+    loveCanvasSupportsRuntimeRoughCurveTuning
+    ? _loveCanvasRuntimeRoughCurveTessellation
+    : _loveCanvasRoughCurveTessellation;
+
+/// Selects the Canvas rough-curve path in diagnostic A/B builds.
+void setLoveCanvasRoughCurveTessellationForDiagnostics(bool enabled) {
+  if (!loveCanvasSupportsRuntimeRoughCurveTuning) {
+    throw StateError('runtime Canvas rough-curve tuning is not enabled');
+  }
+  _loveCanvasRuntimeRoughCurveTessellation = enabled;
+}
+
+/// Whether Canvas separates straight RGB and alpha while filtering textures.
+bool get loveCanvasUsesStraightAlphaTextures =>
+    loveCanvasSupportsRuntimeStraightAlphaTextureTuning
+    ? _loveCanvasRuntimeStraightAlphaTextures
+    : _loveCanvasStraightAlphaTextures;
+
+/// Selects straight-alpha Canvas texture filtering in diagnostic A/B builds.
+void setLoveCanvasStraightAlphaTexturesForDiagnostics(bool enabled) {
+  if (!loveCanvasSupportsRuntimeStraightAlphaTextureTuning) {
+    throw StateError('runtime Canvas straight-alpha tuning is not enabled');
+  }
+  _loveCanvasRuntimeStraightAlphaTextures = enabled;
+}
+
 const int _loveFrameTimingHistoryCapacity = 240;
+const int _love120HzCpuBudgetMicros = 8333;
+const int _love60HzCpuBudgetMicros = 16667;
 final LinkedHashMap<_LoveTextPainterCacheKey, TextPainter>
 _loveTextPainterCache = LinkedHashMap<_LoveTextPainterCacheKey, TextPainter>();
+final LinkedHashMap<_LoveGlyphAtlasLayoutCacheKey, _LoveGlyphAtlasLayout>
+_loveGlyphAtlasLayoutCache =
+    LinkedHashMap<_LoveGlyphAtlasLayoutCacheKey, _LoveGlyphAtlasLayout>();
+final Expando<double> _loveTextHorizontalScales = Expando<double>();
 final LinkedHashMap<LoveCanvasSnapshot, ui.Picture>
 _loveCanvasSnapshotPictures = LinkedHashMap<LoveCanvasSnapshot, ui.Picture>();
+
+/// Reusable [Paint] instances for the single-threaded Canvas replay path.
+///
+/// Flutter consumes paint configuration during draw calls synchronously, so
+/// reusing these objects across consecutive commands avoids per-draw
+/// allocations in dense shape loops.
+final Paint _loveShapePaint = Paint();
+final Paint _lovePointsPaint = Paint()..style = PaintingStyle.fill;
+final Paint _loveImagePaint = Paint();
+final Paint _loveImageDataPaint = Paint();
+final Paint _loveStraightAlphaImagePaint = Paint()
+  ..isAntiAlias = false
+  ..blendMode = BlendMode.srcOver;
+final Path _lovePath = Path();
+final Map<int, Path> _loveUnitCirclePathCache = <int, Path>{};
+final Map<int, Map<double, Path>> _loveUnitArcPathCache =
+    <int, Map<double, Path>>{};
+int _loveUnitArcPathCacheEntries = 0;
+final Paint _loveClearPaint = Paint();
+final Paint _loveEmptyLayerPaint = Paint();
+final Paint _loveSrcLayerPaint = Paint()..blendMode = BlendMode.src;
+final Paint _loveDstInLayerPaint = Paint()..blendMode = BlendMode.dstIn;
+ui.FragmentProgram? _loveStraightAlphaImageProgram;
+Future<ui.FragmentProgram?>? _loveStraightAlphaImageProgramFuture;
+final Map<LoveImage, _LoveStraightAlphaImageBinding>
+_loveStraightAlphaImageBindings = <LoveImage, _LoveStraightAlphaImageBinding>{};
+final Set<LoveImage> _pendingLoveStraightAlphaImageBindings = <LoveImage>{};
+final Set<LoveImage> _unsupportedLoveStraightAlphaImages = <LoveImage>{};
+
+/// Number of direct images with a ready straight-alpha Canvas binding.
+int get loveCanvasStraightAlphaTextureBindingCount =>
+    _loveStraightAlphaImageBindings.length;
+
+/// Approximate resident bytes for opaque-RGB base levels and generated mips.
+int get loveCanvasStraightAlphaTextureEstimatedBytes {
+  var baseBytes = 0;
+  for (final binding in _loveStraightAlphaImageBindings.values) {
+    baseBytes += binding.opaqueRgb.width * binding.opaqueRgb.height * 4;
+  }
+  return ((baseBytes * 4) / 3).ceil();
+}
+
+final class _LoveStraightAlphaImageBinding {
+  const _LoveStraightAlphaImageBinding({
+    required this.opaqueRgb,
+    required this.shader,
+  });
+
+  final ui.Image opaqueRgb;
+  final ui.FragmentShader shader;
+}
 
 /// Per-frame counters for the LOVE-to-Flame renderer's major hot paths.
 class LoveFlameRenderStats {
   const LoveFlameRenderStats({
     this.renderedCommands = 0,
+    this.hybridFallbackCommands = 0,
     this.softwareSurfaceFallbacks = 0,
     this.atlasBatchCommands = 0,
     this.atlasBatchItems = 0,
@@ -56,6 +182,7 @@ class LoveFlameRenderStats {
   });
 
   final int renderedCommands;
+  final int hybridFallbackCommands;
   final int softwareSurfaceFallbacks;
   final int atlasBatchCommands;
   final int atlasBatchItems;
@@ -82,6 +209,7 @@ class LoveFlameRenderStats {
 
 class _LoveFlameRenderStatsAccumulator {
   int renderedCommands = 0;
+  int hybridFallbackCommands = 0;
   int softwareSurfaceFallbacks = 0;
   int atlasBatchCommands = 0;
   int atlasBatchItems = 0;
@@ -99,6 +227,7 @@ class _LoveFlameRenderStatsAccumulator {
   LoveFlameRenderStats snapshot() {
     return LoveFlameRenderStats(
       renderedCommands: renderedCommands,
+      hybridFallbackCommands: hybridFallbackCommands,
       softwareSurfaceFallbacks: softwareSurfaceFallbacks,
       atlasBatchCommands: atlasBatchCommands,
       atlasBatchItems: atlasBatchItems,
@@ -121,6 +250,7 @@ class LoveFlameFrameTimingSample {
   const LoveFlameFrameTimingSample({
     this.deltaSeconds = 0,
     this.updateDuration = Duration.zero,
+    this.runtimeFrameDuration = Duration.zero,
     this.renderDuration = Duration.zero,
     this.renderStats = const LoveFlameRenderStats(),
   });
@@ -128,8 +258,11 @@ class LoveFlameFrameTimingSample {
   /// The simulation delta Flame passed into `update`.
   final double deltaSeconds;
 
-  /// The CPU time spent inside `LoveFlameHarnessGame.update`.
+  /// The CPU time spent awaiting the game's `love.update` callback.
   final Duration updateDuration;
+
+  /// The complete asynchronous LOVE frame cost through draw-list commit.
+  final Duration runtimeFrameDuration;
 
   /// The CPU time spent inside `LoveFlameHarnessGame.render`.
   final Duration renderDuration;
@@ -137,8 +270,8 @@ class LoveFlameFrameTimingSample {
   /// The renderer counters recorded for this frame.
   final LoveFlameRenderStats renderStats;
 
-  /// The combined CPU cost of the recorded update and render work.
-  Duration get cpuFrameDuration => updateDuration + renderDuration;
+  /// The combined LOVE runtime and host-renderer CPU cost.
+  Duration get cpuFrameDuration => runtimeFrameDuration + renderDuration;
 }
 
 /// A rolling summary of recently recorded Flame frame timings.
@@ -147,16 +280,26 @@ class LoveFlameFrameTimingStats {
     this.sampleCount = 0,
     this.averageDeltaSeconds = 0,
     this.p95DeltaSeconds = 0,
+    this.p99DeltaSeconds = 0,
     this.maxDeltaSeconds = 0,
     this.averageUpdateDuration = Duration.zero,
     this.p95UpdateDuration = Duration.zero,
+    this.p99UpdateDuration = Duration.zero,
     this.maxUpdateDuration = Duration.zero,
+    this.averageRuntimeFrameDuration = Duration.zero,
+    this.p95RuntimeFrameDuration = Duration.zero,
+    this.p99RuntimeFrameDuration = Duration.zero,
+    this.maxRuntimeFrameDuration = Duration.zero,
     this.averageRenderDuration = Duration.zero,
     this.p95RenderDuration = Duration.zero,
+    this.p99RenderDuration = Duration.zero,
     this.maxRenderDuration = Duration.zero,
     this.averageCpuFrameDuration = Duration.zero,
     this.p95CpuFrameDuration = Duration.zero,
+    this.p99CpuFrameDuration = Duration.zero,
     this.maxCpuFrameDuration = Duration.zero,
+    this.cpuFramesOver120HzBudget = 0,
+    this.cpuFramesOver60HzBudget = 0,
     this.averageRenderedCommands = 0,
     this.maxRenderedCommands = 0,
     this.averageAtlasBatchCommands = 0,
@@ -185,6 +328,9 @@ class LoveFlameFrameTimingStats {
   /// The p95 recorded frame delta in seconds.
   final double p95DeltaSeconds;
 
+  /// The p99 recorded frame delta in seconds.
+  final double p99DeltaSeconds;
+
   /// The maximum recorded frame delta in seconds.
   final double maxDeltaSeconds;
 
@@ -194,8 +340,23 @@ class LoveFlameFrameTimingStats {
   /// The p95 CPU time spent updating sampled frames.
   final Duration p95UpdateDuration;
 
+  /// The p99 CPU time spent updating sampled frames.
+  final Duration p99UpdateDuration;
+
   /// The maximum CPU time spent updating a sampled frame.
   final Duration maxUpdateDuration;
+
+  /// The average complete asynchronous LOVE frame cost.
+  final Duration averageRuntimeFrameDuration;
+
+  /// The p95 complete asynchronous LOVE frame cost.
+  final Duration p95RuntimeFrameDuration;
+
+  /// The p99 complete asynchronous LOVE frame cost.
+  final Duration p99RuntimeFrameDuration;
+
+  /// The maximum complete asynchronous LOVE frame cost.
+  final Duration maxRuntimeFrameDuration;
 
   /// The average CPU time spent rendering each sampled frame.
   final Duration averageRenderDuration;
@@ -203,17 +364,29 @@ class LoveFlameFrameTimingStats {
   /// The p95 CPU time spent rendering sampled frames.
   final Duration p95RenderDuration;
 
+  /// The p99 CPU time spent rendering sampled frames.
+  final Duration p99RenderDuration;
+
   /// The maximum CPU time spent rendering a sampled frame.
   final Duration maxRenderDuration;
 
-  /// The average combined CPU update+render time per sampled frame.
+  /// The average combined LOVE runtime and host-render time per sampled frame.
   final Duration averageCpuFrameDuration;
 
-  /// The p95 combined CPU update+render time across sampled frames.
+  /// The p95 combined LOVE runtime and host-render time across sampled frames.
   final Duration p95CpuFrameDuration;
 
-  /// The maximum combined CPU update+render time across sampled frames.
+  /// The p99 combined LOVE runtime and host-render time across sampled frames.
+  final Duration p99CpuFrameDuration;
+
+  /// The maximum combined LOVE runtime and host-render time across samples.
   final Duration maxCpuFrameDuration;
+
+  /// Sampled CPU frames that exceeded the 8.333 ms budget for 120 Hz.
+  final int cpuFramesOver120HzBudget;
+
+  /// Sampled CPU frames that exceeded the 16.667 ms budget for 60 Hz.
+  final int cpuFramesOver60HzBudget;
 
   /// The average number of renderer commands processed per sampled frame.
   final double averageRenderedCommands;
@@ -294,6 +467,7 @@ class _LoveFlameFrameTimingRecorder {
     final samples = _samples.toList(growable: false);
     var totalDeltaSeconds = 0.0;
     var totalUpdateMicros = 0;
+    var totalRuntimeFrameMicros = 0;
     var totalRenderMicros = 0;
     var totalCpuFrameMicros = 0;
     var totalRenderedCommands = 0;
@@ -304,6 +478,8 @@ class _LoveFlameFrameTimingRecorder {
     var totalTextLayoutMicros = 0;
     var totalSaveLayers = 0;
     var totalSoftwareSurfaceFallbacks = 0;
+    var cpuFramesOver120HzBudget = 0;
+    var cpuFramesOver60HzBudget = 0;
     var maxRenderedCommands = 0;
     var maxAtlasBatchCommands = 0;
     var maxAtlasBatchItems = 0;
@@ -314,11 +490,14 @@ class _LoveFlameFrameTimingRecorder {
     var maxSoftwareSurfaceFallbacks = 0;
     final deltaSeconds = <double>[];
     final updateMicros = <int>[];
+    final runtimeFrameMicros = <int>[];
     final renderMicros = <int>[];
     final cpuFrameMicros = <int>[];
 
     for (final sample in samples) {
       final sampleUpdateMicros = sample.updateDuration.inMicroseconds;
+      final sampleRuntimeFrameMicros =
+          sample.runtimeFrameDuration.inMicroseconds;
       final sampleRenderMicros = sample.renderDuration.inMicroseconds;
       final sampleCpuFrameMicros = sample.cpuFrameDuration.inMicroseconds;
       final sampleSaveLayers = sample.renderStats.totalSaveLayers;
@@ -336,6 +515,7 @@ class _LoveFlameFrameTimingRecorder {
 
       totalDeltaSeconds += sample.deltaSeconds;
       totalUpdateMicros += sampleUpdateMicros;
+      totalRuntimeFrameMicros += sampleRuntimeFrameMicros;
       totalRenderMicros += sampleRenderMicros;
       totalCpuFrameMicros += sampleCpuFrameMicros;
       totalRenderedCommands += sampleRenderedCommands;
@@ -346,6 +526,12 @@ class _LoveFlameFrameTimingRecorder {
       totalTextLayoutMicros += sampleTextLayoutMicros;
       totalSaveLayers += sampleSaveLayers;
       totalSoftwareSurfaceFallbacks += sampleSoftwareSurfaceFallbacks;
+      if (sampleCpuFrameMicros > _love120HzCpuBudgetMicros) {
+        cpuFramesOver120HzBudget++;
+      }
+      if (sampleCpuFrameMicros > _love60HzCpuBudgetMicros) {
+        cpuFramesOver60HzBudget++;
+      }
       maxRenderedCommands = math.max(
         maxRenderedCommands,
         sampleRenderedCommands,
@@ -374,12 +560,14 @@ class _LoveFlameFrameTimingRecorder {
       );
       deltaSeconds.add(sample.deltaSeconds);
       updateMicros.add(sampleUpdateMicros);
+      runtimeFrameMicros.add(sampleRuntimeFrameMicros);
       renderMicros.add(sampleRenderMicros);
       cpuFrameMicros.add(sampleCpuFrameMicros);
     }
 
     deltaSeconds.sort();
     updateMicros.sort();
+    runtimeFrameMicros.sort();
     renderMicros.sort();
     cpuFrameMicros.sort();
 
@@ -387,6 +575,7 @@ class _LoveFlameFrameTimingRecorder {
       sampleCount: samples.length,
       averageDeltaSeconds: totalDeltaSeconds / samples.length,
       p95DeltaSeconds: _percentileDouble(deltaSeconds, 0.95),
+      p99DeltaSeconds: _percentileDouble(deltaSeconds, 0.99),
       maxDeltaSeconds: deltaSeconds.last,
       averageUpdateDuration: _averageDuration(
         totalMicroseconds: totalUpdateMicros,
@@ -395,13 +584,32 @@ class _LoveFlameFrameTimingRecorder {
       p95UpdateDuration: _durationFromMicroseconds(
         _percentileInt(updateMicros, 0.95),
       ),
+      p99UpdateDuration: _durationFromMicroseconds(
+        _percentileInt(updateMicros, 0.99),
+      ),
       maxUpdateDuration: _durationFromMicroseconds(updateMicros.last),
+      averageRuntimeFrameDuration: _averageDuration(
+        totalMicroseconds: totalRuntimeFrameMicros,
+        sampleCount: samples.length,
+      ),
+      p95RuntimeFrameDuration: _durationFromMicroseconds(
+        _percentileInt(runtimeFrameMicros, 0.95),
+      ),
+      p99RuntimeFrameDuration: _durationFromMicroseconds(
+        _percentileInt(runtimeFrameMicros, 0.99),
+      ),
+      maxRuntimeFrameDuration: _durationFromMicroseconds(
+        runtimeFrameMicros.last,
+      ),
       averageRenderDuration: _averageDuration(
         totalMicroseconds: totalRenderMicros,
         sampleCount: samples.length,
       ),
       p95RenderDuration: _durationFromMicroseconds(
         _percentileInt(renderMicros, 0.95),
+      ),
+      p99RenderDuration: _durationFromMicroseconds(
+        _percentileInt(renderMicros, 0.99),
       ),
       maxRenderDuration: _durationFromMicroseconds(renderMicros.last),
       averageCpuFrameDuration: _averageDuration(
@@ -411,7 +619,12 @@ class _LoveFlameFrameTimingRecorder {
       p95CpuFrameDuration: _durationFromMicroseconds(
         _percentileInt(cpuFrameMicros, 0.95),
       ),
+      p99CpuFrameDuration: _durationFromMicroseconds(
+        _percentileInt(cpuFrameMicros, 0.99),
+      ),
       maxCpuFrameDuration: _durationFromMicroseconds(cpuFrameMicros.last),
+      cpuFramesOver120HzBudget: cpuFramesOver120HzBudget,
+      cpuFramesOver60HzBudget: cpuFramesOver60HzBudget,
       averageRenderedCommands: totalRenderedCommands / samples.length,
       maxRenderedCommands: maxRenderedCommands,
       averageAtlasBatchCommands: totalAtlasBatchCommands / samples.length,
@@ -438,6 +651,9 @@ class _LoveFlameFrameTimingRecorder {
   }
 }
 
+/// Reads one unwrapped global from the currently mounted LOVE runtime.
+typedef LoveRuntimeGlobalReader = Object? Function(String name);
+
 /// Flame game host that presents a LOVE surface through the compatibility harness.
 class LoveFlameHarnessGame extends FlameGame with KeyboardEvents {
   LoveFlameHarnessGame({
@@ -445,6 +661,8 @@ class LoveFlameHarnessGame extends FlameGame with KeyboardEvents {
     LoveVideoFrameProviderFactory? videoFrameProviderFactory,
     AssetBundle? assetBundle,
     LoveRenderBackend? renderBackend,
+    this.runtimeGlobalReader,
+    this.usesExternalRuntimeFrameTiming = false,
   }) : _assetBundle = assetBundle,
        _videoFrameProviderFactory =
            videoFrameProviderFactory ?? _defaultVideoFrameProviderFactory(),
@@ -459,6 +677,8 @@ class LoveFlameHarnessGame extends FlameGame with KeyboardEvents {
   }
 
   final LoveAudioBackendFactory? audioBackendFactory;
+  final LoveRuntimeGlobalReader? runtimeGlobalReader;
+  final bool usesExternalRuntimeFrameTiming;
   final AssetBundle? _assetBundle;
   final LoveVideoFrameProviderFactory? _videoFrameProviderFactory;
 
@@ -478,10 +698,32 @@ class LoveFlameHarnessGame extends FlameGame with KeyboardEvents {
   );
   bool _presentationNotifierDisposed = false;
 
-  final LoveRenderBackend _renderBackend;
+  LoveRenderBackend _renderBackend;
 
   /// The active render backend used to replay draw commands.
   LoveRenderBackend get renderBackend => _renderBackend;
+
+  /// Reads a game global for diagnostics without exposing the runtime itself.
+  ///
+  /// Returns null before startup completes, after teardown, or when [name] is
+  /// absent. Benchmark tools should expose only small scalar values; unwrapping
+  /// a large Lua table can allocate a corresponding Dart object graph.
+  Object? readRuntimeGlobal(String name) => runtimeGlobalReader?.call(name);
+
+  /// Replaces the renderer without restarting the LOVE runtime.
+  ///
+  /// Renderer comparison tools can switch Canvas, GPU, and mirrored output
+  /// while preserving one simulation, asset set, and input state. Recreating
+  /// the harness for a renderer-only change would decode every image and
+  /// rebuild every mip chain again.
+  void setRenderBackend(LoveRenderBackend? backend) {
+    final next = backend ?? LoveCanvasRenderBackend();
+    if (identical(next, _renderBackend)) {
+      return;
+    }
+    _renderBackend = next;
+    syncPresentationCamera();
+  }
 
   void Function(double dt)? onTick;
   KeyEventResult Function(KeyEvent event, Set<LogicalKeyboardKey> keysPressed)?
@@ -493,6 +735,9 @@ class LoveFlameHarnessGame extends FlameGame with KeyboardEvents {
       _LoveFlameFrameTimingRecorder(capacity: _loveFrameTimingHistoryCapacity);
   double _lastUpdateDeltaSeconds = 0;
   Duration _lastUpdateDuration = Duration.zero;
+  Duration _lastRuntimeFrameDuration = Duration.zero;
+  int _runtimeFrameSequence = 0;
+  int _lastRecordedRuntimeFrameSequence = 0;
 
   LoveGraphicsSurfaceSnapshot get presentedFrame => _presentedFrame;
   LoveFlameRenderStats get lastRenderStats => _lastRenderStats;
@@ -510,6 +755,20 @@ class LoveFlameHarnessGame extends FlameGame with KeyboardEvents {
     _frameTimingRecorder.clear();
     _lastUpdateDeltaSeconds = 0;
     _lastUpdateDuration = Duration.zero;
+    _lastRuntimeFrameDuration = Duration.zero;
+    _lastRecordedRuntimeFrameSequence = _runtimeFrameSequence;
+  }
+
+  /// Records one fully awaited LOVE runtime frame for the next host render.
+  void recordRuntimeFrameTiming({
+    required double deltaSeconds,
+    required Duration updateDuration,
+    required Duration runtimeFrameDuration,
+  }) {
+    _lastUpdateDeltaSeconds = deltaSeconds;
+    _lastUpdateDuration = updateDuration;
+    _lastRuntimeFrameDuration = runtimeFrameDuration;
+    _runtimeFrameSequence += 1;
   }
 
   /// Returns the current logical presentation geometry for the LOVE surface.
@@ -523,6 +782,9 @@ class LoveFlameHarnessGame extends FlameGame with KeyboardEvents {
   /// Synchronizes Flame's fixed-resolution camera to the active LOVE surface.
   void syncPresentationCamera({LoveWindowMetrics? windowMetrics}) {
     final metrics = windowMetrics ?? host.windowMetrics;
+    if (_renderBackend case final LoveWindowMetricsAwareRenderBackend backend) {
+      backend.updateLoveWindowMetrics(metrics);
+    }
     final viewportSize = hasLayout
         ? Size(canvasSize.x, canvasSize.y)
         : Size.zero;
@@ -582,8 +844,12 @@ class LoveFlameHarnessGame extends FlameGame with KeyboardEvents {
       onTick?.call(dt);
     } finally {
       _updateStopwatch.stop();
-      _lastUpdateDeltaSeconds = dt;
-      _lastUpdateDuration = _updateStopwatch.elapsed;
+      if (!usesExternalRuntimeFrameTiming) {
+        _lastUpdateDeltaSeconds = dt;
+        _lastUpdateDuration = _updateStopwatch.elapsed;
+        _lastRuntimeFrameDuration = _updateStopwatch.elapsed;
+        _runtimeFrameSequence += 1;
+      }
     }
   }
 
@@ -640,11 +906,14 @@ class LoveFlameHarnessGame extends FlameGame with KeyboardEvents {
       recordedFrame = true;
     } finally {
       _renderStopwatch.stop();
-      if (recordedFrame) {
+      if (recordedFrame &&
+          _lastRecordedRuntimeFrameSequence != _runtimeFrameSequence) {
+        _lastRecordedRuntimeFrameSequence = _runtimeFrameSequence;
         _frameTimingRecorder.add(
           LoveFlameFrameTimingSample(
             deltaSeconds: _lastUpdateDeltaSeconds,
             updateDuration: _lastUpdateDuration,
+            runtimeFrameDuration: _lastRuntimeFrameDuration,
             renderDuration: _renderStopwatch.elapsed,
             renderStats: _lastRenderStats,
           ),
@@ -656,6 +925,7 @@ class LoveFlameHarnessGame extends FlameGame with KeyboardEvents {
   static LoveFlameRenderStats _convertRenderStats(LoveRenderStats stats) {
     return LoveFlameRenderStats(
       renderedCommands: stats.renderedCommands,
+      hybridFallbackCommands: stats.hybridFallbackCommands,
       softwareSurfaceFallbacks: stats.softwareSurfaceFallbacks,
       atlasBatchCommands: stats.atlasBatchCommands,
       atlasBatchItems: stats.atlasBatchItems,
@@ -736,6 +1006,314 @@ Rect _rectForScissor(LoveScissorRect scissor) {
   return Rect.fromLTWH(scissor.x, scissor.y, scissor.width, scissor.height);
 }
 
+void _buildEllipsePointPath(
+  Path path,
+  double centerX,
+  double centerY,
+  double radiusX,
+  double radiusY,
+  int requestedPoints,
+) {
+  final points = math.max(requestedPoints, 1);
+  final angleStep = math.pi * 2 / points;
+  path
+    ..reset()
+    ..moveTo(centerX + radiusX, centerY);
+  for (var index = 1; index < points; index++) {
+    final angle = angleStep * index;
+    path.lineTo(
+      centerX + radiusX * math.cos(angle),
+      centerY + radiusY * math.sin(angle),
+    );
+  }
+  path.close();
+}
+
+void _buildArcPointPath(Path path, LoveArcCommand arc, int pointCount) {
+  final angleStep = (arc.angle2 - arc.angle1) / pointCount;
+  if (arc.arcMode == LoveGraphicsArcMode.pie) {
+    path.moveTo(arc.x, arc.y);
+    path.lineTo(
+      arc.x + arc.radius * math.cos(arc.angle1),
+      arc.y + arc.radius * math.sin(arc.angle1),
+    );
+  } else {
+    path.moveTo(
+      arc.x + arc.radius * math.cos(arc.angle1),
+      arc.y + arc.radius * math.sin(arc.angle1),
+    );
+  }
+  for (var index = 1; index <= pointCount; index++) {
+    final angle = arc.angle1 + angleStep * index;
+    path.lineTo(
+      arc.x + arc.radius * math.cos(angle),
+      arc.y + arc.radius * math.sin(angle),
+    );
+  }
+  if (arc.arcMode != LoveGraphicsArcMode.open ||
+      arc.drawMode == LoveGraphicsDrawMode.fill) {
+    path.close();
+  }
+}
+
+bool _drawRoughCircleStroke(
+  Canvas canvas,
+  LoveCircleCommand circle,
+  Paint paint,
+) {
+  if (!loveCanvasUsesRoughCurveTessellation ||
+      circle.mode != LoveGraphicsDrawMode.line ||
+      circle.lineStyle != LoveGraphicsLineStyle.rough ||
+      circle.shader != null ||
+      circle.radius <= 0 ||
+      circle.lineWidth <= 0) {
+    return false;
+  }
+  final pointCount =
+      circle.pointCount ??
+      math.max(
+        8,
+        math
+            .sqrt(
+              circle.radius * 20 * _loveTransformPixelScale(circle.transform),
+            )
+            .floor(),
+      );
+  if (pointCount < 3) {
+    return false;
+  }
+
+  // LOVE chooses a transform-aware point count and strokes the generated
+  // polygon. Avoid Canvas.drawCircle's analytically smooth rough outline while
+  // retaining a single centerline path for inexpensive Canvas rasterization.
+  final path = _loveUnitCirclePath(pointCount);
+  canvas.save();
+  canvas.translate(circle.x, circle.y);
+  canvas.scale(circle.radius, circle.radius);
+  paint.strokeWidth = circle.lineWidth / circle.radius;
+  canvas.drawPath(path, paint);
+  canvas.restore();
+  return true;
+}
+
+Path _loveUnitCirclePath(int pointCount) {
+  final cached = _loveUnitCirclePathCache[pointCount];
+  if (cached != null) {
+    return cached;
+  }
+  if (_loveUnitCirclePathCache.length >= 128) {
+    _loveUnitCirclePathCache.clear();
+  }
+  final path = Path()..moveTo(1, 0);
+  for (var index = 1; index < pointCount; index++) {
+    final angle = math.pi * 2 * index / pointCount;
+    path.lineTo(math.cos(angle), math.sin(angle));
+  }
+  path.close();
+  _loveUnitCirclePathCache[pointCount] = path;
+  return path;
+}
+
+Path _loveUnitArcPath(int steps, double sweep) {
+  final pathsForSteps = _loveUnitArcPathCache[steps];
+  final cached = pathsForSteps?[sweep];
+  if (cached != null) {
+    return cached;
+  }
+  if (_loveUnitArcPathCacheEntries >= 128) {
+    _loveUnitArcPathCache.clear();
+    _loveUnitArcPathCacheEntries = 0;
+  }
+  final path = Path()..moveTo(1, 0);
+  for (var index = 1; index <= steps; index++) {
+    final angle = sweep * index / steps;
+    path.lineTo(math.cos(angle), math.sin(angle));
+  }
+  final target = _loveUnitArcPathCache.putIfAbsent(
+    steps,
+    () => <double, Path>{},
+  );
+  target[sweep] = path;
+  _loveUnitArcPathCacheEntries++;
+  return path;
+}
+
+bool _drawRoughOpenArcStroke(Canvas canvas, LoveArcCommand arc, Paint paint) {
+  if (!loveCanvasUsesRoughCurveTessellation ||
+      arc.drawMode != LoveGraphicsDrawMode.line ||
+      arc.arcMode != LoveGraphicsArcMode.open ||
+      arc.lineStyle != LoveGraphicsLineStyle.rough ||
+      arc.lineJoin != LoveGraphicsLineJoin.miter ||
+      arc.shader != null ||
+      arc.radius <= 0 ||
+      arc.lineWidth <= 0) {
+    return false;
+  }
+  var sweep = arc.angle2 - arc.angle1;
+  if (sweep.abs() > math.pi * 2) {
+    sweep = sweep.sign * math.pi * 2;
+  }
+  final automaticEllipsePoints = math.max(
+    8,
+    math
+        .sqrt(arc.radius * 20 * _loveTransformPixelScale(arc.transform))
+        .floor(),
+  );
+  final automaticSteps = sweep.abs() < math.pi * 2
+      ? (automaticEllipsePoints * sweep.abs() / (math.pi * 2) + 0.5).floor()
+      : automaticEllipsePoints;
+  final steps = arc.pointCount ?? automaticSteps;
+  if (sweep == 0 || steps <= 0) {
+    return false;
+  }
+
+  final path = _loveUnitArcPath(steps, sweep);
+  canvas.save();
+  canvas.translate(arc.x, arc.y);
+  canvas.rotate(arc.angle1);
+  canvas.scale(arc.radius, arc.radius);
+  paint.strokeWidth = arc.lineWidth / arc.radius;
+  canvas.drawPath(path, paint);
+  canvas.restore();
+  return true;
+}
+
+double _loveTransformPixelScale(vm.Matrix4 transform) {
+  final matrix = transform.storage;
+  final scaleX = math.sqrt(matrix[0] * matrix[0] + matrix[1] * matrix[1]);
+  final scaleY = math.sqrt(matrix[4] * matrix[4] + matrix[5] * matrix[5]);
+  final scale = (scaleX + scaleY) * 0.5;
+  return scale.isFinite && scale > 1e-6 ? scale : 1;
+}
+
+void _buildRoundedRectanglePointPath(Path path, LoveRectangleCommand command) {
+  var radiusX = command.cornerRadiusX;
+  var radiusY = command.cornerRadiusY;
+  final meanRadius =
+      (math.min(radiusX, (command.width * 0.5).abs()) +
+          math.min(radiusY, (command.height * 0.5).abs())) *
+      0.5;
+  final automaticPointCount = math.max(
+    math
+        .sqrt(meanRadius * 20 * _loveTransformPixelScale(command.transform))
+        .floor(),
+    8,
+  );
+  final pointsPerCorner = math.max(
+    (command.pointCount ?? automaticPointCount) ~/ 4,
+    1,
+  );
+  if (command.width >= 0.02) {
+    radiusX = math.min(radiusX, command.width * 0.5 - 0.01);
+  }
+  if (command.height >= 0.02) {
+    radiusY = math.min(radiusY, command.height * 0.5 - 0.01);
+  }
+  final angleStep = (math.pi * 0.5) / (pointsPerCorner + 1);
+  path.reset();
+  var first = true;
+
+  void addCorner(double centerX, double centerY, double startAngle) {
+    for (var index = 0; index <= pointsPerCorner + 1; index++) {
+      final angle = startAngle + angleStep * index;
+      final x = centerX + math.cos(angle) * radiusX;
+      final y = centerY + math.sin(angle) * radiusY;
+      if (first) {
+        path.moveTo(x, y);
+        first = false;
+      } else {
+        path.lineTo(x, y);
+      }
+    }
+  }
+
+  addCorner(command.x + radiusX, command.y + radiusY, math.pi);
+  addCorner(
+    command.x + command.width - radiusX,
+    command.y + radiusY,
+    math.pi * 1.5,
+  );
+  addCorner(
+    command.x + command.width - radiusX,
+    command.y + command.height - radiusY,
+    0,
+  );
+  addCorner(
+    command.x + radiusX,
+    command.y + command.height - radiusY,
+    math.pi * 0.5,
+  );
+  path.close();
+}
+
+void _paintRoundedRectangleRoughRuns(
+  Canvas canvas,
+  LoveRectangleCommand command,
+) {
+  if (command.mode != LoveGraphicsDrawMode.line ||
+      command.lineStyle != LoveGraphicsLineStyle.rough ||
+      (command.lineWidth - 1).abs() > 1e-6) {
+    return;
+  }
+  final matrix = command.transform.storage;
+  if ((matrix[0] - 1).abs() > 1e-6 ||
+      matrix[1].abs() > 1e-6 ||
+      matrix[4].abs() > 1e-6 ||
+      (matrix[5] - 1).abs() > 1e-6 ||
+      (matrix[12] - matrix[12].round()).abs() > 1e-6 ||
+      (matrix[13] - matrix[13].round()).abs() > 1e-6) {
+    return;
+  }
+  if ((command.x - command.x.round()).abs() > 1e-6 ||
+      (command.y - command.y.round()).abs() > 1e-6 ||
+      (command.width - command.width.round()).abs() > 1e-6 ||
+      (command.height - command.height.round()).abs() > 1e-6) {
+    return;
+  }
+
+  var radiusX = command.cornerRadiusX;
+  var radiusY = command.cornerRadiusY;
+  if (command.width >= 0.02) {
+    radiusX = math.min(radiusX, command.width * 0.5 - 0.01);
+  }
+  if (command.height >= 0.02) {
+    radiusY = math.min(radiusY, command.height * 0.5 - 0.01);
+  }
+  final horizontalLength = command.width - radiusX * 2;
+  final verticalLength = command.height - radiusY * 2;
+  if (horizontalLength <= 0 || verticalLength <= 0) return;
+
+  final paint = _lovePointsPaint
+    ..color = _toFlutterColor(command.color)
+    ..isAntiAlias = false;
+  canvas.drawRect(
+    Rect.fromLTWH(command.x + radiusX, command.y - 1, horizontalLength, 1),
+    paint,
+  );
+  canvas.drawRect(
+    Rect.fromLTWH(
+      command.x + radiusX,
+      command.y + command.height - 1,
+      horizontalLength,
+      1,
+    ),
+    paint,
+  );
+  canvas.drawRect(
+    Rect.fromLTWH(command.x - 1, command.y + radiusY, 1, verticalLength),
+    paint,
+  );
+  canvas.drawRect(
+    Rect.fromLTWH(
+      command.x + command.width - 1,
+      command.y + radiusY,
+      1,
+      verticalLength,
+    ),
+    paint,
+  );
+}
+
 void _renderRecordedCommand(
   Canvas canvas,
   LoveDrawCommand command, {
@@ -760,131 +1338,208 @@ void _renderRecordedCommand(
   }
   if (radialGradientMaskPaint != null) {
     stats?.commandRadialMaskLayers++;
-    canvas.saveLayer(null, Paint());
+    canvas.saveLayer(null, _loveEmptyLayerPaint);
   }
   canvas.save();
+  if (command case final LoveLineCommand line) {
+    if (_loveCanvasRoughLinePixelSnap) {
+      final snapAxes = loveRoughLinePixelSnapAxes(
+        line.lineStyle,
+        line.lineWidth,
+        line.points,
+        line.transform,
+      );
+      canvas.translate(
+        snapAxes & loveRoughLinePixelSnapX == 0 ? 0 : -0.5,
+        snapAxes & loveRoughLinePixelSnapY == 0 ? 0 : -0.5,
+      );
+    }
+  }
   canvas.transform(command.transform.storage);
 
   switch (command) {
     case final LoveColorClearCommand clear:
       canvas.drawRect(
         Rect.fromLTWH(-1000000, -1000000, 2000000, 2000000),
-        Paint()..color = _toFlutterColor(clear.color),
+        _loveClearPaint..color = _toFlutterColor(clear.color),
       );
     case LoveStencilClearCommand():
       break;
     case final LoveParticleSystemCommand particleSystem:
       _renderParticleSystemCommand(canvas, particleSystem, stats: stats);
     case final LoveRectangleCommand rectangle:
-      final paint = Paint()
-        ..color = _toFlutterColor(rectangle.color)
-        ..style = _shapeStyle(rectangle.mode, rectangle.wireframe)
-        ..strokeWidth = rectangle.lineWidth
-        ..strokeJoin = _strokeJoinForLove(rectangle.lineJoin)
-        ..isAntiAlias = _isAntiAliasForLove(rectangle.lineStyle);
+      final paint = _configureShapePaint(
+        _loveShapePaint,
+        color: rectangle.color,
+        style: _shapeStyle(rectangle.mode, rectangle.wireframe),
+        lineWidth: rectangle.lineWidth,
+        lineJoin: rectangle.lineJoin,
+        lineStyle: rectangle.lineStyle,
+        command: rectangle,
+      );
       final rect = Rect.fromLTWH(
         rectangle.x,
         rectangle.y,
         rectangle.width,
         rectangle.height,
       );
-      _configureShaderPaint(paint, rectangle);
 
-      if (rectangle.cornerRadiusX > 0 || rectangle.cornerRadiusY > 0) {
-        final rrect = RRect.fromRectAndRadius(
-          rect,
-          Radius.elliptical(rectangle.cornerRadiusX, rectangle.cornerRadiusY),
-        );
-        canvas.drawRRect(rrect, paint);
+      if (rectangle.cornerRadiusX > 0 && rectangle.cornerRadiusY > 0) {
+        _buildRoundedRectanglePointPath(_lovePath, rectangle);
+        canvas.drawPath(_lovePath, paint);
+        _paintRoundedRectangleRoughRuns(canvas, rectangle);
       } else {
         canvas.drawRect(rect, paint);
       }
     case final LoveCircleCommand circle:
-      final paint = Paint()
-        ..color = _toFlutterColor(circle.color)
-        ..style = _shapeStyle(circle.mode, circle.wireframe)
-        ..strokeWidth = circle.lineWidth
-        ..strokeJoin = _strokeJoinForLove(circle.lineJoin)
-        ..isAntiAlias = _isAntiAliasForLove(circle.lineStyle);
-      _configureShaderPaint(paint, circle);
-      canvas.drawCircle(Offset(circle.x, circle.y), circle.radius, paint);
+      final paint = _configureShapePaint(
+        _loveShapePaint,
+        color: circle.color,
+        style: _shapeStyle(circle.mode, circle.wireframe),
+        lineWidth: circle.lineWidth,
+        lineJoin: circle.lineJoin,
+        lineStyle: circle.lineStyle,
+        command: circle,
+      );
+      if (_drawRoughCircleStroke(canvas, circle, paint)) {
+        break;
+      }
+      if (circle.pointCount case final pointCount?) {
+        _buildEllipsePointPath(
+          _lovePath,
+          circle.x,
+          circle.y,
+          circle.radius,
+          circle.radius,
+          pointCount,
+        );
+        canvas.drawPath(_lovePath, paint);
+      } else {
+        canvas.drawCircle(Offset(circle.x, circle.y), circle.radius, paint);
+      }
     case final LoveLineCommand line:
-      final paint = Paint()
-        ..color = _toFlutterColor(line.color)
-        ..style = PaintingStyle.stroke
-        ..strokeWidth = line.lineWidth
-        ..strokeCap = StrokeCap.round
-        ..strokeJoin = _strokeJoinForLove(line.lineJoin)
-        ..isAntiAlias = _isAntiAliasForLove(line.lineStyle);
-      final path = Path()..moveTo(line.points.first.x, line.points.first.y);
-      for (final point in line.points.skip(1)) {
+      final paint = _configureShapePaint(
+        _loveShapePaint,
+        color: line.color,
+        style: PaintingStyle.stroke,
+        lineWidth: line.lineWidth,
+        lineJoin: line.lineJoin,
+        lineStyle: line.lineStyle,
+        strokeCap: StrokeCap.round,
+      );
+      final path = _lovePath
+        ..reset()
+        ..moveTo(line.points.first.x, line.points.first.y);
+      for (var i = 1; i < line.points.length; i++) {
+        final point = line.points[i];
         path.lineTo(point.x, point.y);
       }
       canvas.drawPath(path, paint);
     case final LovePolygonCommand polygon:
-      final paint = Paint()
-        ..color = _toFlutterColor(polygon.color)
-        ..style = _shapeStyle(polygon.mode, polygon.wireframe)
-        ..strokeWidth = polygon.lineWidth
-        ..strokeJoin = _strokeJoinForLove(polygon.lineJoin)
-        ..isAntiAlias = _isAntiAliasForLove(polygon.lineStyle);
-      final path = Path()
+      final paint = _configureShapePaint(
+        _loveShapePaint,
+        color: polygon.color,
+        style: _shapeStyle(polygon.mode, polygon.wireframe),
+        lineWidth: polygon.lineWidth,
+        lineJoin: polygon.lineJoin,
+        lineStyle: polygon.lineStyle,
+        command: polygon,
+      );
+      final path = _lovePath
+        ..reset()
         ..moveTo(polygon.points.first.x, polygon.points.first.y);
-      for (final point in polygon.points.skip(1)) {
+      for (var i = 1; i < polygon.points.length; i++) {
+        final point = polygon.points[i];
         path.lineTo(point.x, point.y);
       }
       path.close();
-      _configureShaderPaint(paint, polygon);
       canvas.drawPath(path, paint);
     case final LovePointsCommand points:
-      final basePaint = Paint()
-        ..style = PaintingStyle.fill
+      final paint = _lovePointsPaint
         ..isAntiAlias = _isAntiAliasForLove(points.lineStyle);
+      final halfSize = points.pointSize / 2;
+      final pointSize = points.pointSize;
       for (final point in points.points) {
-        final paint = Paint()
-          ..color = _toFlutterColor(point.color ?? points.color)
-          ..style = basePaint.style
-          ..isAntiAlias = basePaint.isAntiAlias;
-        final halfSize = points.pointSize / 2;
+        paint.color = _toFlutterColor(point.color ?? points.color);
         canvas.drawRect(
           Rect.fromLTWH(
             point.x - halfSize,
             point.y - halfSize,
-            points.pointSize,
-            points.pointSize,
+            pointSize,
+            pointSize,
           ),
           paint,
         );
       }
     case final LoveEllipseCommand ellipse:
-      final paint = Paint()
-        ..color = _toFlutterColor(ellipse.color)
-        ..style = _shapeStyle(ellipse.mode, ellipse.wireframe)
-        ..strokeWidth = ellipse.lineWidth
-        ..strokeJoin = _strokeJoinForLove(ellipse.lineJoin)
-        ..isAntiAlias = _isAntiAliasForLove(ellipse.lineStyle);
-      _configureShaderPaint(paint, ellipse);
-      canvas.drawOval(
-        Rect.fromCenter(
-          center: Offset(ellipse.x, ellipse.y),
-          width: ellipse.radiusX * 2,
-          height: ellipse.radiusY * 2,
-        ),
-        paint,
+      final paint = _configureShapePaint(
+        _loveShapePaint,
+        color: ellipse.color,
+        style: _shapeStyle(ellipse.mode, ellipse.wireframe),
+        lineWidth: ellipse.lineWidth,
+        lineJoin: ellipse.lineJoin,
+        lineStyle: ellipse.lineStyle,
+        command: ellipse,
       );
+      if (ellipse.pointCount case final pointCount?) {
+        _buildEllipsePointPath(
+          _lovePath,
+          ellipse.x,
+          ellipse.y,
+          ellipse.radiusX,
+          ellipse.radiusY,
+          pointCount,
+        );
+        canvas.drawPath(_lovePath, paint);
+      } else {
+        canvas.drawOval(
+          Rect.fromCenter(
+            center: Offset(ellipse.x, ellipse.y),
+            width: ellipse.radiusX * 2,
+            height: ellipse.radiusY * 2,
+          ),
+          paint,
+        );
+      }
     case final LoveArcCommand arc:
-      final paint = Paint()
-        ..color = _toFlutterColor(arc.color)
-        ..style = _shapeStyle(arc.drawMode, arc.wireframe)
-        ..strokeWidth = arc.lineWidth
-        ..strokeJoin = _strokeJoinForLove(arc.lineJoin)
-        ..isAntiAlias = _isAntiAliasForLove(arc.lineStyle);
+      final paint = _configureShapePaint(
+        _loveShapePaint,
+        color: arc.color,
+        style: _shapeStyle(arc.drawMode, arc.wireframe),
+        lineWidth: arc.lineWidth,
+        lineJoin: arc.lineJoin,
+        lineStyle: arc.lineStyle,
+        command: arc,
+      );
+      if (_drawRoughOpenArcStroke(canvas, arc, paint)) {
+        break;
+      }
       final rect = Rect.fromCircle(
         center: Offset(arc.x, arc.y),
         radius: arc.radius,
       );
       final sweepAngle = arc.angle2 - arc.angle1;
-      final path = Path();
+      final path = _lovePath..reset();
+
+      if (arc.pointCount case final pointCount?) {
+        if (pointCount <= 0 || sweepAngle == 0) {
+          break;
+        }
+        if (sweepAngle.abs() >= math.pi * 2) {
+          _buildEllipsePointPath(
+            path,
+            arc.x,
+            arc.y,
+            arc.radius,
+            arc.radius,
+            pointCount,
+          );
+        } else {
+          _buildArcPointPath(path, arc, pointCount);
+        }
+        canvas.drawPath(path, paint);
+        break;
+      }
 
       switch (arc.arcMode) {
         case LoveGraphicsArcMode.open:
@@ -898,22 +1553,31 @@ void _renderRecordedCommand(
           path.close();
       }
 
-      _configureShaderPaint(paint, arc);
       canvas.drawPath(path, paint);
     case final LoveTextCommand text:
       final wrapWidth = text.limit != null && text.limit! > 0
           ? text.limit!
           : null;
-      final painter = _textPainterForSpans(
+      canvas.transform(text.textTransform.storage);
+      if (!_paintLoveGlyphAtlas(
+        canvas,
         spans: text.spans,
         baseColor: text.color,
         font: text.font,
         align: text.align,
         wrapWidth: wrapWidth,
         stats: stats,
-      );
-      canvas.transform(text.textTransform.storage);
-      painter.paint(canvas, Offset.zero);
+      )) {
+        final painter = _textPainterForSpans(
+          spans: text.spans,
+          baseColor: text.color,
+          font: text.font,
+          align: text.align,
+          wrapWidth: wrapWidth,
+          stats: stats,
+        );
+        _paintLoveTextPainter(canvas, painter);
+      }
     case final LoveTextObjectCommand text:
       _renderTextObjectCommand(canvas, text, stats: stats);
     case final LoveImageCommand image:
@@ -953,21 +1617,188 @@ void _renderTextObjectCommand(
     final wrapWidth = entry.wrapLimit != null && entry.wrapLimit! > 0
         ? entry.wrapLimit!
         : null;
-    final painter = _textPainterForSpans(
+    canvas.save();
+    canvas.transform(text.drawTransform.storage);
+    canvas.transform(entry.transform.storage);
+    if (!_paintLoveGlyphAtlas(
+      canvas,
       spans: entry.spans,
       baseColor: text.color,
       font: text.textObject.font,
       align: entry.align,
       wrapWidth: wrapWidth,
       stats: stats,
-    );
-
-    canvas.save();
-    canvas.transform(text.drawTransform.storage);
-    canvas.transform(entry.transform.storage);
-    painter.paint(canvas, Offset.zero);
+    )) {
+      final painter = _textPainterForSpans(
+        spans: entry.spans,
+        baseColor: text.color,
+        font: text.textObject.font,
+        align: entry.align,
+        wrapWidth: wrapWidth,
+        stats: stats,
+      );
+      _paintLoveTextPainter(canvas, painter);
+    }
     canvas.restore();
   }
+}
+
+bool _paintLoveGlyphAtlas(
+  Canvas canvas, {
+  required List<LoveTextSpan> spans,
+  required LoveColor baseColor,
+  required LoveFont font,
+  required String align,
+  required double? wrapWidth,
+  _LoveFlameRenderStatsAccumulator? stats,
+}) {
+  final atlas = font.glyphAtlas;
+  final rawImage = atlas?.image.nativeImage;
+  if (!loveFreeTypeGlyphAtlasEnabled ||
+      atlas == null ||
+      rawImage is! ui.Image ||
+      wrapWidth != null ||
+      align != 'left' ||
+      font.fallbacks.isNotEmpty) {
+    return false;
+  }
+
+  final segments = spans
+      .map(
+        (segment) => _LoveTextPainterSegmentKey(
+          text: segment.text,
+          colorArgb: _toFlutterColor(
+            baseColor.modulate(segment.color ?? LoveColor.white),
+          ).toARGB32(),
+        ),
+      )
+      .toList(growable: false);
+  final cacheKey = _LoveGlyphAtlasLayoutCacheKey(
+    atlasIdentity: identityHashCode(atlas),
+    baseline: font.baseline,
+    height: font.height,
+    lineHeight: font.lineHeight,
+    dpiScale: font.dpiScale,
+    glyphKerningsIdentity: identityHashCode(font.glyphKernings),
+    segments: segments,
+  );
+  var layout = _loveGlyphAtlasLayoutCache.remove(cacheKey);
+  if (layout == null) {
+    layout = _buildLoveGlyphAtlasLayout(
+      atlas: atlas,
+      font: font,
+      segments: segments,
+    );
+    if (layout == null) {
+      return false;
+    }
+  }
+  _loveGlyphAtlasLayoutCache[cacheKey] = layout;
+  if (_loveGlyphAtlasLayoutCache.length > _loveGlyphAtlasLayoutCacheCapacity) {
+    _loveGlyphAtlasLayoutCache.remove(_loveGlyphAtlasLayoutCache.keys.first);
+  }
+
+  if (layout.rects.isNotEmpty) {
+    stats?.atlasBatchCommands++;
+    stats?.atlasBatchItems += layout.rects.length;
+    canvas.drawAtlas(
+      rawImage,
+      layout.transforms,
+      layout.rects,
+      layout.colors,
+      BlendMode.modulate,
+      null,
+      _loveImagePaint
+        ..shader = null
+        ..colorFilter = null
+        ..filterQuality = _filterQualityForLove(atlas.image.filter),
+    );
+  }
+  return true;
+}
+
+_LoveGlyphAtlasLayout? _buildLoveGlyphAtlasLayout({
+  required LoveFontGlyphAtlas atlas,
+  required LoveFont font,
+  required List<_LoveTextPainterSegmentKey> segments,
+}) {
+  final transforms = <ui.RSTransform>[];
+  final rects = <Rect>[];
+  final colors = <Color>[];
+  final dpiScale = font.dpiScale <= 0 ? 1.0 : font.dpiScale;
+  final glyphScale = 1.0 / dpiScale;
+  final baseline = font.baseline.roundToDouble();
+  final lineAdvance = font.height * font.lineHeight;
+  var penX = 0.0;
+  var lineY = 0.0;
+  int? previous;
+
+  for (final segment in segments) {
+    final color = Color(segment.colorArgb);
+    for (final codepoint in segment.text.runes) {
+      if (codepoint == 0x0d) {
+        continue;
+      }
+      if (codepoint == 0x0a) {
+        penX = 0;
+        lineY += lineAdvance;
+        previous = null;
+        continue;
+      }
+      final glyph = atlas.glyphs[codepoint];
+      if (glyph == null) {
+        return null;
+      }
+      if (previous != null) {
+        penX += font.getKerning(previous, codepoint);
+      }
+      if (glyph.width > 0 && glyph.height > 0) {
+        final quad = loveFontAtlasGlyphQuad(
+          atlas: atlas,
+          glyph: glyph,
+          penX: penX,
+          lineY: lineY,
+          baseline: baseline,
+          dpiScale: dpiScale,
+        );
+        transforms.add(
+          ui.RSTransform.fromComponents(
+            rotation: 0,
+            scale: glyphScale,
+            anchorX: 0,
+            anchorY: 0,
+            translateX: quad.left,
+            translateY: quad.top,
+          ),
+        );
+        rects.add(
+          Rect.fromLTWH(
+            quad.sourceX,
+            quad.sourceY,
+            quad.sourceWidth,
+            quad.sourceHeight,
+          ),
+        );
+        colors.add(color);
+      }
+      penX += glyph.advance * glyphScale;
+      previous = codepoint;
+    }
+  }
+
+  return _LoveGlyphAtlasLayout(
+    transforms: List<ui.RSTransform>.unmodifiable(transforms),
+    rects: List<Rect>.unmodifiable(rects),
+    colors: List<Color>.unmodifiable(colors),
+  );
+}
+
+void _paintLoveTextPainter(Canvas canvas, TextPainter painter) {
+  final horizontalScale = _loveTextHorizontalScales[painter] ?? 1.0;
+  if ((horizontalScale - 1.0).abs() > 1e-9) {
+    canvas.scale(horizontalScale, 1.0);
+  }
+  painter.paint(canvas, Offset.zero);
 }
 
 TextPainter _textPainterForSpans({
@@ -997,6 +1828,10 @@ TextPainter _textPainterForSpans({
     family: family,
     size: font.size,
     lineHeight: font.lineHeight,
+    hinting: font.hinting,
+    dpiScale: font.dpiScale,
+    glyphAdvancesIdentity: identityHashCode(font.glyphAdvances),
+    glyphKerningsIdentity: identityHashCode(font.glyphKernings),
     align: textAlign,
     wrapWidth: resolvedWrapWidth,
     segments: segments,
@@ -1034,6 +1869,17 @@ TextPainter _textPainterForSpans({
         minWidth: resolvedWrapWidth ?? 0.0,
         maxWidth: resolvedWrapWidth ?? double.infinity,
       );
+  if (_loveUseFreeTypeTextSpacing &&
+      resolvedWrapWidth == null &&
+      font.dataType == LoveFont.trueTypeFontType &&
+      font.family != null &&
+      painter.width > 0) {
+    final plainText = segments.map((segment) => segment.text).join();
+    final targetWidth = font.measureWidth(plainText);
+    if (targetWidth > 0) {
+      _loveTextHorizontalScales[painter] = targetWidth / painter.width;
+    }
+  }
   layoutStopwatch.stop();
   stats?.textLayoutMicros += layoutStopwatch.elapsedMicroseconds;
   _loveTextPainterCache[cacheKey] = painter;
@@ -1064,11 +1910,70 @@ class _LoveTextPainterSegmentKey {
   int get hashCode => Object.hash(text, colorArgb);
 }
 
+class _LoveGlyphAtlasLayout {
+  const _LoveGlyphAtlasLayout({
+    required this.transforms,
+    required this.rects,
+    required this.colors,
+  });
+
+  final List<ui.RSTransform> transforms;
+  final List<Rect> rects;
+  final List<Color> colors;
+}
+
+class _LoveGlyphAtlasLayoutCacheKey {
+  const _LoveGlyphAtlasLayoutCacheKey({
+    required this.atlasIdentity,
+    required this.baseline,
+    required this.height,
+    required this.lineHeight,
+    required this.dpiScale,
+    required this.glyphKerningsIdentity,
+    required this.segments,
+  });
+
+  final int atlasIdentity;
+  final double baseline;
+  final double height;
+  final double lineHeight;
+  final double dpiScale;
+  final int glyphKerningsIdentity;
+  final List<_LoveTextPainterSegmentKey> segments;
+
+  @override
+  bool operator ==(Object other) {
+    return other is _LoveGlyphAtlasLayoutCacheKey &&
+        other.atlasIdentity == atlasIdentity &&
+        other.baseline == baseline &&
+        other.height == height &&
+        other.lineHeight == lineHeight &&
+        other.dpiScale == dpiScale &&
+        other.glyphKerningsIdentity == glyphKerningsIdentity &&
+        _listEquals(other.segments, segments);
+  }
+
+  @override
+  int get hashCode => Object.hash(
+    atlasIdentity,
+    baseline,
+    height,
+    lineHeight,
+    dpiScale,
+    glyphKerningsIdentity,
+    Object.hashAll(segments),
+  );
+}
+
 class _LoveTextPainterCacheKey {
   const _LoveTextPainterCacheKey({
     required this.family,
     required this.size,
     required this.lineHeight,
+    required this.hinting,
+    required this.dpiScale,
+    required this.glyphAdvancesIdentity,
+    required this.glyphKerningsIdentity,
     required this.align,
     required this.wrapWidth,
     required this.segments,
@@ -1077,6 +1982,10 @@ class _LoveTextPainterCacheKey {
   final String family;
   final double size;
   final double lineHeight;
+  final String hinting;
+  final double dpiScale;
+  final int glyphAdvancesIdentity;
+  final int glyphKerningsIdentity;
   final TextAlign align;
   final double? wrapWidth;
   final List<_LoveTextPainterSegmentKey> segments;
@@ -1087,6 +1996,10 @@ class _LoveTextPainterCacheKey {
         other.family == family &&
         other.size == size &&
         other.lineHeight == lineHeight &&
+        other.hinting == hinting &&
+        other.dpiScale == dpiScale &&
+        other.glyphAdvancesIdentity == glyphAdvancesIdentity &&
+        other.glyphKerningsIdentity == glyphKerningsIdentity &&
         other.align == align &&
         other.wrapWidth == wrapWidth &&
         _listEquals(other.segments, segments);
@@ -1097,6 +2010,10 @@ class _LoveTextPainterCacheKey {
     family,
     size,
     lineHeight,
+    hinting,
+    dpiScale,
+    glyphAdvancesIdentity,
+    glyphKerningsIdentity,
     align,
     wrapWidth,
     Object.hashAll(segments),
@@ -1331,7 +2248,7 @@ _FlameAtlasBatchPlan? _flameAtlasBatchPlan({
       continue;
     }
 
-    final resolvedFilterQuality = _filterQualityForLove(resolvedImage.filter);
+    final resolvedFilterQuality = _filterQualityForImage(resolvedImage);
     if (atlas == null) {
       atlas = rawImage;
       filterQuality = resolvedFilterQuality;
@@ -1413,9 +2330,192 @@ void _renderFlameAtlasBatch(
   stats?.atlasBatchItems += batch.items.length;
   spriteBatch.render(
     canvas,
-    paint: Paint()..filterQuality = batch.filterQuality,
+    paint: _loveImagePaint
+      ..shader = null
+      ..colorFilter = null
+      ..filterQuality = batch.filterQuality,
   );
   spriteBatch.clear();
+}
+
+bool _drawStraightAlphaImage(
+  Canvas canvas, {
+  required LoveDrawCommand command,
+  required LoveImage image,
+  required ui.Image nativeImage,
+  required Rect sourceRect,
+  required Rect destinationRect,
+  required vm.Matrix4 drawTransform,
+  required LoveColor tint,
+}) {
+  if (!loveCanvasUsesStraightAlphaTextures ||
+      image.mipmapCount <= 1 ||
+      image.mipmapFilter != LoveGraphicsFilterMode.linear ||
+      image.filter.min != LoveGraphicsFilterMode.linear ||
+      image.filter.mag != LoveGraphicsFilterMode.linear) {
+    return false;
+  }
+
+  final commandMatrix = command.transform.storage;
+  final drawMatrix = drawTransform.storage;
+  final combined00 =
+      commandMatrix[0] * drawMatrix[0] + commandMatrix[4] * drawMatrix[1];
+  final combined10 =
+      commandMatrix[1] * drawMatrix[0] + commandMatrix[5] * drawMatrix[1];
+  final combined01 =
+      commandMatrix[0] * drawMatrix[4] + commandMatrix[4] * drawMatrix[5];
+  final combined11 =
+      commandMatrix[1] * drawMatrix[4] + commandMatrix[5] * drawMatrix[5];
+  final outputWidth =
+      sourceRect.width *
+      math.sqrt(combined00 * combined00 + combined10 * combined10);
+  final outputHeight =
+      sourceRect.height *
+      math.sqrt(combined01 * combined01 + combined11 * combined11);
+  if (math.max(outputWidth, outputHeight) <
+          _loveStraightAlphaMinProjectedDimension ||
+      outputWidth > _loveStraightAlphaRgbMaxDimension + 1e-6 ||
+      outputHeight > _loveStraightAlphaRgbMaxDimension + 1e-6) {
+    return false;
+  }
+
+  final binding = _loveStraightAlphaImageBindings[image];
+  if (binding == null) {
+    _prepareStraightAlphaImageBinding(image, nativeImage);
+    return false;
+  }
+  if (outputWidth > binding.opaqueRgb.width + 1e-6 ||
+      outputHeight > binding.opaqueRgb.height + 1e-6) {
+    return false;
+  }
+
+  final shader = binding.shader;
+  var floatIndex = 0;
+  void write(double value) => shader.setFloat(floatIndex++, value);
+
+  write(image.width.toDouble());
+  write(image.height.toDouble());
+  write(sourceRect.left);
+  write(sourceRect.top);
+  write(sourceRect.width);
+  write(sourceRect.height);
+  write(destinationRect.left);
+  write(destinationRect.top);
+  write(destinationRect.width);
+  write(destinationRect.height);
+  write(tint.r);
+  write(tint.g);
+  write(tint.b);
+  write(tint.a);
+
+  _loveStraightAlphaImagePaint.shader = shader;
+  canvas.drawRect(destinationRect, _loveStraightAlphaImagePaint);
+  return true;
+}
+
+void _prepareStraightAlphaImageBinding(LoveImage image, ui.Image nativeImage) {
+  if (_pendingLoveStraightAlphaImageBindings.contains(image) ||
+      _unsupportedLoveStraightAlphaImages.contains(image)) {
+    return;
+  }
+  final imageData = image.imageData;
+  if (imageData == null) {
+    _unsupportedLoveStraightAlphaImages.add(image);
+    return;
+  }
+
+  _pendingLoveStraightAlphaImageBindings.add(image);
+  Future.wait<Object?>(<Future<Object?>>[
+        _loadStraightAlphaImageProgram(),
+        _decodeOpaqueRgbImage(image),
+      ])
+      .then((results) {
+        final program = results[0];
+        final opaqueRgb = results[1];
+        if (program is! ui.FragmentProgram || opaqueRgb is! ui.Image) {
+          _unsupportedLoveStraightAlphaImages.add(image);
+          return;
+        }
+        final shader = program.fragmentShader();
+        shader
+          ..setImageSampler(0, opaqueRgb, filterQuality: FilterQuality.medium)
+          ..setImageSampler(
+            1,
+            nativeImage,
+            filterQuality: FilterQuality.medium,
+          );
+        _loveStraightAlphaImageBindings[image] = _LoveStraightAlphaImageBinding(
+          opaqueRgb: opaqueRgb,
+          shader: shader,
+        );
+      })
+      .catchError((Object _) {
+        _unsupportedLoveStraightAlphaImages.add(image);
+      })
+      .whenComplete(() {
+        _pendingLoveStraightAlphaImageBindings.remove(image);
+      });
+}
+
+Future<ui.FragmentProgram?> _loadStraightAlphaImageProgram() {
+  final loaded = _loveStraightAlphaImageProgram;
+  if (loaded != null) return Future<ui.FragmentProgram?>.value(loaded);
+  return _loveStraightAlphaImageProgramFuture ??=
+      _loadStraightAlphaImageProgramAsset();
+}
+
+Future<ui.FragmentProgram?> _loadStraightAlphaImageProgramAsset() async {
+  try {
+    final program = await ui.FragmentProgram.fromAsset(
+      _loveStraightAlphaImageShaderAsset,
+    );
+    _loveStraightAlphaImageProgram = program;
+    return program;
+  } catch (_) {
+    return null;
+  }
+}
+
+Future<ui.Image?> _decodeOpaqueRgbImage(LoveImage image) async {
+  final baseImageData = image.imageData;
+  if (baseImageData == null) return null;
+  LoveImageData imageData = baseImageData;
+  final mipmaps = image.imageDataMipmaps;
+  if (mipmaps != null) {
+    for (final mipmap in mipmaps) {
+      if (math.max(mipmap.width, mipmap.height) <=
+          _loveStraightAlphaRgbMaxDimension) {
+        imageData = mipmap;
+        break;
+      }
+    }
+  }
+  final source = imageData.toRgbaBytes();
+  var hasTransparency = false;
+  for (var offset = 3; offset < source.length; offset += 4) {
+    if (source[offset] != 255) {
+      hasTransparency = true;
+      break;
+    }
+  }
+  if (!hasTransparency) return null;
+
+  final opaque = Uint8List(source.length);
+  for (var offset = 0; offset < source.length; offset += 4) {
+    opaque[offset] = source[offset];
+    opaque[offset + 1] = source[offset + 1];
+    opaque[offset + 2] = source[offset + 2];
+    opaque[offset + 3] = 255;
+  }
+  final completer = Completer<ui.Image>();
+  ui.decodeImageFromPixels(
+    opaque,
+    imageData.width,
+    imageData.height,
+    ui.PixelFormat.rgba8888,
+    completer.complete,
+  );
+  return completer.future;
 }
 
 void _renderResolvedImage(
@@ -1459,7 +2559,7 @@ void _renderResolvedImage(
   );
   if (radialGradientOverlayPaint != null) {
     stats?.imageRadialOverlayLayers++;
-    canvas.saveLayer(destinationRect, Paint());
+    canvas.saveLayer(destinationRect, _loveEmptyLayerPaint);
   }
   if (registeredShaderPaint != null) {
     canvas.drawRect(destinationRect, registeredShaderPaint);
@@ -1479,7 +2579,9 @@ void _renderResolvedImage(
       if (tint != LoveColor.white) {
         canvas.saveLayer(
           destinationRect,
-          Paint()
+          _loveImagePaint
+            ..shader = null
+            ..filterQuality = FilterQuality.low
             ..colorFilter = ColorFilter.mode(
               _toFlutterColor(tint),
               BlendMode.modulate,
@@ -1507,7 +2609,10 @@ void _renderResolvedImage(
         for (var y = 0; y < height; y++) {
           for (var x = 0; x < width; x++) {
             final color = resolvedImageData.getPixel(left + x, top + y);
-            final paint = Paint()
+            final paint = _loveImageDataPaint
+              ..shader = null
+              ..colorFilter = null
+              ..filterQuality = FilterQuality.none
               ..color = _toFlutterColor(_modulateLoveColor(color, tint));
             canvas.drawRect(
               Rect.fromLTWH(x.toDouble(), y.toDouble(), 1, 1),
@@ -1516,15 +2621,24 @@ void _renderResolvedImage(
           }
         }
       } else if (rawImage is ui.Image) {
-        final paint = Paint()
-          ..filterQuality = _filterQualityForLove(resolvedImage.filter);
-        if (tint != LoveColor.white) {
-          paint.colorFilter = ColorFilter.mode(
-            _toFlutterColor(tint),
-            BlendMode.modulate,
-          );
+        if (!_drawStraightAlphaImage(
+          canvas,
+          command: command,
+          image: resolvedImage,
+          nativeImage: rawImage,
+          sourceRect: sourceRect,
+          destinationRect: destinationRect,
+          drawTransform: drawTransform,
+          tint: tint,
+        )) {
+          final paint = _loveImagePaint
+            ..shader = null
+            ..filterQuality = _filterQualityForImage(resolvedImage)
+            ..colorFilter = tint == LoveColor.white
+                ? null
+                : ColorFilter.mode(_toFlutterColor(tint), BlendMode.modulate);
+          canvas.drawImageRect(rawImage, sourceRect, destinationRect, paint);
         }
-        canvas.drawImageRect(rawImage, sourceRect, destinationRect, paint);
       }
   }
   if (radialGradientOverlayPaint != null) {
@@ -1706,7 +2820,7 @@ void _renderMeshCommand(
       meshBounds != null) {
     for (var instance = 0; instance < mesh.instanceCount; instance++) {
       stats?.meshCompositeLayers++;
-      canvas.saveLayer(meshBounds, Paint());
+      canvas.saveLayer(meshBounds, _loveEmptyLayerPaint);
       canvas.drawVertices(uiVertices, ui.BlendMode.srcOver, paint);
       if (texturedRgbTintOverlayPaint != null) {
         canvas.drawRect(meshBounds, texturedRgbTintOverlayPaint);
@@ -1725,7 +2839,7 @@ void _renderMeshCommand(
       if (texturedVertexAlphaTintOverlayPaint != null &&
           texturedAlphaTintVertices != null) {
         stats?.meshAlphaMaskLayers++;
-        canvas.saveLayer(meshBounds, Paint()..blendMode = BlendMode.dstIn);
+        canvas.saveLayer(meshBounds, _loveDstInLayerPaint);
         canvas.drawVertices(
           texturedAlphaTintVertices,
           ui.BlendMode.srcOver,
@@ -2052,6 +3166,30 @@ LoveColor _modulateLoveColor(LoveColor color, LoveColor tint) {
   ).clamped();
 }
 
+Paint _configureShapePaint(
+  Paint paint, {
+  required LoveColor color,
+  required PaintingStyle style,
+  required double lineWidth,
+  required LoveGraphicsLineJoin lineJoin,
+  required LoveGraphicsLineStyle lineStyle,
+  StrokeCap strokeCap = StrokeCap.butt,
+  LoveDrawCommand? command,
+}) {
+  paint
+    ..shader = null
+    ..color = _toFlutterColor(color)
+    ..style = style
+    ..strokeWidth = lineWidth
+    ..strokeCap = strokeCap
+    ..strokeJoin = _strokeJoinForLove(lineJoin)
+    ..isAntiAlias = _isAntiAliasForLove(lineStyle);
+  if (command != null) {
+    _configureShaderPaint(paint, command);
+  }
+  return paint;
+}
+
 void _configureShaderPaint(Paint paint, LoveDrawCommand command) {
   final binding = _registeredFragmentShaderBindingForCommand(command);
   final registeredShader = binding?.boundShader;
@@ -2116,7 +3254,10 @@ Paint? _registeredFragmentPaintForCommand(
     return null;
   }
 
-  final paint = Paint()..isAntiAlias = false;
+  final paint = _loveImagePaint
+    ..shader = null
+    ..colorFilter = null
+    ..isAntiAlias = false;
   _assignRegisteredFragmentShaderToPaint(paint, shader, binding!);
   return paint;
 }
@@ -2710,7 +3851,7 @@ void _renderSoftwarePatchSurface(
     format: 'rgba8',
     snapshot: surface,
   );
-  canvas.saveLayer(patchBounds, Paint()..blendMode = ui.BlendMode.src);
+  canvas.saveLayer(patchBounds, _loveSrcLayerPaint);
   canvas.translate(patchBounds.left, patchBounds.top);
   _renderImageData(canvas, imageData);
   canvas.restore();
@@ -2991,7 +4132,11 @@ Paint? _shaderLayerPaintForCommand(LoveDrawCommand command) {
     LoveShaderKind.desaturationTint => switch (_desaturationTintColorFilter(
       shader,
     )) {
-      final ui.ColorFilter filter => Paint()..colorFilter = filter,
+      final ui.ColorFilter filter =>
+        _loveImagePaint
+          ..shader = null
+          ..filterQuality = FilterQuality.low
+          ..colorFilter = filter,
       null => null,
     },
     _ => null,
@@ -3008,7 +4153,9 @@ Paint? _layerPaintForBlendAndMask({
     return null;
   }
 
-  return Paint()
+  return _loveImagePaint
+    ..shader = null
+    ..filterQuality = FilterQuality.low
     ..blendMode = resolvedBlendMode
     ..colorFilter = colorFilter;
 }
@@ -3064,10 +4211,112 @@ FilterQuality _filterQualityForLove(LoveGraphicsDefaultFilter filter) {
   };
 }
 
+FilterQuality _filterQualityForImage(LoveImage image) {
+  final baseQuality = _filterQualityForLove(image.filter);
+  if (baseQuality != FilterQuality.low ||
+      image.mipmapCount <= 1 ||
+      image.mipmapFilter != LoveGraphicsFilterMode.linear) {
+    return baseQuality;
+  }
+  return FilterQuality.medium;
+}
+
+/// Resolves Flutter's sampling quality for a LOVE image.
+///
+/// Linear mip chains use Flutter's mipmapped sampling path. Images without a
+/// mip chain retain the existing nearest or bilinear behavior.
+FilterQuality loveFilterQualityForImage(LoveImage image) {
+  return _filterQualityForImage(image);
+}
+
 FilterQuality loveFilterQualityForGraphicsDefaultFilter(
   LoveGraphicsDefaultFilter filter,
 ) {
   return _filterQualityForLove(filter);
+}
+
+/// Replays selected commands over an existing frame without clearing it.
+///
+/// Hybrid renderers use this after presenting their primary surface. Common
+/// Canvas-supported commands are drawn directly so a text-only fallback does
+/// not allocate another command snapshot or full-viewport save layer. Rare
+/// command states that rely on the software surface path still use a temporary
+/// transparent snapshot to preserve LOVE semantics.
+void renderSurfaceCommandSubsetOverlay(
+  ui.Canvas canvas,
+  LoveGraphicsSurfaceSnapshot surface,
+  ui.Size viewportSize,
+  List<int> commandIndices, {
+  LoveRenderStatsAccumulator? stats,
+}) {
+  if (commandIndices.isEmpty) {
+    return;
+  }
+
+  final internalStats = stats != null
+      ? _LoveFlameRenderStatsAccumulator()
+      : null;
+  var requiresSurfaceReplay = false;
+  for (final index in commandIndices) {
+    final command = surface.commands[index];
+    if (command is LoveStencilClearCommand ||
+        command.writesStencil ||
+        command.stencilCompare != LoveGraphicsCompareMode.always ||
+        _commandRequiresSoftwareFallback(command)) {
+      requiresSurfaceReplay = true;
+      break;
+    }
+  }
+
+  if (requiresSurfaceReplay) {
+    final commands = commandIndices
+        .map((index) => surface.commands[index])
+        .toList(growable: false);
+    canvas.saveLayer(ui.Offset.zero & viewportSize, ui.Paint());
+    try {
+      _renderSurfaceSnapshot(
+        canvas,
+        LoveGraphicsSurfaceSnapshot(
+          clearColor: const LoveColor(0, 0, 0, 0),
+          clearColorMask: LoveGraphicsColorMask.all,
+          clearStencil: 0,
+          clearScissor: null,
+          commands: commands,
+        ),
+        viewportSize,
+        stats: internalStats,
+      );
+    } finally {
+      canvas.restore();
+    }
+  } else {
+    for (final index in commandIndices) {
+      _renderRecordedCommand(
+        canvas,
+        surface.commands[index],
+        stats: internalStats,
+      );
+    }
+  }
+
+  if (stats != null && internalStats != null) {
+    stats.renderedCommands += internalStats.renderedCommands;
+    stats.softwareSurfaceFallbacks += internalStats.softwareSurfaceFallbacks;
+    stats.atlasBatchCommands += internalStats.atlasBatchCommands;
+    stats.atlasBatchItems += internalStats.atlasBatchItems;
+    stats.textPainterCacheHits += internalStats.textPainterCacheHits;
+    stats.textPainterCacheMisses += internalStats.textPainterCacheMisses;
+    stats.textLayoutDuration += Duration(
+      microseconds: internalStats.textLayoutMicros,
+    );
+    stats.surfaceClearLayers += internalStats.surfaceClearLayers;
+    stats.commandBlendLayers += internalStats.commandBlendLayers;
+    stats.commandShaderLayers += internalStats.commandShaderLayers;
+    stats.commandRadialMaskLayers += internalStats.commandRadialMaskLayers;
+    stats.imageRadialOverlayLayers += internalStats.imageRadialOverlayLayers;
+    stats.meshCompositeLayers += internalStats.meshCompositeLayers;
+    stats.meshAlphaMaskLayers += internalStats.meshAlphaMaskLayers;
+  }
 }
 
 TextAlign _textAlignForLove(String align) {
@@ -3120,6 +4369,7 @@ void renderSurfaceSnapshot(
   _renderSurfaceSnapshot(canvas, surface, viewportSize, stats: internalStats);
   if (stats != null && internalStats != null) {
     stats.renderedCommands = internalStats.renderedCommands;
+    stats.hybridFallbackCommands = internalStats.hybridFallbackCommands;
     stats.softwareSurfaceFallbacks = internalStats.softwareSurfaceFallbacks;
     stats.atlasBatchCommands = internalStats.atlasBatchCommands;
     stats.atlasBatchItems = internalStats.atlasBatchItems;

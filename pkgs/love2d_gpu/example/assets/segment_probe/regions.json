@@ -1,0 +1,17 @@
+{
+  "schemaVersion": 1,
+  "logicalSize": {"width": 800, "height": 600},
+  "regions": [
+    {"name": "full", "x": 0, "y": 0, "width": 800, "height": 600},
+    {"name": "default", "x": 29, "y": 165, "width": 110, "height": 110},
+    {"name": "points_28", "x": 187, "y": 165, "width": 110, "height": 110},
+    {"name": "points_29", "x": 345, "y": 165, "width": 110, "height": 110},
+    {"name": "points_30", "x": 503, "y": 165, "width": 110, "height": 110},
+    {"name": "points_31", "x": 661, "y": 165, "width": 110, "height": 110},
+    {"name": "rounded_default", "x": 24, "y": 400, "width": 120, "height": 90},
+    {"name": "rounded_points_8", "x": 182, "y": 400, "width": 120, "height": 90},
+    {"name": "rounded_points_12", "x": 340, "y": 400, "width": 120, "height": 90},
+    {"name": "rounded_points_16", "x": 498, "y": 400, "width": 120, "height": 90},
+    {"name": "rounded_points_20", "x": 656, "y": 400, "width": 120, "height": 90}
+  ]
+}

@@ -14,5 +14,13 @@
   "LoveSpriteBatchVertex": {
     "type": "vertex",
     "file": "lib/src/shader/love_sprite_batch.vert"
+  },
+  "LoveRoughLineVertex": {
+    "type": "vertex",
+    "file": "lib/src/shader/love_rough_line.vert"
+  },
+  "LoveRoughLineFragment": {
+    "type": "fragment",
+    "file": "lib/src/shader/love_rough_line.frag"
   }
 }

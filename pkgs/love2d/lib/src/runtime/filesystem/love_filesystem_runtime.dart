@@ -5,6 +5,7 @@ library;
 
 import 'dart:collection';
 import 'dart:convert';
+import 'dart:typed_data' show Uint8List;
 
 import 'package:archive/archive.dart';
 import 'package:lualike/lualike.dart'

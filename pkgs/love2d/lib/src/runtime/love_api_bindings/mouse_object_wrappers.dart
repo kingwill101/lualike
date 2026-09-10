@@ -77,7 +77,7 @@ Value _wrapCursor(LibraryRegistrationContext context, LoveMouseCursor cursor) {
     return cached;
   }
 
-  final builder = BuiltinFunctionBuilder(context);
+  final builder = loveBindingBuilderForContext(context);
   const hierarchy = <String>{'Cursor', 'Object'};
   final table = ValueClass.table(<Object?, Object?>{
     _loveCursorObjectKey: cursor,
@@ -90,15 +90,11 @@ Value _wrapCursor(LibraryRegistrationContext context, LoveMouseCursor cursor) {
     'release': Value(
       builder.create((args) {
         final receiver = _valueAt(args, 0);
-        final table = _cursorWrapperTableIfPresent(receiver);
-        if (table == null) {
-          _throwLuaStyleTypeError(
-            symbol: 'Object:release',
-            index: 0,
-            expected: 'Cursor',
-            actual: receiver,
-          );
-        }
+        final table = loveRequireReleaseWrapperTable(
+          receiver,
+          expected: 'Cursor',
+          resolve: _cursorWrapperTableIfPresent,
+        );
 
         final cursor = table[_loveCursorObjectKey];
         if (cursor is! LoveMouseCursor) {

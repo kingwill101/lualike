@@ -5,6 +5,7 @@ library;
 
 import 'dart:async' show FutureOr;
 import 'dart:math' as math;
+import 'dart:typed_data' show Uint8List;
 
 import 'package:lualike/library_builder.dart';
 import 'package:lualike/lualike.dart'
@@ -20,6 +21,8 @@ import 'package:lualike/lualike.dart'
 import 'package:lualike/src/io/io_device.dart' show BufferMode;
 
 import '../../love_api_support.dart';
+import '../love_binding_helpers.dart';
+import '../love_module_table_helpers.dart';
 import '../love_runtime.dart' show LoveDataPointer;
 import 'love_filesystem_package_loader.dart';
 import 'love_filesystem_runtime.dart';
@@ -173,7 +176,7 @@ void ensureLoveFilesystemRuntimeBindingsLoaded() {
 class _LoveFilesystemBindings {
   /// Creates filesystem bindings for a library registration [context].
   _LoveFilesystemBindings(this.context)
-    : _builder = BuiltinFunctionBuilder(context);
+    : _builder = loveBindingBuilderForContext(context);
 
   /// The registration context that owns these bindings.
   final LibraryRegistrationContext context;

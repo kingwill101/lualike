@@ -3,9 +3,10 @@ uniform sampler2D texture_sampler;
 
 in vec2 v_texcoord;
 in vec4 v_color;
+in float v_mip_bias;
 
 out vec4 frag_color;
 
 void main() {
-  frag_color = v_color * texture(texture_sampler, v_texcoord);
+  frag_color = v_color * texture(texture_sampler, v_texcoord, v_mip_bias);
 }

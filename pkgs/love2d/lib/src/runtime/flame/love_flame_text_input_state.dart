@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:math' as math;
 
 import 'package:flutter/services.dart';
@@ -6,8 +7,13 @@ import '../love_runtime.dart';
 import '../love_script_runtime.dart';
 
 /// Dispatches a callback onto the active LOVE script runtime.
+///
+/// The callback may return a [Future] for API compatibility with `queue*`
+/// helpers, but input queueing is expected to complete synchronously.
 typedef LoveFlameRuntimeDispatch =
-    void Function(Future<Object?> Function(LoveScriptRuntime runtime) callback);
+    void Function(
+      FutureOr<Object?> Function(LoveScriptRuntime runtime) callback,
+    );
 
 /// Tracks Flutter text editing state for LOVE text input integration.
 ///

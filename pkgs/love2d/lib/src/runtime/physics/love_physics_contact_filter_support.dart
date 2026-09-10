@@ -61,19 +61,22 @@ final class LovePhysicsWorldContactFilterState {
       return;
     }
 
-    final fixtures = <LovePhysicsFixture>[
-      for (final body in world.bodies) ...body.fixtures,
-    ];
+    // Collect fixtures without allocating via world.bodies (filtered list).
+    final fixtures = <LovePhysicsFixture>[];
+    for (final body in world.activeBodies) {
+      fixtures.addAll(body.fixtures);
+    }
 
     _dispatchDepth++;
     try {
-      for (var i = 0; i < fixtures.length; i++) {
+      final fixtureCount = fixtures.length;
+      for (var i = 0; i < fixtureCount; i++) {
         final fixtureA = fixtures[i];
         final bodyA = fixtureA.body;
         if (!bodyA._activeBody.isActive) {
           continue;
         }
-        for (var j = i + 1; j < fixtures.length; j++) {
+        for (var j = i + 1; j < fixtureCount; j++) {
           final fixtureB = fixtures[j];
           final bodyB = fixtureB.body;
 
@@ -139,7 +142,7 @@ final class LovePhysicsWorldContactFilterState {
 
   /// Requests refiltering for every fixture in the world.
   void refilterAllFixtures() {
-    for (final body in world.bodies) {
+    for (final body in world.activeBodies) {
       for (final fixture in body.fixtures) {
         fixture._fixture.refilter();
       }

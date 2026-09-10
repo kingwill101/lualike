@@ -441,7 +441,7 @@ Value _wrapPhysicsDistanceJoint(
     return cached;
   }
 
-  final builder = BuiltinFunctionBuilder(context);
+  final builder = loveBindingBuilderForContext(context);
   final table = ValueClass.table(<Object?, Object?>{
     ..._physicsJointEntries(context, builder, joint),
     'setLength': Value(
@@ -533,7 +533,7 @@ Value _wrapPhysicsFrictionJoint(
     return cached;
   }
 
-  final builder = BuiltinFunctionBuilder(context);
+  final builder = loveBindingBuilderForContext(context);
   final table = ValueClass.table(<Object?, Object?>{
     ..._physicsJointEntries(context, builder, joint),
     'setMaxForce': Value(
@@ -605,7 +605,7 @@ Value _wrapPhysicsGearJoint(
     return cached;
   }
 
-  final builder = BuiltinFunctionBuilder(context);
+  final builder = loveBindingBuilderForContext(context);
   final table = ValueClass.table(<Object?, Object?>{
     ..._physicsJointEntries(context, builder, joint),
     'setRatio': Value(
@@ -666,7 +666,7 @@ Value _wrapPhysicsPulleyJoint(
     return cached;
   }
 
-  final builder = BuiltinFunctionBuilder(context);
+  final builder = loveBindingBuilderForContext(context);
   final table = ValueClass.table(<Object?, Object?>{
     ..._physicsJointEntries(context, builder, joint),
     'getConstant': Value(
@@ -802,7 +802,7 @@ Value _wrapPhysicsRevoluteJoint(
     return cached;
   }
 
-  final builder = BuiltinFunctionBuilder(context);
+  final builder = loveBindingBuilderForContext(context);
   final table = ValueClass.table(<Object?, Object?>{
     ..._physicsJointEntries(context, builder, joint),
     'getJointAngle': Value(
@@ -1039,7 +1039,7 @@ Value _wrapPhysicsWheelJoint(
     return cached;
   }
 
-  final builder = BuiltinFunctionBuilder(context);
+  final builder = loveBindingBuilderForContext(context);
   final table = ValueClass.table(<Object?, Object?>{
     ..._physicsJointEntries(context, builder, joint),
     'getAxis': Value(
@@ -1223,7 +1223,7 @@ Value _wrapPhysicsPrismaticJoint(
     return cached;
   }
 
-  final builder = BuiltinFunctionBuilder(context);
+  final builder = loveBindingBuilderForContext(context);
   final table = ValueClass.table(<Object?, Object?>{
     ..._physicsJointEntries(context, builder, joint),
     'getJointTranslation': Value(
@@ -1477,7 +1477,7 @@ Value _wrapPhysicsWeldJoint(
     return cached;
   }
 
-  final builder = BuiltinFunctionBuilder(context);
+  final builder = loveBindingBuilderForContext(context);
   final table = ValueClass.table(<Object?, Object?>{
     ..._physicsJointEntries(context, builder, joint),
     'setFrequency': Value(
@@ -1559,7 +1559,7 @@ Value _wrapPhysicsMotorJoint(
     return cached;
   }
 
-  final builder = BuiltinFunctionBuilder(context);
+  final builder = loveBindingBuilderForContext(context);
   final table = ValueClass.table(<Object?, Object?>{
     ..._physicsJointEntries(context, builder, joint),
     'setLinearOffset': Value(
@@ -1712,7 +1712,7 @@ Value _wrapPhysicsMouseJoint(
     return cached;
   }
 
-  final builder = BuiltinFunctionBuilder(context);
+  final builder = loveBindingBuilderForContext(context);
   final table = ValueClass.table(<Object?, Object?>{
     ..._physicsJointEntries(context, builder, joint),
     'setTarget': Value(
@@ -1828,7 +1828,7 @@ Value _wrapPhysicsRopeJoint(
     return cached;
   }
 
-  final builder = BuiltinFunctionBuilder(context);
+  final builder = loveBindingBuilderForContext(context);
   final table = ValueClass.table(<Object?, Object?>{
     ..._physicsJointEntries(context, builder, joint),
     'setMaxLength': Value(

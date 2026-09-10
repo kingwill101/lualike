@@ -2,8 +2,9 @@
 library;
 
 import 'package:lualike/lualike.dart'
-    show LuaError, LuaRuntime, LuaString, Value, isLinux, isMacOS, isWindows;
+    show LuaError, LuaRuntime, Value, isLinux, isMacOS, isWindows;
 
+import '../love_module_table_helpers.dart';
 import 'love_filesystem_runtime.dart';
 
 /// Cached Lua source searchers installed for each runtime.
@@ -20,12 +21,12 @@ final Expando<Value> _loveFilesystemExtSearcherCache = Expando<Value>(
 /// [runtime].
 void syncLoveFilesystemPackageInterop(LuaRuntime runtime) {
   final packageValue = runtime.globals.get('package');
-  if (packageValue is! Value || packageValue.raw is! Map) {
+  final packageTable = loveTableIfPresent(packageValue);
+  if (packageTable == null) {
     return;
   }
 
   final state = LoveFilesystemState.attach(runtime);
-  final packageTable = packageValue.raw as Map<dynamic, dynamic>;
   packageTable['path'] = Value(state.getRequirePathString());
   packageTable['cpath'] = Value(state.getCRequirePathString());
 
@@ -35,20 +36,12 @@ void syncLoveFilesystemPackageInterop(LuaRuntime runtime) {
       _createLoveFilesystemExtSearcher(runtime);
 
   final searchersEntry = packageTable['searchers'];
-  if (searchersEntry case final Value wrapped) {
-    final searchers = wrapped.raw;
-    if (searchers is List<dynamic>) {
-      _syncSearcher(searchers, luaSearcher, targetIndex: 1);
-      _syncSearcher(searchers, extSearcher, targetIndex: 2);
-      packageTable['loaders'] = wrapped;
-      return;
-    }
-    if (searchers is Map<dynamic, dynamic>) {
-      _syncSearcherTable(searchers, luaSearcher, targetIndex: 1);
-      _syncSearcherTable(searchers, extSearcher, targetIndex: 2);
-      packageTable['loaders'] = wrapped;
-      return;
-    }
+  if (searchersEntry case final Value wrapped when wrapped.raw is List) {
+    final searchers = wrapped.raw as List<dynamic>;
+    _syncSearcher(searchers, luaSearcher, targetIndex: 1);
+    _syncSearcher(searchers, extSearcher, targetIndex: 2);
+    packageTable['loaders'] = wrapped;
+    return;
   }
 
   final searchersValue = Value(<Value>[luaSearcher, extSearcher]);
@@ -59,7 +52,7 @@ void syncLoveFilesystemPackageInterop(LuaRuntime runtime) {
 /// Creates the Lua-source package searcher for [runtime].
 Value _createLoveFilesystemSearcher(LuaRuntime runtime) {
   return Value((List<Object?> args) async {
-    final moduleName = _stringLike(_valueAt(args, 0));
+    final moduleName = _packageSearcherModuleName(args);
     if (moduleName == null) {
       return Value('missing module name');
     }
@@ -112,7 +105,7 @@ Value _createLoveFilesystemSearcher(LuaRuntime runtime) {
 /// Creates the native-extension package searcher for [runtime].
 Value _createLoveFilesystemExtSearcher(LuaRuntime runtime) {
   return Value((List<Object?> args) async {
-    final moduleName = _stringLike(_valueAt(args, 0));
+    final moduleName = _packageSearcherModuleName(args);
     if (moduleName == null) {
       return Value('missing module name');
     }
@@ -141,6 +134,10 @@ Value _createLoveFilesystemExtSearcher(LuaRuntime runtime) {
 
     return Value("\n\tno file '$tokenizedName' in LOVE paths.");
   });
+}
+
+String? _packageSearcherModuleName(List<Object?> args) {
+  return loveStringLike(_valueAt(args, 0));
 }
 
 /// Returns the argument at [index], if it was provided.
@@ -202,34 +199,4 @@ void _syncSearcher(
   final existing = searchers.removeAt(existingIndex);
   final adjustedIndex = targetIndex.clamp(0, searchers.length);
   searchers.insert(adjustedIndex, existing);
-}
-
-/// Inserts or repositions [searcher] in a 1-based Lua array table.
-void _syncSearcherTable(
-  Map<dynamic, dynamic> table,
-  Value searcher, {
-  required int targetIndex,
-}) {
-  final searchers = <dynamic>[];
-  for (var index = 1; table.containsKey(index); index++) {
-    searchers.add(table[index]);
-  }
-
-  _syncSearcher(searchers, searcher, targetIndex: targetIndex);
-
-  table.removeWhere((key, value) => key is int && key > 0);
-  for (var index = 0; index < searchers.length; index++) {
-    table[index + 1] = searchers[index];
-  }
-}
-
-/// Converts Lua values commonly used for path arguments to strings.
-String? _stringLike(Object? value) {
-  final raw = value is Value ? value.raw : value;
-  return switch (raw) {
-    final String stringValue => stringValue,
-    final LuaString stringValue => stringValue.toString(),
-    final num numberValue => numberValue.toString(),
-    _ => null,
-  };
 }

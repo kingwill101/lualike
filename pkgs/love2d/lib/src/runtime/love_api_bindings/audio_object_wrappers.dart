@@ -46,6 +46,11 @@ final Expando<bool> _loveAudioSourceReleased = Expando<bool>(
   'love2dAudioSourceReleased',
 );
 
+/// Reuses one shared Source method table per Lua runtime.
+final Expando<Value> _loveAudioSourceMethodsCache = Expando<Value>(
+  'love2dAudioSourceMethods',
+);
+
 /// Returns a required `Source` receiver.
 LoveAudioSource _requireAudioSource(
   List<Object?> args,
@@ -93,10 +98,32 @@ Value _wrapAudioSource(
     return cached;
   }
 
-  final builder = BuiltinFunctionBuilder(context);
+  final methods = _audioSourceMethodsForContext(context);
+  final table = loveObjectWrapperTable(
+    context: loveBindingContextForContext(context),
+    objectKey: _loveAudioSourceObjectKey,
+    object: source,
+    methods: methods,
+  );
+  _loveAudioSourceWrapperCache[source] = table;
+  return table;
+}
+
+/// Reuses one shared Source method table per Lua runtime.
+Value _audioSourceMethodsForContext(LibraryRegistrationContext context) {
+  final interpreter = context.interpreter;
+  if (interpreter == null) {
+    throw StateError('No Lua runtime available for Source methods');
+  }
+
+  final cached = _loveAudioSourceMethodsCache[interpreter];
+  if (cached != null) {
+    return cached;
+  }
+
+  final builder = loveBindingBuilderForContext(context);
   const hierarchy = <String>{'Source', 'Object'};
-  final table = ValueClass.table(<Object?, Object?>{
-    _loveAudioSourceObjectKey: source,
+  final methods = ValueClass.table(<Object?, Object?>{
     'clone': Value(
       builder.create((args) {
         final clone = _requireAudioSource(args, 0, 'Source:clone').clone();
@@ -290,15 +317,11 @@ Value _wrapAudioSource(
     'release': Value(
       builder.create((args) async {
         final receiver = _valueAt(args, 0);
-        final table = _audioSourceWrapperTableIfPresent(receiver);
-        if (table == null) {
-          _throwLuaStyleTypeError(
-            symbol: 'Object:release',
-            index: 0,
-            expected: 'Source',
-            actual: receiver,
-          );
-        }
+        final table = loveRequireReleaseWrapperTable(
+          receiver,
+          expected: 'Source',
+          resolve: _audioSourceWrapperTableIfPresent,
+        );
 
         final source = table[_loveAudioSourceObjectKey];
         if (source is! LoveAudioSource) {
@@ -552,7 +575,7 @@ Value _wrapAudioSource(
       }),
       functionName: 'typeOf',
     ),
-  });
-  _loveAudioSourceWrapperCache[source] = table;
-  return table;
+  })..interpreter = interpreter;
+  _loveAudioSourceMethodsCache[interpreter] = methods;
+  return methods;
 }

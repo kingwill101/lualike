@@ -29,11 +29,7 @@ bool _recordingDeviceWrapperReleased(Object? value) {
 
 /// Returns the wrapped [LoveRecordingDevice] stored in [value], if any.
 LoveRecordingDevice? _recordingDeviceIfPresent(Object? value) {
-  final raw = _rawValue(value);
-  final table = switch (raw) {
-    final Map<dynamic, dynamic> map => map,
-    _ => null,
-  };
+  final table = _tableIdentityIfPresent(value);
   if (table == null) {
     return null;
   }
@@ -89,7 +85,7 @@ Value _wrapRecordingDevice(
     return cached;
   }
 
-  final builder = BuiltinFunctionBuilder(context);
+  final builder = loveBindingBuilderForContext(context);
   const hierarchy = <String>{'RecordingDevice', 'Object'};
   final table = ValueClass.table(<Object?, Object?>{
     _loveRecordingDeviceObjectKey: device,
@@ -132,15 +128,11 @@ Value _wrapRecordingDevice(
     'release': Value(
       builder.create((args) {
         final receiver = _valueAt(args, 0);
-        final table = _recordingDeviceWrapperTableIfPresent(receiver);
-        if (table == null) {
-          _throwLuaStyleTypeError(
-            symbol: 'Object:release',
-            index: 0,
-            expected: 'RecordingDevice',
-            actual: receiver,
-          );
-        }
+        final table = loveRequireReleaseWrapperTable(
+          receiver,
+          expected: 'RecordingDevice',
+          resolve: _recordingDeviceWrapperTableIfPresent,
+        );
 
         final device = table[_loveRecordingDeviceObjectKey];
         if (device is! LoveRecordingDevice) {

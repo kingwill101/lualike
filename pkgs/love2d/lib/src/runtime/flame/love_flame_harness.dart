@@ -6,7 +6,8 @@ import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
 import 'package:flutter/scheduler.dart';
 import 'package:flutter/services.dart';
-import 'package:lualike/lualike.dart' show EngineMode, LuaError, Value;
+import 'package:lualike/lualike.dart'
+    show EngineMode, LuaError, LuaGcPolicy, Value;
 
 import '../filesystem/love_asset_bundle_filesystem.dart';
 import '../filesystem/love_flutter_filesystem.dart';
@@ -32,6 +33,10 @@ const int _loveProfileMainLoopRegionMilliseconds = int.fromEnvironment(
 const int _loveTraceFrameThresholdMilliseconds = int.fromEnvironment(
   'LOVE2D_TRACE_FRAME_MS',
   defaultValue: 0,
+);
+const bool _loveProfileFramePhases = bool.fromEnvironment(
+  'LOVE2D_PROFILE_FRAME_PHASES',
+  defaultValue: false,
 );
 final RegExp _loveFlamePrewarmableImageAssetPattern = RegExp(
   r'\.(png|jpg|jpeg|gif|webp|bmp|wbmp)$',
@@ -85,12 +90,17 @@ class LoveFlameHarness extends StatefulWidget {
     this.videoFrameProviderFactory,
     this.onInputAdaptersReady,
     this.onQuitRequested,
-    this.engineMode = EngineMode.luaBytecode,
+    this.engineMode = EngineMode.ast,
+    this.gcPolicy = LuaGcPolicy.luaCompatible,
     this.automaticGc = false,
     this.imageWarmupAssetKeys,
     this.debugImageWarmupOverride,
     this.debugOnGameCreated,
     this.renderBackend,
+    this.inputPointTransform,
+    this.inputDeltaTransform,
+    this.showProgrammaticCursorOverlay = true,
+    this.showStatusOverlay = true,
   });
 
   /// The mounted LOVE entry asset, typically `main.lua`.
@@ -124,6 +134,9 @@ class LoveFlameHarness extends StatefulWidget {
   /// The LuaLike engine used by the Flame-hosted LOVE runtime.
   final EngineMode engineMode;
 
+  /// Selects Lua-compatible tracing or Dart-owned object reclamation.
+  final LuaGcPolicy gcPolicy;
+
   /// Whether Lualike's automatic GC safe points are enabled.
   ///
   /// Defaults to false so frame-time profiling can isolate interpreter and
@@ -150,6 +163,25 @@ class LoveFlameHarness extends StatefulWidget {
   /// Optional render backend override used by tests and GPU demo builds.
   final LoveRenderBackend? renderBackend;
 
+  /// Optional transform for logical pointer points after viewport conversion.
+  final LoveFlameInputPointTransform? inputPointTransform;
+
+  /// Optional transform for logical pointer deltas after viewport conversion.
+  final LoveFlameInputDeltaTransform? inputDeltaTransform;
+
+  /// Whether programmatic LOVE pointer movement paints a Flutter cursor.
+  ///
+  /// Disable this for mirrored renderer comparisons: the LOVE draw snapshot
+  /// already contains any game cursor, while this host overlay is painted only
+  /// once and would contaminate one comparison pane.
+  final bool showProgrammaticCursorOverlay;
+
+  /// Whether the host-only lifecycle status badge is painted over the game.
+  ///
+  /// Disable this for clean reference captures. Runtime errors and loading
+  /// diagnostics remain visible so a failed capture cannot look successful.
+  final bool showStatusOverlay;
+
   @override
   State<LoveFlameHarness> createState() => _LoveFlameHarnessState();
 }
@@ -163,6 +195,8 @@ class _LoveFlameHarnessState extends State<LoveFlameHarness>
     audioBackendFactory: widget.audioBackendFactory,
     videoFrameProviderFactory: widget.videoFrameProviderFactory,
     renderBackend: widget.renderBackend,
+    runtimeGlobalReader: (name) => _controller.readRuntimeGlobal(name),
+    usesExternalRuntimeFrameTiming: true,
   );
   late final _LoveFlameHarnessController _controller =
       _LoveFlameHarnessController(
@@ -172,9 +206,12 @@ class _LoveFlameHarnessState extends State<LoveFlameHarness>
         filesystemAdapter: widget.filesystemAdapter,
         onQuitRequested: widget.onQuitRequested ?? _defaultQuitRequested,
         engineMode: widget.engineMode,
+        gcPolicy: widget.gcPolicy,
         automaticGc: widget.automaticGc,
         imageWarmupAssetKeys: widget.imageWarmupAssetKeys,
         debugImageWarmupOverride: widget.debugImageWarmupOverride,
+        inputPointTransform: widget.inputPointTransform,
+        inputDeltaTransform: widget.inputDeltaTransform,
       );
 
   Future<void> _defaultQuitRequested() async {
@@ -204,6 +241,21 @@ class _LoveFlameHarnessState extends State<LoveFlameHarness>
       await onInputAdaptersReady(_controller.input, _controller.joystickInput);
     }
     await _controller.initialize();
+  }
+
+  @override
+  void didUpdateWidget(covariant LoveFlameHarness oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (!identical(oldWidget.renderBackend, widget.renderBackend)) {
+      _game.setRenderBackend(widget.renderBackend);
+    }
+    if (!identical(oldWidget.inputPointTransform, widget.inputPointTransform) ||
+        !identical(oldWidget.inputDeltaTransform, widget.inputDeltaTransform)) {
+      _controller.updateInputTransforms(
+        pointTransform: widget.inputPointTransform,
+        deltaTransform: widget.inputDeltaTransform,
+      );
+    }
   }
 
   @override
@@ -249,6 +301,8 @@ class _LoveFlameHarnessState extends State<LoveFlameHarness>
                   game: _game,
                   controller: _controller,
                   onViewportSizeChanged: _controller.reportViewportSize,
+                  showProgrammaticCursorOverlay:
+                      widget.showProgrammaticCursorOverlay,
                 ),
                 if (title != null && title.isNotEmpty)
                   Positioned(
@@ -264,16 +318,17 @@ class _LoveFlameHarnessState extends State<LoveFlameHarness>
                       ),
                     ),
                   ),
-                Positioned(
-                  right: 16,
-                  top: 16,
-                  child: _HarnessBadge(
-                    child: Text(
-                      _controller.statusLabel,
-                      key: const Key('status-label'),
+                if (widget.showStatusOverlay)
+                  Positioned(
+                    right: 16,
+                    top: 16,
+                    child: _HarnessBadge(
+                      child: Text(
+                        _controller.statusLabel,
+                        key: const Key('status-label'),
+                      ),
                     ),
                   ),
-                ),
                 if (_controller.errorMessage case final error?)
                   if (!_controller.hasRuntimeErrorLoop)
                     Center(
@@ -347,9 +402,12 @@ class _LoveFlameHarnessController extends ChangeNotifier {
     this.filesystemAdapter,
     required this.onQuitRequested,
     required this.engineMode,
+    required this.gcPolicy,
     required this.automaticGc,
     this.imageWarmupAssetKeys,
     this.debugImageWarmupOverride,
+    this.inputPointTransform,
+    this.inputDeltaTransform,
   });
 
   final LoveFlameHarnessGame game;
@@ -358,6 +416,7 @@ class _LoveFlameHarnessController extends ChangeNotifier {
   final LoveFilesystemAdapter? filesystemAdapter;
   final Future<void> Function() onQuitRequested;
   final EngineMode engineMode;
+  final LuaGcPolicy gcPolicy;
   final bool automaticGc;
   final Iterable<String>? imageWarmupAssetKeys;
   final Future<void> Function(
@@ -365,6 +424,8 @@ class _LoveFlameHarnessController extends ChangeNotifier {
     LoveFilesystemState filesystem,
   )?
   debugImageWarmupOverride;
+  LoveFlameInputPointTransform? inputPointTransform;
+  LoveFlameInputDeltaTransform? inputDeltaTransform;
 
   late final LoveJoystickInputAdapter joystickInput = LoveJoystickInputAdapter(
     host: game.host,
@@ -381,12 +442,26 @@ class _LoveFlameHarnessController extends ChangeNotifier {
     viewportSizeProvider: () => _viewportSize,
     cameraProvider: () => game.camera,
     joystickInput: joystickInput,
+    pointTransform: inputPointTransform,
+    deltaTransform: inputDeltaTransform,
     onError: (error, stackTrace) => _recordError(
       error,
       phase: 'while dispatching LOVE input callbacks',
       stackTrace: stackTrace,
     ),
   );
+
+  void updateInputTransforms({
+    required LoveFlameInputPointTransform? pointTransform,
+    required LoveFlameInputDeltaTransform? deltaTransform,
+  }) {
+    inputPointTransform = pointTransform;
+    inputDeltaTransform = deltaTransform;
+    input.updateCoordinateTransforms(
+      pointTransform: pointTransform,
+      deltaTransform: deltaTransform,
+    );
+  }
 
   LoveScriptRuntime? _runtime;
   bool _disposed = false;
@@ -416,6 +491,8 @@ class _LoveFlameHarnessController extends ChangeNotifier {
   String get loadingMessage => _startupWarmupPending
       ? 'Prewarming LOVE assets...'
       : 'Loading LOVE runtime...';
+
+  Object? readRuntimeGlobal(String name) => _runtime?.unwrapGlobal(name);
 
   String get statusLabel {
     if (_errorMessage != null) {
@@ -570,6 +647,7 @@ class _LoveFlameHarnessController extends ChangeNotifier {
         host: game.host,
         filesystemAdapter: adapter,
         engineMode: engineMode,
+        gcPolicy: gcPolicy,
         automaticGc: automaticGc,
       );
       runtimeForError = runtime;
@@ -700,59 +778,153 @@ class _LoveFlameHarnessController extends ChangeNotifier {
   }
 
   Future<void> _runFrame(double dt) async {
-    final frameTraceStopwatch = _loveTraceFrameThresholdMilliseconds > 0
-        ? (Stopwatch()..start())
-        : null;
-    final frameTracePhases = frameTraceStopwatch == null
-        ? null
-        : <String, int>{};
+    final runtimeFrameStopwatch = Stopwatch()..start();
+    var runtimeUpdateDuration = Duration.zero;
+    final traceEnabled = _loveTraceFrameThresholdMilliseconds > 0;
+    final profileFramePhases = _loveProfileFramePhases;
 
-    Future<T> tracePhase<T>(String name, Future<T> Function() body) async {
-      if (frameTraceStopwatch == null || frameTracePhases == null) {
-        return body();
+    if (traceEnabled || profileFramePhases) {
+      final frameTraceStopwatch = traceEnabled ? (Stopwatch()..start()) : null;
+      final frameTracePhases = <String, int>{};
+
+      Future<T> tracePhase<T>(String name, Future<T> Function() body) async {
+        final phaseStopwatch = traceEnabled ? (Stopwatch()..start()) : null;
+        try {
+          if (profileFramePhases) {
+            return await _runProfileRegion(
+              'love2d-frame-$name',
+              body,
+              attributes: <String, String>{
+                'entryAsset': entryAsset,
+                'phase': name,
+              },
+            );
+          }
+          return await body();
+        } finally {
+          if (phaseStopwatch case final stopwatch?) {
+            stopwatch.stop();
+            frameTracePhases[name] = stopwatch.elapsedMicroseconds;
+          }
+        }
       }
 
-      final phaseStopwatch = Stopwatch()..start();
       try {
-        return await body();
+        await tracePhase('resize', _dispatchResizeIfNeeded);
+        final runtime = _runtime;
+        if (runtime == null) {
+          return;
+        }
+
+        await tracePhase('profileStart', _startMainLoopProfileRegionIfNeeded);
+        await tracePhase('signals', () => _flushPendingRuntimeSignals(runtime));
+        final exitAfterEvents = await tracePhase(
+          'events',
+          runtime.processMainLoopEvents,
+        );
+        if (await tracePhase(
+          'exitEvents',
+          () => _handleMainLoopExitStatus(exitAfterEvents),
+        )) {
+          await _restartIfRequested();
+          return;
+        }
+        final steppedDt = runtime.context.stepExternal(dt);
+        if (steppedDt > 0) {
+          final updateStopwatch = Stopwatch()..start();
+          try {
+            await tracePhase(
+              'update',
+              () => runtime.callUpdateIfDefined(steppedDt),
+            );
+          } finally {
+            updateStopwatch.stop();
+            runtimeUpdateDuration = updateStopwatch.elapsed;
+          }
+        }
+        runtime.context.beginDrawFrame();
+        runtime.context.graphics.origin();
+        await tracePhase('draw', runtime.callDrawIfDefined);
+        await tracePhase(
+          'commit',
+          () => _commitPresentedFrame(
+            runtime,
+            timingDeltaSeconds: steppedDt,
+            timingUpdateDuration: runtimeUpdateDuration,
+            timingStopwatch: runtimeFrameStopwatch,
+          ),
+        );
+        if (await tracePhase('restart', _restartIfRequested)) {
+          return;
+        }
+      } catch (error, stackTrace) {
+        _recordError(
+          error,
+          phase: 'while running love.update/love.draw',
+          stackTrace: stackTrace,
+        );
       } finally {
-        phaseStopwatch.stop();
-        frameTracePhases[name] = phaseStopwatch.elapsedMicroseconds;
+        await tracePhase('profileAdvance', _advanceMainLoopProfileRegion);
+        if (traceEnabled) {
+          final stopwatch = frameTraceStopwatch!;
+          stopwatch.stop();
+          if (stopwatch.elapsedMilliseconds >=
+              _loveTraceFrameThresholdMilliseconds) {
+            _frameTraceIndex += 1;
+            final phases = frameTracePhases.entries
+                .map(
+                  (entry) =>
+                      '${entry.key}=${(entry.value / 1000).toStringAsFixed(2)}ms',
+                )
+                .join(' ');
+            debugPrint(
+              'love2d-frame-trace '
+              'frame=$_frameTraceIndex '
+              'dtMs=${(dt * 1000).toStringAsFixed(2)} '
+              'totalMs=${stopwatch.elapsedMicroseconds / 1000} '
+              '$phases',
+            );
+          }
+        }
+        _updateInFlight = false;
       }
+      return;
     }
 
     try {
-      await tracePhase('resize', _dispatchResizeIfNeeded);
+      await _dispatchResizeIfNeeded();
       final runtime = _runtime;
       if (runtime == null) {
         return;
       }
 
-      await tracePhase('profileStart', _startMainLoopProfileRegionIfNeeded);
-      await tracePhase('signals', () => _flushPendingRuntimeSignals(runtime));
-      final exitAfterEvents = await tracePhase(
-        'events',
-        runtime.processMainLoopEvents,
-      );
-      if (await tracePhase(
-        'exitEvents',
-        () => _handleMainLoopExitStatus(exitAfterEvents),
-      )) {
+      await _startMainLoopProfileRegionIfNeeded();
+      await _flushPendingRuntimeSignals(runtime);
+      final exitAfterEvents = await runtime.processMainLoopEvents();
+      if (await _handleMainLoopExitStatus(exitAfterEvents)) {
         await _restartIfRequested();
         return;
       }
       final steppedDt = runtime.context.stepExternal(dt);
       if (steppedDt > 0) {
-        await tracePhase(
-          'update',
-          () => runtime.callUpdateIfDefined(steppedDt),
-        );
+        final updateStopwatch = Stopwatch()..start();
+        try {
+          await runtime.callUpdateIfDefined(steppedDt);
+        } finally {
+          updateStopwatch.stop();
+          runtimeUpdateDuration = updateStopwatch.elapsed;
+        }
       }
       runtime.context.beginDrawFrame();
       runtime.context.graphics.origin();
-      await tracePhase('draw', runtime.callDrawIfDefined);
-      await tracePhase('commit', () => _commitPresentedFrame(runtime));
-      if (await tracePhase('restart', _restartIfRequested)) {
+      await runtime.callDrawIfDefined();
+      await _commitPresentedFrame(
+        runtime,
+        timingDeltaSeconds: steppedDt,
+        timingUpdateDuration: runtimeUpdateDuration,
+        timingStopwatch: runtimeFrameStopwatch,
+      );
+      if (await _restartIfRequested()) {
         return;
       }
     } catch (error, stackTrace) {
@@ -762,27 +934,7 @@ class _LoveFlameHarnessController extends ChangeNotifier {
         stackTrace: stackTrace,
       );
     } finally {
-      await tracePhase('profileAdvance', _advanceMainLoopProfileRegion);
-      frameTraceStopwatch?.stop();
-      if (frameTraceStopwatch != null &&
-          frameTracePhases != null &&
-          frameTraceStopwatch.elapsedMilliseconds >=
-              _loveTraceFrameThresholdMilliseconds) {
-        _frameTraceIndex += 1;
-        final phases = frameTracePhases.entries
-            .map(
-              (entry) =>
-                  '${entry.key}=${(entry.value / 1000).toStringAsFixed(2)}ms',
-            )
-            .join(' ');
-        debugPrint(
-          'love2d-frame-trace '
-          'frame=$_frameTraceIndex '
-          'dtMs=${(dt * 1000).toStringAsFixed(2)} '
-          'totalMs=${frameTraceStopwatch.elapsedMicroseconds / 1000} '
-          '$phases',
-        );
-      }
+      await _advanceMainLoopProfileRegion();
       _updateInFlight = false;
     }
   }
@@ -971,8 +1123,22 @@ class _LoveFlameHarnessController extends ChangeNotifier {
     }
   }
 
-  Future<void> _commitPresentedFrame(LoveScriptRuntime runtime) async {
+  Future<void> _commitPresentedFrame(
+    LoveScriptRuntime runtime, {
+    double? timingDeltaSeconds,
+    Duration? timingUpdateDuration,
+    Stopwatch? timingStopwatch,
+  }) async {
     final snapshot = runtime.context.graphics.snapshotScreenSurface();
+    if (timingDeltaSeconds != null &&
+        timingUpdateDuration != null &&
+        timingStopwatch != null) {
+      game.recordRuntimeFrameTiming(
+        deltaSeconds: timingDeltaSeconds,
+        updateDuration: timingUpdateDuration,
+        runtimeFrameDuration: timingStopwatch.elapsed,
+      );
+    }
     game.presentFrame(snapshot);
     loveFlameRegisteredFragmentShaderCache.markSurfaceAssetsRequested(snapshot);
     await runtime.context.graphics.dispatchPendingScreenshots(
@@ -1185,6 +1351,7 @@ class _LoveFlameHarnessController extends ChangeNotifier {
   @override
   void dispose() {
     _disposed = true;
+    _runtime = null;
     _discardMainLoopProfileRegion();
     super.dispose();
   }
@@ -1207,11 +1374,13 @@ class _LoveHarnessViewport extends StatefulWidget {
     required this.game,
     required this.controller,
     required this.onViewportSizeChanged,
+    required this.showProgrammaticCursorOverlay,
   });
 
   final LoveFlameHarnessGame game;
   final _LoveFlameHarnessController controller;
   final ValueChanged<Size> onViewportSizeChanged;
+  final bool showProgrammaticCursorOverlay;
 
   @override
   State<_LoveHarnessViewport> createState() => _LoveHarnessViewportState();
@@ -1480,7 +1649,8 @@ class _LoveHarnessViewportState extends State<_LoveHarnessViewport> {
     final cursorValue = mouse.cursor;
     final overlayActive =
         mouse.visible &&
-        (mouse.programmaticPositionActive ||
+        ((widget.showProgrammaticCursorOverlay &&
+                mouse.programmaticPositionActive) ||
             (cursorValue != null &&
                 !cursorValue.isSystemCursor &&
                 cursorValue.imageData != null));

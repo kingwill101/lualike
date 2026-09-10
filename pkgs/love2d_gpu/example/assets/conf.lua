@@ -1,6 +1,6 @@
 function love.conf(t)
   t.identity = "love2d_gpu_demo"
-  t.window.title = "love2d_gpu demo"
+  t.window.title = "Neon Relay // love2d"
   t.window.width = 800
   t.window.height = 600
   t.window.vsync = 1

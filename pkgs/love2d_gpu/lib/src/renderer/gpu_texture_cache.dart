@@ -4,6 +4,58 @@ import 'dart:ui' as ui;
 import 'package:flutter_gpu/gpu.dart' as gpu;
 import 'package:love2d/love2d.dart';
 
+/// Whether LOVE-authored mip chains are uploaded to flutter_gpu textures.
+///
+/// Set `LOVE2D_GPU_MIPMAP_UPLOADS=false` for a base-level-only A/B build.
+const bool loveGpuMipmapUploadsEnabled = bool.fromEnvironment(
+  'LOVE2D_GPU_MIPMAP_UPLOADS',
+  defaultValue: true,
+);
+
+/// Selects the valid prefix of [image]'s decoded mip chain for GPU upload.
+///
+/// Flutter GPU currently imposes its own [maxMipLevels] bound. Malformed or
+/// missing levels truncate the chain instead of risking an invalid texture.
+List<LoveImageData> gpuMipLevelsForLoveImage(
+  LoveImage image, {
+  required bool uploadsEnabled,
+  required bool manuallyMippedTexturesSupported,
+  required int maxMipLevels,
+}) {
+  final base = image.imageData;
+  if (base == null) {
+    return const <LoveImageData>[];
+  }
+
+  final levels = <LoveImageData>[base];
+  final mipmaps = image.imageDataMipmaps;
+  if (!uploadsEnabled ||
+      !manuallyMippedTexturesSupported ||
+      maxMipLevels <= 1 ||
+      image.mipmapCount <= 1 ||
+      mipmaps == null ||
+      mipmaps.length <= 1) {
+    return levels;
+  }
+
+  final levelLimit = <int>[
+    maxMipLevels,
+    image.mipmapCount,
+    mipmaps.length,
+  ].reduce((left, right) => left < right ? left : right);
+  for (var level = 1; level < levelLimit; level++) {
+    final candidate = mipmaps[level];
+    final expectedWidth = (base.width >> level).clamp(1, base.width);
+    final expectedHeight = (base.height >> level).clamp(1, base.height);
+    if (candidate.width != expectedWidth ||
+        candidate.height != expectedHeight) {
+      break;
+    }
+    levels.add(candidate);
+  }
+  return levels;
+}
+
 /// Caches [gpu.Texture] objects uploaded from [ui.Image] sources.
 ///
 /// LOVE images arrive as [ui.Image] via `LoveImage.nativeImage`. The GPU
@@ -23,28 +75,68 @@ import 'package:love2d/love2d.dart';
 /// (return `false` from the handler), causing them to fall back to Canvas.
 class GpuTextureCache {
   /// Creates a texture cache rooted at [gpuContext].
-  GpuTextureCache(this._gpuContext);
+  GpuTextureCache(
+    this._gpuContext, {
+    bool mipmapUploadsEnabled = loveGpuMipmapUploadsEnabled,
+  }) : _mipmapUploadsEnabled = mipmapUploadsEnabled,
+       _manuallyMippedTexturesSupported =
+           _gpuContext.doesSupportManuallyMippedTextures;
 
   final gpu.GpuContext _gpuContext;
-  final Map<Object, _CachedTexture> _cache = {};
+  final bool _mipmapUploadsEnabled;
+  final bool _manuallyMippedTexturesSupported;
+  // Expandos provide identity-keyed lookup without making the source objects
+  // cache roots. LOVE may create a lightweight copyWith wrapper when filter or
+  // wrap state changes, so the image-data/native-image associations retain
+  // texture reuse across those wrappers. Once a discarded runtime no longer
+  // owns any of the three source identities, the singleton GPU backend no
+  // longer keeps its decoded image data and mip chain alive.
+  Expando<_CachedTexture> _loveImageCache = Expando<_CachedTexture>(
+    'love2d_gpu.LoveImage textures',
+  );
+  Expando<_CachedTexture> _imageDataCache = Expando<_CachedTexture>(
+    'love2d_gpu.LoveImageData textures',
+  );
+  Expando<_CachedTexture> _uiImageCache = Expando<_CachedTexture>(
+    'love2d_gpu.ui.Image textures',
+  );
+
+  /// Whether this build allows LOVE-authored mipmap uploads.
+  bool get mipmapUploadsEnabled => _mipmapUploadsEnabled;
+
+  /// Whether the current GPU backend can safely sample manual mip chains.
+  bool get manuallyMippedTexturesSupported => _manuallyMippedTexturesSupported;
 
   /// Returns a cached [gpu.Texture] for [image], or `null` if not yet uploaded.
   ///
   /// This is synchronous — use it during the render phase.
   gpu.Texture? getCached(ui.Image? image) {
     if (image == null) return null;
-    final entry = _cache[_LoveImageCacheKey.fromUiImage(image)];
-    if (entry != null && identical(entry.source, image)) {
-      return entry.texture;
-    }
-    return null;
+    return _uiImageCache[image]?.texture;
   }
 
   /// Returns a cached [gpu.Texture] for a [LoveImage], or null if not cached.
   gpu.Texture? getCachedLoveImage(LoveImage image) {
-    final entry = _cache[_LoveImageCacheKey.fromLoveImage(image)];
-    if (entry != null && identical(entry.source, image)) {
-      return entry.texture;
+    final direct = _loveImageCache[image];
+    if (direct != null) {
+      return direct.texture;
+    }
+    final imageData = image.imageData;
+    if (imageData != null) {
+      final decoded = _imageDataCache[imageData];
+      if (decoded != null &&
+          decoded.texture.mipLevelCount == _mipLevelsFor(image).length) {
+        _loveImageCache[image] = decoded;
+        return decoded.texture;
+      }
+    }
+    final nativeImage = image.nativeImage;
+    if (nativeImage is ui.Image) {
+      final native = _uiImageCache[nativeImage];
+      if (native != null && _mipLevelsFor(image).length == 1) {
+        _loveImageCache[image] = native;
+        return native.texture;
+      }
     }
     return null;
   }
@@ -56,8 +148,8 @@ class GpuTextureCache {
     if (image == null) return null;
     if (image.width <= 0 || image.height <= 0) return null;
 
-    final existing = _cache[_LoveImageCacheKey.fromUiImage(image)];
-    if (existing != null && identical(existing.source, image)) {
+    final existing = _uiImageCache[image];
+    if (existing != null) {
       return existing.texture;
     }
 
@@ -73,10 +165,7 @@ class GpuTextureCache {
     );
 
     texture.overwrite(byteData.buffer.asByteData());
-    _cache[_LoveImageCacheKey.fromUiImage(image)] = _CachedTexture(
-      source: image,
-      texture: texture,
-    );
+    _uiImageCache[image] = _CachedTexture(texture);
     return texture;
   }
 
@@ -91,14 +180,14 @@ class GpuTextureCache {
         case LoveMeshCommand(:final mesh):
           final texObj = mesh.textureObject;
           if (texObj is LoveImage) {
-            futures.add(_uploadNativeImage(texObj.nativeImage));
+            futures.add(_preWarmLoveImage(texObj));
           }
         case LoveImageCommand(:final image):
-          futures.add(_uploadNativeImage(image.nativeImage));
+          futures.add(_preWarmLoveImage(image));
         case LoveSpriteBatchCommand(:final spriteBatch):
-          futures.add(_uploadNativeImage(spriteBatch.texture.nativeImage));
+          futures.add(_preWarmLoveImage(spriteBatch.texture));
         case LoveParticleSystemCommand(:final particleSystem):
-          futures.add(_uploadNativeImage(particleSystem.texture.nativeImage));
+          futures.add(_preWarmLoveImage(particleSystem.texture));
         case LoveVideoCommand _:
           // Video frames are sourced from a frame provider, not a static
           // ui.Image. Skip pre-warming — video rendering will fall back
@@ -109,6 +198,14 @@ class GpuTextureCache {
       }
     }
     await Future.wait(futures, eagerError: false);
+  }
+
+  Future<void> _preWarmLoveImage(LoveImage image) async {
+    if (image.imageData != null) {
+      uploadSync(image);
+      return;
+    }
+    await _uploadNativeImage(image.nativeImage);
   }
 
   Future<void> _uploadNativeImage(Object? nativeImage) async {
@@ -135,34 +232,26 @@ class GpuTextureCache {
       final w = imageData.width;
       final h = imageData.height;
       if (w > 0 && h > 0) {
-        final pixels = Uint8List(w * h * 4);
-        for (var y = 0; y < h; y++) {
-          for (var x = 0; x < w; x++) {
-            final c = imageData.getPixel(x, y).clamped();
-            final offset = ((y * w) + x) * 4;
-            pixels[offset] = (c.r * 255).round();
-            pixels[offset + 1] = (c.g * 255).round();
-            pixels[offset + 2] = (c.b * 255).round();
-            pixels[offset + 3] = (c.a * 255).round();
-          }
-        }
+        final mipLevels = _mipLevelsFor(image);
 
         final texture = _gpuContext.createTexture(
           gpu.StorageMode.hostVisible,
           w,
           h,
+          mipLevelCount: mipLevels.length,
         );
-        texture.overwrite(ByteData.sublistView(pixels));
-
-        _cache[_LoveImageCacheKey.fromLoveImage(image)] = _CachedTexture(
-          source: image,
-          texture: texture,
-        );
-        if (nativeImage is ui.Image) {
-          _cache[_LoveImageCacheKey.fromUiImage(nativeImage)] = _CachedTexture(
-            source: nativeImage,
-            texture: texture,
+        for (var level = 0; level < mipLevels.length; level++) {
+          texture.overwrite(
+            ByteData.sublistView(mipLevels[level].toRgbaBytes()),
+            mipLevel: level,
           );
+        }
+
+        final cached = _CachedTexture(texture);
+        _loveImageCache[image] = cached;
+        _imageDataCache[imageData] = cached;
+        if (nativeImage is ui.Image) {
+          _uiImageCache[nativeImage] = cached;
         }
         return texture;
       }
@@ -173,39 +262,30 @@ class GpuTextureCache {
     return null;
   }
 
+  List<LoveImageData> _mipLevelsFor(LoveImage image) {
+    return gpuMipLevelsForLoveImage(
+      image,
+      uploadsEnabled: _mipmapUploadsEnabled,
+      manuallyMippedTexturesSupported: _manuallyMippedTexturesSupported,
+      maxMipLevels: gpu.Texture.fullMipCount(
+        image.imageData?.width ?? image.pixelWidth,
+        image.imageData?.height ?? image.pixelHeight,
+      ),
+    );
+  }
+
   /// Removes all entries from the cache.
   void clear() {
-    _cache.clear();
+    _loveImageCache = Expando<_CachedTexture>('love2d_gpu.LoveImage textures');
+    _imageDataCache = Expando<_CachedTexture>(
+      'love2d_gpu.LoveImageData textures',
+    );
+    _uiImageCache = Expando<_CachedTexture>('love2d_gpu.ui.Image textures');
   }
 }
 
 class _CachedTexture {
-  const _CachedTexture({required this.source, required this.texture});
+  const _CachedTexture(this.texture);
 
-  final Object source;
   final gpu.Texture texture;
-}
-
-final class _LoveImageCacheKey {
-  const _LoveImageCacheKey._(this.value);
-
-  factory _LoveImageCacheKey.fromUiImage(ui.Image image) {
-    return _LoveImageCacheKey._('ui:${identityHashCode(image)}');
-  }
-
-  factory _LoveImageCacheKey.fromLoveImage(LoveImage image) {
-    final imageData = image.imageData;
-    return _LoveImageCacheKey._(
-      'love:${image.source}:${image.width}x${image.height}:${image.textureType}:${image.mipmapCount}:${image.layerCount}:${identityHashCode(imageData)}',
-    );
-  }
-
-  final String value;
-
-  @override
-  bool operator ==(Object other) =>
-      other is _LoveImageCacheKey && other.value == value;
-
-  @override
-  int get hashCode => value.hashCode;
 }

@@ -1,0 +1,15 @@
+{
+  "schemaVersion": 1,
+  "logicalSize": {"width": 800, "height": 600},
+  "regions": [
+    {"name": "full", "x": 0, "y": 0, "width": 800, "height": 600},
+    {"name": "opaque", "x": 28, "y": 116, "width": 159, "height": 186},
+    {"name": "alpha", "x": 223, "y": 116, "width": 159, "height": 186},
+    {"name": "tint_alpha", "x": 418, "y": 116, "width": 159, "height": 186},
+    {"name": "fills", "x": 613, "y": 116, "width": 159, "height": 186},
+    {"name": "lines_arcs", "x": 28, "y": 372, "width": 159, "height": 186},
+    {"name": "overlap", "x": 223, "y": 372, "width": 159, "height": 186},
+    {"name": "player_layers", "x": 418, "y": 372, "width": 159, "height": 186},
+    {"name": "sentinel_layers", "x": 613, "y": 372, "width": 159, "height": 186}
+  ]
+}

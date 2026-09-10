@@ -74,71 +74,14 @@ LoveApiImplementation _bindThreadNewThread(LibraryRegistrationContext context) {
 
     final thread = LoveLuaThread(
       name: name,
-      runner: (encodedArgs, thread) async {
-        final childLua = LuaLike(engineMode: parentRuntimeContext.engineMode);
-        final childRuntime = childLua.vm;
-
-        ensureLoveApiRuntimeBindingsLoaded();
-        ensureLoveFilesystemRuntimeBindingsLoaded();
-
-        final childRuntimeContext = LoveRuntimeContext.attach(
-          childRuntime,
-          host: parentRuntimeContext.host,
-          engineMode: childLua.engineMode,
-          automaticGc: parentRuntimeContext.automaticGc,
-        );
-        childRuntimeContext.applyGcPolicy(childRuntime);
-        LoveFilesystemState.attach(
-          childRuntime,
-          adapter: parentFilesystem.adapter,
-        );
-        LoveThreadState.attach(childRuntime, sharedState: sharedThreads);
-
-        love_api_generated.installLove2d(runtime: childRuntime);
-        installLoveAudioExtraBindings(childRuntime);
-        installLoveDataExtraBindings(childRuntime);
-        installLoveEventExtraBindings(childRuntime);
-        installLoveFilesystemEnumBindings(childRuntime);
-        installLoveFilesystemExtraBindings(childRuntime);
-        installLoveFontExtraBindings(childRuntime);
-        installLoveGraphicsEnumBindings(childRuntime);
-        installLoveGraphicsExtraBindings(childRuntime);
-        installLoveImageExtraBindings(childRuntime);
-        installLoveJoystickExtraBindings(childRuntime);
-        installLovePhysicsExtraBindings(childRuntime);
-        installLoveSystemExtraBindings(childRuntime);
-        installLoveWindowExtraBindings(childRuntime);
-        syncLoveFilesystemPackageInterop(childRuntime);
-        _installLoveThreadCompatibilityAliases(childRuntime);
-        _copyThreadFilesystemState(
-          parentFilesystem,
-          LoveFilesystemState.of(childRuntime),
-        );
-
-        final loadResult = await childRuntime.loadChunk(
-          LuaChunkLoadRequest(
-            source: Value(LuaString.fromDartString(sourceCode)),
-            chunkName: name,
-          ),
-        );
-        if (!loadResult.isSuccess) {
-          throw LuaError(loadResult.errorMessage ?? '$name failed to load');
-        }
-
-        final childContext = LibraryContext(
-          environment: childRuntime.getCurrentEnv(),
-          interpreter: childRuntime,
-        );
-        final decodedArgs = encodedArgs
-            .map((value) => _decodeThreadValue(childContext, value))
-            .toList(growable: false);
-        await childRuntime.callFunction(
-          loadResult.chunk!,
-          decodedArgs,
-          debugName: name,
-          debugNameWhat: 'thread',
-        );
-      },
+      runner: (encodedArgs, _) => _runLoveThreadChunk(
+        parentRuntimeContext: parentRuntimeContext,
+        parentFilesystem: parentFilesystem,
+        sharedThreads: sharedThreads,
+        sourceCode: sourceCode,
+        name: name,
+        encodedArgs: encodedArgs,
+      ),
       onError: (thread, error) {
         parentRuntimeContext.events.pushMessage('threaderror', <Object?>[
           _wrapThread(context, thread),
@@ -149,6 +92,56 @@ LoveApiImplementation _bindThreadNewThread(LibraryRegistrationContext context) {
 
     return _wrapThread(context, thread);
   };
+}
+
+/// Boots a child runtime for a LOVE thread and executes the thread chunk.
+Future<void> _runLoveThreadChunk({
+  required LoveRuntimeContext parentRuntimeContext,
+  required LoveFilesystemState parentFilesystem,
+  required LoveThreadState sharedThreads,
+  required String sourceCode,
+  required String name,
+  required List<Object?> encodedArgs,
+}) async {
+  final childLua = LuaLike(engineMode: parentRuntimeContext.engineMode);
+  final childRuntime = childLua.vm;
+
+  ensureLoveApiRuntimeBindingsLoaded();
+  ensureLoveFilesystemRuntimeBindingsLoaded();
+
+  LoveThreadState.attach(childRuntime, sharedState: sharedThreads);
+  bootstrapLoveRuntime(
+    runtime: childRuntime,
+    host: parentRuntimeContext.host,
+    engineMode: childLua.engineMode,
+    automaticGc: parentRuntimeContext.automaticGc,
+    filesystemAdapter: parentFilesystem.adapter,
+  );
+  _copyThreadFilesystemState(
+    parentFilesystem,
+    LoveFilesystemState.of(childRuntime),
+  );
+
+  final loadResult = await childRuntime.loadChunk(
+    LuaChunkLoadRequest(
+      source: Value(LuaString.fromDartString(sourceCode)),
+      chunkName: name,
+    ),
+  );
+  if (!loadResult.isSuccess) {
+    throw LuaError(loadResult.errorMessage ?? '$name failed to load');
+  }
+
+  final childContext = loveBindingContext(childRuntime);
+  final decodedArgs = encodedArgs
+      .map((value) => _decodeThreadValue(childContext, value))
+      .toList(growable: false);
+  await childRuntime.callFunction(
+    loadResult.chunk!,
+    decodedArgs,
+    debugName: name,
+    debugNameWhat: 'thread',
+  );
 }
 
 /// Binds `Channel:clear`.
@@ -164,10 +157,7 @@ LoveApiImplementation _bindChannelClear(LibraryRegistrationContext context) {
 /// This optionally waits up to a timeout and decodes the transferred value back
 /// into the caller's runtime wrappers.
 LoveApiImplementation _bindChannelDemand(LibraryRegistrationContext context) {
-  final libraryContext = LibraryContext(
-    environment: context.environment,
-    interpreter: context.interpreter,
-  );
+  final libraryContext = loveBindingContextForContext(context);
   return (args) async {
     const symbol = 'Channel:demand';
     final channel = _requireChannel(args, 0, symbol);
@@ -195,10 +185,7 @@ LoveApiImplementation _bindChannelHasRead(LibraryRegistrationContext context) {
 ///
 /// This inspects the next queued value without removing it from the channel.
 LoveApiImplementation _bindChannelPeek(LibraryRegistrationContext context) {
-  final libraryContext = LibraryContext(
-    environment: context.environment,
-    interpreter: context.interpreter,
-  );
+  final libraryContext = loveBindingContextForContext(context);
   return (args) {
     final value = _requireChannel(args, 0, 'Channel:peek').peek();
     return _decodeThreadValue(libraryContext, value);
@@ -235,10 +222,7 @@ LoveApiImplementation _bindChannelPerformAtomic(
 /// This removes the next queued value immediately and decodes it for the
 /// caller's runtime.
 LoveApiImplementation _bindChannelPop(LibraryRegistrationContext context) {
-  final libraryContext = LibraryContext(
-    environment: context.environment,
-    interpreter: context.interpreter,
-  );
+  final libraryContext = loveBindingContextForContext(context);
   return (args) {
     final value = _requireChannel(args, 0, 'Channel:pop').pop();
     return _decodeThreadValue(libraryContext, value);
@@ -354,31 +338,6 @@ void _copyThreadFilesystemState(
   }
   if (source.source.isNotEmpty) {
     target.setSource(source.source);
-  }
-}
-
-/// Installs legacy globals that LOVE thread code may expect.
-///
-/// In particular this restores the Lua 5.1-style global `unpack` alias when
-/// only `table.unpack` is present.
-void _installLoveThreadCompatibilityAliases(LuaRuntime runtime) {
-  final env = runtime.getCurrentEnv();
-  if (env.get('unpack') != null) {
-    return;
-  }
-
-  final tableValue = env.get('table');
-  final tableRaw = switch (tableValue) {
-    final Value value => value.raw,
-    _ => tableValue,
-  };
-  if (tableRaw is! Map<dynamic, dynamic>) {
-    return;
-  }
-
-  final unpack = tableRaw['unpack'];
-  if (unpack != null) {
-    env.define('unpack', unpack);
   }
 }
 

@@ -1,12 +1,14 @@
 /// Runtime helpers for executing LOVE scripts inside LuaLike.
 library;
 
+import 'dart:async';
 import 'dart:collection';
 import 'dart:convert' as convert;
 
 import 'package:lualike/lualike.dart';
 
 import '../install_love2d.dart';
+import 'love_module_table_helpers.dart';
 import 'filesystem/love_filesystem_bindings.dart'
     show wrapLoveFilesystemDroppedFileForRuntime;
 import 'filesystem/love_filesystem_runtime.dart';
@@ -16,9 +18,11 @@ import 'love_runtime.dart';
 part 'input/love_joystick_callback_support.dart';
 
 /// Whether runtime tracing is enabled for touch-leak debugging.
+///
+/// Defaults to off so the main loop never allocates trace maps/strings in
+/// production. Enable with `--dart-define=LOVE2D_TRACE_TOUCH_LEAK=true`.
 const bool _loveTraceRuntimeLeak = bool.fromEnvironment(
   'LOVE2D_TRACE_TOUCH_LEAK',
-  defaultValue: true,
 );
 
 /// Emits a runtime trace message for [stage] when tracing is enabled.
@@ -41,7 +45,13 @@ void _loveTraceRuntime(
 }
 
 /// Returns whether callback signal [name] should be included in tracing.
+///
+/// Always false when tracing is disabled so callers skip detail construction.
 bool _loveShouldTraceRuntimeSignal(String name) {
+  if (!_loveTraceRuntimeLeak) {
+    return false;
+  }
+
   return switch (name) {
     'touchpressed' || 'touchreleased' || 'touchmoved' || 'update' => true,
     _ => false,
@@ -59,7 +69,7 @@ String _loveDescribeRuntimeArgs(List<Object?> args) {
 
 /// Returns a trace-friendly description of one runtime [value].
 String _loveDescribeRuntimeValue(Object? value) {
-  final raw = value is Value ? value.raw : value;
+  final raw = loveRawValue(value);
   return '${value.runtimeType}(${raw.runtimeType}:$raw)';
 }
 
@@ -79,13 +89,18 @@ class LoveScriptRuntime {
   LoveScriptRuntime({
     LuaRuntime? runtime,
     EngineMode? engineMode,
+    LuaGcPolicy gcPolicy = LuaGcPolicy.luaCompatible,
     LoveHost? host,
     LoveFilesystemAdapter? filesystemAdapter,
     bool automaticGc = false,
   }) : this._(
          lua: runtime == null
-             ? LuaLike(engineMode: engineMode)
-             : LuaLike(runtime: runtime, engineMode: engineMode),
+             ? LuaLike(engineMode: engineMode, gcPolicy: gcPolicy)
+             : LuaLike(
+                 runtime: runtime,
+                 engineMode: engineMode,
+                 gcPolicy: gcPolicy,
+               ),
          host: host,
          filesystemAdapter: filesystemAdapter,
          automaticGc: automaticGc,
@@ -157,8 +172,18 @@ end
     return true;
   }
 
+  /// Cached user callbacks for the main-loop hot path (`update` / `draw`).
+  ///
+  /// Entries store the raw `love[name]` slot identity so reassignment
+  /// invalidates automatically without a full table walk on every frame.
+  final Map<String, (Object? slot, Value? callback)> _hotUserCallbackCache =
+      <String, (Object? slot, Value? callback)>{};
+
   /// Returns the user-defined LOVE callback named [name], if one exists.
   Value? userLoveCallback(String name) {
+    if (name == 'update' || name == 'draw') {
+      return _cachedHotUserCallback(name);
+    }
     return loveCallback(name);
   }
 
@@ -177,6 +202,29 @@ end
     }
 
     return callback;
+  }
+
+  /// Resolves `love.update` / `love.draw` with slot-identity caching.
+  Value? _cachedHotUserCallback(String name) {
+    final love = _value(runtime.globals.get('love'));
+    final loveTable = love?.raw;
+    if (loveTable is! Map) {
+      _hotUserCallbackCache.remove(name);
+      return null;
+    }
+
+    final slot = loveTable[name];
+    final cached = _hotUserCallbackCache[name];
+    if (cached != null && identical(cached.$1, slot)) {
+      return cached.$2;
+    }
+
+    final callback = _value(slot);
+    final resolved = callback != null && !_isGeneratedLoveCallbackStub(callback)
+        ? callback
+        : null;
+    _hotUserCallbackCache[name] = (slot, resolved);
+    return resolved;
   }
 
   /// Calls the LOVE callback named [name] if the user defined it.
@@ -537,7 +585,7 @@ end
     ]);
   }
 
-  Future<Object?> queueResize(int width, int height) {
+  FutureOr<Object?> queueResize(int width, int height) {
     return _queueLoveEvent('resize', <Object?>[width, height]);
   }
 
@@ -545,7 +593,7 @@ end
     return _dispatchLoveEventAndCallbackIfDefined('focus', <Object?>[focused]);
   }
 
-  Future<Object?> queueFocus(bool focused) {
+  FutureOr<Object?> queueFocus(bool focused) {
     return _queueLoveEvent('focus', <Object?>[focused]);
   }
 
@@ -561,7 +609,7 @@ end
     ]);
   }
 
-  Future<Object?> queueKeyPressed(
+  FutureOr<Object?> queueKeyPressed(
     String key, {
     String? scancode,
     bool isRepeat = false,
@@ -576,7 +624,7 @@ end
     ]);
   }
 
-  Future<Object?> queueKeyReleased(String key, {String? scancode}) {
+  FutureOr<Object?> queueKeyReleased(String key, {String? scancode}) {
     return _queueLoveEvent('keyreleased', <Object?>[key, scancode]);
   }
 
@@ -596,7 +644,7 @@ end
     ]);
   }
 
-  Future<Object?> queueMouseMoved(
+  FutureOr<Object?> queueMouseMoved(
     double x,
     double y,
     double dx,
@@ -622,7 +670,7 @@ end
     ]);
   }
 
-  Future<Object?> queueMousePressed(
+  FutureOr<Object?> queueMousePressed(
     double x,
     double y,
     int button, {
@@ -654,7 +702,7 @@ end
     ]);
   }
 
-  Future<Object?> queueMouseReleased(
+  FutureOr<Object?> queueMouseReleased(
     double x,
     double y,
     int button, {
@@ -676,7 +724,7 @@ end
     ]);
   }
 
-  Future<Object?> queueMouseFocus(bool focused) {
+  FutureOr<Object?> queueMouseFocus(bool focused) {
     return _queueLoveEvent('mousefocus', <Object?>[focused]);
   }
 
@@ -704,7 +752,7 @@ end
     return _dispatchLoveEventAndCallbackIfDefined('lowmemory');
   }
 
-  Future<Object?> queueLowMemory() {
+  FutureOr<Object?> queueLowMemory() {
     return _queueLoveEvent('lowmemory');
   }
 
@@ -712,7 +760,7 @@ end
     return _dispatchLoveEventAndCallbackIfDefined('textinput', <Object?>[text]);
   }
 
-  Future<Object?> queueTextInput(String text) {
+  FutureOr<Object?> queueTextInput(String text) {
     return _queueLoveEvent('textinput', <Object?>[text]);
   }
 
@@ -724,7 +772,7 @@ end
     ]);
   }
 
-  Future<Object?> queueTextEdited(String text, int start, int length) {
+  FutureOr<Object?> queueTextEdited(String text, int start, int length) {
     return _queueLoveEvent('textedited', <Object?>[text, start, length]);
   }
 
@@ -753,7 +801,7 @@ end
     ]);
   }
 
-  Future<Object?> queueTouchPressed(
+  FutureOr<Object?> queueTouchPressed(
     int id,
     double x,
     double y,
@@ -789,7 +837,7 @@ end
     ]);
   }
 
-  Future<Object?> queueTouchReleased(
+  FutureOr<Object?> queueTouchReleased(
     int id,
     double x,
     double y,
@@ -825,7 +873,7 @@ end
     ]);
   }
 
-  Future<Object?> queueTouchMoved(
+  FutureOr<Object?> queueTouchMoved(
     int id,
     double x,
     double y,
@@ -843,7 +891,7 @@ end
     ]);
   }
 
-  Future<Object?> queueWheelMoved(double x, double y) {
+  FutureOr<Object?> queueWheelMoved(double x, double y) {
     return _queueLoveEvent('wheelmoved', <Object?>[x, y]);
   }
 
@@ -853,7 +901,7 @@ end
     ]);
   }
 
-  Future<Object?> queueVisible(bool visible) {
+  FutureOr<Object?> queueVisible(bool visible) {
     return _queueLoveEvent('visible', <Object?>[visible]);
   }
 
@@ -924,7 +972,7 @@ end
     return callLoveCallbackIfDefined(name, args);
   }
 
-  Future<Object?> _queueLoveEvent(
+  FutureOr<Object?> _queueLoveEvent(
     String name, [
     List<Object?> args = const <Object?>[],
   ]) {
@@ -942,7 +990,7 @@ end
       );
     }
     context.events.pushMessage(name, args);
-    return Future<Object?>.value(null);
+    return null;
   }
 
   String? _mainLoopCallbackName(String name) {
@@ -1175,7 +1223,7 @@ end
     };
   }
 
-  Object? _unwrapValue(Object? value) => value is Value ? value.raw : value;
+  Object? _unwrapValue(Object? value) => loveRawValue(value);
 }
 
 bool _isGeneratedLoveCallbackStub(Value callback) {

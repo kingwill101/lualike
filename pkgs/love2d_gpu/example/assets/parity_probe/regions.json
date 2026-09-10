@@ -1,0 +1,15 @@
+{
+  "schemaVersion": 1,
+  "logicalSize": {"width": 800, "height": 600},
+  "regions": [
+    {"name": "full", "x": 0, "y": 0, "width": 800, "height": 600},
+    {"name": "header", "x": 0, "y": 0, "width": 800, "height": 70},
+    {"name": "integer_grid", "x": 30, "y": 70, "width": 340, "height": 260},
+    {"name": "half_pixel_grid", "x": 430, "y": 70, "width": 340, "height": 260},
+    {"name": "rough_band", "x": 0, "y": 350, "width": 800, "height": 90},
+    {"name": "smooth_band", "x": 0, "y": 444, "width": 800, "height": 22},
+    {"name": "smooth_integer", "x": 30, "y": 446, "width": 340, "height": 16},
+    {"name": "smooth_half_pixel", "x": 430, "y": 446, "width": 340, "height": 16},
+    {"name": "text", "x": 10, "y": 474, "width": 780, "height": 90}
+  ]
+}

@@ -27,14 +27,14 @@ void _queueMeshDrawCommand(
       colorMask: runtime.graphics.colorMask,
       wireframe: runtime.graphics.wireframe,
       scissor: runtime.graphics.scissor,
-      shader: runtime.graphics.shader,
-      transform: runtime.graphics.copyTransform(),
+      shader: runtime.graphics.currentShader,
+      transform: runtime.graphics.transform,
       drawTransform: _matrixFromTransformArgumentOrStandardTransform(
         args,
         transformIndex,
         symbol,
       ),
-      mesh: mesh,
+      mesh: mesh.copyForDraw(),
       instanceCount: instanceCount,
       pointSize: runtime.graphics.pointSize,
       frontFaceWinding: runtime.graphics.frontFaceWinding,
@@ -57,12 +57,16 @@ LoveApiImplementation _bindGraphicsRectangle(
     final y = _requireNumber(args, 2, 'love.graphics.rectangle');
     final width = _requireNumber(args, 3, 'love.graphics.rectangle');
     final height = _requireNumber(args, 4, 'love.graphics.rectangle');
-    final radiusX = args.length >= 6
+    final hasRadius = _rawValue(_valueAt(args, 5)) != null;
+    final radiusX = hasRadius
         ? _requireNumber(args, 5, 'love.graphics.rectangle')
         : 0.0;
-    final radiusY = args.length >= 7
+    final radiusY = hasRadius && _rawValue(_valueAt(args, 6)) != null
         ? _requireNumber(args, 6, 'love.graphics.rectangle')
         : radiusX;
+    final pointCount = hasRadius && _rawValue(_valueAt(args, 7)) != null
+        ? _requireRoundedInt(args, 7, 'love.graphics.rectangle')
+        : null;
 
     runtime.graphics.addCommand(
       LoveRectangleCommand(
@@ -75,8 +79,8 @@ LoveApiImplementation _bindGraphicsRectangle(
         colorMask: runtime.graphics.colorMask,
         wireframe: runtime.graphics.wireframe,
         scissor: runtime.graphics.scissor,
-        shader: runtime.graphics.shader,
-        transform: runtime.graphics.copyTransform(),
+        shader: runtime.graphics.currentShader,
+        transform: runtime.graphics.transform,
         mode: mode,
         x: x,
         y: y,
@@ -84,6 +88,7 @@ LoveApiImplementation _bindGraphicsRectangle(
         height: height,
         cornerRadiusX: radiusX,
         cornerRadiusY: radiusY,
+        pointCount: pointCount,
       ),
     );
     return null;
@@ -100,6 +105,9 @@ LoveApiImplementation _bindGraphicsCircle(LibraryRegistrationContext context) {
     final x = _requireNumber(args, 1, 'love.graphics.circle');
     final y = _requireNumber(args, 2, 'love.graphics.circle');
     final radius = _requireNumber(args, 3, 'love.graphics.circle');
+    final pointCount = _rawValue(_valueAt(args, 4)) == null
+        ? null
+        : _requireRoundedInt(args, 4, 'love.graphics.circle');
 
     runtime.graphics.addCommand(
       LoveCircleCommand(
@@ -112,12 +120,13 @@ LoveApiImplementation _bindGraphicsCircle(LibraryRegistrationContext context) {
         colorMask: runtime.graphics.colorMask,
         wireframe: runtime.graphics.wireframe,
         scissor: runtime.graphics.scissor,
-        shader: runtime.graphics.shader,
-        transform: runtime.graphics.copyTransform(),
+        shader: runtime.graphics.currentShader,
+        transform: runtime.graphics.transform,
         mode: mode,
         x: x,
         y: y,
         radius: radius,
+        pointCount: pointCount,
       ),
     );
     return null;
@@ -147,8 +156,8 @@ LoveApiImplementation _bindGraphicsLine(LibraryRegistrationContext context) {
         colorMask: runtime.graphics.colorMask,
         wireframe: runtime.graphics.wireframe,
         scissor: runtime.graphics.scissor,
-        shader: runtime.graphics.shader,
-        transform: runtime.graphics.copyTransform(),
+        shader: runtime.graphics.currentShader,
+        transform: runtime.graphics.transform,
         points: coordinates,
       ),
     );
@@ -183,8 +192,8 @@ LoveApiImplementation _bindGraphicsPolygon(LibraryRegistrationContext context) {
         colorMask: runtime.graphics.colorMask,
         wireframe: runtime.graphics.wireframe,
         scissor: runtime.graphics.scissor,
-        shader: runtime.graphics.shader,
-        transform: runtime.graphics.copyTransform(),
+        shader: runtime.graphics.currentShader,
+        transform: runtime.graphics.transform,
         mode: mode,
         points: coordinates,
       ),
@@ -216,8 +225,8 @@ LoveApiImplementation _bindGraphicsPoints(LibraryRegistrationContext context) {
         colorMask: runtime.graphics.colorMask,
         wireframe: runtime.graphics.wireframe,
         scissor: runtime.graphics.scissor,
-        shader: runtime.graphics.shader,
-        transform: runtime.graphics.copyTransform(),
+        shader: runtime.graphics.currentShader,
+        transform: runtime.graphics.transform,
         pointSize: runtime.graphics.pointSize,
         points: points,
       ),
@@ -237,9 +246,12 @@ LoveApiImplementation _bindGraphicsEllipse(LibraryRegistrationContext context) {
     final x = _requireNumber(args, 1, 'love.graphics.ellipse');
     final y = _requireNumber(args, 2, 'love.graphics.ellipse');
     final radiusX = _requireNumber(args, 3, 'love.graphics.ellipse');
-    final radiusY = args.length >= 5
+    final radiusY = _rawValue(_valueAt(args, 4)) != null
         ? _requireNumber(args, 4, 'love.graphics.ellipse')
         : radiusX;
+    final pointCount = _rawValue(_valueAt(args, 5)) == null
+        ? null
+        : _requireRoundedInt(args, 5, 'love.graphics.ellipse');
 
     runtime.graphics.addCommand(
       LoveEllipseCommand(
@@ -252,13 +264,14 @@ LoveApiImplementation _bindGraphicsEllipse(LibraryRegistrationContext context) {
         colorMask: runtime.graphics.colorMask,
         wireframe: runtime.graphics.wireframe,
         scissor: runtime.graphics.scissor,
-        shader: runtime.graphics.shader,
-        transform: runtime.graphics.copyTransform(),
+        shader: runtime.graphics.currentShader,
+        transform: runtime.graphics.transform,
         mode: mode,
         x: x,
         y: y,
         radiusX: radiusX,
         radiusY: radiusY,
+        pointCount: pointCount,
       ),
     );
     return null;
@@ -286,6 +299,9 @@ LoveApiImplementation _bindGraphicsArc(LibraryRegistrationContext context) {
     final radius = _requireNumber(args, startIndex + 2, 'love.graphics.arc');
     final angle1 = _requireNumber(args, startIndex + 3, 'love.graphics.arc');
     final angle2 = _requireNumber(args, startIndex + 4, 'love.graphics.arc');
+    final pointCount = _rawValue(_valueAt(args, startIndex + 5)) == null
+        ? null
+        : _requireRoundedInt(args, startIndex + 5, 'love.graphics.arc');
 
     runtime.graphics.addCommand(
       LoveArcCommand(
@@ -298,8 +314,8 @@ LoveApiImplementation _bindGraphicsArc(LibraryRegistrationContext context) {
         colorMask: runtime.graphics.colorMask,
         wireframe: runtime.graphics.wireframe,
         scissor: runtime.graphics.scissor,
-        shader: runtime.graphics.shader,
-        transform: runtime.graphics.copyTransform(),
+        shader: runtime.graphics.currentShader,
+        transform: runtime.graphics.transform,
         drawMode: drawMode,
         arcMode: arcMode,
         x: x,
@@ -307,6 +323,7 @@ LoveApiImplementation _bindGraphicsArc(LibraryRegistrationContext context) {
         radius: radius,
         angle1: angle1,
         angle2: angle2,
+        pointCount: pointCount,
       ),
     );
     return null;
@@ -319,180 +336,240 @@ LoveApiImplementation _bindGraphicsArc(LibraryRegistrationContext context) {
 /// sprite batches, particle systems, and text drawables. Unsupported drawable
 /// combinations surface LOVE-style argument errors before any command is
 /// queued.
+///
+/// Dispatch unwraps the receiver table once and prefers the drawable-kind tag
+/// stamped at wrap time so the common image path does not probe five other
+/// drawable types first.
 LoveApiImplementation _bindGraphicsDraw(LibraryRegistrationContext context) {
   final runtime = _runtimeContext(context);
   return (args) {
-    if (_textDrawableIfPresent(_valueAt(args, 0))
-        case final LoveTextDrawable text) {
-      if (_quadIfPresent(_valueAt(args, 1)) != null) {
-        throw LuaError(
-          'love.graphics.draw does not accept Quad arguments when drawing Text',
+    final receiver = _valueAt(args, 0);
+    final table = _tableIfPresent(receiver);
+    final kind = table?[_loveDrawableKindKey];
+
+    switch (kind) {
+      case _loveDrawableKindText:
+        return _queueTextDrawableDraw(
+          runtime,
+          args,
+          text: table![_loveTextObjectKey] as LoveTextDrawable,
         );
+      case _loveDrawableKindMesh:
+        return _queueTaggedMeshDraw(
+          runtime,
+          args,
+          mesh: table![_loveMeshObjectKey] as LoveMesh,
+        );
+      case _loveDrawableKindSpriteBatch:
+        return _queueTaggedSpriteBatchDraw(
+          runtime,
+          args,
+          spriteBatch: table![_loveSpriteBatchObjectKey] as LoveSpriteBatch,
+        );
+      case _loveDrawableKindParticleSystem:
+        return _queueTaggedParticleSystemDraw(
+          runtime,
+          args,
+          particleSystem:
+              table![_loveParticleSystemObjectKey] as LoveParticleSystem,
+        );
+      case _loveDrawableKindVideo:
+        return _queueTaggedVideoDraw(
+          runtime,
+          args,
+          video: table![_loveVideoObjectKey] as LoveVideo,
+        );
+      case _loveDrawableKindImage:
+        return _queueTaggedImageDraw(
+          runtime,
+          args,
+          image: table![_loveImageObjectKey] as LoveImage,
+        );
+    }
+
+    // Untagged fallback for wrappers that predate kind tags.
+    if (table != null) {
+      if (table[_loveTextObjectKey] case final LoveTextDrawable text) {
+        return _queueTextDrawableDraw(runtime, args, text: text);
       }
-
-      runtime.graphics.addCommand(
-        LoveTextObjectCommand(
-          color: runtime.graphics.color,
-          lineWidth: runtime.graphics.lineWidth,
-          lineStyle: runtime.graphics.lineStyle,
-          lineJoin: runtime.graphics.lineJoin,
-          blendMode: runtime.graphics.blendMode,
-          blendAlphaMode: runtime.graphics.blendAlphaMode,
-          colorMask: runtime.graphics.colorMask,
-          wireframe: runtime.graphics.wireframe,
-          scissor: runtime.graphics.scissor,
-          shader: runtime.graphics.shader,
-          transform: runtime.graphics.copyTransform(),
-          drawTransform: _matrixFromTransformArgumentOrStandardTransform(
-            args,
-            1,
-            'love.graphics.draw',
-          ),
-          textObject: text,
-        ),
-      );
-      return null;
-    }
-
-    if (_meshIfPresent(_valueAt(args, 0)) case final LoveMesh mesh) {
-      _queueMeshDrawCommand(
-        runtime,
-        mesh: mesh,
-        args: args,
-        transformIndex: 1,
-        symbol: 'love.graphics.draw',
-      );
-      return null;
-    }
-
-    if (_spriteBatchIfPresent(_valueAt(args, 0))
-        case final LoveSpriteBatch spriteBatch) {
-      runtime.graphics.addCommand(
-        LoveSpriteBatchCommand(
-          color: runtime.graphics.color,
-          lineWidth: runtime.graphics.lineWidth,
-          lineStyle: runtime.graphics.lineStyle,
-          lineJoin: runtime.graphics.lineJoin,
-          blendMode: runtime.graphics.blendMode,
-          blendAlphaMode: runtime.graphics.blendAlphaMode,
-          colorMask: runtime.graphics.colorMask,
-          wireframe: runtime.graphics.wireframe,
-          scissor: runtime.graphics.scissor,
-          shader: runtime.graphics.shader,
-          transform: runtime.graphics.copyTransform(),
-          drawTransform: _matrixFromTransformArgumentOrStandardTransform(
-            args,
-            1,
-            'love.graphics.draw',
-          ),
+      if (table[_loveMeshObjectKey] case final LoveMesh mesh) {
+        return _queueTaggedMeshDraw(runtime, args, mesh: mesh);
+      }
+      if (table[_loveSpriteBatchObjectKey]
+          case final LoveSpriteBatch spriteBatch) {
+        return _queueTaggedSpriteBatchDraw(
+          runtime,
+          args,
           spriteBatch: spriteBatch,
-        ),
-      );
-      return null;
-    }
-
-    if (_particleSystemIfPresent(_valueAt(args, 0))
-        case final LoveParticleSystem particleSystem) {
-      runtime.graphics.addCommand(
-        LoveParticleSystemCommand(
-          color: runtime.graphics.color,
-          lineWidth: runtime.graphics.lineWidth,
-          lineStyle: runtime.graphics.lineStyle,
-          lineJoin: runtime.graphics.lineJoin,
-          blendMode: runtime.graphics.blendMode,
-          blendAlphaMode: runtime.graphics.blendAlphaMode,
-          colorMask: runtime.graphics.colorMask,
-          wireframe: runtime.graphics.wireframe,
-          scissor: runtime.graphics.scissor,
-          shader: runtime.graphics.shader,
-          transform: runtime.graphics.copyTransform(),
-          drawTransform: _matrixFromTransformArgumentOrStandardTransform(
-            args,
-            1,
-            'love.graphics.draw',
-          ),
-          particleSystem: particleSystem.snapshotForDraw(),
-        ),
-      );
-      return null;
-    }
-
-    if (_videoIfPresent(_valueAt(args, 0)) case final LoveVideo video) {
-      final quad = _quadIfPresent(_valueAt(args, 1));
-      final startIndex = quad == null ? 1 : 2;
-      if (_canUseLiveVideoCommand(runtime, video, quad: quad)) {
-        runtime.graphics.addCommand(
-          LoveVideoCommand(
-            color: runtime.graphics.color,
-            lineWidth: runtime.graphics.lineWidth,
-            lineStyle: runtime.graphics.lineStyle,
-            lineJoin: runtime.graphics.lineJoin,
-            blendMode: runtime.graphics.blendMode,
-            blendAlphaMode: runtime.graphics.blendAlphaMode,
-            colorMask: runtime.graphics.colorMask,
-            wireframe: runtime.graphics.wireframe,
-            scissor: runtime.graphics.scissor,
-            shader: runtime.graphics.shader,
-            transform: runtime.graphics.copyTransform(),
-            drawTransform: _videoDrawTransform(
-              video,
-              args,
-              transformIndex: startIndex,
-              symbol: 'love.graphics.draw',
-            ),
-            video: video,
-            quad: quad,
-          ),
         );
-        return null;
       }
-
-      return _snapshotDrawableImageForVideo(runtime, video).then((
-        resolvedImage,
-      ) {
-        if (resolvedImage == null) {
-          return null;
-        }
-
-        runtime.graphics.addCommand(
-          LoveImageCommand(
-            color: runtime.graphics.color,
-            lineWidth: runtime.graphics.lineWidth,
-            lineStyle: runtime.graphics.lineStyle,
-            lineJoin: runtime.graphics.lineJoin,
-            blendMode: runtime.graphics.blendMode,
-            blendAlphaMode: runtime.graphics.blendAlphaMode,
-            colorMask: runtime.graphics.colorMask,
-            wireframe: runtime.graphics.wireframe,
-            scissor: runtime.graphics.scissor,
-            shader: runtime.graphics.shader,
-            transform: runtime.graphics.copyTransform(),
-            drawTransform: _videoDrawTransform(
-              video,
-              args,
-              transformIndex: startIndex,
-              symbol: 'love.graphics.draw',
-            ),
-            image: resolvedImage,
-            quad: quad,
-          ),
+      if (table[_loveParticleSystemObjectKey]
+          case final LoveParticleSystem particleSystem) {
+        return _queueTaggedParticleSystemDraw(
+          runtime,
+          args,
+          particleSystem: particleSystem,
         );
-        return null;
-      });
+      }
+      if (table[_loveVideoObjectKey] case final LoveVideo video) {
+        return _queueTaggedVideoDraw(runtime, args, video: video);
+      }
+      if (table[_loveImageObjectKey] case final LoveImage image) {
+        return _queueTaggedImageDraw(runtime, args, image: image);
+      }
     }
 
-    final image = _requireImage(args, 0, 'love.graphics.draw');
-    final quad = _quadIfPresent(_valueAt(args, 1));
-    final startIndex = quad == null ? 1 : 2;
-    final resolvedImage = switch (image) {
-      final LoveCanvas canvas => canvas.snapshot(),
-      _ => image,
-    };
-    final layer = _directTextureDrawLayer(
-      resolvedImage,
-      quad,
-      'love.graphics.draw',
+    _requireImage(args, 0, 'love.graphics.draw');
+    return null;
+  };
+}
+
+Object? _queueTextDrawableDraw(
+  LoveRuntimeContext runtime,
+  List<Object?> args, {
+  required LoveTextDrawable text,
+}) {
+  if (_quadIfPresent(_valueAt(args, 1)) != null) {
+    throw LuaError(
+      'love.graphics.draw does not accept Quad arguments when drawing Text',
     );
+  }
+
+  runtime.graphics.addCommand(
+    LoveTextObjectCommand(
+      color: runtime.graphics.color,
+      lineWidth: runtime.graphics.lineWidth,
+      lineStyle: runtime.graphics.lineStyle,
+      lineJoin: runtime.graphics.lineJoin,
+      blendMode: runtime.graphics.blendMode,
+      blendAlphaMode: runtime.graphics.blendAlphaMode,
+      colorMask: runtime.graphics.colorMask,
+      wireframe: runtime.graphics.wireframe,
+      scissor: runtime.graphics.scissor,
+      shader: runtime.graphics.currentShader,
+      transform: runtime.graphics.transform,
+      drawTransform: _matrixFromTransformArgumentOrStandardTransform(
+        args,
+        1,
+        'love.graphics.draw',
+      ),
+      textObject: text,
+    ),
+  );
+  return null;
+}
+
+Object? _queueTaggedMeshDraw(
+  LoveRuntimeContext runtime,
+  List<Object?> args, {
+  required LoveMesh mesh,
+}) {
+  _queueMeshDrawCommand(
+    runtime,
+    mesh: mesh,
+    args: args,
+    transformIndex: 1,
+    symbol: 'love.graphics.draw',
+  );
+  return null;
+}
+
+Object? _queueTaggedSpriteBatchDraw(
+  LoveRuntimeContext runtime,
+  List<Object?> args, {
+  required LoveSpriteBatch spriteBatch,
+}) {
+  runtime.graphics.addCommand(
+    LoveSpriteBatchCommand(
+      color: runtime.graphics.color,
+      lineWidth: runtime.graphics.lineWidth,
+      lineStyle: runtime.graphics.lineStyle,
+      lineJoin: runtime.graphics.lineJoin,
+      blendMode: runtime.graphics.blendMode,
+      blendAlphaMode: runtime.graphics.blendAlphaMode,
+      colorMask: runtime.graphics.colorMask,
+      wireframe: runtime.graphics.wireframe,
+      scissor: runtime.graphics.scissor,
+      shader: runtime.graphics.currentShader,
+      transform: runtime.graphics.transform,
+      drawTransform: _matrixFromTransformArgumentOrStandardTransform(
+        args,
+        1,
+        'love.graphics.draw',
+      ),
+      spriteBatch: spriteBatch.copyForDraw(),
+    ),
+  );
+  return null;
+}
+
+Object? _queueTaggedParticleSystemDraw(
+  LoveRuntimeContext runtime,
+  List<Object?> args, {
+  required LoveParticleSystem particleSystem,
+}) {
+  runtime.graphics.addCommand(
+    LoveParticleSystemCommand(
+      color: runtime.graphics.color,
+      lineWidth: runtime.graphics.lineWidth,
+      lineStyle: runtime.graphics.lineStyle,
+      lineJoin: runtime.graphics.lineJoin,
+      blendMode: runtime.graphics.blendMode,
+      blendAlphaMode: runtime.graphics.blendAlphaMode,
+      colorMask: runtime.graphics.colorMask,
+      wireframe: runtime.graphics.wireframe,
+      scissor: runtime.graphics.scissor,
+      shader: runtime.graphics.currentShader,
+      transform: runtime.graphics.transform,
+      drawTransform: _matrixFromTransformArgumentOrStandardTransform(
+        args,
+        1,
+        'love.graphics.draw',
+      ),
+      particleSystem: particleSystem.snapshotForDraw(),
+    ),
+  );
+  return null;
+}
+
+Object? _queueTaggedVideoDraw(
+  LoveRuntimeContext runtime,
+  List<Object?> args, {
+  required LoveVideo video,
+}) {
+  final quad = _quadIfPresent(_valueAt(args, 1));
+  final startIndex = quad == null ? 1 : 2;
+  if (_canUseLiveVideoCommand(runtime, video, quad: quad)) {
+    runtime.graphics.addCommand(
+      LoveVideoCommand(
+        color: runtime.graphics.color,
+        lineWidth: runtime.graphics.lineWidth,
+        lineStyle: runtime.graphics.lineStyle,
+        lineJoin: runtime.graphics.lineJoin,
+        blendMode: runtime.graphics.blendMode,
+        blendAlphaMode: runtime.graphics.blendAlphaMode,
+        colorMask: runtime.graphics.colorMask,
+        wireframe: runtime.graphics.wireframe,
+        scissor: runtime.graphics.scissor,
+        shader: runtime.graphics.currentShader,
+        transform: runtime.graphics.transform,
+        drawTransform: _videoDrawTransform(
+          video,
+          args,
+          transformIndex: startIndex,
+          symbol: 'love.graphics.draw',
+        ),
+        video: video,
+        quad: quad,
+      ),
+    );
+    return null;
+  }
+
+  return _snapshotDrawableImageForVideo(runtime, video).then((resolvedImage) {
+    if (resolvedImage == null) {
+      return null;
+    }
 
     runtime.graphics.addCommand(
       LoveImageCommand(
@@ -505,20 +582,67 @@ LoveApiImplementation _bindGraphicsDraw(LibraryRegistrationContext context) {
         colorMask: runtime.graphics.colorMask,
         wireframe: runtime.graphics.wireframe,
         scissor: runtime.graphics.scissor,
-        shader: runtime.graphics.shader,
-        transform: runtime.graphics.copyTransform(),
-        drawTransform: _matrixFromTransformArgumentOrStandardTransform(
+        shader: runtime.graphics.currentShader,
+        transform: runtime.graphics.transform,
+        drawTransform: _videoDrawTransform(
+          video,
           args,
-          startIndex,
-          'love.graphics.draw',
+          transformIndex: startIndex,
+          symbol: 'love.graphics.draw',
         ),
         image: resolvedImage,
         quad: quad,
-        layer: layer,
       ),
     );
     return null;
+  });
+}
+
+Object? _queueTaggedImageDraw(
+  LoveRuntimeContext runtime,
+  List<Object?> args, {
+  required LoveImage image,
+}) {
+  if (_loveImageReleased[image] == true) {
+    _throwReleasedObjectError();
+  }
+
+  final quad = _quadIfPresent(_valueAt(args, 1));
+  final startIndex = quad == null ? 1 : 2;
+  final resolvedImage = switch (image) {
+    final LoveCanvas canvas => canvas.snapshot(),
+    _ => image,
   };
+  final layer = _directTextureDrawLayer(
+    resolvedImage,
+    quad,
+    'love.graphics.draw',
+  );
+
+  runtime.graphics.addCommand(
+    LoveImageCommand(
+      color: runtime.graphics.color,
+      lineWidth: runtime.graphics.lineWidth,
+      lineStyle: runtime.graphics.lineStyle,
+      lineJoin: runtime.graphics.lineJoin,
+      blendMode: runtime.graphics.blendMode,
+      blendAlphaMode: runtime.graphics.blendAlphaMode,
+      colorMask: runtime.graphics.colorMask,
+      wireframe: runtime.graphics.wireframe,
+      scissor: runtime.graphics.scissor,
+      shader: runtime.graphics.currentShader,
+      transform: runtime.graphics.transform,
+      drawTransform: _matrixFromTransformArgumentOrStandardTransform(
+        args,
+        startIndex,
+        'love.graphics.draw',
+      ),
+      image: resolvedImage,
+      quad: quad,
+      layer: layer,
+    ),
+  );
+  return null;
 }
 
 /// Binds `love.graphics.print`.
@@ -561,8 +685,8 @@ LoveApiImplementation _bindGraphicsPrint(LibraryRegistrationContext context) {
           colorMask: runtime.graphics.colorMask,
           wireframe: runtime.graphics.wireframe,
           scissor: runtime.graphics.scissor,
-          shader: runtime.graphics.shader,
-          transform: runtime.graphics.copyTransform(),
+          shader: runtime.graphics.currentShader,
+          transform: runtime.graphics.transform,
           textTransform: transform == null
               ? _standardTransform(args, startIndex, 'love.graphics.print')
               : Matrix4.copy(transform.matrix),
@@ -631,8 +755,8 @@ LoveApiImplementation _bindGraphicsPrintf(LibraryRegistrationContext context) {
           colorMask: runtime.graphics.colorMask,
           wireframe: runtime.graphics.wireframe,
           scissor: runtime.graphics.scissor,
-          shader: runtime.graphics.shader,
-          transform: runtime.graphics.copyTransform(),
+          shader: runtime.graphics.currentShader,
+          transform: runtime.graphics.transform,
           textTransform: transform == null
               ? _standardTransform(
                   args,

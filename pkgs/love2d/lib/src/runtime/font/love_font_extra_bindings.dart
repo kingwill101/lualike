@@ -2,7 +2,8 @@ library;
 
 import 'package:lualike/lualike.dart' show LuaRuntime, Value;
 
-import '../../generated/love_api_reference.g.dart' show loveApiEnums;
+import '../love_binding_helpers.dart';
+import '../love_module_table_helpers.dart';
 
 /// Tracks which runtimes already have font extra bindings installed.
 final Expando<bool> _loveFontExtrasInstalled = Expando<bool>(
@@ -10,27 +11,9 @@ final Expando<bool> _loveFontExtrasInstalled = Expando<bool>(
 );
 
 /// The generated hinting-mode enum table exposed through the LOVE font module.
-final Map<String, Object?> _loveHintingModeEnumMap = _buildHintingModeEnumMap();
-
-/// Builds the Lua-facing `HintingMode` enum table for `love.font`.
-Map<String, Object?> _buildHintingModeEnumMap() {
-  for (final enumDoc in loveApiEnums) {
-    if (enumDoc.symbol != 'HintingMode') {
-      continue;
-    }
-
-    return <String, Object?>{
-      for (final constant in enumDoc.constants) constant.name: constant.name,
-    };
-  }
-
-  return const <String, Object?>{
-    'normal': 'normal',
-    'light': 'light',
-    'mono': 'mono',
-    'none': 'none',
-  };
-}
+final Map<String, Object?> _loveHintingModeEnumMap = loveEnumMapForSymbol(
+  'HintingMode',
+);
 
 /// Installs font-specific extra bindings into [runtime].
 void installLoveFontExtraBindings(LuaRuntime runtime) {
@@ -42,27 +25,10 @@ void installLoveFontExtraBindings(LuaRuntime runtime) {
   final enumValue = Value(Map<String, Object?>.from(_loveHintingModeEnumMap));
   runtime.globals.define('HintingMode', enumValue);
 
-  final fontTable = _fontModuleTable(runtime);
+  final fontTable = loveModuleTable(runtime, 'font');
   if (fontTable == null) {
     return;
   }
 
   fontTable['HintingMode'] = enumValue;
-}
-
-/// The `love.font` module table from [runtime], if one is available.
-Map<dynamic, dynamic>? _fontModuleTable(LuaRuntime runtime) {
-  final love = runtime.globals.get('love');
-  final loveTable = love is Value ? love.raw : love;
-  if (loveTable is! Map<dynamic, dynamic>) {
-    return null;
-  }
-
-  final font = loveTable['font'];
-  final fontTable = font is Value ? font.raw : font;
-  if (fontTable is! Map<dynamic, dynamic>) {
-    return null;
-  }
-
-  return fontTable;
 }

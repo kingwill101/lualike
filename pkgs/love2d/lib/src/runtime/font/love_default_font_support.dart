@@ -1,34 +1,29 @@
 part of '../love_runtime.dart';
 
 /// Cached default graphics fonts keyed by runtime context.
-final Map<LoveRuntimeContext, LoveFont> _loveDefaultGraphicsFontCache =
-    HashMap<LoveRuntimeContext, LoveFont>.identity();
+final Expando<LoveFont> _loveDefaultGraphicsFontCache = Expando<LoveFont>(
+  'love2d.defaultGraphicsFont',
+);
 
 /// In-flight loaders for the default graphics font keyed by runtime context.
-final Map<LoveRuntimeContext, Future<LoveFont>>
-_loveDefaultGraphicsFontLoaders =
-    HashMap<LoveRuntimeContext, Future<LoveFont>>.identity();
+final Expando<Future<LoveFont>> _loveDefaultGraphicsFontLoaders =
+    Expando<Future<LoveFont>>('love2d.defaultGraphicsFontLoader');
 
 /// Cached default TrueType-derived fonts keyed by runtime context and font
 /// configuration.
-final Map<LoveRuntimeContext, Map<_LoveDefaultTrueTypeFontCacheKey, LoveFont>>
+final Expando<Map<_LoveDefaultTrueTypeFontCacheKey, LoveFont>>
 _loveDefaultTrueTypeFontCache =
-    HashMap<
-      LoveRuntimeContext,
-      Map<_LoveDefaultTrueTypeFontCacheKey, LoveFont>
-    >.identity();
+    Expando<Map<_LoveDefaultTrueTypeFontCacheKey, LoveFont>>(
+      'love2d.defaultTrueTypeFonts',
+    );
 
 /// In-flight loaders for default TrueType-derived fonts keyed by runtime
 /// context and font configuration.
-final Map<
-  LoveRuntimeContext,
-  Map<_LoveDefaultTrueTypeFontCacheKey, Future<LoveFont>>
->
+final Expando<Map<_LoveDefaultTrueTypeFontCacheKey, Future<LoveFont>>>
 _loveDefaultTrueTypeFontLoaders =
-    HashMap<
-      LoveRuntimeContext,
-      Map<_LoveDefaultTrueTypeFontCacheKey, Future<LoveFont>>
-    >.identity();
+    Expando<Map<_LoveDefaultTrueTypeFontCacheKey, Future<LoveFont>>>(
+      'love2d.defaultTrueTypeFontLoaders',
+    );
 
 /// Cache key for default TrueType fonts derived from runtime settings.
 final class _LoveDefaultTrueTypeFontCacheKey {
@@ -67,26 +62,37 @@ final class _LoveDefaultTrueTypeFontCacheKey {
 
 /// Clears all cached default-font state for [runtime].
 void _clearLoveDefaultGraphicsFontState(LoveRuntimeContext runtime) {
-  _loveDefaultGraphicsFontCache.remove(runtime);
-  _loveDefaultGraphicsFontLoaders.remove(runtime);
-  _loveDefaultTrueTypeFontCache.remove(runtime);
-  _loveDefaultTrueTypeFontLoaders.remove(runtime);
+  _loveDefaultGraphicsFontCache[runtime] = null;
+  _loveDefaultGraphicsFontLoaders[runtime] = null;
+  _loveDefaultTrueTypeFontCache[runtime] = null;
+  _loveDefaultTrueTypeFontLoaders[runtime] = null;
 }
 
 /// Adds default-font caching and loading helpers to runtime contexts.
 extension LoveRuntimeContextDefaultFontSupport on LoveRuntimeContext {
   /// The cached default TrueType fonts for this runtime.
   Map<_LoveDefaultTrueTypeFontCacheKey, LoveFont>
-  _defaultTrueTypeFontsForRuntime() => _loveDefaultTrueTypeFontCache
-      .putIfAbsent(this, () => <_LoveDefaultTrueTypeFontCacheKey, LoveFont>{});
+  _defaultTrueTypeFontsForRuntime() {
+    final cached = _loveDefaultTrueTypeFontCache[this];
+    if (cached != null) {
+      return cached;
+    }
+    final created = <_LoveDefaultTrueTypeFontCacheKey, LoveFont>{};
+    _loveDefaultTrueTypeFontCache[this] = created;
+    return created;
+  }
 
   /// The in-flight default TrueType font loaders for this runtime.
   Map<_LoveDefaultTrueTypeFontCacheKey, Future<LoveFont>>
-  _defaultTrueTypeFontLoadersForRuntime() =>
-      _loveDefaultTrueTypeFontLoaders.putIfAbsent(
-        this,
-        () => <_LoveDefaultTrueTypeFontCacheKey, Future<LoveFont>>{},
-      );
+  _defaultTrueTypeFontLoadersForRuntime() {
+    final cached = _loveDefaultTrueTypeFontLoaders[this];
+    if (cached != null) {
+      return cached;
+    }
+    final created = <_LoveDefaultTrueTypeFontCacheKey, Future<LoveFont>>{};
+    _loveDefaultTrueTypeFontLoaders[this] = created;
+    return created;
+  }
 
   /// Builds the cache key for a default TrueType font request.
   _LoveDefaultTrueTypeFontCacheKey _defaultTrueTypeFontCacheKey({
@@ -263,7 +269,7 @@ extension LoveRuntimeContextDefaultFontSupport on LoveRuntimeContext {
           return font;
         })
         .whenComplete(() {
-          _loveDefaultGraphicsFontLoaders.remove(this);
+          _loveDefaultGraphicsFontLoaders[this] = null;
         });
   }
 

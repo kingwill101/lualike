@@ -332,6 +332,34 @@ LoveImage _resolveImageSettings(
 ///
 /// This prefers the host image loader when available and falls back to the
 /// pure Dart image decoder when host loading fails.
+Future<
+  ({
+    LoveRuntimeContext runtime,
+    LoveFilesystemFileData fileData,
+    String? assetKey,
+    Uint8List bytes,
+  })
+>
+_prepareImageResource(
+  LibraryRegistrationContext context,
+  String source,
+  String symbol,
+) async {
+  final runtime = _runtimeContext(context);
+  final fileData = await _requireResourceFileData(context, source, symbol);
+  final assetKey = await _resolveResourceAssetKeyIfPresent(
+    context,
+    source,
+    symbol: symbol,
+  );
+  return (
+    runtime: runtime,
+    fileData: fileData,
+    assetKey: assetKey,
+    bytes: _loveUint8List(fileData.bytes, copy: true),
+  );
+}
+
 Future<LoveImage> _loadImageFromSource(
   LibraryRegistrationContext context,
   String source, {
@@ -341,14 +369,11 @@ Future<LoveImage> _loadImageFromSource(
   required LoveGraphicsFilterMode? defaultMipmapFilter,
   required double defaultMipmapSharpness,
 }) async {
-  final runtime = _runtimeContext(context);
-  final fileData = await _requireResourceFileData(context, source, symbol);
-  final assetKey = await _resolveResourceAssetKeyIfPresent(
-    context,
-    source,
-    symbol: symbol,
-  );
-  final bytes = Uint8List.fromList(fileData.bytes);
+  final resource = await _prepareImageResource(context, source, symbol);
+  final runtime = resource.runtime;
+  final fileData = resource.fileData;
+  final assetKey = resource.assetKey;
+  final bytes = resource.bytes;
 
   try {
     final image = await runtime.host.loadImage(
@@ -388,14 +413,11 @@ Future<LoveImageData> _loadImageDataFromSource(
   String source, {
   required String symbol,
 }) async {
-  final runtime = _runtimeContext(context);
-  final fileData = await _requireResourceFileData(context, source, symbol);
-  final assetKey = await _resolveResourceAssetKeyIfPresent(
-    context,
-    source,
-    symbol: symbol,
-  );
-  final bytes = Uint8List.fromList(fileData.bytes);
+  final resource = await _prepareImageResource(context, source, symbol);
+  final runtime = resource.runtime;
+  final fileData = resource.fileData;
+  final assetKey = resource.assetKey;
+  final bytes = resource.bytes;
 
   try {
     final image = await runtime.host.loadImage(

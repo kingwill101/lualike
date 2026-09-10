@@ -71,13 +71,11 @@ Value _wrapVideo(LibraryRegistrationContext context, LoveVideo video) {
   }
 
   final runtime = _runtimeContext(context);
-  final builder = BuiltinFunctionBuilder(context);
-  final libraryContext = LibraryContext(
-    environment: context.environment,
-    interpreter: context.interpreter,
-  );
+  final libraryContext = loveBindingContextForContext(context);
+  final builder = loveBindingBuilderForRegistrationContext(context);
   const hierarchy = <String>{'Video', 'Drawable', 'Object'};
   final table = ValueClass.table(<Object?, Object?>{
+    _loveDrawableKindKey: _loveDrawableKindVideo,
     _loveVideoObjectKey: video,
     'getDimensions': Value(
       builder.create((args) {
@@ -232,15 +230,11 @@ Value _wrapVideo(LibraryRegistrationContext context, LoveVideo video) {
     'release': Value(
       builder.create((args) async {
         final receiver = _valueAt(args, 0);
-        final table = _videoWrapperTableIfPresent(receiver);
-        if (table == null) {
-          _throwLuaStyleTypeError(
-            symbol: 'Object:release',
-            index: 0,
-            expected: 'Video',
-            actual: receiver,
-          );
-        }
+        final table = loveRequireReleaseWrapperTable(
+          receiver,
+          expected: 'Video',
+          resolve: _videoWrapperTableIfPresent,
+        );
 
         final video = table[_loveVideoObjectKey];
         if (video is! LoveVideo) {
@@ -363,7 +357,7 @@ Value _wrapVideoStream(LibraryContext context, LoveVideoStream stream) {
     return cached;
   }
 
-  final builder = BuiltinFunctionBuilder(context);
+  final builder = loveBindingBuilderForContext(context);
   const hierarchy = <String>{'VideoStream', 'Stream', 'Object'};
   final table = ValueClass.table(<Object?, Object?>{
     _loveVideoStreamObjectKey: stream,
@@ -450,15 +444,11 @@ Value _wrapVideoStream(LibraryContext context, LoveVideoStream stream) {
     'release': Value(
       builder.create((args) {
         final receiver = _valueAt(args, 0);
-        final table = _videoStreamWrapperTableIfPresent(receiver);
-        if (table == null) {
-          _throwLuaStyleTypeError(
-            symbol: 'Object:release',
-            index: 0,
-            expected: 'VideoStream',
-            actual: receiver,
-          );
-        }
+        final table = loveRequireReleaseWrapperTable(
+          receiver,
+          expected: 'VideoStream',
+          resolve: _videoStreamWrapperTableIfPresent,
+        );
 
         final stream = table[_loveVideoStreamObjectKey];
         if (stream is! LoveVideoStream) {

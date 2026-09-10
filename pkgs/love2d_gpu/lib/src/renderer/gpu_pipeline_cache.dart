@@ -25,6 +25,7 @@ class GpuPipelineCache {
 
   final gpu.GpuContext _gpuContext;
   final Map<PipelineKey, gpu.RenderPipeline> _cache = {};
+  gpu.RenderPipeline? _roughLinePipeline;
 
   gpu.RenderPipeline get(PipelineKey key) {
     return _cache.putIfAbsent(key, () => _createPipeline(key));
@@ -44,5 +45,33 @@ class GpuPipelineCache {
     return get(const PipelineKey(vertexStride: 32, isTextured: true));
   }
 
-  void clear() => _cache.clear();
+  gpu.RenderPipeline getRoughLinePipeline() {
+    return _roughLinePipeline ??= _gpuContext.createRenderPipeline(
+      LoveShaderBundles.roughLineVertex,
+      LoveShaderBundles.roughLineFragment,
+      vertexLayout: const gpu.VertexLayout(
+        buffers: <gpu.VertexBuffer>[
+          gpu.VertexBuffer(
+            strideInBytes: 32,
+            attributes: <gpu.VertexAttribute>[
+              gpu.VertexAttribute(
+                name: 'position',
+                format: gpu.VertexFormat.float32x2,
+              ),
+              gpu.VertexAttribute(
+                name: 'clip_position',
+                format: gpu.VertexFormat.float32x2,
+                offsetInBytes: 8,
+              ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+
+  void clear() {
+    _cache.clear();
+    _roughLinePipeline = null;
+  }
 }

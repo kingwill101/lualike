@@ -1,16 +1,25 @@
 part of '../love_api_bindings.dart';
 
+/// Reuses one shared Font method table per Lua runtime.
+final Expando<Value> _loveFontMethodsCache = Expando<Value>(
+  'love2dFontMethods',
+);
+
 /// Wraps a [LoveFont] as a Lua-facing `Font` object table.
-Value _wrapFont(LibraryRegistrationContext context, LoveFont font) {
-  final cached = _loveFontWrapperCache[font];
+Value _fontMethodsForContext(LibraryRegistrationContext context) {
+  final interpreter = context.interpreter;
+  if (interpreter == null) {
+    throw StateError('No Lua runtime available for Font methods');
+  }
+
+  final cached = _loveFontMethodsCache[interpreter];
   if (cached != null) {
     return cached;
   }
 
-  final builder = BuiltinFunctionBuilder(context);
+  final builder = loveBindingBuilderForContext(context);
   const hierarchy = <String>{'Font', 'Object'};
-  final table = ValueClass.table(<Object?, Object?>{
-    _loveFontObjectKey: font,
+  final methods = ValueClass.table(<Object?, Object?>{
     'getAscent': Value(
       builder.create((args) => _requireFont(args, 0, 'Font:getAscent').ascent),
       functionName: 'getAscent',
@@ -196,7 +205,25 @@ Value _wrapFont(LibraryRegistrationContext context, LoveFont font) {
       }),
       functionName: 'typeOf',
     ),
-  });
+  })..interpreter = interpreter;
+  _loveFontMethodsCache[interpreter] = methods;
+  return methods;
+}
+
+/// Wraps a [LoveFont] as a Lua-facing `Font` object table.
+Value _wrapFont(LibraryRegistrationContext context, LoveFont font) {
+  final cached = _loveFontWrapperCache[font];
+  if (cached != null) {
+    return cached;
+  }
+
+  final methods = _fontMethodsForContext(context);
+  final table = loveObjectWrapperTable(
+    context: loveBindingContextForContext(context),
+    objectKey: _loveFontObjectKey,
+    object: font,
+    methods: methods,
+  );
   _loveFontWrapperCache[font] = table;
   return table;
 }
@@ -244,9 +271,10 @@ Value _wrapTextDrawable(
     return cached;
   }
 
-  final builder = BuiltinFunctionBuilder(context);
+  final builder = loveBindingBuilderForContext(context);
   const hierarchy = <String>{'Text', 'Drawable', 'Object'};
   final table = ValueClass.table(<Object?, Object?>{
+    _loveDrawableKindKey: _loveDrawableKindText,
     _loveTextObjectKey: text,
     'add': Value(
       builder.create((args) {
@@ -498,6 +526,11 @@ String? _strictFontTextSegmentLike(
 /// Wraps an immutable [LoveImage] as a Lua-facing `Image` object table.
 final Expando<bool> _loveImageReleased = Expando<bool>('love2dImageReleased');
 
+/// Reuses one shared Image method table per Lua runtime.
+final Expando<Value> _loveImageMethodsCache = Expando<Value>(
+  'love2dImageMethods',
+);
+
 /// Wraps an immutable [LoveImage] as a Lua-facing `Image` object table.
 Value _wrapImage(LibraryRegistrationContext context, LoveImage image) {
   final cached = _loveImageWrapperCache[image];
@@ -505,10 +538,35 @@ Value _wrapImage(LibraryRegistrationContext context, LoveImage image) {
     return cached;
   }
 
-  final builder = BuiltinFunctionBuilder(context);
+  final methods = _imageMethodsForContext(context);
+  final table = loveObjectWrapperTable(
+    context: loveBindingContextForContext(context),
+    objectKey: _loveImageObjectKey,
+    object: image,
+    methods: methods,
+    additionalFields: <Object?, Object?>{
+      _loveDrawableKindKey: _loveDrawableKindImage,
+    },
+  );
+  _loveImageWrapperCache[image] = table;
+  return table;
+}
+
+/// Reuses one shared Image method table per Lua runtime.
+Value _imageMethodsForContext(LibraryRegistrationContext context) {
+  final interpreter = context.interpreter;
+  if (interpreter == null) {
+    throw StateError('No Lua runtime available for Image methods');
+  }
+
+  final cached = _loveImageMethodsCache[interpreter];
+  if (cached != null) {
+    return cached;
+  }
+
+  final builder = loveBindingBuilderForContext(context);
   const hierarchy = <String>{'Image', 'Texture', 'Drawable', 'Object'};
-  final table = ValueClass.table(<Object?, Object?>{
-    _loveImageObjectKey: image,
+  final methods = ValueClass.table(<Object?, Object?>{
     ..._textureEntries(
       builder,
       requireTexture: (args, symbol) => _requireImage(args, 0, symbol),
@@ -752,13 +810,18 @@ Value _wrapImage(LibraryRegistrationContext context, LoveImage image) {
       }),
       functionName: 'typeOf',
     ),
-  });
-  _loveImageWrapperCache[image] = table;
-  return table;
+  })..interpreter = interpreter;
+  _loveImageMethodsCache[interpreter] = methods;
+  return methods;
 }
 
 /// Whether a canvas has already been released through `Object:release`.
 final Expando<bool> _loveCanvasReleased = Expando<bool>('love2dCanvasReleased');
+
+/// Reuses one shared Canvas method table per Lua runtime.
+final Expando<Value> _loveCanvasMethodsCache = Expando<Value>(
+  'love2dCanvasMethods',
+);
 
 /// Wraps a mutable [LoveCanvas] as a Lua-facing `Canvas` object table.
 Value _wrapCanvas(LibraryRegistrationContext context, LoveCanvas canvas) {
@@ -767,16 +830,37 @@ Value _wrapCanvas(LibraryRegistrationContext context, LoveCanvas canvas) {
     return cached;
   }
 
-  final builder = BuiltinFunctionBuilder(context);
+  final methods = _canvasMethodsForContext(context);
+  final table = loveObjectWrapperTable(
+    context: loveBindingContextForContext(context),
+    objectKey: _loveCanvasObjectKey,
+    object: canvas,
+    methods: methods,
+    additionalFields: <Object?, Object?>{
+      _loveDrawableKindKey: _loveDrawableKindImage,
+      _loveImageObjectKey: canvas,
+    },
+  );
+  _loveCanvasWrapperCache[canvas] = table;
+  return table;
+}
+
+/// Reuses one shared Canvas method table per Lua runtime.
+Value _canvasMethodsForContext(LibraryRegistrationContext context) {
   final interpreter = context.interpreter;
   if (interpreter == null) {
-    throw StateError('No interpreter available for Canvas bindings');
+    throw StateError('No Lua runtime available for Canvas methods');
   }
-  final runtime = _runtimeContext(context);
 
-  final table = ValueClass.table(<Object?, Object?>{
-    _loveImageObjectKey: canvas,
-    _loveCanvasObjectKey: canvas,
+  final cached = _loveCanvasMethodsCache[interpreter];
+  if (cached != null) {
+    return cached;
+  }
+
+  final builder = loveBindingBuilderForContext(context);
+  final runtime = _runtimeContext(context);
+  const hierarchy = <String>{'Canvas', 'Texture', 'Drawable', 'Object'};
+  final methods = ValueClass.table(<Object?, Object?>{
     ..._textureEntries(
       builder,
       requireTexture: (args, symbol) => _requireCanvas(args, 0, symbol),
@@ -823,7 +907,6 @@ Value _wrapCanvas(LibraryRegistrationContext context, LoveCanvas canvas) {
     ),
     'newImageData': Value(
       builder.create((args) async {
-        // Mirrors LOVE's Canvas.cpp / wrap_Canvas.cpp validation.
         final canvas = _requireCanvas(args, 0, 'Canvas:newImageData');
         if (!canvas.readable) {
           throw LuaError(
@@ -1042,16 +1125,13 @@ Value _wrapCanvas(LibraryRegistrationContext context, LoveCanvas canvas) {
           );
         }
         final queried = _requireString(args, 1, 'Object:typeOf');
-        return queried == 'Canvas' ||
-            queried == 'Texture' ||
-            queried == 'Drawable' ||
-            queried == 'Object';
+        return hierarchy.contains(queried);
       }),
       functionName: 'typeOf',
     ),
-  });
-  _loveCanvasWrapperCache[canvas] = table;
-  return table;
+  })..interpreter = interpreter;
+  _loveCanvasMethodsCache[interpreter] = methods;
+  return methods;
 }
 
 Future<LoveImageData?> _maybeFlameCanvasReadbackImageData(
@@ -1132,7 +1212,7 @@ Value _wrapImageData(LibraryContext context, LoveImageData imageData) {
     return cached;
   }
 
-  final builder = BuiltinFunctionBuilder(context);
+  final builder = loveBindingBuilderForContext(context);
   final interpreter = context.interpreter;
   if (interpreter == null) {
     throw StateError('No interpreter available for ImageData bindings');
@@ -1188,6 +1268,7 @@ Value _wrapImageData(LibraryContext context, LoveImageData imageData) {
           LoveFilesystemFileData(
             bytes: encodedBytes,
             filename: encodedFilename,
+            copyBytes: false,
           ),
         );
       }),
@@ -1401,7 +1482,7 @@ Value _wrapFilesystemFileDataCompat(
     return cached;
   }
 
-  final builder = BuiltinFunctionBuilder(context);
+  final builder = loveBindingBuilderForContext(context);
   const hierarchy = <String>{'FileData', 'Data', 'Object'};
 
   LoveFilesystemFileData requireFileData(
@@ -1830,7 +1911,7 @@ Value _wrapQuad(LibraryRegistrationContext context, LoveQuad quad) {
     return cached;
   }
 
-  final builder = BuiltinFunctionBuilder(context);
+  final builder = loveBindingBuilderForContext(context);
   final table = ValueClass.table(<Object?, Object?>{
     _loveQuadObjectKey: quad,
     'getTextureDimensions': Value(
@@ -1895,7 +1976,7 @@ Value _wrapTransform(
     return cached;
   }
 
-  final builder = BuiltinFunctionBuilder(context);
+  final builder = loveBindingBuilderForContext(context);
   final table = ValueClass.table(<Object?, Object?>{
     _loveTransformObjectKey: transform,
     'apply': Value(

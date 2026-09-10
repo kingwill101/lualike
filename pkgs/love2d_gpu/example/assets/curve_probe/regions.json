@@ -1,0 +1,13 @@
+{
+  "schemaVersion": 1,
+  "logicalSize": {"width": 800, "height": 600},
+  "regions": [
+    {"name": "full", "x": 0, "y": 0, "width": 800, "height": 600},
+    {"name": "circle_width_1", "x": 62, "y": 124, "width": 156, "height": 156},
+    {"name": "circle_width_2", "x": 322, "y": 124, "width": 156, "height": 156},
+    {"name": "circle_width_3", "x": 582, "y": 124, "width": 156, "height": 156},
+    {"name": "arc_width_1", "x": 62, "y": 380, "width": 156, "height": 156},
+    {"name": "arc_width_2", "x": 322, "y": 380, "width": 156, "height": 156},
+    {"name": "arc_width_3", "x": 582, "y": 380, "width": 156, "height": 156}
+  ]
+}

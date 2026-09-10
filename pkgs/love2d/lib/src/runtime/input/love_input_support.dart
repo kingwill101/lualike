@@ -91,10 +91,15 @@ class LoveKeyboardState extends ChangeNotifier {
   Set<String> get pressedScancodes =>
       UnmodifiableSetView<String>(_pressedScancodes);
 
+  /// Returns whether the given key is currently pressed.
+  bool isKeyDown(String key) {
+    return _pressedScancodes.contains(getScancodeFromKey(key));
+  }
+
   /// Returns whether any key in [keys] is currently pressed.
   bool isDown(Iterable<String> keys) {
     for (final key in keys) {
-      if (_pressedScancodes.contains(getScancodeFromKey(key))) {
+      if (isKeyDown(key)) {
         return true;
       }
     }
@@ -102,10 +107,15 @@ class LoveKeyboardState extends ChangeNotifier {
     return false;
   }
 
+  /// Returns whether the given scancode is currently pressed.
+  bool isScancodePressed(String scancode) {
+    return _pressedScancodes.contains(scancode);
+  }
+
   /// Returns whether any scancode in [scancodes] is currently pressed.
   bool isScancodeDown(Iterable<String> scancodes) {
     for (final scancode in scancodes) {
-      if (_pressedScancodes.contains(scancode)) {
+      if (isScancodePressed(scancode)) {
         return true;
       }
     }

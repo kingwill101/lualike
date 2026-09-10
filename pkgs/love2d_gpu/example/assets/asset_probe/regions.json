@@ -1,0 +1,18 @@
+{
+  "schemaVersion": 1,
+  "logicalSize": {"width": 800, "height": 600},
+  "regions": [
+    {"name": "full", "x": 0, "y": 0, "width": 800, "height": 600},
+    {"name": "drone", "x": 25, "y": 73, "width": 150, "height": 150},
+    {"name": "beacon", "x": 225, "y": 73, "width": 150, "height": 150},
+    {"name": "core", "x": 425, "y": 73, "width": 150, "height": 150},
+    {"name": "core_damaged", "x": 625, "y": 73, "width": 150, "height": 150},
+    {"name": "cell", "x": 40, "y": 263, "width": 120, "height": 110},
+    {"name": "bolt", "x": 240, "y": 263, "width": 120, "height": 110},
+    {"name": "shield", "x": 440, "y": 263, "width": 120, "height": 110},
+    {"name": "overdrive", "x": 640, "y": 263, "width": 120, "height": 110},
+    {"name": "impact", "x": 40, "y": 433, "width": 120, "height": 120},
+    {"name": "player", "x": 205, "y": 390, "width": 190, "height": 190},
+    {"name": "sentinel", "x": 405, "y": 390, "width": 190, "height": 190}
+  ]
+}

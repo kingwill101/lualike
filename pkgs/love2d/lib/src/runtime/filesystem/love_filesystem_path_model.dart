@@ -21,8 +21,14 @@ class LoveFilesystemInfo {
 /// In-memory file data read through the LOVE filesystem.
 class LoveFilesystemFileData {
   /// Creates file data for [filename].
-  LoveFilesystemFileData({required List<int> bytes, required this.filename})
-    : bytes = List<int>.unmodifiable(bytes);
+  ///
+  /// When [copyBytes] is `false`, [bytes] must already be immutable (for
+  /// example a virtual mount node's frozen buffer or a prior [bytes] list).
+  LoveFilesystemFileData({
+    required List<int> bytes,
+    required this.filename,
+    bool copyBytes = true,
+  }) : bytes = copyBytes ? List<int>.unmodifiable(bytes) : bytes;
 
   /// The immutable file contents.
   final List<int> bytes;
@@ -43,9 +49,15 @@ class LoveFilesystemFileData {
   /// The number of bytes stored in this file data object.
   int get size => bytes.length;
 
-  /// Returns a defensive copy of this file data object.
+  /// Returns a copy of this file data object.
+  ///
+  /// Shares the immutable [bytes] buffer; only the wrapper is new.
   LoveFilesystemFileData clone() {
-    return LoveFilesystemFileData(bytes: bytes, filename: filename);
+    return LoveFilesystemFileData(
+      bytes: bytes,
+      filename: filename,
+      copyBytes: false,
+    );
   }
 }
 
@@ -281,7 +293,8 @@ class _LoveResolvedPath {
         return null;
       }
 
-      return List<int>.from(node.bytes!);
+      // Virtual mount nodes already store unmodifiable bytes.
+      return node.bytes;
     }
 
     final candidatePath = physicalPath;
@@ -390,10 +403,11 @@ List<String> _splitPathTemplates(String rawPath) {
 List<int> _bytesFromIODeviceValue(Object? value) {
   return switch (value) {
     null => const <int>[],
-    LuaString(:final bytes) => List<int>.from(bytes),
-    final String text => utf8.encode(text),
-    final List<int> bytes => List<int>.from(bytes),
-    _ => utf8.encode(value.toString()),
+    LuaString(:final bytes) => bytes,
+    final String text => Uint8List.fromList(utf8.encode(text)),
+    final Uint8List bytes => bytes,
+    final List<int> bytes => Uint8List.fromList(bytes),
+    _ => Uint8List.fromList(utf8.encode(value.toString())),
   };
 }
 
