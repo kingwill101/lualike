@@ -3,6 +3,7 @@
 ## 0.3.2
 
 - Widen the `lualike` dependency to `>=0.5.4 <1.0.0` so compatible core releases continue to resolve.
+- Widen the `lualike_hooks` dependency to `>=0.2.2 <1.0.0` for the matching hooks release.
 
 ## 0.3.1
 

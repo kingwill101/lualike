@@ -20,7 +20,7 @@ dependencies:
   flutter:
     sdk: flutter
   lualike: ">=0.5.4 <1.0.0"
-  lualike_hooks: ^0.1.0
+  lualike_hooks: ">=0.2.2 <1.0.0"
   hooks: ^2.0.2
 
 dev_dependencies:
