@@ -1,5 +1,12 @@
 # file_lualike changelog
 
+## 0.2.2
+
+- Allow `useFileSystem()` to target a specific lualike interpreter.
+- Keep package:file I/O and metadata operations isolated when multiple
+  interpreters use different filesystems concurrently.
+- Widen the `lualike` dependency to `>=0.5.4 <1.0.0`.
+
 ## 0.2.1
 
 - Update the `lualike` dependency to `^0.5.3`.

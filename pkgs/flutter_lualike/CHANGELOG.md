@@ -1,5 +1,9 @@
 # flutter_lualike changelog
 
+## 0.3.2
+
+- Widen the `lualike` dependency to `>=0.5.4 <1.0.0` so compatible core releases continue to resolve.
+
 ## 0.3.1
 
 - Update the `lualike` dependency to `^0.5.3`.

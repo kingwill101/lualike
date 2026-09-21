@@ -1,5 +1,9 @@
 # lualike_hooks changelog
 
+## 0.2.2
+
+- Widen the `lualike` dependency to `>=0.5.4 <1.0.0` so compatible core releases continue to resolve.
+
 ## 0.2.1
 
 - Update the `lualike` dependency to `^0.5.3`.
