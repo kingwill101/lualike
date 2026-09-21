@@ -1,5 +1,4 @@
 import 'package:lualike/src/builtin_function.dart';
-import 'package:lualike/src/environment.dart';
 import 'package:lualike/src/runtime/lua_runtime.dart';
 import 'package:lualike/src/logging/logger.dart';
 import 'package:lualike/src/lua_error.dart';
@@ -49,27 +48,14 @@ class IOLibrary extends Library {
     context.define("type", IOType(interpreter));
     context.define("write", IOWrite(interpreter));
 
-    // Add standard streams
-    context.define(
-      "stdin",
-      IOLib._stdinValue = createLuaFile(
-        IOLib.stdinDevice,
-        isStandardFile: true,
-        interpreter: context.interpreter,
-      ),
-    );
-    context.define(
-      "stdout",
-      IOLib._stdoutValue = createLuaFile(
-        IOLib.stdoutDevice,
-        isStandardFile: true,
-        interpreter: context.interpreter,
-      ),
-    );
+    // Add standard streams. Each runtime owns its wrappers and selected
+    // defaults even though the underlying process streams may be shared.
+    context.define("stdin", IOLib.registerStdin(interpreter));
+    context.define("stdout", IOLib.registerStdout(interpreter));
     context.define(
       "stderr",
       createLuaFile(
-        IOLib.stderrDevice,
+        IOLib.stderrDeviceFor(interpreter),
         isStandardFile: true,
         interpreter: context.interpreter,
       ),
@@ -93,20 +79,30 @@ bool isLuaFile(dynamic value) => extractLuaFile(value) != null;
 bool _isLuaFileWrapperFor(Value? value, LuaFile file) =>
     identical(extractLuaFile(value), file);
 
+class IOLibraryState {
+  FileSystemProvider? fileSystemProvider;
+  StdinDevice? stdinDevice;
+  StdoutDevice? stdoutDevice;
+  StdoutDevice? stderrDevice;
+  Value? stdinValue;
+  Value? stdoutValue;
+  Value? defaultInput;
+  Value? defaultOutput;
+  bool defaultOutputExplicitlyClosed = false;
+}
+
 class IOLib {
-  // Singleton instances for standard devices
-  static StdinDevice? _stdinDevice;
-  static StdoutDevice? _stdoutDevice;
-  static StdoutDevice? _stderrDevice;
-  static Value? _stdinValue;
-  static Value? _stdoutValue;
+  static final IOLibraryState _globalState = IOLibraryState();
+  static final Expando<IOLibraryState> _runtimeStates = Expando(
+    'lualikeIoState',
+  );
 
-  // File system provider - defaults to local file system
-  static FileSystemProvider? _fileSystemProvider;
-
-  static Value? _defaultInput;
-  static Value? _defaultOutput;
-  static bool _defaultOutputExplicitlyClosed = false;
+  /// Returns the IO state owned by [interpreter], or the legacy global state
+  /// when no interpreter is supplied.
+  static IOLibraryState stateFor(LuaRuntime? interpreter) {
+    if (interpreter == null) return _globalState;
+    return _runtimeStates[interpreter] ??= IOLibraryState();
+  }
 
   static void _debugOpenFileLog(String message) {
     if (platform.getEnvironmentVariable('LUALIKE_DEBUG_FILE_OPS') == '1') {
@@ -114,12 +110,10 @@ class IOLib {
     }
   }
 
-  /// Returns GC roots for IO state held outside normal Lua reachability.
-  ///
-  /// Only standard and current default handles belong here. Adding every
-  /// registered open file makes otherwise unreachable handles immortal and
-  /// prevents their `__gc` finalizers from releasing OS file descriptors.
+  /// Returns GC roots for [runtime]'s IO state: standard handles plus every
+  /// open file registered with that interpreter instance.
   static List<Object?> gcRootsFor(LuaRuntime runtime) {
+    final state = stateFor(runtime);
     final roots = <Object?>[];
     final seen = Expando<bool>('ioGcRootsSeen');
 
@@ -130,35 +124,18 @@ class IOLib {
       roots.add(value);
     }
 
-    add(_stdinValue);
-    add(_stdoutValue);
-    add(_defaultInput);
-    add(_defaultOutput);
-    for (final fileValue in runtime.openFiles) {
-      final file = extractLuaFile(fileValue);
-      if (file != null && _isFileBoundInEnvironment(runtime, file)) {
-        add(fileValue);
-      }
+    add(state.stdinValue);
+    add(state.stdoutValue);
+    add(state.defaultInput);
+    add(state.defaultOutput);
+    // All open files registered to this interpreter are GC roots. Without
+    // this the lualike collector can mark a file Value as dead (no path from
+    // env roots) and run its __gc finalizer even though the file is still
+    // open and referenced by a global in a loaded chunk.
+    for (final v in runtime.openFiles) {
+      add(v);
     }
     return roots;
-  }
-
-  static bool _isFileBoundInEnvironment(LuaRuntime runtime, LuaFile file) {
-    final visited = <Environment>{};
-
-    bool search(Environment? environment) {
-      while (environment != null && visited.add(environment)) {
-        for (final box in environment.values.values) {
-          if (identical(extractLuaFile(box.value), file)) {
-            return true;
-          }
-        }
-        environment = environment.parent;
-      }
-      return false;
-    }
-
-    return search(runtime.getCurrentEnv()) || search(runtime.globals);
   }
 
   static void registerOpenFile(Value fileValue, {LuaRuntime? interpreter}) {
@@ -230,136 +207,183 @@ class IOLib {
   }
 
   static bool isCurrentDefaultFile(LuaFile file) {
-    return _isLuaFileWrapperFor(_defaultInput, file) ||
-        _isLuaFileWrapperFor(_defaultOutput, file);
+    return isCurrentDefaultFileFor(file);
   }
 
-  // Get singleton instances
-  static StdinDevice get stdinDevice {
-    Logger.debugLazy(() => 'Getting stdinDevice', category: 'IO');
-    Logger.debugLazy(
-      () => 'Current _stdinDevice: $_stdinDevice',
-      category: 'IO',
-    );
-    if (_stdinDevice == null) {
-      Logger.debugLazy(() => 'Creating new StdinDevice', category: 'IO');
-      _stdinDevice = StdinDevice();
-      Logger.debugLazy(
-        () => 'Created StdinDevice: $_stdinDevice',
-        category: 'IO',
-      );
-    }
-    return _stdinDevice!;
+  static bool isCurrentDefaultFileFor(LuaFile file, {LuaRuntime? interpreter}) {
+    final state = stateFor(interpreter);
+    return _isLuaFileWrapperFor(state.defaultInput, file) ||
+        _isLuaFileWrapperFor(state.defaultOutput, file);
   }
 
-  static StdoutDevice get stdoutDevice =>
-      _stdoutDevice ??= StdoutDevice(io_abs.stdout, false);
+  // Global accessors are retained for hosts that intentionally configure one
+  // provider for every runtime. Runtime-aware hosts should use the `For`
+  // methods so provider replacement cannot redirect another interpreter.
+  static StdinDevice get stdinDevice => stdinDeviceFor(null);
 
-  static StdoutDevice get stderrDevice =>
-      _stderrDevice ??= StdoutDevice(io_abs.stderr);
+  static StdinDevice stdinDeviceFor(LuaRuntime? interpreter) {
+    final state = stateFor(interpreter);
+    return state.stdinDevice ??= _globalState.stdinDevice ?? StdinDevice();
+  }
 
-  // File system provider factory
+  static StdoutDevice get stdoutDevice => stdoutDeviceFor(null);
+
+  static StdoutDevice stdoutDeviceFor(LuaRuntime? interpreter) {
+    final state = stateFor(interpreter);
+    return state.stdoutDevice ??=
+        _globalState.stdoutDevice ?? StdoutDevice(io_abs.stdout, false);
+  }
+
+  static StdoutDevice get stderrDevice => stderrDeviceFor(null);
+
+  static StdoutDevice stderrDeviceFor(LuaRuntime? interpreter) {
+    final state = stateFor(interpreter);
+    return state.stderrDevice ??=
+        _globalState.stderrDevice ?? StdoutDevice(io_abs.stderr);
+  }
+
   static FileSystemProvider get fileSystemProvider =>
-      _fileSystemProvider ??= FileSystemProvider();
+      fileSystemProviderFor(null);
 
-  /// Set a custom file system provider
+  static FileSystemProvider fileSystemProviderFor(LuaRuntime? interpreter) {
+    final state = stateFor(interpreter);
+    return state.fileSystemProvider ??=
+        _globalState.fileSystemProvider ?? FileSystemProvider();
+  }
+
   static set fileSystemProvider(FileSystemProvider provider) {
+    setFileSystemProviderFor(provider);
+  }
+
+  static void setFileSystemProviderFor(
+    FileSystemProvider provider, {
+    LuaRuntime? interpreter,
+  }) {
     Logger.debugLazy(
       () => 'Setting file system provider to: ${provider.providerName}',
       category: 'FileSystem',
     );
-    _fileSystemProvider = provider;
+    stateFor(interpreter).fileSystemProvider = provider;
   }
 
-  // Setters to allow custom devices (similar to what you mentioned exists for stdio)
   static set stdinDevice(StdinDevice device) {
-    _stdinDevice = device;
-    _stdinValue = null;
+    _globalState.stdinDevice = device;
+    _globalState.stdinValue = null;
+  }
+
+  static void setStdinDeviceFor(StdinDevice device, LuaRuntime interpreter) {
+    final state = stateFor(interpreter);
+    state.stdinDevice = device;
+    state.stdinValue = null;
   }
 
   static set stdoutDevice(StdoutDevice device) {
-    _stdoutDevice = device;
-    _stdoutValue = null;
+    _globalState.stdoutDevice = device;
+    _globalState.stdoutValue = null;
+  }
+
+  static void setStdoutDeviceFor(StdoutDevice device, LuaRuntime interpreter) {
+    final state = stateFor(interpreter);
+    state.stdoutDevice = device;
+    state.stdoutValue = null;
   }
 
   static set stderrDevice(StdoutDevice device) {
-    _stderrDevice = device;
+    _globalState.stderrDevice = device;
   }
 
-  static Value get defaultInput {
-    Logger.debugLazy(() => 'Getting default input', category: 'IO');
-    Logger.debugLazy(
-      () => 'Current _defaultInput: $_defaultInput',
-      category: 'IO',
+  static void setStderrDeviceFor(StdoutDevice device, LuaRuntime interpreter) {
+    stateFor(interpreter).stderrDevice = device;
+  }
+
+  static Value registerStdin(LuaRuntime interpreter) {
+    final state = stateFor(interpreter);
+    return state.stdinValue ??= createLuaFile(
+      stdinDeviceFor(interpreter),
+      isStandardFile: true,
+      interpreter: interpreter,
     );
-    if (_defaultInput == null) {
-      Logger.debugLazy(
-        () => 'Creating new default input with stdinDevice',
-        category: 'IO',
-      );
-      _defaultInput =
-          _stdinValue ?? createLuaFile(stdinDevice, isStandardFile: true);
-      Logger.debugLazy(
-        () => 'Created default input: $_defaultInput',
-        category: 'IO',
-      );
-    } else {
-      Logger.debugLazy(
-        () => 'Using existing default input: $_defaultInput',
-        category: 'IO',
-      );
-    }
-    return _defaultInput!;
+  }
+
+  static Value registerStdout(LuaRuntime interpreter) {
+    final state = stateFor(interpreter);
+    return state.stdoutValue ??= createLuaFile(
+      stdoutDeviceFor(interpreter),
+      isStandardFile: true,
+      interpreter: interpreter,
+    );
+  }
+
+  static Value get defaultInput => defaultInputFor(null);
+
+  static Value defaultInputFor(LuaRuntime? interpreter) {
+    final state = stateFor(interpreter);
+    Logger.debugLazy(() => 'Getting default input', category: 'IO');
+    return state.defaultInput ??=
+        state.stdinValue ??
+        createLuaFile(
+          stdinDeviceFor(interpreter),
+          isStandardFile: true,
+          interpreter: interpreter,
+        );
   }
 
   static set defaultInput(Value? file) {
-    _defaultInput = file;
+    setDefaultInputFor(file);
   }
 
-  static Value get defaultOutput {
-    Logger.debugLazy(() => 'Getting default output');
-    // Note: interpreter is set when initially registering stdout with the library
-    _defaultOutput ??=
-        _stdoutValue ?? createLuaFile(stdoutDevice, isStandardFile: true);
-    return _defaultOutput!;
+  static void setDefaultInputFor(Value? file, {LuaRuntime? interpreter}) {
+    stateFor(interpreter).defaultInput = file;
+  }
+
+  static Value get defaultOutput => defaultOutputFor(null);
+
+  static Value defaultOutputFor(LuaRuntime? interpreter) {
+    final state = stateFor(interpreter);
+    return state.defaultOutput ??=
+        state.stdoutValue ??
+        createLuaFile(
+          stdoutDeviceFor(interpreter),
+          isStandardFile: true,
+          interpreter: interpreter,
+        );
   }
 
   static set defaultOutput(Value? file) {
-    _defaultOutput = file;
+    setDefaultOutputFor(file);
   }
 
-  static Future<void> reset() async {
-    final defaultInputValue = _defaultInput;
-    final defaultInputFile = extractLuaFile(defaultInputValue);
-    if (defaultInputFile != null) {
-      final luaFile = defaultInputFile;
-      if (luaFile.device is! StdinDevice) {
-        await luaFile.close();
-        IOLib.unregisterOpenFileForLuaFile(
-          luaFile,
-          interpreter: defaultInputValue?.interpreter,
-        );
-      }
-    }
-    _defaultInput = null;
+  static void setDefaultOutputFor(Value? file, {LuaRuntime? interpreter}) {
+    stateFor(interpreter).defaultOutput = file;
+  }
 
-    final defaultOutputValue = _defaultOutput;
-    final defaultOutputFile = extractLuaFile(defaultOutputValue);
-    if (defaultOutputFile != null) {
-      final luaFile = defaultOutputFile;
-      if (luaFile.device is! StdoutDevice) {
-        await luaFile.close();
-        IOLib.unregisterOpenFileForLuaFile(
-          luaFile,
-          interpreter: defaultOutputValue?.interpreter,
-        );
-      }
+  static Future<void> reset({LuaRuntime? interpreter}) async {
+    final state = stateFor(interpreter);
+    final defaultInputValue = state.defaultInput;
+    final defaultInputFile = extractLuaFile(defaultInputValue);
+    if (defaultInputFile != null && defaultInputFile.device is! StdinDevice) {
+      await defaultInputFile.close();
+      unregisterOpenFileForLuaFile(
+        defaultInputFile,
+        interpreter: defaultInputValue?.interpreter,
+      );
     }
-    _defaultOutput = null;
-    _defaultOutputExplicitlyClosed = false;
-    _stdinValue = null;
-    _stdoutValue = null;
-    // openFiles is per-interpreter; no static set to clear.
+    state.defaultInput = null;
+
+    final defaultOutputValue = state.defaultOutput;
+    final defaultOutputFile = extractLuaFile(defaultOutputValue);
+    if (defaultOutputFile != null &&
+        defaultOutputFile.device is! StdoutDevice) {
+      await defaultOutputFile.close();
+      unregisterOpenFileForLuaFile(
+        defaultOutputFile,
+        interpreter: defaultOutputValue?.interpreter,
+      );
+    }
+    state.defaultOutput = null;
+    state.defaultOutputExplicitlyClosed = false;
+    state.stdinValue = null;
+    state.stdoutValue = null;
   }
 }
 
@@ -387,15 +411,16 @@ class IOClose extends BuiltinFunction {
     Logger.debugLazy(() => 'Executing IO close', category: 'IO');
     if (args.isEmpty) {
       Logger.debugLazy(() => 'Closing default output', category: 'IO');
-      final defaultOutput = IOLib.defaultOutput;
+      final state = IOLib.stateFor(interpreter);
+      final defaultOutput = IOLib.defaultOutputFor(interpreter);
       final luaFile = extractLuaFile(defaultOutput)!;
       final result = await luaFile.close();
-      IOLib._defaultOutputExplicitlyClosed = true;
+      state.defaultOutputExplicitlyClosed = true;
       Logger.debugLazy(
         () => 'Set _defaultOutputExplicitlyClosed to true',
         category: 'IO',
       );
-      IOLib._defaultOutput = null; // Reset to stdout on next access
+      state.defaultOutput = null; // Reset to stdout on next access
       if (result.isNotEmpty && result[0] == true) {
         IOLib.unregisterOpenFileForLuaFile(luaFile, interpreter: interpreter);
       }
@@ -413,6 +438,7 @@ class IOClose extends BuiltinFunction {
 
     Logger.debugLazy(() => 'Closing file', category: 'IO');
     final luaFile = extractLuaFile(file)!;
+    final runtime = (file is Value ? file.interpreter : null) ?? interpreter;
 
     // Check if this is a standard file (stdin, stdout, stderr)
     if (luaFile.isStandardFile) {
@@ -427,7 +453,7 @@ class IOClose extends BuiltinFunction {
       // Special handling for default input/output files
       // If this is the default input or output file that was closed (e.g., by GC),
       // we should return success rather than throwing an error
-      if (IOLib.isCurrentDefaultFile(luaFile)) {
+      if (IOLib.isCurrentDefaultFileFor(luaFile, interpreter: runtime)) {
         Logger.debugLazy(
           () => 'Default input/output file already closed, returning success',
           category: 'IO',
@@ -441,15 +467,16 @@ class IOClose extends BuiltinFunction {
 
     final result = await luaFile.close();
     if (result.isNotEmpty && result[0] == true) {
-      IOLib.unregisterOpenFileForLuaFile(luaFile, interpreter: interpreter);
+      IOLib.unregisterOpenFileForLuaFile(luaFile, interpreter: runtime);
     }
-    if (_isLuaFileWrapperFor(IOLib._defaultOutput, luaFile)) {
+    final state = IOLib.stateFor(interpreter);
+    if (_isLuaFileWrapperFor(state.defaultOutput, luaFile)) {
       // When closing the current output file, revert to stdout
       Logger.debugLazy(
         () => 'Resetting default output to stdout',
         category: 'IO',
       );
-      IOLib._defaultOutput = null;
+      state.defaultOutput = null;
     }
 
     // Note: We don't reset _defaultInput to null here because we want
@@ -473,7 +500,7 @@ class IOFlush extends BuiltinFunction {
   @override
   Future<Object?> call(List<Object?> args) async {
     Logger.debugLazy(() => 'Executing IO flush', category: 'IO');
-    final defaultOutput = IOLib.defaultOutput;
+    final defaultOutput = IOLib.defaultOutputFor(interpreter);
     final luaFile = extractLuaFile(defaultOutput)!;
     final result = await luaFile.flush();
     return LuaResults(result);
@@ -504,7 +531,7 @@ class IOInput extends BuiltinFunction {
     Logger.debugLazy(() => 'Executing IO input', category: 'IO');
     if (args.isEmpty) {
       Logger.debugLazy(() => 'Returning default input', category: 'IO');
-      return IOLib.defaultInput;
+      return IOLib.defaultInputFor(interpreter);
     }
 
     Value? newFile;
@@ -530,7 +557,9 @@ class IOInput extends BuiltinFunction {
         category: 'IO',
       );
       try {
-        final device = await IOLib.fileSystemProvider.openFile(filename, "r");
+        final device = await IOLib.fileSystemProviderFor(
+          interpreter,
+        ).openFile(filename, "r");
         newFile = createLuaFile(device, interpreter: interpreter);
         result = newFile;
       } catch (e) {
@@ -543,12 +572,13 @@ class IOInput extends BuiltinFunction {
     // Do not auto-close the previous default input (matches Lua semantics),
     // but once it is no longer the default handle it should not stay pinned as
     // an interpreter-global GC root solely through openFiles.
-    final previousDefault = IOLib._defaultInput;
+    final state = IOLib.stateFor(interpreter);
+    final previousDefault = state.defaultInput;
     if (!identical(previousDefault, newFile)) {
       if (previousDefault != null) {
         IOLib.unregisterOpenFile(previousDefault, interpreter: interpreter);
       }
-      IOLib._defaultInput = newFile;
+      state.defaultInput = newFile;
     }
     return result;
   }
@@ -605,7 +635,7 @@ class IOLines extends BuiltinFunction {
         category: 'IO',
       );
       Logger.debugLazy(() => 'About to get defaultInput...', category: 'IO');
-      fileValue = IOLib.defaultInput;
+      fileValue = IOLib.defaultInputFor(interpreter);
       Logger.debugLazy(() => 'Got defaultInput: $fileValue', category: 'IO');
       formats = ["l"];
       Logger.debugLazy(() => 'About to call file.lines()...', category: 'IO');
@@ -622,7 +652,9 @@ class IOLines extends BuiltinFunction {
       Logger.debugLazy(() => 'Opening new file for lines', category: 'IO');
       final filename = _ioString(args[0]);
       try {
-        final device = await IOLib.fileSystemProvider.openFile(filename, "r");
+        final device = await IOLib.fileSystemProviderFor(
+          interpreter,
+        ).openFile(filename, "r");
         final luaFile = LuaFile(device);
         formats = _ioStringList(args.skip(1));
         if (formats.isEmpty) formats = ["l"];
@@ -652,7 +684,7 @@ class IOLines extends BuiltinFunction {
         () => 'About to get defaultInput for nil case...',
         category: 'IO',
       );
-      fileValue = IOLib.defaultInput;
+      fileValue = IOLib.defaultInputFor(interpreter);
       Logger.debugLazy(
         () => 'Got defaultInput for nil case: $fileValue',
         category: 'IO',
@@ -706,7 +738,9 @@ class IOOpen extends BuiltinFunction {
     );
 
     try {
-      final device = await IOLib.fileSystemProvider.openFile(filename, mode);
+      final device = await IOLib.fileSystemProviderFor(
+        interpreter,
+      ).openFile(filename, mode);
       return createLuaFile(device, interpreter: interpreter);
     } catch (e) {
       Logger.debugLazy(() => 'Error opening file: $e', category: 'IO');
@@ -750,7 +784,7 @@ class IOOutput extends BuiltinFunction {
         () => 'No args - returning default output',
         category: 'IO',
       );
-      return IOLib.defaultOutput;
+      return IOLib.defaultOutputFor(interpreter);
     }
 
     Logger.debugLazy(
@@ -783,7 +817,9 @@ class IOOutput extends BuiltinFunction {
         category: 'IO',
       );
       try {
-        final device = await IOLib.fileSystemProvider.openFile(filename, "w");
+        final device = await IOLib.fileSystemProviderFor(
+          interpreter,
+        ).openFile(filename, "w");
         Logger.debugLazy(
           () => 'fileSystemProvider.openFile succeeded',
           category: 'IO',
@@ -803,7 +839,8 @@ class IOOutput extends BuiltinFunction {
       category: 'IO',
     );
     // Avoid hanging - just set the new output without closing problematic files
-    final previousDefault = IOLib._defaultOutput;
+    final state = IOLib.stateFor(interpreter);
+    final previousDefault = state.defaultOutput;
     final currentFile = extractLuaFile(previousDefault);
     if (currentFile != null) {
       if (currentFile.device is! StdoutDevice) {
@@ -824,8 +861,8 @@ class IOOutput extends BuiltinFunction {
     }
 
     Logger.debugLazy(() => 'Setting new default output', category: 'IO');
-    IOLib._defaultOutput = newFile;
-    IOLib._defaultOutputExplicitlyClosed =
+    state.defaultOutput = newFile;
+    state.defaultOutputExplicitlyClosed =
         false; // Reset the flag when setting new output
     Logger.debugLazy(
       () => 'Reset _defaultOutputExplicitlyClosed to false',
@@ -926,7 +963,7 @@ class IORead extends BuiltinFunction {
       Logger.debugLazy(() => 'Reading format: $format', category: 'IO');
 
       try {
-        final defaultInput = IOLib.defaultInput;
+        final defaultInput = IOLib.defaultInputFor(interpreter);
         final luaFile = extractLuaFile(defaultInput)!;
         final result = await luaFile.read(format);
         if (format == '1') {
@@ -1001,7 +1038,9 @@ class IOTmpfile extends BuiltinFunction {
   Future<Object?> call(List<Object?> args) async {
     Logger.debugLazy(() => 'Executing IO tmpfile', category: 'IO');
     try {
-      final device = await IOLib.fileSystemProvider.createTempFile('lua_temp');
+      final device = await IOLib.fileSystemProviderFor(
+        interpreter,
+      ).createTempFile('lua_temp');
       return createLuaFile(device, interpreter: interpreter);
     } catch (e) {
       Logger.debugLazy(
@@ -1060,10 +1099,10 @@ class IOWrite extends BuiltinFunction {
     // Check if default output was explicitly closed
     Logger.debugLazy(
       () =>
-          'Checking _defaultOutputExplicitlyClosed: ${IOLib._defaultOutputExplicitlyClosed}',
+          'Checking _defaultOutputExplicitlyClosed: ${IOLib.stateFor(interpreter).defaultOutputExplicitlyClosed}',
       category: 'IO',
     );
-    if (IOLib._defaultOutputExplicitlyClosed) {
+    if (IOLib.stateFor(interpreter).defaultOutputExplicitlyClosed) {
       Logger.debugLazy(
         () => 'Default output was explicitly closed, throwing error',
         category: 'IO',
@@ -1079,7 +1118,7 @@ class IOWrite extends BuiltinFunction {
     for (final arg in args) {
       final rawVal = rawLuaSlot(arg);
       try {
-        final defaultOutput = IOLib.defaultOutput;
+        final defaultOutput = IOLib.defaultOutputFor(interpreter);
         final luaFile = extractLuaFile(defaultOutput)!;
         if (rawVal is LuaString) {
           final bytes = rawVal.bytes;
@@ -1131,10 +1170,11 @@ class IOWrite extends BuiltinFunction {
     }
 
     // Get current Library metamethods from interpreter
-    if (IOLib._defaultOutput != null) {
-      return IOLib._defaultOutput;
+    final state = IOLib.stateFor(interpreter);
+    if (state.defaultOutput != null) {
+      return state.defaultOutput;
     }
-    return IOLib.defaultOutput;
+    return IOLib.defaultOutputFor(interpreter);
   }
 }
 
@@ -1170,6 +1210,7 @@ class FileClose extends BuiltinFunction {
     }
 
     final luaFile = extractLuaFile(file)!;
+    final runtime = (file is Value ? file.interpreter : null) ?? interpreter;
 
     // Check if this is a standard file (stdin, stdout, stderr)
     if (luaFile.isStandardFile) {
@@ -1185,27 +1226,28 @@ class FileClose extends BuiltinFunction {
       final fileValue = file is Value ? file : null;
       IOLib.unregisterOpenFileForLuaFile(
         luaFile,
-        interpreter: fileValue?.interpreter ?? interpreter,
+        interpreter: fileValue?.interpreter ?? runtime,
       );
     }
 
     // If this file was the current default output, reset it to stdout
-    if (_isLuaFileWrapperFor(IOLib._defaultOutput, luaFile)) {
+    final state = IOLib.stateFor(runtime);
+    if (_isLuaFileWrapperFor(state.defaultOutput, luaFile)) {
       Logger.debugLazy(
         () => 'Resetting default output to stdout after file close',
         category: 'IO',
       );
-      IOLib._defaultOutput = null;
-      IOLib._defaultOutputExplicitlyClosed = false; // Reset the flag
+      state.defaultOutput = null;
+      state.defaultOutputExplicitlyClosed = false; // Reset the flag
     }
 
     // Similarly for default input
-    if (_isLuaFileWrapperFor(IOLib._defaultInput, luaFile)) {
+    if (_isLuaFileWrapperFor(state.defaultInput, luaFile)) {
       Logger.debugLazy(
         () => 'Resetting default input to stdin after file close',
         category: 'IO',
       );
-      IOLib._defaultInput = null;
+      state.defaultInput = null;
     }
 
     return LuaResults(result);

@@ -1110,7 +1110,7 @@ class PrintFunction extends BuiltinFunction {
     }
 
     final output = outputs.join("\t");
-    final defaultOutput = IOLib.defaultOutput;
+    final defaultOutput = IOLib.defaultOutputFor(interpreter);
     final luaFile = rawLuaSlot(defaultOutput) as LuaFile;
     await luaFile.write("$output\n");
     return null;
@@ -1628,12 +1628,12 @@ class LoadfileFunction extends BuiltinFunction {
     try {
       Value sourceValue;
       if (filename == null) {
-        final defaultInput = IOLib.defaultInput;
+        final defaultInput = IOLib.defaultInputFor(runtime);
         final luaFile = rawLuaSlot(defaultInput) as LuaFile;
         final result = await luaFile.read('a');
         sourceValue = valueFromLuaSlot(runtime, result[0]?.toString() ?? '');
       } else {
-        final bytes = await readFileAsBytes(filename);
+        final bytes = await readFileAsBytes(filename, interpreter: runtime);
         if (bytes == null) {
           final src = await runtime.fileManager.loadSource(filename);
           if (src == null) {
@@ -2183,7 +2183,7 @@ class WarnFunction extends BuiltinFunction {
           .join("\t");
 
       // Use IOLib default output for warnings instead of stderr
-      final defaultOutput = IOLib.defaultOutput;
+      final defaultOutput = IOLib.defaultOutputFor(interpreter);
       final luaFile = rawLuaSlot(defaultOutput) as LuaFile;
       await luaFile.write("Lua warning: $messages\n");
       await luaFile.flush();

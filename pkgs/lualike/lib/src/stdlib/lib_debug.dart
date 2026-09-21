@@ -207,7 +207,7 @@ class DebugLibrary extends Library {
   @override
   void registerFunctions(LibraryRegistrationContext context) {
     // Register all debug functions individually
-    context.define("debug", _DebugInteractive());
+    context.define("debug", _DebugInteractive(interpreter));
     context.define("gethook", _GetHook(interpreter));
     context.define("getinfo", _GetInfoImpl(interpreter!));
     context.define("getlocal", _GetLocal(interpreter!));
@@ -232,7 +232,7 @@ class DebugLibrary extends Library {
 
 /// Interactive debug console
 class _DebugInteractive extends BuiltinFunction {
-  _DebugInteractive() : super();
+  _DebugInteractive([super.interpreter]);
 
   @override
   FunctionDoc? get doc => FunctionDoc(
@@ -253,11 +253,11 @@ class _DebugInteractive extends BuiltinFunction {
     );
 
     while (true) {
-      final defaultOutput = IOLib.defaultOutput;
+      final defaultOutput = IOLib.defaultOutputFor(interpreter);
       final outputLuaFile = rawLuaSlot(defaultOutput) as LuaFile;
       await outputLuaFile.write('debug> ');
 
-      final defaultInput = IOLib.defaultInput;
+      final defaultInput = IOLib.defaultInputFor(interpreter);
       final inputLuaFile = rawLuaSlot(defaultInput) as LuaFile;
       final result = await inputLuaFile.read('l');
       final input = result[0]?.toString();

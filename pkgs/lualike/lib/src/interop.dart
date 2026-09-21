@@ -100,7 +100,7 @@ extension VMInterop on LuaRuntime {
       } else {
         // Resolve relative paths against the current working directory
         try {
-          final currentDir = fs.getCurrentDirectory();
+          final currentDir = fs.getCurrentDirectory(interpreter: this);
           if (currentDir != null) {
             absolutePath = path.normalize(path.join(currentDir, scriptPath));
           } else {
@@ -457,11 +457,15 @@ class LuaLike {
 }
 
 /// Runs a Lua file with the given path.
-Future<List<Value>> runFile(String pathStr, {Map<String, dynamic>? env}) async {
-  if (!await fs.fileExists(pathStr)) {
+Future<List<Value>> runFile(
+  String pathStr, {
+  Map<String, dynamic>? env,
+  LuaRuntime? runtime,
+}) async {
+  if (!await fs.fileExists(pathStr, interpreter: runtime)) {
     throw Exception('File not found: $pathStr');
   }
-  final bytes = await fs.readFileAsBytes(pathStr);
+  final bytes = await fs.readFileAsBytes(pathStr, interpreter: runtime);
   if (bytes == null) {
     throw Exception('Could not read file: $pathStr');
   }
@@ -484,7 +488,7 @@ Future<List<Value>> runFile(String pathStr, {Map<String, dynamic>? env}) async {
   // Mark this as the main chunk
   env['_MAIN_CHUNK'] = true;
 
-  return runCode(code, filePath: pathStr, env: env);
+  return runCode(code, filePath: pathStr, env: env, runtime: runtime);
 }
 
 /// Runs Lua code with the given environment.
@@ -492,8 +496,9 @@ Future<List<Value>> runCode(
   String code, {
   String? filePath,
   Map<String, dynamic>? env,
+  LuaRuntime? runtime,
 }) async {
-  final LuaRuntime interpreter = Interpreter();
+  final interpreter = runtime ?? Interpreter();
 
   // Create a new environment if one wasn't provided
   env ??= {};
@@ -539,18 +544,18 @@ Future<List<Value>> runCode(
 }
 
 /// Loads a Lua script from a file.
-Future<Value> loadFile(String path) async {
+Future<Value> loadFile(String path, {LuaRuntime? runtime}) async {
   try {
-    if (!await fs.fileExists(path)) {
+    if (!await fs.fileExists(path, interpreter: runtime)) {
       throw LuaError.typeError('File not found: $path');
     }
-    final bytes = await fs.readFileAsBytes(path);
+    final bytes = await fs.readFileAsBytes(path, interpreter: runtime);
     if (bytes == null) {
       throw LuaError.typeError('Could not read file: $path');
     }
     final content = utf8.decode(bytes);
     // runCode returns a list, loadFile should return the first result or nil
-    final results = await runCode(content, filePath: path);
+    final results = await runCode(content, filePath: path, runtime: runtime);
     return results.isNotEmpty ? results[0] : Value.primitive(null);
   } catch (e) {
     if (e is LuaError) {

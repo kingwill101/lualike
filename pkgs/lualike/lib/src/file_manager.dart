@@ -34,12 +34,10 @@ class FileManager {
   ///
   /// [interpreter] - Optional reference to the runtime for accessing script paths
   FileManager({LuaRuntime? interpreter}) : _interpreter = interpreter {
-    // Initialize with current directory as default search path
+    // Initialize with current directory as default search path.
     _searchPaths.add('.');
-
-    // Add the current working directory to search paths
     try {
-      final currentDir = fs.getCurrentDirectory();
+      final currentDir = _getCurrentDirectory();
       if (currentDir != null && !_searchPaths.contains(currentDir)) {
         _searchPaths.add(currentDir);
         Logger.debugLazy(
@@ -53,7 +51,6 @@ class FileManager {
         category: 'FileManager',
       );
     }
-
     // Add the Dart script directory to search paths - only if not in product mode
     if (!isProductMode) {
       try {
@@ -207,7 +204,7 @@ class FileManager {
 
     // Fast path: if the given path exists as-is (absolute or relative), read it directly
     try {
-      if (await fs.fileExists(normalizedFilePath)) {
+      if (await _fileExists(normalizedFilePath)) {
         return await _readFileWithStrategy(
           normalizedFilePath,
           preserveRawBytes,
@@ -231,7 +228,7 @@ class FileManager {
 
     // Add current working directory to search paths
     try {
-      final currentDir = fs.getCurrentDirectory();
+      final currentDir = _getCurrentDirectory();
       if (currentDir != null && !_searchPaths.contains(currentDir)) {
         _searchPaths.add(currentDir);
         Logger.debugLazy(
@@ -279,7 +276,7 @@ class FileManager {
         ];
 
         for (final dir in specialDirs) {
-          if (!_searchPaths.contains(dir) && (await fs.directoryExists(dir))) {
+          if (!_searchPaths.contains(dir) && (await _directoryExists(dir))) {
             _searchPaths.add(dir);
             Logger.debugLazy(
               () => "Added special directory to search paths: $dir",
@@ -323,7 +320,7 @@ class FileManager {
         }
 
         // Try physical file
-        final file = await fs.fileExists(fullPath);
+        final file = await _fileExists(fullPath);
         if (file) {
           return await _readFileWithStrategy(fullPath, preserveRawBytes);
         }
@@ -333,7 +330,7 @@ class FileManager {
     // If the path is relative, try resolving it relative to the current working directory
     if (!path.isAbsolute(normalizedFilePath)) {
       try {
-        final currentDir = fs.getCurrentDirectory();
+        final currentDir = _getCurrentDirectory();
         if (currentDir == null) {
           throw Exception("Current directory is null");
         }
@@ -349,7 +346,7 @@ class FileManager {
           }
 
           // Try physical file
-          final file = await fs.fileExists(fullPath);
+          final file = await _fileExists(fullPath);
           if (file) {
             return await _readFileWithStrategy(fullPath, preserveRawBytes);
           }
@@ -382,7 +379,7 @@ class FileManager {
           }
 
           // Try physical file
-          final file = await fs.fileExists(fullPath);
+          final file = await _fileExists(fullPath);
           if (file) {
             return await _readFileWithStrategy(fullPath, preserveRawBytes);
           }
@@ -401,7 +398,7 @@ class FileManager {
           }
 
           // Try physical file
-          final file = await fs.fileExists(fullPath);
+          final file = await _fileExists(fullPath);
           if (file) {
             return await _readFileWithStrategy(fullPath, preserveRawBytes);
           }
@@ -422,7 +419,7 @@ class FileManager {
     String file,
     bool preserveRawBytes,
   ) async {
-    final bytes = await fs.readFileAsBytes(file);
+    final bytes = await _readFileAsBytes(file);
     if (bytes == null) {
       return null;
     }
@@ -529,7 +526,7 @@ class FileManager {
 
     // Add current working directory templates
     try {
-      final currentDir = fs.getCurrentDirectory();
+      final currentDir = _getCurrentDirectory();
       if (currentDir == null) {
         throw Exception("Current directory is null");
       }
@@ -658,7 +655,7 @@ class FileManager {
       }
 
       // Check physical files
-      final file = await fs.fileExists(fileName);
+      final file = await _fileExists(fileName);
       if (file) {
         Logger.debugLazy(
           () => "Module found in physical files as '$fileName'",
@@ -673,12 +670,12 @@ class FileManager {
         final pattern = path.basename(fileName);
 
         // Check if directory exists before trying to list it
-        final dir = await fs.directoryExists(directory);
+        final dir = await _directoryExists(directory);
         if (dir) {
-          final entities = await fs.listDirectory(directory);
+          final entities = await _listDirectory(directory);
 
           for (final entity in entities) {
-            if (await fs.fileExists(entity)) {
+            if (await _fileExists(entity)) {
               final basename = path.basename(entity);
               if (_matchesGlobPattern(basename, pattern)) {
                 Logger.debugLazy(
@@ -735,7 +732,7 @@ class FileManager {
             return fullPath;
           }
 
-          final file = await fs.fileExists(fullPath);
+          final file = await _fileExists(fullPath);
           if (file) {
             Logger.debugLazy(
               () =>
@@ -751,9 +748,9 @@ class FileManager {
             final pattern = path.basename(fullPath);
 
             // Check if directory exists before trying to list it
-            final dir = await fs.directoryExists(directory);
+            final dir = await _directoryExists(directory);
             if (dir) {
-              final entities = await fs.listDirectory(directory);
+              final entities = await _listDirectory(directory);
               Logger.debugLazy(
                 () =>
                     "DEBUG: Found ${entities.length} files/directories in "
@@ -762,7 +759,7 @@ class FileManager {
               );
 
               for (final entity in entities) {
-                if (await fs.fileExists(entity)) {
+                if (await _fileExists(entity)) {
                   final basename = path.basename(entity);
                   if (_matchesGlobPattern(basename, pattern)) {
                     Logger.debugLazy(
@@ -797,9 +794,9 @@ class FileManager {
     // Try special directories that might contain modules
     final specialDirs = [
       // Current directory and its subdirectories
-      fs.getCurrentDirectory(),
-      path.join(fs.getCurrentDirectory() ?? '', 'test'),
-      path.join(fs.getCurrentDirectory() ?? '', '.lua-tests'),
+      _getCurrentDirectory(),
+      path.join(_getCurrentDirectory() ?? '', 'test'),
+      path.join(_getCurrentDirectory() ?? '', '.lua-tests'),
     ];
 
     // Add project root directories if not in product mode
@@ -824,7 +821,7 @@ class FileManager {
 
     for (final dir in specialDirs) {
       try {
-        final directory = await fs.directoryExists(dir ?? '');
+        final directory = await _directoryExists(dir ?? '');
         if (directory) {
           // Try with dots converted to separators
           final modNameWithSep = normalizedModuleName.replaceAll(
@@ -839,7 +836,7 @@ class FileManager {
             ];
 
             for (final fullPath in paths) {
-              final file = await fs.fileExists(fullPath);
+              final file = await _fileExists(fullPath);
               if (file) {
                 return fullPath;
               }
@@ -966,7 +963,7 @@ class FileManager {
 
       // Then try relative to the current working directory
       try {
-        final currentDir = fs.getCurrentDirectory();
+        final currentDir = _getCurrentDirectory();
         if (currentDir == null) {
           throw Exception("Current directory is null");
         }
@@ -1038,4 +1035,19 @@ class FileManager {
       return resolvedPath;
     }
   }
+
+  String? _getCurrentDirectory() =>
+      fs.getCurrentDirectory(interpreter: _interpreter);
+
+  Future<bool> _fileExists(String filePath) =>
+      fs.fileExists(filePath, interpreter: _interpreter);
+
+  Future<bool> _directoryExists(String directoryPath) =>
+      fs.directoryExists(directoryPath, interpreter: _interpreter);
+
+  Future<List<int>?> _readFileAsBytes(String filePath) =>
+      fs.readFileAsBytes(filePath, interpreter: _interpreter);
+
+  Future<List<String>> _listDirectory(String directoryPath) =>
+      fs.listDirectory(directoryPath, interpreter: _interpreter);
 }

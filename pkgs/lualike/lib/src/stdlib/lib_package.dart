@@ -143,7 +143,7 @@ class _LoadLib extends BuiltinFunction {
     // We don't actually load C libraries, just simulate the interface
     if (funcname == '*') {
       // Check whether the library exists
-      if (!await fileExists(libpath)) {
+      if (!await fileExists(libpath, interpreter: interpreter)) {
         // In Lua, a missing library returns nil plus an error message and the
         // string 'absent'.
         return [
@@ -157,7 +157,7 @@ class _LoadLib extends BuiltinFunction {
     }
 
     // For specific symbols, check if the library exists first
-    if (!await fileExists(libpath)) {
+    if (!await fileExists(libpath, interpreter: interpreter)) {
       return [
         primitiveValue(null),
         dartStringValue('cannot load $libpath'),
@@ -210,7 +210,7 @@ class _SearchPath extends BuiltinFunction {
       if (template.isEmpty) continue;
       final filename = template.replaceAll('?', replacedName);
       tried.add(filename);
-      if (await fileExists(filename)) {
+      if (await fileExists(filename, interpreter: interpreter)) {
         return dartStringValue(filename);
       }
     }
@@ -255,7 +255,7 @@ class _LuaLoader extends BuiltinFunction {
         category: 'Package',
       );
 
-      if (await fileExists(directPath)) {
+      if (await fileExists(directPath, interpreter: interpreter)) {
         Logger.debugLazy(
           () => "Module found in script directory: $directPath",
           category: 'Package',

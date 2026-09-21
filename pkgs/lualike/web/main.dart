@@ -63,7 +63,7 @@ print("Hello from lualike!")
     luaLike = LuaLike();
 
     // Set up in-memory file system for web (so file I/O works properly)
-    IOLib.fileSystemProvider.setIODeviceFactory(
+    IOLib.fileSystemProviderFor(luaLike.vm).setIODeviceFactory(
       createInMemoryIODevice,
       providerName: 'WebInMemoryFileSystem',
     );
@@ -71,8 +71,14 @@ print("Hello from lualike!")
     // Set up virtual devices for web I/O (similar to interactive REPL)
     final stdinDevice = VirtualIODevice();
     final stdoutDevice = WebOutputDevice(output);
-    IOLib.defaultInput = createLuaFile(stdinDevice);
-    IOLib.defaultOutput = createLuaFile(stdoutDevice);
+    IOLib.setDefaultInputFor(
+      createLuaFile(stdinDevice, interpreter: luaLike.vm),
+      interpreter: luaLike.vm,
+    );
+    IOLib.setDefaultOutputFor(
+      createLuaFile(stdoutDevice, interpreter: luaLike.vm),
+      interpreter: luaLike.vm,
+    );
 
     // Populate examples
     populateExamplesList();

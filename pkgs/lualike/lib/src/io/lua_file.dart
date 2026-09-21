@@ -48,7 +48,10 @@ final fileMetamethods = {
       category: 'IO',
     );
 
-    final isDefaultFile = IOLib.isCurrentDefaultFile(luaFile);
+    final isDefaultFile = IOLib.isCurrentDefaultFileFor(
+      luaFile,
+      interpreter: fileValue.interpreter,
+    );
 
     Logger.debugLazy(
       () => 'GC: Is this a current default file? $isDefaultFile',
@@ -83,9 +86,9 @@ final fileMetamethods = {
     // For default files that are being GC'd, we need to be more careful
     if (isDefaultFile) {
       // Check if this is a standard file that should never be closed
-      if (luaFile.device == IOLib.stdoutDevice ||
-          luaFile.device == IOLib.stderrDevice ||
-          luaFile.device == IOLib.stdinDevice) {
+      if (luaFile.device == IOLib.stdoutDeviceFor(fileValue.interpreter) ||
+          luaFile.device == IOLib.stderrDeviceFor(fileValue.interpreter) ||
+          luaFile.device == IOLib.stdinDeviceFor(fileValue.interpreter)) {
         Logger.debugLazy(
           () => 'GC: Skipping close of standard device',
           category: 'IO',

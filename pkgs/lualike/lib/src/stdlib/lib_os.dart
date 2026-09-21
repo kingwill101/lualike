@@ -501,8 +501,8 @@ class _OSRemove extends BuiltinFunction {
     final filename = path_lib.normalize(_osStringArg(args, 0));
 
     try {
-      if (await fileExists(filename)) {
-        await deleteFile(filename);
+      if (await fileExists(filename, interpreter: interpreter)) {
+        await deleteFile(filename, interpreter: interpreter);
         return LuaResults([primitiveValue(true)]);
       } else {
         return LuaResults([
@@ -539,8 +539,8 @@ class _OSRename extends BuiltinFunction {
     final newName = path_lib.normalize(_osStringArg(args, 1));
 
     try {
-      if (await fileExists(oldName)) {
-        await renameFile(oldName, newName);
+      if (await fileExists(oldName, interpreter: interpreter)) {
+        await renameFile(oldName, newName, interpreter: interpreter);
         return LuaResults([primitiveValue(true)]);
       } else {
         return LuaResults([

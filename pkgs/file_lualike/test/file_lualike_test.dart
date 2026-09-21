@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:file/file.dart' as pkg_file;
 import 'package:file/memory.dart';
 import 'package:file_lualike/file_lualike.dart';
@@ -292,5 +294,85 @@ void main() {
       expect(result.value, luaString('explicit'));
       await device.close();
     });
+
+    test('keeps IO and metadata operations bound to each runtime', () async {
+      final fsA = MemoryFileSystem();
+      final fsB = MemoryFileSystem();
+      await fsA.file('/identity.txt').writeAsString('workspace-a');
+      await fsB.file('/identity.txt').writeAsString('workspace-b');
+      await fsA.file('/module.lua').writeAsString("return 'module-a'");
+      await fsB.file('/module.lua').writeAsString("return 'module-b'");
+      await fsA.file('/delete.txt').writeAsString('a');
+      await fsB.file('/delete.txt').writeAsString('b');
+
+      final a = LuaLike();
+      final b = LuaLike();
+      final providerA = FileSystemProvider();
+      await useFileSystem(fsA, provider: providerA, interpreter: a.vm);
+      await useFileSystem(fsB, interpreter: b.vm);
+
+      // Hold A's open operation while B completes, forcing the two async IO
+      // calls to overlap.
+      final releaseA = Completer<void>();
+      providerA.setIODeviceFactory((path, mode) async {
+        await releaseA.future;
+        return PackageFileIODevice.open(fsA, path, mode);
+      });
+
+      Future<String?> readIdentity(LuaLike runtime) async {
+        final result = await runtime.execute('''
+          local file = assert(io.open('/identity.txt', 'r'))
+          local body = file:read('*a')
+          file:close()
+          return body
+        ''');
+        return result is Value
+            ? result.unwrap()?.toString()
+            : result?.toString();
+      }
+
+      final aRead = readIdentity(a);
+      expect(await readIdentity(b), 'workspace-b');
+      releaseA.complete();
+      expect(await aRead, 'workspace-a');
+      expect(await readIdentity(a), 'workspace-a');
+
+      expect(
+        await _executeString(a, "return dofile('/module.lua')"),
+        'module-a',
+      );
+      expect(
+        await _executeString(b, "return dofile('/module.lua')"),
+        'module-b',
+      );
+      expect(
+        await _executeString(
+          a,
+          "local load = assert(loadfile('/module.lua')); return load()",
+        ),
+        'module-a',
+      );
+      expect(await _executeString(a, "return require('module')"), 'module-a');
+      expect(
+        await _executeString(a, "return os.remove('/delete.txt')"),
+        'true',
+      );
+      expect(
+        await _executeString(b, "return os.remove('/delete.txt')"),
+        'true',
+      );
+      expect(await fsA.file('/delete.txt').exists(), isFalse);
+      expect(await fsB.file('/delete.txt').exists(), isFalse);
+    });
   });
+}
+
+Future<String?> _executeString(LuaLike runtime, String code) async {
+  final result = await runtime.execute(code);
+  Object? raw = result is Value ? result.unwrap() : result;
+  if (raw is List && raw.isNotEmpty) {
+    raw = raw.first;
+  }
+  if (raw is Value) raw = raw.unwrap();
+  return raw?.toString();
 }

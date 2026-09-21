@@ -1495,7 +1495,7 @@ class Interpreter extends AstVisitor<Object?>
 
           // Try to make the path relative to the current directory
           try {
-            final currentDir = fs.getCurrentDirectory() ?? "";
+            final currentDir = fs.getCurrentDirectory(interpreter: this) ?? "";
             if (filepath.startsWith(currentDir)) {
               filepath = filepath.substring(currentDir.length);
               // Remove leading slash if present
@@ -1518,7 +1518,7 @@ class Interpreter extends AstVisitor<Object?>
         // Try to make the script path relative
         String filepath = scriptPath;
         try {
-          final currentDir = fs.getCurrentDirectory() ?? "";
+          final currentDir = fs.getCurrentDirectory(interpreter: this) ?? "";
           if (filepath.startsWith(currentDir)) {
             filepath = filepath.substring(currentDir.length);
             // Remove leading slash if present

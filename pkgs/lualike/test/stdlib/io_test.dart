@@ -227,6 +227,25 @@ void main() {
         expect(IOLib.defaultOutput, isNotNull);
       });
 
+      test('default streams and reset are interpreter scoped', () async {
+        final a = LuaLike();
+        final b = LuaLike();
+        final inputA = IOLib.defaultInputFor(a.vm);
+        final outputA = IOLib.defaultOutputFor(a.vm);
+        final inputB = IOLib.defaultInputFor(b.vm);
+        final outputB = IOLib.defaultOutputFor(b.vm);
+
+        expect(inputA, isNot(same(inputB)));
+        expect(outputA, isNot(same(outputB)));
+
+        IOLib.setDefaultInputFor(null, interpreter: a.vm);
+        IOLib.setDefaultOutputFor(null, interpreter: a.vm);
+        await IOLib.reset(interpreter: a.vm);
+
+        expect(IOLib.defaultInputFor(b.vm), same(inputB));
+        expect(IOLib.defaultOutputFor(b.vm), same(outputB));
+      });
+
       test('gc roots retain current default input handle', () async {
         final previousProvider = IOLib.fileSystemProvider;
         _CountingIODevice.reset();

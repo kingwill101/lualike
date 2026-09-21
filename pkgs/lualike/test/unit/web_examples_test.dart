@@ -7,19 +7,17 @@ import 'package:lualike/src/stdlib/lib_io.dart';
 
 void main() {
   group('Web examples', () {
+    late FileSystemProvider provider;
+
     setUp(() async {
       await IOLib.reset();
       InMemoryIODevice.clearMemoryStorage();
 
-      final provider = FileSystemProvider(
-        providerName: 'WebInMemoryFileSystem',
-      );
+      provider = FileSystemProvider(providerName: 'WebInMemoryFileSystem');
       provider.setIODeviceFactory(
         createInMemoryIODevice,
         providerName: 'WebInMemoryFileSystem',
       );
-      IOLib.fileSystemProvider = provider;
-      IOLib.defaultInput = createLuaFile(VirtualIODevice());
     });
 
     tearDown(() async {
@@ -31,8 +29,16 @@ void main() {
     for (final key in LuaExamples.keys) {
       test('$key executes in the web harness', () async {
         final lua = LuaLike();
+        IOLib.setFileSystemProviderFor(provider, interpreter: lua.vm);
+        IOLib.setDefaultInputFor(
+          createLuaFile(VirtualIODevice(), interpreter: lua.vm),
+          interpreter: lua.vm,
+        );
         final stdoutDevice = VirtualIODevice();
-        IOLib.defaultOutput = createLuaFile(stdoutDevice);
+        IOLib.setDefaultOutputFor(
+          createLuaFile(stdoutDevice, interpreter: lua.vm),
+          interpreter: lua.vm,
+        );
 
         try {
           await lua.execute(LuaExamples.getExample(key)!);
@@ -42,6 +48,8 @@ void main() {
             'Captured stdout:\n${stdoutDevice.content}\n'
             'Error: $error',
           );
+        } finally {
+          await IOLib.reset(interpreter: lua.vm);
         }
       });
     }

@@ -10,12 +10,20 @@ import 'package:lualike/src/utils/file_system_utils.dart' as fs_utils;
 /// Factory function type for creating IODevice instances
 typedef IODeviceFactory = Future<IODevice> Function(String path, String mode);
 
-/// Sets the global [FileSystemProvider] used by `io.open()`, `io.lines()`,
+/// Sets the [FileSystemProvider] used by `io.open()`, `io.lines()`,
 /// `io.input()`, `io.output()`, and `io.tmpfile()`.
 ///
-/// Pass `null` to restore the default local filesystem.
-void setFileSystemProvider(FileSystemProvider? provider) {
-  IOLib.fileSystemProvider = provider ?? FileSystemProvider();
+/// When [interpreter] is supplied, the provider is scoped to that runtime.
+/// Without it, the provider remains the fallback for runtimes that do not set
+/// their own provider. Pass `null` to restore the default local filesystem.
+void setFileSystemProvider(
+  FileSystemProvider? provider, {
+  LuaRuntime? interpreter,
+}) {
+  IOLib.setFileSystemProviderFor(
+    provider ?? FileSystemProvider(),
+    interpreter: interpreter,
+  );
 }
 
 /// Single file system provider that can be configured with different IODevice implementations

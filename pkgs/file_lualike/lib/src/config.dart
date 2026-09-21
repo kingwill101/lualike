@@ -9,8 +9,8 @@ import 'package:lualike/lualike.dart';
 import 'package_file_io_device.dart';
 import 'package_file_system_backend.dart';
 
-/// Configures the current lualike runtime to use [fs] as its filesystem
-/// backend for all file operations.
+/// Configures lualike to use [fs] as its filesystem backend for all file
+/// operations. Supply [interpreter] to isolate this filesystem to one runtime.
 ///
 /// Wires three integration points with a single call:
 ///   1. [setFileSystemProvider] — so `io.open()`, `io.lines()`, etc. create
@@ -20,9 +20,8 @@ import 'package_file_system_backend.dart';
 ///   3. [setFileSystemBackend] — so metadata operations (`os.remove()`,
 ///      `dofile()`, module loading, etc.) delegate to [fs].
 ///
-/// Use [provider] to target a specific [FileSystemProvider] instead of the
-/// global default. This is useful in testing or when multiple providers are
-/// active.
+/// Use [interpreter] when multiple Lua runtimes need separate filesystems.
+/// [provider] can be supplied to retain and configure a specific IO provider.
 ///
 /// ```dart
 /// import 'package:file_lualike/file_lualike.dart';
@@ -40,6 +39,7 @@ import 'package_file_system_backend.dart';
 Future<void> useFileSystem(
   pkg_file.FileSystem fs, {
   FileSystemProvider? provider,
+  LuaRuntime? interpreter,
 }) async {
   final target = provider ?? FileSystemProvider();
   target.setIODeviceFactory(
@@ -47,7 +47,7 @@ Future<void> useFileSystem(
     providerName: fs.runtimeType.toString(),
   );
 
-  setFileSystemProvider(target);
+  setFileSystemProvider(target, interpreter: interpreter);
 
-  setFileSystemBackend(PackageFileSystemBackend(fs));
+  setFileSystemBackend(PackageFileSystemBackend(fs), interpreter: interpreter);
 }

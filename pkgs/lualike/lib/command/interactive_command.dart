@@ -99,8 +99,14 @@ class InteractiveMode {
     // Set up virtual devices for REPL I/O
     final stdinDevice = VirtualIODevice();
     final stdoutDevice = ConsoleOutputDevice(console);
-    IOLib.defaultInput = createLuaFile(stdinDevice);
-    IOLib.defaultOutput = createLuaFile(stdoutDevice);
+    IOLib.setDefaultInputFor(
+      createLuaFile(stdinDevice, interpreter: bridge.vm),
+      interpreter: bridge.vm,
+    );
+    IOLib.setDefaultOutputFor(
+      createLuaFile(stdoutDevice, interpreter: bridge.vm),
+      interpreter: bridge.vm,
+    );
 
     // Custom print function that writes to our buffer instead of stdout
     void customPrint(String message) {
