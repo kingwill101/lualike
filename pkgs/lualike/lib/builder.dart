@@ -3,7 +3,7 @@ library;
 
 import 'package:build/build.dart';
 
-import 'src/build/table_schema_builder.dart';
+import 'src/builders/table_schema_builder.dart';
 
 /// Builder that generates [TableDoc] constants from `@TableSchema`-annotated
 /// classes.

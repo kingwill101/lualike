@@ -1,5 +1,17 @@
 # lualike changelog
 
+## 0.5.5
+
+- Move the schema builder source out of the ignored `build/` directory so it is included in published archives.
+
+## 0.5.4
+
+- Scope interpreter filesystem providers, metadata backends, default streams,
+  and open-file GC roots so concurrent runtimes cannot redirect one another's
+  I/O operations.
+- Preserve runtime ownership through module loading, `loadfile`, `dofile`,
+  `require`, and filesystem mutation operations.
+
 ## 0.5.3
 
 - Add an opt-in `LuaGcPolicy.hostManaged` mode for hosts that delegate object
