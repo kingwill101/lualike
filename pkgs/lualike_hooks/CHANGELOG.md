@@ -1,5 +1,9 @@
 # lualike_hooks changelog
 
+## 0.2.3
+
+- Align the published examples with Pub's singular `example/` layout and update the hook documentation paths.
+
 ## 0.2.2
 
 - Widen the `lualike` dependency to `>=0.5.4 <1.0.0` so compatible core releases continue to resolve.

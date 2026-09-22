@@ -1,7 +1,7 @@
 name: lualike_hooks
 description: Build hook for compiling Lua scripts to bytecode and bundling as data assets in Flutter apps.
 resolution: workspace
-version: 0.2.2
+version: 0.2.3
 
 environment:
   sdk: ^3.7.0

@@ -1,5 +1,10 @@
 # lualike changelog
 
+## 0.5.6
+
+- Bring the upstream runtime and compiler allocation improvements into the published package, including slot-native execution paths, lazy environment state, bounded caches, and host-managed GC support.
+- Retain interpreter-scoped I/O isolation and the publishable schema builder source.
+
 ## 0.5.5
 
 - Move the schema builder source out of the ignored `build/` directory so it is included in published archives.

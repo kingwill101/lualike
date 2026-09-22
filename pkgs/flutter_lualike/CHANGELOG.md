@@ -1,5 +1,10 @@
 # flutter_lualike changelog
 
+## 0.3.3
+
+- Improve AssetBundle line, numeric, and fixed-width reads.
+- Include the current Flutter profiling example and macOS example project from upstream master.
+
 ## 0.3.2
 
 - Widen the `lualike` dependency to `>=0.5.4 <1.0.0` so compatible core releases continue to resolve.
