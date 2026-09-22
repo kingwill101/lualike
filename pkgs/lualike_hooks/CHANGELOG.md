@@ -3,6 +3,7 @@
 ## 0.2.3
 
 - Align the published examples with Pub's singular `example/` layout and update the hook documentation paths.
+- Add package repository metadata for pub.dev consumers.
 
 ## 0.2.2
 

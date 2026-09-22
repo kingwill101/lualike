@@ -6,6 +6,8 @@ version: 0.2.3
 environment:
   sdk: ^3.7.0
 
+repository: https://github.com/kingwill101/lualike
+
 dependencies:
   data_assets: ^0.20.0
   hooks: ^2.0.2
