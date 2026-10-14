@@ -379,17 +379,19 @@ class _TableRemove extends BuiltinFunction {
       throw LuaError.typeError("table.remove requires a table argument");
     }
     final table = _wrapTableLibraryValue(interpreter, args[0]);
-    checktab(table, TablePermission.read | TablePermission.write);
+    checktab(
+      table,
+      TablePermission.read | TablePermission.write | TablePermission.length,
+    );
 
     final size = await getTableLength(table);
-    final pos = args.length > 1 ? rawLuaSlot(args[1]) as int : size;
+    final posArg = args.length > 1 ? rawLuaSlot(args[1]) : null;
+    final pos = posArg == null ? size : posArg as int;
 
-    if (pos == 0 && size > 0) {
+    // Lua permits removing size + 1 (and zero when size is zero).
+    // These positions still perform a read and a nil write through the table.
+    if (pos != size && (pos < 1 || pos > size + 1)) {
       throw LuaError("bad argument #2 to 'remove' (position out of bounds)");
-    }
-
-    if (pos < 0 || pos > size) {
-      return primitiveValue(null);
     }
 
     final removed = await _tableSequenceReadAsync(
@@ -409,7 +411,7 @@ class _TableRemove extends BuiltinFunction {
     }
     await _tableSequenceWriteAsync(
       table,
-      size,
+      pos < size ? size : pos,
       primitiveValue(null),
       runtime: interpreter,
     );
@@ -527,6 +529,24 @@ class _TableConcat extends BuiltinFunction {
   }
 }
 
+// table.move uses Lua equality to choose the safe copy direction. Distinct
+// proxy tables may compare equal because they share the same backing storage.
+Future<bool> _moveTablesEqual(Value left, Value right) async {
+  if (rawEquals(left, right)) return true;
+  final type = getLuaType(left);
+  if (type != getLuaType(right) || (type != 'table' && type != 'userdata')) {
+    return false;
+  }
+  for (final operand in [left, right]) {
+    if (operand.hasMetamethod('__eq')) {
+      final result = await operand.callMetamethodAsync('__eq', [left, right]);
+      final first = rawLuaSlot(firstLuaResult(result, expandPlainList: true));
+      return first != null && first != false;
+    }
+  }
+  return false;
+}
+
 class _TableMove extends BuiltinFunction {
   _TableMove([super.interpreter]);
 
@@ -608,7 +628,7 @@ class _TableMove extends BuiltinFunction {
       }
 
       // Determine direction of movement
-      if (t > e || t <= f || (a1 != a2)) {
+      if (t > e || t <= f || !await _moveTablesEqual(a1, a2)) {
         // Move in increasing order (left to right)
         for (var i = 0; NumberUtils.compare(i, n) < 0; i++) {
           final srcIndex = NumberUtils.add(f, i);

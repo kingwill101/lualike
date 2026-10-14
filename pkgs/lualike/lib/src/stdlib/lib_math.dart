@@ -2,6 +2,8 @@ import 'dart:math' as math;
 
 import 'package:lualike/lualike.dart';
 import 'package:lualike/src/runtime/lua_results.dart';
+import 'package:lualike/src/lua_bytecode/vm_value_helpers.dart'
+    show tryPrimitiveOrdering, PrimitiveCompare, orderComparisonError;
 import 'package:lualike/src/runtime/lua_slot.dart';
 import 'library.dart';
 
@@ -144,32 +146,6 @@ dynamic _getFastNumber(Object? value, String funcName, int argNum) {
     }
   }
   return _getNumber(value, funcName, argNum);
-}
-
-Object? _tryFastMinMaxNumericResult(
-  Object? arg0,
-  Object? arg1, {
-  required bool wantMax,
-}) {
-  if (arg0 is Value && luaResultValues(arg0) == null) {
-    final leftRaw = rawLuaSlot(arg0);
-    if (arg1 is Value && luaResultValues(arg1) == null) {
-      final rightRaw = rawLuaSlot(arg1);
-      if (leftRaw is num && rightRaw is num) {
-        if (leftRaw is double && leftRaw.isNaN) return leftRaw;
-        if (rightRaw is double && rightRaw.isNaN) return rightRaw;
-        return wantMax
-            ? (leftRaw >= rightRaw ? leftRaw : rightRaw)
-            : (leftRaw <= rightRaw ? leftRaw : rightRaw);
-      }
-      if (leftRaw is BigInt && rightRaw is BigInt) {
-        return wantMax
-            ? (leftRaw >= rightRaw ? leftRaw : rightRaw)
-            : (leftRaw <= rightRaw ? leftRaw : rightRaw);
-      }
-    }
-  }
-  return null;
 }
 
 abstract class _MathBuiltin extends BuiltinFunction {
@@ -617,86 +593,74 @@ class _MathLog extends _MathBuiltin {
   }
 }
 
-class _MathMax extends _MathBuiltin {
-  _MathMax(super.interpreter);
+abstract class _MathExtremum extends BuiltinFunction {
+  _MathExtremum(super.interpreter);
+
+  bool get wantMax;
+  String get functionName => wantMax ? 'max' : 'min';
 
   @override
   FunctionDoc? get doc => FunctionDoc(
-    summary: 'Returns the maximum value among its arguments.',
-    params: [DocParam('...', 'number', 'One or more numbers.')],
-    returns: 'The maximum value.',
+    summary:
+        'Returns the ${wantMax ? "maximum" : "minimum"} argument using Lua ordering.',
+    params: [DocParam('...', 'value', 'One or more comparable values.')],
+    returns: 'The first argument with the selected extremum.',
     category: 'math',
-    example: 'print(math.max(3, 7, 2, 9, 5)) --> 9',
   );
 
-  @override
-  Object? fastCall2(Object? arg0, Object? arg1) {
-    final fastResult = _tryFastMinMaxNumericResult(arg0, arg1, wantMax: true);
-    if (fastResult != null) {
-      return fastResult;
-    }
-    return NumberUtils.max(
-      _getFastNumber(arg0, "max", 1),
-      _getFastNumber(arg1, "max", 2),
+  // Unlike numeric math builtins, this operation can call Lua metamethods.
+  // Keep the managed frame supplied by BuiltinFunction.
+  Future<bool> _lessThan(Value left, Value right) async {
+    final primitive = tryPrimitiveOrdering(
+      left,
+      right,
+      PrimitiveCompare.lessThan,
     );
+    if (primitive != null) return primitive;
+    for (final operand in [left, right]) {
+      if (operand.hasMetamethod('__lt')) {
+        final result = await operand.callMetamethodAsync('__lt', [left, right]);
+        final first = rawLuaSlot(firstLuaResult(result, expandPlainList: true));
+        return first != null && first != false;
+      }
+    }
+    throw LuaError(orderComparisonError(left, right));
   }
 
   @override
-  Object? call(List<Object?> args) {
+  Object? fastCall2(Object? arg0, Object? arg1) => call([arg0, arg1]);
+
+  @override
+  Future<Object?> call(List<Object?> args) async {
     if (args.isEmpty) {
-      throw LuaError.typeError("bad argument #1 to 'max' (value expected)");
+      throw LuaError.typeError(
+        "bad argument #1 to '$functionName' (value expected)",
+      );
     }
-
-    dynamic max = _getNumber(args[0], "max", 1);
-
-    for (int i = 1; i < args.length; i++) {
-      final num = _getNumber(args[i], "max", i + 1);
-      max = NumberUtils.max(max, num);
+    var selected = primitiveValue(args.first);
+    for (final argument in args.skip(1)) {
+      final candidate = primitiveValue(argument);
+      if (await _lessThan(
+        wantMax ? selected : candidate,
+        wantMax ? candidate : selected,
+      )) {
+        selected = candidate;
+      }
     }
-
-    return primitiveValue(max);
+    return selected;
   }
 }
 
-class _MathMin extends _MathBuiltin {
+class _MathMax extends _MathExtremum {
+  _MathMax(super.interpreter);
+  @override
+  bool get wantMax => true;
+}
+
+class _MathMin extends _MathExtremum {
   _MathMin(super.interpreter);
-
   @override
-  FunctionDoc? get doc => FunctionDoc(
-    summary: 'Returns the minimum value among its arguments.',
-    params: [DocParam('...', 'number', 'One or more numbers.')],
-    returns: 'The minimum value.',
-    category: 'math',
-    example: 'print(math.min(3, 7, 2, 9, 5)) --> 2',
-  );
-
-  @override
-  Object? fastCall2(Object? arg0, Object? arg1) {
-    final fastResult = _tryFastMinMaxNumericResult(arg0, arg1, wantMax: false);
-    if (fastResult != null) {
-      return fastResult;
-    }
-    return NumberUtils.min(
-      _getFastNumber(arg0, "min", 1),
-      _getFastNumber(arg1, "min", 2),
-    );
-  }
-
-  @override
-  Object? call(List<Object?> args) {
-    if (args.isEmpty) {
-      throw LuaError.typeError("bad argument #1 to 'min' (value expected)");
-    }
-
-    dynamic min = _getNumber(args[0], "min", 1);
-
-    for (int i = 1; i < args.length; i++) {
-      final num = _getNumber(args[i], "min", i + 1);
-      min = NumberUtils.min(min, num);
-    }
-
-    return primitiveValue(min);
-  }
+  bool get wantMax => false;
 }
 
 class _MathModf extends _MathBuiltin {
